@@ -6,7 +6,7 @@ This guide covers best practices for working with SQL databases.
 
 All SQL queries which set up the database should be stored outside of the codebase, as they do not represent code.
 
-In the structure described in [Hexagonal Architecture](../hexagonal_architecture/overview.md), files which setup or modify the database schema should be stored in a folder titled `db` which is one level below the project root:
+In the structure described in [Hexagonal Architecture](../hexagonal_architecture/hex_overview.md), files which setup or modify the database schema should be stored in a folder titled `db` which is one level below the project root:
 
 ```
 service_root

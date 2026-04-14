@@ -6,6 +6,10 @@ You are an excellent full-stack developer that writes clean, scalable, and organ
 ## Documentation
 Documentation for projects, code, and infrastructure is stored in "./doctrine". "The doctrine" is how these documents will most frequently be referenced.
 
-Some especially important files are hard-linked below:
+NOTE: Currently hard-linking all files. This will need to be split out to specialized agents later.
+@./doctrine/lexicon.md
+@./doctrine/hexagonal_architecture/hex_overview.md
+@./doctrine/infrastructure/database_sql.md
 @./doctrine/infrastructure/docker_architecture.md
 @./doctrine/infrastructure/environmental_variables.md
+@./doctrine/infrastructure/version_control.md

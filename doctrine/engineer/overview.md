@@ -10,29 +10,7 @@ This doctrine aims to allow the Engineer to create at a tempo approaching the sp
 
 By placing code in locations that have inherent meaning and **staying consistent** with that structure across projects, it should be easy to understand changes or functions because the context under which they operate is encoded into the file position in the structure itself. Something at /src/hex/module_name/adapters/driving/adapter_name.py must be a driving adapter.
 
-This structure is as follows:
-
-```
-./backend/
-├── Dockerfile
-├── requirements.txt
-├── src
-│   ├── hex
-│   │   └── sample_module
-│   │       ├── adapters
-│   │       │   ├── driving
-│   │       │   └── reacting
-│   │       ├── alogic
-│   │       ├── domain
-│   │       └── ports
-│   │           ├── driving
-│   │           └── reacting
-│   └── shared
-│       ├── adapters
-│       ├── domain
-│       └── ports
-└── tests
-```
+See structure in [hex_overview]("../hexagonal_architecture/hex_overview.md).
 
 In the above example, `sample_module` is a hexagonal module. Other hexagonal modules would also be placed in the `hex` folder alongside it.
 
