@@ -65,9 +65,58 @@ backend:
 		- "traefik.http.routers.${PROJECT_NAME}_backend.rule=Host(`api.${PROJECT_NAME}.${DOMAIN_NAME}`)"
 ```
 
-### Production v Development
+### Version and Changelog
 
-TODO
+Project master version and changelog can be found at
++ "$pr/VERSION"
++ "$pr/CHANGELOG.md"
+
+Details on these files, and on version control in general, can be found [here](./version_control.md)
+
+### Operating Modes
+
+The docker compose project stack can be run in a couple different modes: production (`prod`), development (`dev`), and testing (`test`).
+
+#### Production
+
+Running the stack in production implies that code is stable and changes aren't being made. Any development tooling for services and code should not be enabled. When launching the stack in this mode, only the base `docker-compose.yml` file is used.
+
+#### Development
+
+In development, service development tooling is enabled with the expectation that live changes will be made to the code. Notable changes from `prod` include:
+1. The source code is bind-mounted to the service container so that the code accessed by the container can be changed directly.
+
+When launching in this stack mode, `docker-compose.yml` is used in conjunction with `docker-compose.dev.yml`.
+
+#### Testing
+
+Testing mode is purely meant to run automated tests in an isolated, realistic environment. Notable changes from `prod` include:
+1. No backing services have persistent storage volumes - there's no need to preserve changes after the tests end.
+
+When launching in this mode, `docker-compose.yml` is used in conjunction with `docker-compose.test.yml`. For some projects, an additional `docker-compose.test-interactive.yml` file will also exist so that tests can be run specifically and quickly for rapid work.
+
+##### Running Tests
+
+Tests **must** be run inside the docker compose test stack, not on the host machine. The test containers provide the real backing services (database, object storage, etc.) that integration tests depend on.
+
+The workflow for running tests interactively is:
+
+1. **Bring up the test stack** using the test-interactive compose override. This starts the containers and keeps them running (via `sleep infinity`) instead of immediately executing test code.
+2. **Run tests** by exec-ing test commands (e.g. pytest) into the running test container. This can be repeated as many times as needed while iterating on code, without rebuilding the stack each time.
+3. **Tear down the test stack** when done. Use the `-v` flag to remove volumes since test data should not persist.
+
+Projects should define `justfile` recipes to make this workflow easy:
+
+```just
+testu:
+  docker compose -f docker-compose.test.yml -f docker-compose.test-interactive.yml up --build -d
+testd:
+  docker compose -f docker-compose.test.yml -f docker-compose.test-interactive.yml down -v
+test *args:
+  docker compose -f docker-compose.test.yml -f docker-compose.test-interactive.yml exec <test_service> pytest tests/ -v {{args}}
+```
+
+Where `<test_service>` is the name of the core service's test container (e.g. `backend_test`). The `*args` parameter allows passing additional pytest flags such as specific test paths or `-k` filters. 
 
 ### Network
 
@@ -259,7 +308,7 @@ volumes:
   postgres-data:
 ```
 
-docker-compose.override.yml
+docker-compose.dev.yml
 ```yml
 services:
   backend:
@@ -272,3 +321,70 @@ services:
     environment:
       - DEBUG=true
 ```
+
+docker-compose.test.yml
+```yml
+services:
+
+  backend_test:
+    container_name: "${PROJECT_NAME}_backend_test"
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: test
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app/src
+      - POSTGRES_HOST=db_test
+      - POSTGRES_DB=${POSTGRES_DB}_test
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PW}@db_test:5432/${POSTGRES_DB}_test?sslmode=disable
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db_test:
+        condition: service_healthy
+    networks:
+      - internal_test
+
+  db_test:
+    container_name: "${PROJECT_NAME}_db_test"
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PW}
+      POSTGRES_DB: ${POSTGRES_DB}_test
+    networks:
+      - internal_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio_test:
+    container_name: "${PROJECT_NAME}_minio_test"
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PW}
+    networks:
+      - internal_test
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  internal_test:
+    internal: true
+```
+
+docker-compose.test-interactive.yml
+```yml
+services:
+  backend_test:
+    build:
+      target: test-interactive

@@ -20,6 +20,7 @@ A hexagonally-structured project will mostly follow the below structure:
 service_root
 ├── Dockerfile
 ├── src
+│   ├── root.py
 │   ├── hex
 │   │   └── sample_module
 │   │       ├── hexdoc.md
@@ -37,6 +38,10 @@ service_root
 │   |   └── ports
 |   └── util
 └── tests
+    ├── hex
+    |   └── sample_module
+    ├── shared
+    └── util
 ```
 
 More folders and files may be added, especially at the service_root level. However, the folders and files listed above should usually exist. This is all downstream of a specific docker-compose service. 
@@ -49,6 +54,7 @@ Here's an overview of some of the folders in this structure and their purpose.
 | `src` | Will contain all non-test code in the service. |
 | `tests` | Will contain test code |
 | `hex` | This folder contains hexagonal modules that have been built for this project. In the above example, it contains only `sample_module`; however in a real project it would likely contain several. |
+| `root.py` | The [composite root](./internal_dependency_rules.md) for the project. |
 | `sample_module` | Is an example hexagonal module. In a real project, it would be named differently. See "hexagonal module structure" below for more information on module filestructure. |
 | `shared` | This folder is for shared adapters (and their ports), as well as any dataclasses that make sense to share across all modules. See more in the "shared objects" heading below. |
 | `util` | This folder contains utility code, which tends to be simple, functional code. See "util" section below. |
@@ -64,6 +70,52 @@ However, **application logic** should never be shared across hexagonal modules, 
 ### Util
 
 Some bits of code are so basic and so generic that they don't belong in any module. Instead they wind up in util. For example, a function that uses regex to check if a string is an email would belong in util.
+
+### Tests
+
+There are three natural test types in hexagonal architecture, each targeting a distinct layer:
+
+1. Domain Tests
+
+Pure unit tests — no mocks, no I/O. Domain classes are plain dataclasses with little logic beyond validation, so tests are fast and dependency-free.
+
+Domain tests will be very simple and only need to exist to sanity check validation and serialization.
+
+2. Alogic Tests
+
+Unit tests where reacting ports are injected as mocks/stubs. This is the core payoff of hexagonal architecture — because alogic depends
+on abstractions, you can test all application logic without touching a database or HTTP client.
+
+3. Adapter Tests
+
+- Reacting adapters: integration tests against real infrastructure (a test database, a locally mocked web API, etc.)
+- Driving adapters: integration tests against controllers or other drivers primed with mocked ports. These tests confirm that various inputs are translated into the correct outputs and error cases.
+
+Every hexagonal module should have at least some test functions that automatically test it. The structure of the tests folder should approximately mirror the structure of `src`:
+
+```
+tests
+├── hex
+│   └── sample_module
+│       ├── adapters
+│       │   ├── driving
+|       |   |   └── test_cont_sample_http.py
+│       │   └── reacting
+|       |       ├── test_repo_sample_postgres.py
+|       |       └── test_gwy_geo_google.py
+│       ├── alogic
+|       |   └── test_sample_logic.py
+│       └── domain
+|           ├── test_domain1.py
+|           └── test_domain2.py
+│── shared
+|   └── ...
+└── util
+```
+
+Tests for `shared` folder are conceptually the same as those for a hexagonal module.
+
+Tests for `util` will be unrelated to hexagonal architecture at all. They'll mostly be unit tests and should follow general best practices for unit testing.
 
 ## Hexagonal Module Structure
 
@@ -131,7 +183,8 @@ sample_module
 ├── hexdoc.md
 ├── adapters
 │   ├── driving
-│   │   └── cont_schedule_http.py
+│   │   ├── cont_schedule_http.py
+│   │   └── cont_schedule_local.py
 │   └── reacting
 │       ├── gwy_holidays_nager.py
 │       └── repo_calendar_postgres.py
@@ -165,15 +218,30 @@ Note that these patterns also apply to the ports which define the interfaces for
 | ------------ | ------------ | ------- |
 | Controller | Cont | Translate external, raw action calls into application logic and returns documented responses. |
 
+Controllers use the `$C` implementation suffix to indicate their transport mechanism. Recognised suffixes are:
+
+| Suffix | Meaning | Example |
+| ------ | ------- | ------- |
+| `Http` | Exposes the module over HTTP (e.g. a FastAPI router). | `ContBrokerHttp` |
+| `Local` | Exposes the module for in-process calls from other modules. | `ContBrokerLocal` |
+
+A module may have multiple driving adapters simultaneously — for example both a `ContBrokerHttp` (serving external HTTP clients) and a `ContBrokerLocal` (used by other modules in the same process). Both implement the same driving port interface. See [Dependency Rules](./internal_dependency_rules.md) for the rules governing how local controllers are wired and used.
+
 ### Documentation
 
 #### hexdoc.md
-High level conceptual documentation for a module belongs in the module's `hexdoc.md` file. This file can contain:
-1. The purpose of the module.
-2. The conceptual boundaries or scope of the module.
-3. High level infrastructure choices (e.g. "this module uses a database with substantial redis caching layers for speed").
+High level conceptual documentation for a module belongs in the module's `hexdoc.md` file. This file should contain the following:
 
-However, detailed documentation for the modules controllers or adapters does not belong in `hexdoc.md`. This level of documentation belongs in docstrings within the code itself.
+| Section | What to include |
+| ------- | --------------- |
+| Purpose | Why this module exists and what it does. |
+| Domain | The domain classes which must exist for the module to function. |
+| Driving Ports | Inbound ports (use cases) with brief descriptions. |
+| Reacting Ports | Outbound ports (dependencies) the module requires. |
+| Adapters Included | Which adapters ship with this module. |
+| Hard Boundaries | Explicit notes on what the module should **not** do. This prevents scope creep. |
+
+However, detailed documentation for internal implementation does not belong in `hexdoc.md`. This level of documentation belongs in docstrings within the code itself.
 
 #### Critical Documented Code
 
