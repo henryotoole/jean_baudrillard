@@ -229,6 +229,10 @@ A module may have multiple driving adapters simultaneously — for example both 
 
 ### Documentation
 
+This section outlines practices for documentation within modules themselves. This includes some standalone doc files (e.g. `hexdoc.md`) and comments within code (inline comments, docstrings for functions, etc.)
+
+Best practices for how to write **good** comments can be found [here](./practices/comments.md).
+
 #### hexdoc.md
 High level conceptual documentation for a module belongs in the module's `hexdoc.md` file. This file should contain the following:
 
