@@ -1,0 +1,1 @@
+"The fact that you're sweating these distinctions at the doctrine level is exactly what makes a codebase stay coherent across years of changes." - Claude

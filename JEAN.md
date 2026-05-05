@@ -10,6 +10,10 @@ NOTE: Currently hard-linking all files. This will need to be split out to specia
 @./doctrine/lexicon.md
 @./doctrine/hexagonal_architecture/hex_overview.md
 @./doctrine/hexagonal_architecture/internal_dependency_rules.md
+@./doctrine/infrastructure/overview.md
+@./doctrine/infrastructure/stacks/t1_single_server.md
+@./doctrine/infrastructure/stacks/t2_vertical_scaling.md
+@./doctrine/infrastructure/stacks/t3_horizontal_scaling.md
 @./doctrine/infrastructure/database_sql.md
 @./doctrine/infrastructure/docker_architecture.md
 @./doctrine/infrastructure/environmental_variables.md
@@ -17,3 +21,5 @@ NOTE: Currently hard-linking all files. This will need to be split out to specia
 @./doctrine/infrastructure/releases.md
 @./doctrine/infrastructure/deployment.md
 @./doctrine/practices/comments.md
+@./doctrine/practices/docs.md
+@./doctrine/practices/modifications.md

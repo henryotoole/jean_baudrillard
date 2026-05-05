@@ -1,0 +1,112 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(tree:*)",
+      "Bash(mkdir:*)",
+
+      "Bash(cat:*)",
+      "Bash(less:*)",
+      "Bash(more:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+
+      "Bash(find:*)",
+      "Bash(locate:*)",
+      "Bash(which:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(ag:*)",
+      "Bash(fd:*)",
+
+      "Bash(wc:*)",
+      "Bash(du:*)",
+      "Bash(df:*)",
+
+      "Bash(pwd)",
+      "Bash(realpath:*)",
+      "Bash(readlink:*)",
+      "Bash(basename:*)",
+      "Bash(dirname:*)",
+
+      "Bash(diff:*)",
+      "Bash(cmp:*)",
+
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git tag:*)",
+      "Bash(git remote:*)",
+      "Bash(git config --get:*)",
+      "Bash(git config --list:*)",
+      "Bash(git blame:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git describe:*)",
+      "Bash(git reflog:*)",
+      "Bash(git stash list:*)",
+      "Bash(git stash show:*)",
+
+      "Bash(npm list:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm view:*)",
+      "Bash(npm outdated:*)",
+      "Bash(npm config get:*)",
+      "Bash(yarn list:*)",
+      "Bash(yarn outdated:*)",
+      "Bash(pnpm list:*)",
+      "Bash(pnpm outdated:*)",
+
+      "Bash(pip list:*)",
+      "Bash(pip show:*)",
+      "Bash(pip freeze:*)",
+      "Bash(pip check:*)",
+      "Bash(pipx list:*)",
+      "Bash(uv pip list:*)",
+      "Bash(uv pip show:*)",
+      "Bash(uv pip freeze:*)",
+      "Bash(poetry show:*)",
+      "Bash(poetry env info:*)",
+
+      "Bash(brew list:*)",
+      "Bash(brew info:*)",
+      "Bash(brew outdated:*)",
+      "Bash(brew search:*)",
+
+      "Bash(cargo metadata:*)",
+      "Bash(cargo tree:*)",
+      "Bash(cargo search:*)",
+
+      "Bash(go list:*)",
+      "Bash(go env:*)",
+      "Bash(go version)",
+
+      "Bash(apt list:*)",
+      "Bash(apt show:*)",
+      "Bash(dpkg -l:*)",
+      "Bash(dpkg -L:*)",
+
+      "Bash(ps:*)",
+      "Bash(top -b:*)",
+      "Bash(htop -b:*)",
+      "Bash(pgrep:*)",
+      "Bash(pidof:*)",
+      "Bash(uptime)",
+      "Bash(whoami)",
+      "Bash(id:*)",
+      "Bash(uname:*)",
+      "Bash(hostname:*)",
+      "Bash(env)",
+      "Bash(printenv:*)",
+      "Bash(date:*)",
+      "Bash(free:*)",
+      "Bash(lsof:*)"
+    ]
+  }
+}

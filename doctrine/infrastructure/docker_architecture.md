@@ -191,6 +191,22 @@ This structure ensures that all web-accessible consoles and pages will never hav
 
 Some services won't be accessed by HTTP and indeed for security reasons should not be accessed from outside the docker compose project services at all. A database (like postgres) is a classic example of this. These services should instead be placed on a network scoped to the docker-compose project itself. This network should be named "internal" for consistency and clarity across projects.
 
+### Logging
+
+There are two sides to logging:
+1. Within a container
+2. Outside a container
+
+**Within a container**, all logs should eventually hit STDOUT or STDERR. This includes both explicit logs (like calls to python's `logger.log()`) and implicit output (like unexpected error stack traces).
+
+**Outside a container**, logs are handled by infrastructure, whether it be basic docker compose or a more complex setup involving log aggregation. The correct way to setup logging infrastructure is [infrastructure tier](./overview.md) dependent:
+
+| Tier | Logging Method |
+| ---- | -------------- |
+| 1 | [here](./stacks/t1_single_server.md#logs) |
+| 2 | [here](./stacks/t2_vertical_scaling.md#logs) |
+| 3 | [here](./stacks/t3_horizontal_scaling.md#logs) |
+
 ## Full Example
 
 Below is a full example of a docker compose project which adheres to the above guidelines. It specifies the core, custom service "backend", a postgres database service "db", and a minio service "minio". 
@@ -201,6 +217,12 @@ docker-compose.yml
 ```yaml
 # This is a stack of services needed to launch and fully run this project.
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   backend:
@@ -210,6 +232,7 @@ services:
       #target: dev
       dockerfile: ./backend/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     env_file:
       - .env
     depends_on:
@@ -243,6 +266,7 @@ services:
     container_name: "${PROJECT_NAME}_db"
     image: postgres:latest
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PW}
@@ -261,6 +285,7 @@ services:
     container_name: "${PROJECT_NAME}_minio"
     image: minio/minio:latest
     restart: unless-stopped
+    logging: *default-logging
     command: server --console-address ":9001" /data
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
@@ -349,7 +374,7 @@ services:
 
   db_test:
     container_name: "${PROJECT_NAME}_db_test"
-    image: timescale/timescaledb:latest-pg16
+    image: postgres:latest
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PW}
@@ -386,5 +411,7 @@ docker-compose.test-interactive.yml
 ```yml
 services:
   backend_test:
-    build:
-      target: test-interactive
+    # Run migrations on startup then stay alive so tests can be exec'd in without
+    # restarting the stack each time.
+    command: sh -c "dbmate up && sleep infinity"
+```

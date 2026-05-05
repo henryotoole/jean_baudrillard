@@ -16,9 +16,13 @@ There are three "Tiers" of infrastructure, ranging from low to high complexity:
 
 The following topics are the same no matter which tier of infrastructure is chosen:
 1. **Git-tracked config** - Whether via docker or terraform, infrastructure configuration should always be git tracked.
-2. **Release and Deployment** - All methods use the same [version control](./version_control.md), [release patterns](./releases.md), and [deployment](./deployment.md).
+2. **Versioning and Release** - All methods use the same [version control](./version_control.md) and [release patterns](./releases.md).
 3. **Dockerized Application Code** - All methods fundamentally use Docker to containerize application code.
 4. **Docker Compose Architecture** - All methods will use and maintain good [docker compose architecture](./docker_architecture.md). Some aspects of the compose stack may end up unused in higher tiers (like `prod` and traefik) but the bulk will still be needed for development and testing in all tiers.
+
+Notably, [deployment](./deployment.md) is NOT the same across infrastructure stacks.
+
+Right now **only Tier 1** is actually finished in the doctrine. Tier 2 and Tier 3 are somewhat incomplete.
 
 ### Tier 1 
 [Further Info](./stacks/t1_single_server.md)

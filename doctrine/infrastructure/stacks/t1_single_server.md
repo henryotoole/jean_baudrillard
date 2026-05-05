@@ -21,3 +21,30 @@ DNS and domain record setup is handled at the registrar's website. The goal is g
 ## Infrastructure Management
 
 Infrastructure is managed entirely by docker compose.
+
+## Logs
+
+Logs will be handled by docker and docker compose natively. Retrieving logs is acheived with `docker compose logs`. 
+
+The one non-default change which must be made is to switch docker to use rotating logs. This should always be achieved by setting a YAML anchor describing log rotation:
+
+```yml
+x-logging: &default-logging
+	driver: json-file
+	options:
+		max-size: "10m"
+		max-file: "3"
+```
+
+And then applying that anchor to all services in the stack:
+
+```yml
+services:
+	service_1:
+		logging: *default-logging
+		# ...
+	service_2:
+		logging: *default-logging
+		# ...
+	# ...
+```
