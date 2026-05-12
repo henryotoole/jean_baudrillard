@@ -64,6 +64,20 @@ Some other specific files that might wind up in a service folder include:
 
 Other supporting docs may exist in the service folders too.
 
+#### The Masterplan
+The Masterplan, or `masterplan.md` is the most important document. As mentioned, it is the absolute toplevel architecture document for the project. It describes:
+1. The objectives of the project
+2. Project specific terms and concepts
+3. The project's infrastucture:
+    1. Tier
+    2. Backing Services
+    3. Core Services - All core services with hexagonal architecture should document:
+            1. The hexagonal module dependency structure.
+            2. A brief overview of each module as a subheading.
+4. Primary project flows (see below).
+
+Project flows are the critical pathways which move information or action through the project. They tie modules and infrastructure together by describing the project in use. They indicate how the project works as a whole and hint at the user (or other) interfaces which will be required.
+
 ### Modifications
 "$pr/plans/modifications/*"
 

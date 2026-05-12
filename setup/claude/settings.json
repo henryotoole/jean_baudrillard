@@ -106,7 +106,11 @@
       "Bash(printenv:*)",
       "Bash(date:*)",
       "Bash(free:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+
+      "Bash(docker:*)",
+      
+      "Bash(just:*)"
     ]
   }
 }
