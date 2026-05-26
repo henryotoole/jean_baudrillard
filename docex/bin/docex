@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# docex shim — checked into every project at ./bin/docex.
+#
+# The shim is permanent. It is identical across all docex versions —
+# only the image tag (read from project.yml's docex_version) changes
+# when a project upgrades. New mounts are added here once and apply
+# everywhere going forward.
+
+set -euo pipefail
+
+find_project_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    if [[ -f "$dir/project.yml" ]]; then
+      echo "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  echo "error: no project.yml found in $PWD or any parent directory" >&2
+  exit 1
+}
+
+PROJECT_ROOT="$(find_project_root)"
+
+# Read docex_version. Plain grep + sed avoids requiring yq on the host.
+DOCEX_VERSION="$(grep -E '^docex_version:' "$PROJECT_ROOT/project.yml" \
+  | sed -E 's/^docex_version:[[:space:]]*"?([^"]+)"?[[:space:]]*$/\1/')"
+
+if [[ -z "$DOCEX_VERSION" ]]; then
+  echo "error: docex_version not set in $PROJECT_ROOT/project.yml" >&2
+  exit 1
+fi
+
+# Mount list. Future phases need every mount listed here; missing ones
+# on the host are silently skipped so a fixed-only developer's machine
+# (no ~/.aws) does not fail. Inside the container, docex itself fails
+# loudly if a missing mount is actually needed by the requested command.
+MOUNTS=(
+  -v "$PROJECT_ROOT:/project"
+)
+[[ -S "/var/run/docker.sock" ]] && MOUNTS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
+[[ -f "$HOME/.docker/config.json" ]] && MOUNTS+=(-v "$HOME/.docker/config.json:/root/.docker/config.json:ro")
+[[ -d "$HOME/.aws" ]] && MOUNTS+=(-v "$HOME/.aws:/root/.aws:ro")
+[[ -f "$HOME/.gitconfig" ]] && MOUNTS+=(-v "$HOME/.gitconfig:/root/.gitconfig:ro")
+[[ -d "$HOME/.ssh" ]] && MOUNTS+=(-v "$HOME/.ssh:/root/.ssh:ro")
+
+# Pass COMPOSE_PROJECT_DIR so any docker compose calls inside docex
+# resolve bind mounts against the host's PROJECT_ROOT, not /project
+# inside the container. See design_proposal.md § Docker-outside-of-Docker.
+exec docker run --rm \
+  -e "COMPOSE_PROJECT_DIR=$PROJECT_ROOT" \
+  "${MOUNTS[@]}" \
+  -w /project \
+  "docex:$DOCEX_VERSION" \
+  "$@"

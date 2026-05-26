@@ -1,0 +1,83 @@
+# Role: relational_db
+#
+# Canonical relational database backing service. On fixed, runs as a
+# postgres container with a named volume. On elastic, provisioned as
+# an AWS RDS instance. See transfer_tables.md § "Walking example:
+# relational_db / postgres".
+#
+# Phase 4 elastic translation notes:
+#   - The `username` and `password` fields below carry `$[POSTGRES_USER]`
+#     / `$[POSTGRES_PASSWORD]`. The elastic HCL emitter detects these
+#     runtime-ref tokens in backing-service bodies and translates each
+#     into a `data "aws_ssm_parameter"` block referencing
+#     /<project>/<env>/POSTGRES_USER (etc.). The release flow's SSM
+#     push step guarantees those parameters exist before tofu apply.
+#   - The `host` provides template uses `@aws_db_instance.${name}.endpoint`
+#     so consumers reading `${backing_services.<db>.host}` get the live
+#     RDS endpoint at apply time.
+
+roles:
+  relational_db:
+    postgres:
+      foundation: both
+      defaults:
+        fixed:
+          volumes:
+            - ${global_service_name}_data:/var/lib/postgresql/data
+          healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $[POSTGRES_USER] -d ${name}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+          environment:
+            POSTGRES_USER: $[POSTGRES_USER]
+            POSTGRES_PASSWORD: $[POSTGRES_PASSWORD]
+            POSTGRES_DB: ${name}
+        elastic:
+          engine: "postgres"
+          instance_class: "db.t3.medium"
+          allocated_storage: 20
+          storage_encrypted: false
+          publicly_accessible: false
+          backup_retention_period: 7
+          deletion_protection: true
+          storage_type: "gp3"
+          username: $[POSTGRES_USER]
+          password: $[POSTGRES_PASSWORD]
+          db_name: ${name}
+      fields:
+        version:
+          fixed:
+            image: postgres:${field_value}
+          elastic:
+            engine_version: ${field_value}
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "@aws_db_instance.${name}.endpoint"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+        db:
+          fixed: "${name}"
+          elastic: "${name}"
+        user:
+          fixed: "$[POSTGRES_USER]"
+          elastic: "$[POSTGRES_USER]"
+        password:
+          fixed: "$[POSTGRES_PASSWORD]"
+          elastic: "$[POSTGRES_PASSWORD]"
+        # `url` is provided on fixed only. On elastic, consumers compose
+        # their URL from individual parts at startup; see
+        # transfer_tables.md (Apps that need a composed URL ...).
+        url:
+          fixed: "postgres://$[POSTGRES_USER]:$[POSTGRES_PASSWORD]@${global_service_name}:${port}/${name}"
+      env:
+        POSTGRES_USER: "The username of the postgres user"
+        POSTGRES_PASSWORD: "The password of the postgres user"
+      naming:
+        # RDS forbids underscores in identifiers; we pick hyphen consistently
+        # across foundations so the same name shape works in both.
+        separator: hyphen
+        case: lower
+        max_len: 63

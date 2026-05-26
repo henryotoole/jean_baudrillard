@@ -1,0 +1,55 @@
+# Role: web
+#
+# Canonical core-service role. The project's own services run as
+# containers in a docker network on fixed, and as Fargate tasks behind
+# an ALB on elastic. See transfer_tables.md § "Walking example: web /
+# container" for the spec this is derived from.
+#
+# The `image:`, `cpu:`, `memory:`, and `tmpfs:` fields are *not* in
+# `defaults:` here — they are derived per-service by the compiler from
+# `container_registry` + the per-service `resources:` block. See
+# cicl.md § Container Registry and transfer_tables.md § Resources
+# Translation.
+
+roles:
+  web:
+    container:
+      foundation: both
+      defaults:
+        fixed:
+          labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.${global_service_name}.rule=Host(`${env_subdomain}`)"
+            - "traefik.http.routers.${global_service_name}.entrypoints=websecure"
+            - "traefik.http.routers.${global_service_name}.tls=true"
+            - "traefik.http.services.${global_service_name}.loadbalancer.server.port=${port}"
+        elastic:
+          launch_type: FARGATE
+          network_mode: awsvpc
+      fields:
+        health_check_path:
+          fixed:
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
+              interval: 30s
+              timeout: 5s
+              retries: 3
+          elastic:
+            target_group_health_check:
+              path: ${field_value}
+              healthy_threshold: 2
+              unhealthy_threshold: 3
+              interval: 30
+              timeout: 5
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"  # ECS Service Connect resolves this within the env namespace.
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
+      naming:
+        separator: hyphen
+        case: lower
+        max_len: 63

@@ -1,0 +1,6 @@
+# Per credentials.md: deploy SSH private keys are project-local but
+# MUST NOT be checked in. Public keys (*.pub) are fine; everything
+# else stays out.
+*
+!.gitignore
+!*.pub

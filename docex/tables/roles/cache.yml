@@ -1,0 +1,54 @@
+# Role: cache
+#
+# Canonical in-memory cache backing service. On fixed, runs as a redis
+# container with a named volume for snapshot persistence. On elastic,
+# provisioned as an AWS ElastiCache Redis replication group (one node
+# in v1; no failover topology yet).
+#
+# Phase 4 elastic translation notes:
+#   - ElastiCache has no user/password concept (Redis AUTH is opt-in;
+#     the doctrine defers it), so the elastic block has no $[VAR] tokens
+#     and no SSM data sources are emitted.
+#   - `host` provides resolves via `@aws_elasticache_cluster.${name}.cache_nodes[0].address`,
+#     which OpenTofu resolves at apply time.
+
+roles:
+  cache:
+    redis:
+      foundation: both
+      defaults:
+        fixed:
+          volumes:
+            - ${global_service_name}_data:/data
+          healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+        elastic:
+          engine: "redis"
+          node_type: "cache.t3.micro"
+          num_cache_nodes: 1
+          parameter_group_name: "default.redis7"
+          port: 6379
+      fields:
+        version:
+          fixed:
+            image: redis:${field_value}
+          elastic:
+            engine_version: ${field_value}
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "@aws_elasticache_cluster.${name}.cache_nodes[0].address"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+        url:
+          fixed: "redis://${global_service_name}:${port}"
+      env: {}
+      naming:
+        # ElastiCache cluster IDs forbid underscores and must be lowercase.
+        separator: hyphen
+        case: lower
+        max_len: 40

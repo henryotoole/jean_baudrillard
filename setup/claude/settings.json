@@ -110,7 +110,11 @@
 
       "Bash(docker:*)",
       
-      "Bash(just:*)"
+      "Bash(just:*)",
+
+      "Bash(gh:*)",
+      "Bash(bash ~/.claude/jean_baudrillard/docex_install.sh:*)",
+      "Bash(./bin/docex:*)"
     ]
   }
 }

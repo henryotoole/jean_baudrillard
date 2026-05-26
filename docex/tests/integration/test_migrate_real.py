@@ -1,0 +1,70 @@
+"""Integration test: ``docex migrate dev`` applies the init migration."""
+
+from __future__ import annotations
+
+import subprocess
+
+import pytest
+
+from docex.context import load_project_context
+from docex.orchestrate.down import run_down
+from docex.orchestrate.migrate import run_migrate
+from docex.orchestrate.up import run_up
+
+
+@pytest.mark.integration
+def test_migrate_dev_creates_health_table(fresh_project, docker_client):
+    ctx = load_project_context(fresh_project)
+    compose_file = fresh_project / "infra" / "output" / "dev" / "docker-compose.yml"
+    try:
+        rc = run_up(ctx, docker_client, env="dev")
+        assert rc == 0
+
+        # Re-run migrate explicitly — should be idempotent.
+        rc = run_migrate(ctx, docker_client, env="dev")
+        assert rc == 0
+
+        # Confirm the migration's table exists by asking psql.
+        # We exec into the database container.
+        env_file = fresh_project / "infra" / "secrets" / "dev.env"
+        # Find database service's project-scoped global name.
+        ps_out = subprocess.check_output(
+            ["docker", "compose", "-f", str(compose_file),
+             "--project-directory", str(fresh_project),
+             "--env-file", str(env_file),
+             "ps", "--services", "--status=running"],
+            text=True,
+        )
+        db_key = next(
+            (s.strip() for s in ps_out.splitlines() if s.strip().endswith("database")),
+            "database",
+        )
+        # The default db name is the backing-service name "database"
+        # (from the engine table's ${name} substitution), not the
+        # project name.
+        result = subprocess.run(
+            [
+                "docker", "compose", "-f", str(compose_file),
+                "--project-directory", str(fresh_project),
+                "--env-file", str(env_file),
+                "exec", "-T", db_key,
+                "psql", "-U", "sample", "-d", "database",
+                "-c", "\\dt health",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert "health" in result.stdout, (
+            f"psql \\dt did not show health table; stdout={result.stdout!r}, "
+            f"stderr={result.stderr!r}"
+        )
+    finally:
+        run_down(ctx, docker_client, env="dev")
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file),
+             "--project-directory", str(fresh_project),
+             "--env-file", str(fresh_project / "infra" / "secrets" / "dev.env"),
+             "down", "-v"],
+            check=False,
+        )

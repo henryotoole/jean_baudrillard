@@ -1,2 +1,0 @@
-
-*More notes to come.*

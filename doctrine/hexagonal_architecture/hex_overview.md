@@ -100,7 +100,7 @@ Here's an overview of some of the folders in this structure and their purpose.
 | `src` | Will contain all non-test code in the service. |
 | `tests` | Will contain test code |
 | `hex` | This folder contains hexagonal modules that have been built for this project. In the above example, it contains only `sample_module`; however in a real project it would likely contain several. |
-| `root.py` | The [composition root](./internal_dependency_rules.md) for the project. |
+| `root.py` | The [composition root](#module-construction) for the project. |
 | `sample_module` | Is an example hexagonal module. In a real project, it would be named differently. See "hexagonal module structure" below for more information on module filestructure. |
 | `shared` | This folder is for shared clients. Client interfaces go in `interfaces` and their implementations go in `client`. |
 | `util` | A discouraged escape hatch for genuinely-generic helpers that defy module placement. See "util" section. Use should be avoided. |
@@ -119,6 +119,8 @@ Only when none of these fit is util appropriate, and even then the entry should 
 ### Tests
 
 There are four natural test types in hexagonal architecture, each targeting a distinct layer: domain tests, alogic tests, adapter tests, and module tests. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
+
+All the below categories of tests are [service tests](../infrastructure/tests.md#service-tests) from an infrastructure perspective.
 
 1. Domain Tests
 

@@ -1,0 +1,42 @@
+# Role: reverse_proxy
+#
+# The reverse proxy is asymmetric across foundations:
+#
+# - Fixed: doctrine prescribes a *machine-wide* traefik instance that
+#   sits OUTSIDE individual project compose stacks and watches the
+#   docker socket. Listing `role: reverse_proxy` in `infra.yml` does
+#   not emit a per-project traefik container — it merely declares the
+#   project's intent to be reachable, and lets the compiler emit
+#   traefik discovery labels on `web`-network services. The
+#   `reverse_proxy` service block on fixed is effectively a no-op
+#   marker; this is a doctrine simplification (single traefik per
+#   host_machine, see shape2.md § Fixed-Foundation).
+#
+# - Elastic: doctrine prescribes one AWS ALB per environment, which is
+#   provisioned by the compiler as part of the env's project/env-tier
+#   resources. The ALB is doctrine-provided, not declared in
+#   infra.yml — so there is NO `elastic` engine entry here either.
+#   The compiler emits the ALB when any service declares
+#   `networks: [web, ...]`.
+#
+# This table exists so the role itself is known to the compiler.
+
+roles:
+  reverse_proxy:
+    traefik:
+      foundation: fixed
+      # The traefik service on fixed is intentionally minimal — the
+      # machine-wide traefik does the actual work. We emit nothing
+      # extra; the compiler treats this as a marker role.
+      defaults:
+        fixed: {}
+      provides:
+        # No useful refs — consumers route through traefik via
+        # `networks: [web, ...]`, not by referencing this service.
+        host:
+          fixed: "${global_service_name}"
+      env: {}
+      naming:
+        separator: hyphen
+        case: lower
+        max_len: 63

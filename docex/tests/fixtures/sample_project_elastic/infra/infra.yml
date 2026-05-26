@@ -1,0 +1,31 @@
+cicl_version: "1"
+foundation: elastic
+domain: "example.com"
+
+core_services:
+  api:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [database]
+    env:
+      # On elastic, consumers compose URLs at startup from parts.
+      DATABASE_HOST: ${backing_services.database.host}
+      DATABASE_PORT: ${backing_services.database.port}
+      DATABASE_NAME: ${backing_services.database.db}
+    resources:
+      cpu: 1.0
+      memory: 2GB
+      # Fargate's ephemeral_storage minimum is 21 GiB (decimal -> binary
+      # rounding means at least ~23 GB at the CICL layer); below this
+      # is a compile-time error. Omit to inherit Fargate's 21 GiB default.
+      disk: 25GB
+
+backing_services:
+  database:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    port: 5432
+    networks: [internal]
+    schema_owned_by: api

@@ -1,3 +1,5 @@
 # jean_baudrillard
-I'm uncertain what this will turn into in the long run. For now it's a collection of tools and writings I use when working with LLM's.
 
+Contains tools and *doctrine* for working with AI to write software.
+
+Words now have more power than perhaps ever before in history. The text in this repo is like a bonzai tree - carefully chosen for maximum impact and pruned to elegant simplicity.

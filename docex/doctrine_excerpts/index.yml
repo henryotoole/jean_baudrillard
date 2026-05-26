@@ -1,0 +1,21 @@
+# Maps `docex why <resource>` to the corresponding markdown file in
+# this directory. Resource names should be lowercase, underscore-
+# separated, and match the doctrine's `[resource]` notation in
+# shape2.md where possible.
+registrar: registrar.md
+dns: dns.md
+host_machine: host_machine.md
+reverse_proxy: reverse_proxy.md
+cert_manager: cert_manager.md
+container_registry: container_registry.md
+service_discovery: service_discovery.md
+build_image: build_image.md
+network: network.md
+network_web: network_web.md
+network_internal: network_internal.md
+core_service: core_service.md
+backing_service: backing_service.md
+environment_config: environment_config.md
+secrets: secrets.md
+aws_account: aws_account.md
+vpc: vpc.md

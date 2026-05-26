@@ -8,18 +8,21 @@ Documentation for projects, code, and infrastructure is stored in "./doctrine". 
 
 NOTE: Currently hard-linking all files. This will need to be split out to specialized agents later.
 @./doctrine/lexicon.md
+@./doctrine/overview.md
 @./doctrine/hexagonal_architecture/hex_overview.md
 @./doctrine/hexagonal_architecture/internal_dependency_rules.md
-@./doctrine/infrastructure/overview.md
-@./doctrine/infrastructure/stacks/t1_single_server.md
-@./doctrine/infrastructure/stacks/t2_vertical_scaling.md
-@./doctrine/infrastructure/stacks/t3_horizontal_scaling.md
-@./doctrine/infrastructure/database_sql.md
-@./doctrine/infrastructure/docker_architecture.md
-@./doctrine/infrastructure/environmental_variables.md
+@./doctrine/infrastructure/cicd.md
+@./doctrine/infrastructure/cicl.md
+@./doctrine/infrastructure/contracts.md
+@./doctrine/infrastructure/credentials.md
+@./doctrine/infrastructure/docex.md
+@./doctrine/infrastructure/infrastructure.md
+@./doctrine/infrastructure/shape2.md
+@./doctrine/infrastructure/tests.md
 @./doctrine/infrastructure/version_control.md
-@./doctrine/infrastructure/releases.md
-@./doctrine/infrastructure/deployment.md
 @./doctrine/practices/comments.md
+@./doctrine/practices/databases.md
 @./doctrine/practices/docs.md
+@./doctrine/practices/inception.md
+@./doctrine/practices/logging.md
 @./doctrine/practices/modifications.md

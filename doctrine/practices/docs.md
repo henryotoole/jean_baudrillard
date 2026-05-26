@@ -16,28 +16,28 @@ This provides an overview of different forms of documentation and where they bel
 ```
 $pr
 └── plans
-    ├── modifications
-    │   ├── 001_first_modification_name
-    │   │   ├── implementation.md
-    │   │   └── overview.md
-    │   ├── 002_second_modification_name
-    │   │   ├── implementation.md
-    │   │   └── overview.md
-    ├── core
-    │   ├── backend
-    │   │   ├── supporting_doc.md
-    │   │   ├── db_schema.md
-    │   │   ├── hex
-    │   │   │   ├── module_1.md
-    │   │   │   └── module_2.md
-    │   ├── frontend
-    │   │   ├── frontend.md
-    │   │   └── visuals
-    │   │       └── icon.svg
-    │   ├── masterplan.md
-    |   └── conventions.md
-    └── references
-        └── relevant_api_documentation.json
+	├── modifications
+	│   ├── 001_first_modification_name
+	│   │   ├── implementation.md
+	│   │   └── overview.md
+	│   ├── 002_second_modification_name
+	│   │   ├── implementation.md
+	│   │   └── overview.md
+	├── core
+	│   ├── backend
+	│   │   ├── supporting_doc.md
+	│   │   ├── db_schema.md
+	│   │   ├── hex
+	│   │   │   ├── module_1.md
+	│   │   │   └── module_2.md
+	│   ├── frontend
+	│   │   ├── frontend.md
+	│   │   └── visuals
+	│   │       └── icon.svg
+	│   ├── masterplan.md
+	|   └── conventions.md
+	└── references
+		└── relevant_api_documentation.json
 ```
 
 ### Core Planning Documents
@@ -59,24 +59,30 @@ The core folder should contain:
 The service folders contain both architecture and module documentation. The file structure *within* a service folder should approximately mirror the structure of the service code itself. For example, hexagonally-architectured backends will often have a `hex` folder that contains the hexagonal modules. The backend service folder would therefore also have a `hex` folder containing module documentation files for each hexagonal module. This is shown in the "Standard Documentation Structure" above.
 
 Some other specific files that might wind up in a service folder include:
-1. `db_schema.md` - A file that documents the relational structure for a database, if the project has a relational database.
+1. `db_schema.md` - A file that documents the relational structure for a database, if that service [owns the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database.
 2. `$service_name.md` - The toplevel architectural document for this service code - it will supplement `masterplan.md`. It does not necessarily have to exist.
 
 Other supporting docs may exist in the service folders too.
 
 #### The Masterplan
 The Masterplan, or `masterplan.md` is the most important document. As mentioned, it is the absolute toplevel architecture document for the project. It describes:
-1. The objectives of the project
-2. Project specific terms and concepts
-3. The project's infrastucture:
-    1. Tier
-    2. Backing Services
-    3. Core Services - All core services with hexagonal architecture should document:
-            1. The hexagonal module dependency structure.
-            2. A brief overview of each module as a subheading.
-4. Primary project flows (see below).
+1. The project's name
+2. The objectives of the project
+3. Project specific terms and concepts
+4. The project's architecture:
+	1. Foundation
+	2. Domain
+	3. Backing Services
+	4. Core Services - All core services with hexagonal architecture should document:
+		1. The hexagonal module dependency structure.
+		2. A brief overview of each module as a subheading.
+5. Primary project flows (see below).
 
 Project flows are the critical pathways which move information or action through the project. They tie modules and infrastructure together by describing the project in use. They indicate how the project works as a whole and hint at the user (or other) interfaces which will be required.
+
+For example, take a project with the objective "Generate text-based scripts from videos of talkshows". It has a `frontend` and `backend` core services, and within the `backend` there are three modules: `video_manip` which has video manipulation tools, `speech` which contains speech-to-text code, and `formatter` which formats the text conversation as a script. Some key flows in this project would be:
+1. Upload Flow - User uses `frontend` to upload a video to `backend`. 
+2. Video Conversion Flow - Using `frontend` to select a video, user kicks off a video conversion for it. `video_manip` divides up the video by scene, `speech` converts those scenes to text, and `formatter` combines them all back into one coherent package. The result is then viewed by the user in `frontend`.
 
 ### Modifications
 "$pr/plans/modifications/*"

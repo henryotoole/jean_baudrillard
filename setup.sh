@@ -10,3 +10,5 @@ source settings.sh
 . settings.sh
 source doctrine.sh
 . doctrine.sh
+
+# TODO write @./jean_baudrillard/JEAN.md to CLAUDE.md

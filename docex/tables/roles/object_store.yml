@@ -1,0 +1,85 @@
+# Role: object_store
+#
+# Object storage backing service. Two engines:
+#   - `minio`: fixed-only (runs as a container)
+#   - `s3`: elastic-only (AWS S3 bucket)
+# Projects declare `engine: [minio, s3]` in infra.yml; the compiler
+# picks the foundation-matching engine for each env.
+#
+# The role-specific field `versioning` is supported by both engines.
+#
+# Phase 4 elastic translation notes:
+#   - S3 buckets carry no user/password; access is granted via IAM
+#     role on the consuming ECS task. No $[VAR] tokens here.
+#   - `bucket_name` resolves via `@aws_s3_bucket.${name}.bucket`.
+
+roles:
+  object_store:
+    minio:
+      foundation: fixed
+      defaults:
+        fixed:
+          image: "minio/minio:latest"
+          command: ["server", "/data", "--console-address", ":9001"]
+          volumes:
+            - ${global_service_name}_data:/data
+          environment:
+            MINIO_ROOT_USER: $[MINIO_ROOT_USER]
+            MINIO_ROOT_PASSWORD: $[MINIO_ROOT_PASSWORD]
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+      fields:
+        versioning:
+          # When true, MinIO needs the bucket marked versioned via mc on
+          # first start. We declare the intent on the service block so
+          # operators can wire it up; v1 does not auto-bootstrap.
+          fixed:
+            x-versioning: ${field_value}
+      provides:
+        endpoint:
+          fixed: "http://${global_service_name}:9000"
+        bucket_name:
+          fixed: "${name}"
+        access_key:
+          fixed: "$[MINIO_ROOT_USER]"
+        secret_key:
+          fixed: "$[MINIO_ROOT_PASSWORD]"
+        region:
+          fixed: "us-east-1"  # MinIO ignores this; clients still send one.
+      env:
+        MINIO_ROOT_USER: "MinIO root access key"
+        MINIO_ROOT_PASSWORD: "MinIO root secret key"
+      naming:
+        separator: hyphen
+        case: lower
+        max_len: 63
+
+    s3:
+      foundation: elastic
+      defaults:
+        elastic:
+          force_destroy: false
+      fields:
+        versioning:
+          elastic:
+            versioning_configuration:
+              status: ${field_value}
+      provides:
+        endpoint:
+          # S3 has a well-known endpoint; consumers usually rely on the
+          # SDK's regional resolution rather than referencing this.
+          elastic: "https://s3.us-east-1.amazonaws.com"
+        bucket_name:
+          elastic: "@aws_s3_bucket.${name}.bucket"
+        region:
+          elastic: "us-east-1"
+      env: {}
+      naming:
+        # S3 bucket names: lowercase, no underscores, 3..63 chars, globally
+        # unique across all of AWS.
+        separator: hyphen
+        case: lower
+        max_len: 63

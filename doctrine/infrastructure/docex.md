@@ -1,0 +1,108 @@
+# `docex` Overview
+
+`docex` is the executor of the [doctrine](../doctrine/overview.md). It is a single, versioned container image that bundles all deterministic doctrine-shipped tooling - the [CICL](./cicl.md) compiler, [CI/CD](./cicd.md) actions, and any future glue - into one cohesive command-line surface. Each project pins one `docex` version, gets one `./bin/docex` shim, and never carries doctrine source code in its own repository.
+
+This file clearly documents all `docex` usage and commands for two purposes:
+1. To act as the source of truth for the development of the `docex` project itself.
+2. To provide the developer with a clear understanding of how to use `docex` during development and release.
+
+## Project Installation
+
+`docex` is installed into a project by the doctrine-side `docex_install.sh` script. The project must already have a `project.yml` — produced by the [inception flow](../practices/inception.md), which handles all project-structure scaffolding. From the project root:
+
+```bash
+bash ~/.claude/jean_baudrillard/docex_install.sh .
+```
+
+The single argument is the target directory (use `.` when already at the project root). The script:
+1. Copies the canonical shim to `./bin/docex` and makes it executable.
+2. Writes the currently-shipped `docex_version` into `project.yml`, replacing any prior pin.
+
+Both writes are idempotent. Re-running the script is also the supported way to upgrade a project from one `docex` version to another — no other steps required.
+
+The shim itself never changes between `docex` versions; the `docex_version` pin in `project.yml` is what selects which `docex` image the shim runs. After installation, verify with `docex --version`; this requires the pinned image to already exist in the host's Docker image store.
+
+## Usage
+Docex is run from the terminal e.g. `docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. It does so by providing a "command" for each task; `docex build` builds all core services, `docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
+
+## Provided Tools
+
+| Command | Purpose |
+| ------- | ------- |
+| `compile` | Translate the `infra.yml` into foundational infra config for docker compose and OpenTofu. |
+| `describe <env>` | Describe an environment's infrastructure for human or LLM consumption. |
+| `why <resource>` | Describe *why* the `doctrine` handles an infrastructural resource the way that it does. |
+| `bootstrap` | Idempotently performs the one-shot setup to make an `elastic`-foundation project useable. |
+| `up <env>` | Bring up a fixed-foundation environment locally. |
+| `down <env>` | Tear down a locally-running environment. |
+| `build <core_service>` | Run `build.sh` for one or all core services. |
+| `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. |
+| `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. |
+| `merge` | Rebase the feature branch onto main, tag the release commit, and push. |
+| `containerize` | Build and push core service prod images to the container registry. |
+| `release <env>` | Deploy the containerized build to `<env>` (`stage` or `prod`). |
+| `stagetest` | Run staging tests against the deployed staging environment. |
+
+### `compile`
+`docex compile`
+Compile takes the infrastructure definition at `infra.yml` and translates it to configuration files which can be used to drive `fixed` (docker compose config) or `elastic` (HCL files) infrastructure. Everything needed to perform this translation is either set by the project in [`infra.yml`](./cicl.md#the-cicl-format) or defined by the `doctrine` in [shape](./shape2.md) and [transfer tables](./cicl.md#cicl-transfer-tables).
+
+The output of this command is stored in `$pr/infra/output/${env}` on the basis of environment. All environments are compiled and placed in output every time.
+
+### `describe`
+`docex describe` to simply describe the production environment in DAG format.
+`docex describe <env>` to describe a specific environment in DAG format.
+`docex describe <env> <format>` to describe a specific environment in a specific format.
+Describes the project infrastructure shape across all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure for a certain environment. This is purely illustrative - the purpose of this command is to show the developer the shape of infrastructure without requiring them to read config files.
+
+The formats available are:
+`dag` - Describe the infrastructure shape with a directional acyclic graph.
+`llm` - Describe the infrastructure in JSON-form so that an LLM can easily parse it.
+
+### `why`
+`docex why <resource>`
+Describes why we do a certain infrastructure resource the way we do in plain language - pairs with describe.
+
+### `bootstrap`
+`docex bootstrap`
+Performs the one-shot setup required to make an elastic-foundation project usable: creates the project's OpenTofu state backend (an S3 bucket for state and a DynamoDB table for locking). Idempotent — safe to re-run, and reconciles configuration drift if any. No-op for fixed-foundation projects. Typically run once per project, immediately after `project.yml` is created and before the first `docex compile`. See [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description of what gets created and why.
+
+### `up`
+`docex up <env>`
+Brings up a `dev` or `test` environment locally via docker-compose, using the compiled config at `$pr/infra/output/${env}/docker-compose.yml`. Docker rebuilds any out-of-date images as a prerequisite, so containers always have fresh artifacts (the image's `build` stage invokes `build.sh` — see [cicd.md § Build Step](./cicd.md#build-step)). Most commonly invoked as `docex up dev` to start a working development environment. Not for use with `stage` or `prod`.
+
+### `down`
+`docex down <env>`
+Tears down a previously-running local environment. Stops and removes containers and networks; named volumes are preserved so persistent data survives the teardown.
+
+### `build`
+`docex build` to refresh `dist/` for all core services in the running dev environment.
+`docex build <core_service_name>` to refresh a specific core service.
+
+Runs each core service's `build.sh` inside its running `dev`-stage container, depositing artifacts in `$pr/core/<service>/dist/` via bind-mount. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
+
+**This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `docex containerize` (and during `docex up` and `docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `docex build` is useful when iterating on source against an already-running dev environment without paying for a container rebuild. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
+
+### `test`
+`docex test`
+Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each core service's `test.sh` inside its test-stage container, then tears the environment down. Covers unit, integration, and contract tests across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every service's tests pass; non-zero on the first failure.
+
+### `check`
+`docex check`
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, `depends_on`-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
+
+### `merge`
+`docex merge`
+Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. Re-runs gate checks defensively before merging to catch race conditions where main moved between `docex check` and `docex merge`. Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. See [cicd.md](./cicd.md#merge).
+
+### `containerize`
+`docex containerize`
+Formally containerizes the build for release: `docker buildx build --platform <target> --target prod` for each core service, tag each resulting image as `<container_registry>/<project_name>/<service_name>:<version>` (with `<container_registry>` from `infra.yml` and `<version>` from `project.yml`), and push to the registry. The `build` Dockerfile stage runs `build.sh` on the target platform as part of `docker build`, so the artifact embedded in each prod image always matches the production runtime regardless of host architecture. One image per core service; all share the project-wide version. Requires a clean working tree on `main` to ensure the resulting images correspond to a real, tagged commit. Image tags are 1:1 with `project.yml` versions — no floating tags. See [cicd.md](./cicd.md#containerize-step).
+
+### `release`
+`docex release <env>`
+Releases the previously-containerized build to `<env>` (typically `stage` or `prod`). For fixed-foundation projects, runs the emitted Ansible playbook against the env's host(s) to pull the new image and reconcile the deployment. For elastic-foundation projects, pushes secrets from `infra/secrets/<env>.env` to SSM Parameter Store and then runs `tofu apply` against the env's HCL. Both paths are push-initiated and idempotent — re-running on an already-converged target is a no-op. See [release_mechanism.md](./specifics/release_mechanism.md).
+
+### `stagetest`
+`docex stagetest`
+Runs the project's staging tests against the deployed staging environment via HTTPS, from outside the env. Spawns an ephemeral container from the project's `$pr/infra/stage/Dockerfile` definition, bind-mounts the project root, injects `STAGING_URL`, and invokes `/project/infra/stage/stage_test.sh`. Tests cover deployment-shape concerns (DNS, TLS, network reachability), per-service liveness, and critical-path smoke flows. Inter-service interaction concerns are intentionally not covered here — those are caught at build-test time via contract tests. See [cicd.md](./cicd.md#staging-tests).

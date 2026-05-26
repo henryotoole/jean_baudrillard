@@ -1,0 +1,28 @@
+cicl_version: "1"
+foundation: fixed
+domain: "example.com"
+container_registry: "registry.example.com"
+
+core_services:
+  api:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [database]
+    env:
+      DATABASE_URL: ${backing_services.database.url}
+      POSTGRES_HOST: ${backing_services.database.host}
+      POSTGRES_DB: ${backing_services.database.db}
+    resources:
+      cpu: 1.0
+      memory: 2GB
+      disk: 20GB
+
+backing_services:
+  database:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    port: 5432
+    networks: [internal]
+    schema_owned_by: api

@@ -1,0 +1,35 @@
+# OpenAPI contract for the ``api`` service.
+#
+# Phase 3's ``docex check`` contract gate (re)loads this file and
+# asserts that:
+#   - ``/health`` is declared with a GET (required for any service
+#     on the ``web`` network).
+#   - ``/health/database`` is declared with a GET (required because
+#     ``api`` declares ``depends_on: [database]`` and ``database`` is
+#     not on the open web — the API must surface its health by proxy).
+#
+# Phase 3 does NOT do deep schema conformance; it only checks the
+# paths exist. Bringing this contract up to full schemathesis-style
+# usefulness is a doctrine concern, not a tooling one.
+
+openapi: "3.0.3"
+info:
+  title: sample-api
+  version: "0.1.0"
+servers:
+  - url: "https://example.com"
+paths:
+  /health:
+    get:
+      summary: Service liveness
+      responses:
+        "200":
+          description: OK
+  /health/database:
+    get:
+      summary: Database dependency liveness (proxied by api)
+      responses:
+        "200":
+          description: OK
+        "503":
+          description: Database is not reachable
