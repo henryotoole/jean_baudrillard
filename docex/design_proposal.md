@@ -208,6 +208,8 @@ The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` i
 ```
 jean_baudrillard/docex/
 ├── design_proposal.md       (this file)
+├── change_process.md        (how docex itself is changed — read before editing docex)
+├── CHANGELOG.md             (per-version change record; Keep a Changelog + SemVer)
 ├── src/
 │   └── docex/               (Python package; CLI entrypoint + all subcommands)
 │       ├── __main__.py      (argparse dispatcher)
