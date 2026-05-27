@@ -56,19 +56,37 @@ tag always equals the version — no floating tags (see
 image is the unit of determinism, so a version is only meaningful once its
 image is built.
 
-Two modes, chosen by the shape of the work:
+**Built images are not git-tracked** — they are build artifacts living in the
+local Docker store. The determinism promise ("a project pinned to a version
+gets identical output forever") therefore rests on being able to *rebuild* a
+version's image from source, which requires that version's source to be
+recoverable. **The git tag is what makes it recoverable** — without it, finding
+"the commit that was 0.4.0" is archaeology. So every cut is tagged, mirroring
+the discipline `docex merge` already enforces for consumer projects.
 
-- **Single isolated change.** Bump the version in `pyproject.toml` +
-  `src/docex/__init__.py`, move `[Unreleased]` → `[<version>]` in the
-  changelog, rebuild (`docker build -t docex:<version> .` from `docex/`), and
-  reinstall into consumers (`bash docex_install.sh <project>`).
-- **Campaign** (several related changes, e.g. an overhaul). Work under a
-  single **uncut, rolling version**: leave `pyproject.toml` and `__init__.py`
-  untouched during the work, accumulate every change under `[Unreleased]`, and
-  **cut once at the end** — assign the version, move `[Unreleased]` → `[<v>]`,
-  bump both version files, rebuild the image, and reinstall into consumers.
-  This avoids a rebuild-and-reinstall churn per change while the surface is
-  still moving.
+### Cutting a version
+
+Whatever the mode, a *cut* is the same ordered procedure, run from a clean
+tree:
+
+1. Assign the version `<v>` (SemVer).
+2. Move `[Unreleased]` → `[<v>]` (dated) in [`CHANGELOG.md`](./CHANGELOG.md).
+3. Bump the version in `pyproject.toml` **and** `src/docex/__init__.py`.
+4. Commit.
+5. **Tag the cut commit `docex-v<v>`.** The tag is namespaced (`docex-v…`, not
+   a bare `v…`) because this repo also holds the doctrine — a bare version tag
+   would collide if the doctrine is ever versioned.
+6. Rebuild the image: `docker build -t docex:<v> .` from `docex/`.
+7. Reinstall into consumers: `bash docex_install.sh <project>`.
+
+### When to cut
+
+- **Single isolated change** — cut immediately after the per-change loop.
+- **Campaign** (several related changes, e.g. an overhaul) — work under a
+  single **uncut, rolling version**: leave both version files untouched,
+  accumulate every change under `[Unreleased]`, and **cut once at the end**.
+  This avoids rebuild-and-reinstall churn per change while the surface is still
+  moving.
 
 ## Git
 
