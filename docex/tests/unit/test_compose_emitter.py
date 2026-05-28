@@ -106,3 +106,46 @@ def test_backing_service_never_gets_core_bind_mounts(tmp_path: Path):
     for v in volumes:
         assert "/service/src" not in v, v
         assert "/service/dist" not in v, v
+
+
+def test_web_service_publishes_no_host_ports(tmp_path: Path):
+    """web-network services publish no host ports — Traefik routes to them
+    over the docker network."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    services = _compose_services(root, "dev")
+    api = _find_core_service_block(services, "api")
+    assert "ports" not in api, api.get("ports")
+
+
+def test_default_web_service_traefik_dual_host(tmp_path: Path):
+    """The domain_default_service (api) routes at BOTH the bare env subdomain
+    and its per-service host."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    services = _compose_services(root, "dev")
+    api = _find_core_service_block(services, "api")
+    rule = next(l for l in (api.get("labels") or []) if ".rule=" in l)
+    assert "Host(`dev.example.com`)" in rule
+    assert "Host(`api.dev.example.com`)" in rule
+
+
+def test_backing_service_on_web_is_routed(tmp_path: Path):
+    """Routing is network-driven: a backing service placed on `web` gets
+    Traefik labels too, at its per-service host."""
+    root = _copy_fixture(tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    # Put the (ported) database on the web network.
+    infra_yml.write_text(
+        infra_yml.read_text().replace("networks: [internal]", "networks: [web, internal]")
+    )
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    services = _compose_services(root, "dev")
+    database = _find_core_service_block(services, "database")
+    labels = database.get("labels") or []
+    assert "traefik.enable=true" in labels
+    rule = next(l for l in labels if ".rule=" in l)
+    assert "Host(`database.dev.example.com`)" in rule

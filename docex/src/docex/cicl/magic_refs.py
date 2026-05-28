@@ -107,6 +107,12 @@ class MagicRefResolver:
             finally:
                 self._resolving.discard(key)
 
+            if rendered.value == "":
+                raise SubstitutionError(
+                    f"magic ref ${{{kind}.{target}.{part}}} in {consumer!r} "
+                    f"resolved to an empty value — {target!r}'s {part!r} field "
+                    f"is unset and the engine declares no default for it."
+                )
             runtime_refs.update(rendered.runtime_refs)
             if rendered.raw_hcl:
                 raw_hcl_flag = True

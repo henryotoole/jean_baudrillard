@@ -50,6 +50,42 @@ def test_valid_doc_passes():
     assert issues == []
 
 
+def test_rule_domain_default_must_be_web():
+    src = _BASE_FIXED.replace(
+        "container_registry: registry.example.com",
+        "container_registry: registry.example.com\ndomain_default_service: database",
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert any(i.rule == "rule_domain_default_not_web" for i in issues)
+
+
+def test_rule_domain_default_unknown():
+    src = _BASE_FIXED.replace(
+        "container_registry: registry.example.com",
+        "container_registry: registry.example.com\ndomain_default_service: ghost",
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert any(i.rule == "rule_domain_default_unknown" for i in issues)
+
+
+def test_rule_web_service_needs_port():
+    # api is on the web network; drop its port.
+    src = _BASE_FIXED.replace("    port: 8080\n", "")
+    issues = validate_document(_doc(src), _tables())
+    assert any(i.rule == "rule_web_service_needs_port" for i in issues)
+
+
+def test_rule_env_secrets_overlap():
+    # Declare the same key in both api's env: and secrets:.
+    src = _BASE_FIXED.replace(
+        "    port: 8080\n",
+        '    port: 8080\n    env:\n      SHARED: literal\n'
+        '    secrets:\n      SHARED: "desc"\n',
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert any(i.rule == "rule_env_secrets_overlap" for i in issues)
+
+
 def test_rule_2_unknown_role():
     src = _BASE_FIXED.replace("role: web", "role: nonexistent_role")
     doc = _doc(src)

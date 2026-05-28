@@ -14,8 +14,10 @@
 
 roles:
   cache:
+    description: "In-memory cache backing service."
     redis:
       foundation: both
+      default_port: 6379
       defaults:
         fixed:
           volumes:
@@ -44,8 +46,6 @@ roles:
         port:
           fixed: "${port}"
           elastic: "${port}"
-        url:
-          fixed: "redis://${global_service_name}:${port}"
       env: {}
       naming:
         # ElastiCache cluster IDs forbid underscores and must be lowercase.

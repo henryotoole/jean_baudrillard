@@ -65,6 +65,9 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_schema_owned_by(doc))
     issues.extend(_validate_container_registry(doc))
     issues.extend(_validate_resources(doc))
+    issues.extend(_validate_domain_default_service(doc))
+    issues.extend(_validate_web_service_ports(doc))
+    issues.extend(_validate_env_secrets_overlap(doc))
     return issues
 
 
@@ -395,6 +398,73 @@ def _validate_resources(doc: CICLDocument) -> list[ValidationIssue]:
                 message=(
                     f"core service {name!r}: resources.gpu is not supported "
                     f"on elastic foundation (Fargate)"
+                ),
+                where=f"core_services.{name}",
+            ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Domain default service + web-service ports.
+# ---------------------------------------------------------------------------
+
+
+def _validate_domain_default_service(doc: CICLDocument) -> list[ValidationIssue]:
+    dds = doc.domain_default_service
+    if dds is None:
+        return []
+    svc = doc.all_services().get(dds)
+    if svc is None:
+        return [ValidationIssue(
+            rule="rule_domain_default_unknown",
+            message=f"domain_default_service {dds!r} is not a declared service",
+            where="domain_default_service",
+        )]
+    if "web" not in svc.networks:
+        return [ValidationIssue(
+            rule="rule_domain_default_not_web",
+            message=(
+                f"domain_default_service {dds!r} must be on the 'web' network "
+                f"(only web services are reachable at a subdomain)"
+            ),
+            where="domain_default_service",
+        )]
+    return []
+
+
+def _validate_web_service_ports(doc: CICLDocument) -> list[ValidationIssue]:
+    """Every web-network service must declare a port — the reverse proxy
+    (Traefik / ALB) needs the container port to route to."""
+    issues: list[ValidationIssue] = []
+    for name, svc in sorted(doc.all_services().items()):
+        # reverse_proxy IS the edge router, not a routed target — exempt.
+        if svc.role == "reverse_proxy":
+            continue
+        if "web" in svc.networks and svc.port is None:
+            issues.append(ValidationIssue(
+                rule="rule_web_service_needs_port",
+                message=(
+                    f"service {name!r} is on the 'web' network and must declare "
+                    f"a port (the reverse proxy routes to it)"
+                ),
+                where=name,
+            ))
+    return issues
+
+
+def _validate_env_secrets_overlap(doc: CICLDocument) -> list[ValidationIssue]:
+    """A core service's `env:` and `secrets:` must not declare the same key —
+    `env:` is compiler-resolved, `secrets:` is operator-supplied, so a shared
+    key has ambiguous provenance and wiring."""
+    issues: list[ValidationIssue] = []
+    for name, svc in sorted(doc.core_services.items()):
+        overlap = set(svc.env or {}) & set(svc.secrets or {})
+        for key in sorted(overlap):
+            issues.append(ValidationIssue(
+                rule="rule_env_secrets_overlap",
+                message=(
+                    f"core service {name!r}: key {key!r} appears in both `env:` "
+                    f"and `secrets:` — declare it in exactly one"
                 ),
                 where=f"core_services.{name}",
             ))

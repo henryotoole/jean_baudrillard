@@ -48,6 +48,9 @@ class EngineEntry:
     provides: dict[str, Any] = field(default_factory=dict)
     env: dict[str, str] = field(default_factory=dict)
     naming: dict[str, Any] = field(default_factory=dict)
+    # The port the engine listens on by default. Used for the ${port}
+    # substitution variable when a service omits the `port:` field.
+    default_port: int | None = None
 
     def supports(self, foundation: str) -> bool:
         return self.foundation in (foundation, "both")
@@ -79,6 +82,17 @@ class TransferTables:
 
     # role_name -> engine_name -> EngineEntry
     by_role: dict[str, dict[str, EngineEntry]]
+    # role_name -> human-readable description, from the reserved role-level
+    # `description:` key in the transfer table (optional).
+    descriptions: dict[str, str] = field(default_factory=dict)
+
+    def roles(self) -> list[str]:
+        """All known role names, sorted."""
+        return sorted(self.by_role)
+
+    def description(self, role_name: str) -> str | None:
+        """The human description for a role, if the table declares one."""
+        return self.descriptions.get(role_name)
 
     def role(self, role_name: str) -> dict[str, EngineEntry]:
         if role_name not in self.by_role:
@@ -212,6 +226,7 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
         provides=raw.get("provides", {}) or {},
         env=raw.get("env", {}) or {},
         naming=raw.get("naming", {}) or {},
+        default_port=raw.get("default_port"),
     )
 
 
@@ -236,12 +251,18 @@ def load_transfer_tables(project_root: Path | None) -> TransferTables:
             raw_merged = _deep_merge(raw_merged, {"roles": roles})
 
     by_role: dict[str, dict[str, EngineEntry]] = {}
+    descriptions: dict[str, str] = {}
     for role, engines in (raw_merged.get("roles") or {}).items():
         if not isinstance(engines, dict):
             raise TransferTableError(
                 f"role {role!r}: expected a mapping of engine name -> entry"
             )
         for engine, raw_entry in engines.items():
+            if engine == "description":
+                # Reserved role-level key: a human description, not an engine.
+                if isinstance(raw_entry, str):
+                    descriptions[role] = raw_entry
+                continue
             if not isinstance(raw_entry, dict):
                 raise TransferTableError(
                     f"role {role!r} engine {engine!r}: expected a mapping"
@@ -249,4 +270,4 @@ def load_transfer_tables(project_root: Path | None) -> TransferTables:
             by_role.setdefault(role, {})[engine] = _parse_entry(
                 role, engine, raw_entry
             )
-    return TransferTables(by_role=by_role)
+    return TransferTables(by_role=by_role, descriptions=descriptions)

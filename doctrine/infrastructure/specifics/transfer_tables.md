@@ -59,7 +59,7 @@ The following variables are always available inside a transfer table entry:
 
 ### Magic refs
 
-When `infra.yml` references another service via a magic ref like `${backing_services.database.url}`, the compiler resolves it by looking up the named service's transfer-table-defined field — in this case, the postgres engine's `url:` template. Magic refs are a CICL feature; transfer tables provide the resolution targets.
+When `infra.yml` references another service via a magic ref like `${backing_services.database.host}`, the compiler resolves it by looking up the named service's engine and rendering the matching part from its `provides:` block — in this case, the postgres engine's `host` part. Magic refs are a CICL feature; transfer tables provide the resolution targets.
 
 ## Naming Conventions
 
@@ -74,7 +74,7 @@ Different downstream systems have different naming constraints:
 - **Docker container/network names** accept both underscores and hyphens.
 - **AWS resource identifiers** vary by service: RDS allows hyphens but not underscores; S3 bucket names must be lowercase with hyphens and globally unique across all of AWS; SGs are more permissive; etc.
 
-The compiler resolves this with a per-engine convention: use underscores as the separator by default, falling back to hyphens (and other transformations like lowercasing) where required. Each engine's transfer table entry should declare its naming constraints explicitly so the compiler can enforce them consistently. URL formats are similarly engine-specific and are defined in each engine's `url:` field.
+The compiler resolves this with a per-engine convention: use underscores as the separator by default, falling back to hyphens (and other transformations like lowercasing) where required. Each engine's transfer table entry should declare its naming constraints explicitly so the compiler can enforce them consistently.
 
 ## Anatomy of a Role Definition
 
@@ -83,8 +83,10 @@ A role is defined under the top-level `roles:` block. Each role contains one or 
 ```yml
 roles:
 	<role_name>:
+		description: "<one-line role summary>"   # optional; surfaced by `docex roles`
 		<engine_name>:
 			foundation: fixed | elastic | both
+			default_port: <int>   # optional
 			defaults:
 				fixed: { ... }
 				elastic: { ... }
@@ -168,17 +170,19 @@ roles:
 
 - **`foundation`** (required) — one of `fixed`, `elastic`, or `both`. Declares which foundations this engine supports. The compiler uses this to validate that `infra.yml`'s declared engines are compatible with the foundation being compiled. For roles where the same engine works on both foundations (postgres-in-docker for fixed, postgres-on-RDS for elastic), `both` is used. For roles where the project picks per foundation (e.g., `engine: [minio, s3]` in `infra.yml`), each engine declares its own `foundation` and the compiler picks the matching one for the env being compiled.
 
+- **`default_port`** (optional) — the port this engine listens on by default. When a service using the engine omits the `port:` field in `infra.yml`, the compiler uses this value for the `${port}` substitution variable (and hence the `port` provided-part). Omit it for engines with no canonical port; a magic ref to a port that is neither declared nor defaulted resolves to empty, which is a compile error.
+
 - **`defaults`** (required) — per-foundation blocks of YAML that get merged into the emitted resource definition for every service using this engine. For fixed this is the docker-compose service skeleton (volumes, healthcheck, environment); for elastic it is the Tofu resource block (instance class, storage settings, etc.).
 
 - **`fields`** (optional) — declares the role-specific fields the project may set on this service in `infra.yml` (e.g., `version: "15"` for relational_db, `versioning: true` for object_store), and how each translates per foundation. The compile-time variable `${field_value}` refers to the value the project supplied.
 
-- **`provides`** (optional) — declares the parts of this engine that consumers may reference via magic refs (e.g., `${backing_services.database.host}`). Each part is foundation-aware: a separate template per foundation. Templates may use any of the three [substitution syntaxes](#substitution-grammar) — `${var}` for compile-time values, `$[var]` for runtime app refs, or `@<expr>` for HCL pass-through (elastic only, used for provider-allocated values like RDS endpoints). Common part names are short and consistent across engines of the same role: `host`, `port`, `db`, `user`, `password` for relational_db; `bucket_name`, `region`, `endpoint`, `access_key`, `secret_key` for object_store; etc. Engines may expose any additional parts they need.
+- **`provides`** (optional) — declares the discrete connection **parts** of this engine that consumers may reference via magic refs (e.g., `${backing_services.database.host}`). Each part is foundation-aware: a separate template per foundation. Templates may use any of the three [substitution syntaxes](#substitution-grammar) — `${var}` for compile-time values, `$[var]` for runtime app refs, or `@<expr>` for HCL pass-through (elastic only, used for provider-allocated values like RDS endpoints). Common part names are short and consistent across engines of the same role: `host`, `port`, `db`, `user`, `password` for relational_db; `bucket_name`, `region`, `endpoint`, `access_key`, `secret_key` for object_store; etc. Engines may expose any additional parts they need. **An engine never exposes a pre-composed connection string — there is no `url` part** (see the rule below).
 
-	Because `provides:` exposes parts rather than composed strings, secrets like `$[POSTGRES_USER]` and `$[POSTGRES_PASSWORD]` never appear as inline values in compiled artifacts — they only flow through compose's runtime substitution (fixed) or ECS's `secrets[]` block (elastic), keeping them out of any persisted task definition or compose snapshot. Apps that need a composed URL (e.g., `DATABASE_URL`) construct it themselves from the parts at startup, which is the standard cloud-native pattern.
+	Exposing parts rather than composed strings is a **hard rule**, not a stylistic preference. A composed value (e.g. a `DATABASE_URL`) would have to inline secrets like the database password — but elastic's secret injection (ECS `secrets[]` sourced from SSM) can only deliver each secret as a whole standalone env var; it cannot embed one inside a larger value without materializing that value as plaintext in the task definition and Tofu state. Parts-only is therefore the single model that keeps `provides:` identical across foundations, which is exactly what preserves fixed↔elastic portability. As a consequence, secrets like `$[POSTGRES_USER]` and `$[POSTGRES_PASSWORD]` never appear as inline values in compiled artifacts — they flow through compose's runtime substitution (fixed) or the ECS `secrets[]` block (elastic), staying out of any persisted task definition or compose snapshot. A consumer that needs a composed handle (e.g., `DATABASE_URL`) builds it from the parts at startup — the standard cloud-native pattern, and now the only one.
 
 - **`env`** (optional) — declares the runtime environment variables this engine requires. Each entry is `KEY: "human-readable description"`. The compiler uses this list for two purposes:
 	1. **`example.env` generation:** every backing service's `env` entries become rows in `infra/secrets/example.env`, grouped by service.
-	2. **Dependency propagation:** when a core service references one of this engine's `provides:` parts whose template includes a `$[...]` runtime ref (e.g., `${backing_services.database.user}` resolves to `$[POSTGRES_USER]`), the compiler ensures that same env var also reaches the consumer's container — emitted as a compose `environment:` line (fixed) or as an ECS `secrets[]` entry (elastic).
+	2. **Secret wiring:** when a core service binds one of this engine's `provides:` parts whose template includes a `$[...]` runtime ref (e.g. `DATABASE_USER: ${backing_services.database.user}`, where `user` resolves to `$[POSTGRES_USER]`), the compiler wires the secret into the consumer's container under the consumer's **own** key (`DATABASE_USER`) — emitted as a compose `environment:` line `DATABASE_USER: ${POSTGRES_USER}` (fixed) or an ECS `secrets[]` entry `{ name = "DATABASE_USER", valueFrom = <SSM path of POSTGRES_USER> }` (elastic). The container's env-var surface is therefore identical across foundations; only the delivery mechanism differs. The underlying secret's name (`POSTGRES_USER`) is what identifies it in `.env`/SSM — it is not what the application reads. Because a secret part resolves to exactly one bare `$[REF]` (never a composed string), this binding is always 1:1; embedding a secret inside a larger value is a compile error.
 
 - **`naming`** (optional, but engine-specific constraints must be declared somewhere) — machine-readable form of the engine's identifier constraints. Lets the compiler pick the right separator, case, and length when forming `${global_service_name}` for this engine's resources without hardcoding per-engine rules in the compiler itself.
 
@@ -195,14 +199,11 @@ roles:
 					# Image is derived from `container_registry` + project + service + version
 					# (see cicl.md § Container Registry). cpu/memory limits and tmpfs sizing
 					# come from the service's `resources:` block (see § Resources Translation).
-					# Doctrine adds Traefik discovery labels so the machine-wide reverse_proxy
-					# routes the env's subdomain to this container.
-					labels:
-						- "traefik.enable=true"
-						- "traefik.http.routers.${global_service_name}.rule=Host(`${env_subdomain}`)"
-						- "traefik.http.routers.${global_service_name}.entrypoints=websecure"
-						- "traefik.http.routers.${global_service_name}.tls=true"
-						- "traefik.http.services.${global_service_name}.loadbalancer.server.port=${port}"
+					# Routing is NOT carried here. The compiler emits it
+					# network-driven for any `web`-network service — Traefik
+					# discovery labels (fixed) / an ALB target group + listener
+					# rule (elastic), with per-service subdomains. See
+					# networks.md and cicl.md § Domain.
 				elastic:
 					# Port, env, and depends_on come from infra.yml. Image is derived (see fixed
 					# block above). cpu/memory/ephemeral_storage come from the service's

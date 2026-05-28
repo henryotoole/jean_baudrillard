@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import sys
 
+from docex import ELASTIC_REGION
+from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import (
@@ -52,8 +54,14 @@ def run_containerize(
     git: GitClient,
     *,
     platform: str = _DEFAULT_PLATFORM,
+    aws: AWSClient | None = None,
 ) -> int:
-    """Build + push prod images for every core service. Returns exit code."""
+    """Build + push prod images for every core service. Returns exit code.
+
+    ``aws`` is required only on the elastic ECR-default path (an elastic
+    project with no explicit ``container_registry``); the dispatcher
+    always passes one.
+    """
     project_root = ctx.project_root
     project = ctx.project
     infra = ctx.infra
@@ -90,13 +98,29 @@ def run_containerize(
 
     # 2. Registry --------------------------------------------------------
     registry = infra.container_registry
+    ecr = False
     if not registry:
-        print(
-            "error: infra.yml is missing 'container_registry' — required "
-            "for containerize on fixed foundation.",
-            file=sys.stderr,
-        )
-        return 1
+        if infra.foundation == "elastic":
+            # Elastic ECR default: derive the registry host from the AWS
+            # account ID, then authenticate to ECR before pushing.
+            if aws is None:
+                print(
+                    "error: elastic ECR-default containerize requires an "
+                    "AWSClient. (Internal dispatch bug.)",
+                    file=sys.stderr,
+                )
+                return 1
+            account = aws.caller_identity()
+            registry = f"{account}.dkr.ecr.{ELASTIC_REGION}.amazonaws.com"
+            ecr = True
+        else:
+            print(
+                "error: infra.yml is missing 'container_registry' — it is "
+                "required on a fixed foundation (elastic defaults to the "
+                "project ECR).",
+                file=sys.stderr,
+            )
+            return 1
 
     # 3. Per-service buildx + push --------------------------------------
     services = core_services(ctx)
@@ -106,6 +130,16 @@ def run_containerize(
 
     project_name = project.name
     version = project.version
+
+    # Elastic ECR default: authenticate once before pushing.
+    if ecr:
+        username, password = aws.ecr_authorization_token()
+        rc = docker.login(registry, username=username, password=password)
+        if rc != 0:
+            raise RegistryPushFailed(
+                f"'docker login {registry}' exited {rc}; could not "
+                f"authenticate to the project ECR."
+            )
 
     for svc in services:
         context = project_root / "core" / svc
@@ -119,6 +153,10 @@ def run_containerize(
             return 1
 
         full_tag = _image_tag(registry, project_name, svc, version)
+
+        # Elastic ECR default: ensure the push target repository exists.
+        if ecr:
+            aws.ecr_ensure_repository(f"{project_name}/{svc}")
 
         # Build.
         rc = docker.buildx_build(

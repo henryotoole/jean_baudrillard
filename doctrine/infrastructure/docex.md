@@ -32,6 +32,8 @@ Docex is run from the terminal e.g. `docex <command>`. Commands will perform a v
 | `compile` | Translate the `infra.yml` into foundational infra config for docker compose and OpenTofu. |
 | `describe <env>` | Describe an environment's infrastructure for human or LLM consumption. |
 | `why <resource>` | Describe *why* the `doctrine` handles an infrastructural resource the way that it does. |
+| `roles` | List the available service roles, with short descriptions. |
+| `role <name>` | Describe a role: engines, provided parts (magic-ref targets), env vars, and fields. |
 | `bootstrap` | Idempotently performs the one-shot setup to make an `elastic`-foundation project useable. |
 | `up <env>` | Bring up a fixed-foundation environment locally. |
 | `down <env>` | Tear down a locally-running environment. |
@@ -52,7 +54,7 @@ The output of this command is stored in `$pr/infra/output/${env}` on the basis o
 ### `describe`
 `docex describe` to simply describe the production environment in DAG format.
 `docex describe <env>` to describe a specific environment in DAG format.
-`docex describe <env> <format>` to describe a specific environment in a specific format.
+`docex describe <env> --format <format>` to describe a specific environment in a specific format.
 Describes the project infrastructure shape across all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure for a certain environment. This is purely illustrative - the purpose of this command is to show the developer the shape of infrastructure without requiring them to read config files.
 
 The formats available are:
@@ -62,6 +64,14 @@ The formats available are:
 ### `why`
 `docex why <resource>`
 Describes why we do a certain infrastructure resource the way we do in plain language - pairs with describe.
+
+### `roles`
+`docex roles [--format text|llm]`
+Lists every service role the transfer tables define, each with a short description. Pairs with `docex role <name>` for detail. The `llm` format emits JSON for tooling.
+
+### `role`
+`docex role <name> [--format text|llm]`
+Describes one role: its engines (and foundations), the **provided parts** that magic refs target (`${backing_services.<svc>.<part>}`), which parts are secrets, the required `infra/secrets/<env>.env` variables, and the role-specific fields settable in `infra.yml`. This is the canonical way to discover what a magic ref can reference, since the parts live in the transfer tables rather than the doctrine prose. The `llm` format emits JSON.
 
 ### `bootstrap`
 `docex bootstrap`
@@ -97,7 +107,7 @@ Rebases the current feature branch onto the latest main, fast-forwards main, tag
 
 ### `containerize`
 `docex containerize`
-Formally containerizes the build for release: `docker buildx build --platform <target> --target prod` for each core service, tag each resulting image as `<container_registry>/<project_name>/<service_name>:<version>` (with `<container_registry>` from `infra.yml` and `<version>` from `project.yml`), and push to the registry. The `build` Dockerfile stage runs `build.sh` on the target platform as part of `docker build`, so the artifact embedded in each prod image always matches the production runtime regardless of host architecture. One image per core service; all share the project-wide version. Requires a clean working tree on `main` to ensure the resulting images correspond to a real, tagged commit. Image tags are 1:1 with `project.yml` versions — no floating tags. See [cicd.md](./cicd.md#containerize-step).
+Formally containerizes the build for release: `docker buildx build --platform <target> --target prod` for each core service, tag each resulting image as `<container_registry>/<project_name>/<service_name>:<version>` (with `<container_registry>` from `infra.yml` and `<version>` from `project.yml`), and push to the registry. When an elastic project omits `container_registry`, the registry host is the project's default ECR (`<account>.dkr.ecr.us-east-1.amazonaws.com`); `containerize` resolves the account ID, authenticates to ECR, and ensures each service's repository exists before pushing. The `build` Dockerfile stage runs `build.sh` on the target platform as part of `docker build`, so the artifact embedded in each prod image always matches the production runtime regardless of host architecture. One image per core service; all share the project-wide version. Requires a clean working tree on `main` to ensure the resulting images correspond to a real, tagged commit. Image tags are 1:1 with `project.yml` versions — no floating tags. See [cicd.md](./cicd.md#containerize-step).
 
 ### `release`
 `docex release <env>`

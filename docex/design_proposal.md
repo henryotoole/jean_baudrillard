@@ -84,7 +84,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../doct
 | Command | Foundation behavior | Reads | Writes / acts on |
 | ------- | ------------------- | ----- | ---------------- |
 | `compile` | both | `infra.yml`, transfer tables (bundled + project-local), `project.yml` | `infra/output/<env>/...`, `infra/secrets/example.env` |
-| `describe [<env>] [<format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
+| `describe [<env>] [--format <format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
 | `why <resource>` | both | bundled doctrine excerpts | stdout |
 | `bootstrap` | elastic only (no-op on fixed) | `project.yml`, AWS creds | AWS: S3 bucket + DynamoDB table for tofu state |
 | `up <env>` | fixed envs only (`dev`/`test`) | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env` | host docker (compose up; runs migrations after) |

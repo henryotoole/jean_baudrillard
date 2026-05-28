@@ -29,7 +29,6 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
             "host": {"fixed": "${global_service_name}", "elastic": "@aws_db_instance.${name}.endpoint"},
             "port": {"fixed": "${port}", "elastic": "${port}"},
             "user": {"fixed": "$[POSTGRES_USER]", "elastic": "$[POSTGRES_USER]"},
-            "url": {"fixed": "postgres://$[POSTGRES_USER]@${global_service_name}:${port}/${name}"},
         },
         env={"POSTGRES_USER": "the postgres user"},
         naming={"separator": "hyphen", "case": "lower", "max_len": 63},
@@ -116,16 +115,15 @@ def test_resolve_simple_magic_ref():
     assert rendered.value == "p-dev-database"
 
 
-def test_resolve_magic_ref_chain_with_runtime_refs():
-    """A magic ref pointing at a template that itself contains $[VAR]
-    propagates the VAR into the consumer's runtime refs."""
+def test_resolve_secret_part_propagates_runtime_ref():
+    """A magic ref to a secret part (whose template is a bare $[VAR])
+    resolves to that ref and propagates the VAR into the consumer's
+    runtime refs, so the compiler can wire it into the container."""
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
-        "${backing_services.database.url}", consumer="api"
+        "${backing_services.database.user}", consumer="api"
     )
-    # The DB url template renders out to the fixed form.
-    assert "postgres://" in rendered.value
-    assert "p-dev-database" in rendered.value
+    assert rendered.value == "$[POSTGRES_USER]"
     assert "POSTGRES_USER" in rendered.runtime_refs
     assert "POSTGRES_USER" in resolver.runtime_refs["api"]
 
@@ -162,3 +160,16 @@ def test_dependency_tracking():
     )
     deps = [(d.consumer, d.target, d.part) for d in resolver.deps]
     assert ("api", "database", "host") in deps
+
+
+def test_magic_ref_empty_resolution_errors():
+    """A magic ref to a part that resolves to empty (e.g. an unset port
+    with no engine default) is a hard error, not a silent empty emit."""
+    resolver, _ = _make_resolver()
+    # Simulate a database with neither a declared port nor an engine
+    # default: the port context var is empty, so ${port} resolves to "".
+    resolver.contexts["database"]["port"] = ""
+    with pytest.raises(SubstitutionError):
+        resolver.resolve_in_string(
+            "${backing_services.database.port}", consumer="api"
+        )

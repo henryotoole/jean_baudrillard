@@ -4,19 +4,20 @@
 # Uses plain psql to keep the fixture dependency footprint minimal.
 # Real projects would typically use dbmate or alembic.
 #
-# Expects the env vars the service itself uses: POSTGRES_HOST,
-# POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB. The compose stack
-# injects these via the rendered .env file.
+# Expects the connection parts the service itself uses at runtime:
+# DATABASE_HOST, DATABASE_USER, DATABASE_PASSWORD, DATABASE_NAME — the
+# same env vars the app binds from the database backing service's
+# provided parts. The compose stack injects these via the rendered .env.
 set -eu
 
 cd "$(dirname "$0")"
 
-: "${POSTGRES_HOST:?POSTGRES_HOST must be set}"
-: "${POSTGRES_USER:?POSTGRES_USER must be set}"
-: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
-: "${POSTGRES_DB:=${POSTGRES_USER}}"
+: "${DATABASE_HOST:?DATABASE_HOST must be set}"
+: "${DATABASE_USER:?DATABASE_USER must be set}"
+: "${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set}"
+: "${DATABASE_NAME:=${DATABASE_USER}}"
 
-export PGPASSWORD="$POSTGRES_PASSWORD"
+export PGPASSWORD="$DATABASE_PASSWORD"
 
 # We shell out to python+psycopg2 rather than installing psql, since
 # psycopg2-binary is already in the image.
@@ -31,10 +32,10 @@ last_exc = None
 for attempt in range(15):
     try:
         conn = psycopg2.connect(
-            host=os.environ["POSTGRES_HOST"],
-            user=os.environ["POSTGRES_USER"],
-            password=os.environ["POSTGRES_PASSWORD"],
-            dbname=os.environ.get("POSTGRES_DB", os.environ["POSTGRES_USER"]),
+            host=os.environ["DATABASE_HOST"],
+            user=os.environ["DATABASE_USER"],
+            password=os.environ["DATABASE_PASSWORD"],
+            dbname=os.environ.get("DATABASE_NAME", os.environ["DATABASE_USER"]),
         )
         break
     except psycopg2.OperationalError as exc:

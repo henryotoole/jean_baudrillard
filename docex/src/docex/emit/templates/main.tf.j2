@@ -15,14 +15,14 @@ terraform {
   backend "s3" {
     bucket         = "{{ project }}-tofu-state"
     key            = "{{ env }}/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "{{ region }}"
     dynamodb_table = "{{ project }}-tofu-locks"
     encrypt        = true
   }
 }
 
 provider "aws" {
-  region = "us-east-1"
+  region = "{{ region }}"
 }
 
 # AWS account ID — used downstream for SSM parameter ARNs in ECS
@@ -220,6 +220,20 @@ resource "aws_ecs_cluster" "cluster" {
 resource "aws_route53_record" "env" {
   zone_id = data.aws_route53_zone.project.zone_id
   name    = "{{ subdomain }}"
+  type    = "A"
+  alias {
+    name                   = aws_lb.alb.dns_name
+    zone_id                = aws_lb.alb.zone_id
+    evaluate_target_health = false
+  }
+}
+
+# Per-service subdomains (<service>.{{ subdomain }}) all resolve to the
+# same ALB; the listener rules dispatch by host header. One wildcard record
+# covers every web service in this env.
+resource "aws_route53_record" "env_wildcard" {
+  zone_id = data.aws_route53_zone.project.zone_id
+  name    = "*.{{ subdomain }}"
   type    = "A"
   alias {
     name                   = aws_lb.alb.dns_name

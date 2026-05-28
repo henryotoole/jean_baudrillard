@@ -14,6 +14,7 @@ errors.
 
 from __future__ import annotations
 
+import base64
 import time
 from typing import Any
 
@@ -25,17 +26,14 @@ from botocore.exceptions import (  # noqa: S402
     NoCredentialsError,
 )
 
+from docex import ELASTIC_REGION
 from docex.errors import AWSCredentialsMissing, ECSTaskFailed
-
-
-# Project doctrine pins us-east-1 as the only supported region for elastic.
-_REGION = "us-east-1"
 
 
 def _config() -> Config:
     """boto3 client config with conservative retries."""
     return Config(
-        region_name=_REGION,
+        region_name=ELASTIC_REGION,
         retries={"max_attempts": 5, "mode": "standard"},
     )
 
@@ -48,7 +46,7 @@ class Boto3AWSClient:
     ``Boto3AWSClient`` but never call into AWS) fast.
     """
 
-    def __init__(self, *, region: str = _REGION) -> None:
+    def __init__(self, *, region: str = ELASTIC_REGION) -> None:
         self._region = region
         self._session: Any = None
         self._clients: dict[str, Any] = {}
@@ -280,6 +278,36 @@ class Boto3AWSClient:
                     f"(last status={last_status!r})"
                 )
             time.sleep(poll_interval)
+
+    # ------------------------------------------------------------------
+    # ECR
+    # ------------------------------------------------------------------
+
+    def ecr_authorization_token(self) -> tuple[str, str]:
+        ecr = self._client("ecr")
+        resp = ecr.get_authorization_token()
+        data = resp["authorizationData"][0]
+        token = base64.b64decode(data["authorizationToken"]).decode("utf-8")
+        username, _, password = token.partition(":")
+        return username, password
+
+    def ecr_ensure_repository(self, name: str) -> None:
+        ecr = self._client("ecr")
+        try:
+            ecr.describe_repositories(repositoryNames=[name])
+            return
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code != "RepositoryNotFoundException":
+                raise
+        # Not found — create it. A concurrent create racing us would
+        # surface RepositoryAlreadyExistsException; treat that as success.
+        try:
+            ecr.create_repository(repositoryName=name)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code != "RepositoryAlreadyExistsException":
+                raise
 
     # ------------------------------------------------------------------
     # EC2 / ECS lookups

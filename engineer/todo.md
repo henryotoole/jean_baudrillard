@@ -50,7 +50,11 @@ Changes:
 4. `repo_url` simply is not part of `docex` right now.
 5. `docex` prints "Compiled 4 environments" after success *or* failure. Probably shouldn't print in case of failure.
 
-### Container Registry Handling
+### ~~Enforced Symmetry for URL Creation~~
+
+The doctrine currently delivers backing-service connection information asymmetrically across foundations: on `fixed`, a consuming service can be handed a fully-composed connection string, whereas on `elastic` only the discrete parts (host, port, db name, credentials) can be exposed — because elastic's secret injection (ECS `secrets[]` sourced from SSM) injects each secret as a whole standalone env var and cannot embed one inside a larger composed value without materializing it as plaintext in the task definition and Tofu state. This asymmetry means the same `infra.yml` can resolve differently across a single project's environments, and more importantly it breaks the doctrine's explicit guarantee that migrating a project from a fixed to an elastic foundation requires no structural change. The chosen action is to restore symmetry by standardizing on the *parts-only* model on both foundations: backing services expose discrete connection parts everywhere, and consuming services compose their own connection handle, making the pattern identical across all four environments and preserving fixed↔elastic portability.
+
+### ~~Container Registry Handling~~
 
 Right now, `infra.yml`'s `container_registry` handling is as follows:
 1. On fixed it is always required.
@@ -62,33 +66,41 @@ I think it would be better for `dev`/`test` to emit a registry-less local tag (m
 
 This implies both a change to the doctrine documentation and to `docex` itself.
 
-### Service Workdir
+### ~~Service Workdir~~
 
-The service workdir is not documented. I need to research this with claude:
+Dockerfiles are written by the project (e.g. they are "design"). However, there are some guidelines they must follow. One of these is only semi-documented - the workdir of a core service. `docex` seems to make these bind-mounts at `/service/*` e.g. `/service/src` and `/service/dist` within the container when it writes the compose.yml files.
 
-Hey claude, what should the container WORKDIR be for core service dockerfiles? What are our standards for bind mounts as documented? Does anything converge?
+First we need to figure out whether that has any basis in the doctrine or if that's just a choice made by the `docex` developers. Then, we need to figure out how to document that "standard" in the doctrine so project developers can write Dockerfile's correctly.
 
-### Required Service Scripts
+### ~~Required Service Scripts~~
 
 To run the starter `docex dev up` smoke test, there must be service scripts in every directory. This "contract" needs to be documented in the doctrine, and I need to modify the `inception` startup to create "dummy" versions that are empty.
 
-### Unresolved Magic Refs
+### ~~Unresolved Magic Refs~~
 
 Right now the behavior for an unresolved magic ref is for it to emit nothing. By unresolved, I mean the situation where a magic ref refers to a valid provided value for another service that is not actually written into that service's fields - like referring to the port on a `relational_db` backing service which has not actually been written.
 
 Suggested fix: default .port from the engine's transfer-table default; and make the compiler error on any magic ref that resolves to empty.
 
-### Undocumented Magic Ref Parts
+### ~~Undocumented Magic Ref Parts~~
 Magic refs pull from provided "parts", like ${backing_services.database.port}. However, there is no place where the available parts per-role are documented. They are, of course, actually defined in the transfer tables within `docex`. However, they need to be available either in the doctrine or as a `docex` command.
 
-### Multiple `web` Services
-What happens when we have `backend` and `frontend` - a very common split. One must be `api.${project_name}.${domain}` and the other `${project_name}.${domain}`. We need to document this. Where can this go? How can this be described succinctly? And should the doctrine provide the schema or make it a design concern.
+### ~~Multiple `web` Services~~
+What happens when we have `backend` and `frontend` - a very common split? One must be `api.${project_name}.${domain}` and the other `${project_name}.${domain}`. We need to document this. Where can this go? How can this be described succinctly? And should the doctrine provide the schema or make it a design concern.
 
-### Port 80 on `web` Services
+### ~~Port 80 on `web` Services~~
 Compile should reject `web` based services which host themselves on port 80 for `fixed` installations. The issue is that traefik does all the routing, often on one single machine, and so they can't all be on 80; in fact, none can be on 80 because the base traefik instance will be on 80.
 
 ### No Standard Aux Secrets
 When a core service needs a secret unique to its operations (for example, for a third party API like a discord bot) there is no standard way to define this. It can manually be written into the *.env files, but this is brittle and undocumented. It'd probably be best to add these to `infra.yml` as properties of each service. Let's work on this design.
+
+I think we can add something like the following to each core service block:
+```yml
+core_services:
+	api:
+    secrets:
+      BESPOKE_API_KEY: "This allows the service to use bespoke service to do some bespoke operation."
+```
 
 ## To Add To Autocommmands
 

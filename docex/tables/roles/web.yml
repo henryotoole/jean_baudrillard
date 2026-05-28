@@ -13,16 +13,15 @@
 
 roles:
   web:
+    description: "Core service — the project's own code, served behind the reverse proxy."
     container:
       foundation: both
       defaults:
-        fixed:
-          labels:
-            - "traefik.enable=true"
-            - "traefik.http.routers.${global_service_name}.rule=Host(`${env_subdomain}`)"
-            - "traefik.http.routers.${global_service_name}.entrypoints=websecure"
-            - "traefik.http.routers.${global_service_name}.tls=true"
-            - "traefik.http.services.${global_service_name}.loadbalancer.server.port=${port}"
+        # Routing is network-driven, not role-static: the compiler emits
+        # Traefik discovery labels (fixed) and an ALB target group + listener
+        # rule (elastic) for ANY service on the `web` network, with
+        # per-service subdomains. See networks.md and cicl.md § Domain.
+        fixed: {}
         elastic:
           launch_type: FARGATE
           network_mode: awsvpc

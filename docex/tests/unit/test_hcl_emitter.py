@@ -135,6 +135,32 @@ def test_elastic_emits_caller_identity_data_source(compiled_prod_tf: str):
     assert 'data "aws_caller_identity" "current"' in compiled_prod_tf
 
 
+def test_elastic_image_uses_ecr_when_no_registry(compiled_prod_tf: str):
+    """With no container_registry, the elastic image ref resolves to the
+    project ECR via data.aws_caller_identity (account id at apply time) —
+    never the <project-ecr> placeholder."""
+    tf = compiled_prod_tf
+    assert "<project-ecr>" not in tf
+    assert ".dkr.ecr.us-east-1.amazonaws.com/sample/api:0.1.0" in tf
+
+
+def test_elastic_secret_named_by_consumer_key(compiled_prod_tf: str):
+    """Model-A symmetry: a referenced secret part becomes an ECS secret
+    named after the *consumer's* env key (``DATABASE_USER``), with
+    ``valueFrom`` pointing at the underlying secret's SSM path
+    (``POSTGRES_USER``). The app must never receive the engine's bare var
+    name — that would diverge from the fixed/compose side."""
+    tf = compiled_prod_tf
+    assert 'name = "DATABASE_USER"' in tf
+    assert 'name = "DATABASE_PASSWORD"' in tf
+    # valueFrom carries the engine's canonical SSM key, not the app's name.
+    assert "/prod/POSTGRES_USER" in tf
+    assert "/prod/POSTGRES_PASSWORD" in tf
+    # The engine's bare var name must NOT be a container env/secret name.
+    assert 'name = "POSTGRES_USER"' not in tf
+    assert 'name = "POSTGRES_PASSWORD"' not in tf
+
+
 def test_elastic_does_not_emit_literal_runtime_refs(compiled_prod_tf: str):
     """No ``$[VAR]`` should survive to the emitted HCL.
 
@@ -172,20 +198,21 @@ def test_elastic_rds_username_uses_ssm_data_source(compiled_prod_tf: str):
 # ---------------------------------------------------------------------------
 
 
-def test_elastic_listener_rule_uses_env_subdomain(compiled_prod_tf: str):
-    """For prod, host_header.values must be ['www.example.com'], not ['prod']."""
-    assert 'values = ["www.example.com"]' in compiled_prod_tf
-    # And the bug form must NOT appear.
+def test_elastic_listener_rule_uses_per_service_hosts(compiled_prod_tf: str):
+    """For prod, the default web service's listener rule matches both the
+    bare env subdomain and its per-service host (dual-host)."""
+    assert 'values = ["www.example.com", "api.www.example.com"]' in compiled_prod_tf
+    # The env name must never appear as a host.
     assert 'values = ["prod"]' not in compiled_prod_tf
 
 
-def test_elastic_stage_listener_rule_uses_stage_subdomain(tmp_path: Path):
-    """For stage, host_header.values must be ['stage.example.com']."""
+def test_elastic_stage_listener_rule_uses_per_service_hosts(tmp_path: Path):
+    """Same dual-host for stage."""
     dest = tmp_path / "project"
     shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
     ctx = load_project_context(dest)
     rc = run_compile(ctx)
     assert rc == 0
     stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
-    assert 'values = ["stage.example.com"]' in stage_tf
+    assert 'values = ["stage.example.com", "api.stage.example.com"]' in stage_tf
     assert 'values = ["stage"]' not in stage_tf

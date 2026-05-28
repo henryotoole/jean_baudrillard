@@ -79,6 +79,28 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     return out
 
 
+def _traefik_labels(svc: CompiledService) -> list[str]:
+    """Traefik discovery labels for a web-network service.
+
+    The router rule ORs together every host the service answers at — a
+    service is reachable at ``<service>.<env>.<domain>``, and the
+    ``domain_default_service`` additionally at the bare ``<env>.<domain>``.
+    Traefik reaches the container over the docker network on ``svc.port``;
+    no host port is published. These are generated here (per ``web_hosts``)
+    rather than carried as static labels in the transfer table, so routing
+    is driven by network membership, not role.
+    """
+    gname = svc.global_name
+    rule = " || ".join(f"Host(`{h}`)" for h in svc.web_hosts)
+    return [
+        "traefik.enable=true",
+        f"traefik.http.routers.{gname}.rule={rule}",
+        f"traefik.http.routers.{gname}.entrypoints=websecure",
+        f"traefik.http.routers.{gname}.tls=true",
+        f"traefik.http.services.{gname}.loadbalancer.server.port={svc.port}",
+    ]
+
+
 def _service_block(svc: CompiledService) -> dict[str, Any]:
     """Render one compiled service into a compose-ready dict."""
     block = dict(svc.body)
@@ -211,16 +233,12 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             else:
                 block["environment"] = env_translated
 
-        # Also propagate every $[VAR] runtime ref into the service
-        # environment, even if not set directly — compose needs an
-        # ``environment:`` key for the var to be passed through.
-        if svc.runtime_refs:
-            env_present = block.get("environment")
-            if not isinstance(env_present, dict):
-                env_present = {}
-            for ref in sorted(svc.runtime_refs):
-                env_present.setdefault(ref, "${" + ref + "}")
-            block["environment"] = env_present
+        # Network-driven routing: any web-network service (core or backing
+        # container) gets Traefik discovery labels with its per-service
+        # host(s). The machine-wide Traefik routes those subdomains to the
+        # container over the docker network — no host port is published.
+        if svc.web_hosts:
+            block["labels"] = _traefik_labels(svc)
 
         services[svc.global_name] = block
 

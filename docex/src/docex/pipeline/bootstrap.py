@@ -16,13 +16,10 @@ with a clean "no-op" message.
 
 from __future__ import annotations
 
+from docex import ELASTIC_REGION
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.errors import BootstrapFailed
-
-
-# CICL simplification: only us-east-1 is supported.
-_REGION = "us-east-1"
 
 
 def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
@@ -41,7 +38,7 @@ def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
     try:
         # S3 bucket — idempotent create.
         if not aws.s3_bucket_exists(bucket):
-            aws.s3_create_bucket(bucket, region=_REGION)
+            aws.s3_create_bucket(bucket, region=ELASTIC_REGION)
             print(f"bootstrap: created S3 bucket {bucket}")
         else:
             print(f"bootstrap: S3 bucket {bucket} already exists")
@@ -61,11 +58,11 @@ def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
     except Exception as exc:
         # Surface a clean DocexError so the dispatcher renders nicely.
         raise BootstrapFailed(
-            f"bootstrap failed against project {project!r} in region {_REGION!r}: {exc}"
+            f"bootstrap failed against project {project!r} in region {ELASTIC_REGION!r}: {exc}"
         ) from exc
 
     print(
         f"bootstrap: project {project!r} state backend ready "
-        f"(region={_REGION})."
+        f"(region={ELASTIC_REGION})."
     )
     return 0

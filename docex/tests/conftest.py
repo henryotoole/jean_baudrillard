@@ -136,6 +136,11 @@ class FakeDockerClient:
         self.calls.append(key)
         return self.exit_codes.get(key, self._fallback("push"))
 
+    def login(self, registry: str, *, username: str, password: str) -> int:
+        key = ("login", registry, username)
+        self.calls.append(key)
+        return self.exit_codes.get(key, self._fallback("login"))
+
     def inspect_image_digest(self, tag: str) -> str:
         self.calls.append(("inspect_image_digest", tag))
         return f"sha256:fakedigest-for-{tag}"
@@ -472,6 +477,15 @@ class FakeAWSClient:
         )
         # Scripted exit codes by task ARN; default 0 if unset.
         return self.ecs_exit_codes.get(task_arn, 0)
+
+    # -- ECR -----------------------------------------------------------
+
+    def ecr_authorization_token(self) -> tuple[str, str]:
+        self._record("ecr_authorization_token")
+        return ("AWS", "fake-ecr-token")
+
+    def ecr_ensure_repository(self, name: str) -> None:
+        self._record("ecr_ensure_repository", name)
 
     # -- Lookups -------------------------------------------------------
 

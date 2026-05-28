@@ -12,10 +12,14 @@ Phase 4 hardened the emitter so its output passes ``tofu validate``:
   :mod:`docex.cicl.fargate` and the compiler's ``_resources_to_elastic``).
 - Ephemeral storage floor 21 GiB / ceiling 200 GiB (same).
 - ``$[VAR]`` → ECS ``secrets[]`` block, not literal ``environment[]``
-  entries. Implemented below in ``render_core``: env entries with
-  unresolved runtime refs are partitioned into ``secrets[]`` whose
-  ``valueFrom`` points at ``/<project>/<env>/<KEY>`` in SSM Parameter
-  Store. The account ID is referenced from
+  entries. Implemented below in ``render_core``: a core service env
+  value that is a bare ``$[REF]`` becomes a ``secrets[]`` entry named
+  after the *consumer's* env key, whose ``valueFrom`` points at
+  ``/<project>/<env>/<REF>`` in SSM Parameter Store. Naming by the
+  consumer's key (not ``REF``) keeps the container's env-var surface
+  identical to the fixed/compose side — the parts-only symmetry
+  guarantee. Composed secrets are rejected earlier, by the compiler.
+  The account ID is referenced from
   ``data.aws_caller_identity.current.account_id`` so compile stays
   pure (no AWS creds needed).
 - RDS password / username sourced from ``data "aws_ssm_parameter"``
@@ -33,6 +37,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from docex import ELASTIC_REGION
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
 
@@ -120,7 +125,7 @@ def _ssm_arn_literal(project: str, env: str, var: str) -> HCLLiteral:
     # with HCL interpolation embedded via ``${...}``. The interpolation
     # produces the account ID at apply time.
     return HCLLiteral(
-        f'"arn:aws:ssm:us-east-1:${{data.aws_caller_identity.current.account_id}}'
+        f'"arn:aws:ssm:{ELASTIC_REGION}:${{data.aws_caller_identity.current.account_id}}'
         f':parameter/{project}/{env}/{var}"'
     )
 
@@ -241,7 +246,7 @@ def render_backing(svc: CompiledService, *, project: str, env: str) -> str:
     return "\n".join(out)
 
 
-def render_core(svc: CompiledService, *, project: str, env: str, subdomain: str) -> str:
+def render_core(svc: CompiledService, *, project: str, env: str, priority: int) -> str:
     """Render a core service to ECS task definition + service + (optional) target group.
 
     Phase 4 partitions the service's env block into ``environment[]``
@@ -257,7 +262,6 @@ def render_core(svc: CompiledService, *, project: str, env: str, subdomain: str)
 
     env_entries: list[dict[str, Any]] = []
     secret_entries: list[dict[str, Any]] = []
-    secret_keys_seen: set[str] = set()
 
     for k in sorted(svc.env):
         v = svc.env[k]
@@ -268,51 +272,24 @@ def render_core(svc: CompiledService, *, project: str, env: str, subdomain: str)
             env_entries.append({"name": k, "value": HCLLiteral(f'"${{{str(v)}}}"')})
             continue
         if isinstance(v, str):
-            runtime_refs = _RUNTIME_REF_RE.findall(v)
-            if runtime_refs:
-                # The value contains $[VAR] — treat each ref as an ECS
-                # secret. The doctrine invariant (transfer_tables.md
-                # § Substitution Grammar) says these never appear as
-                # literal strings in compiled artifacts.
-                #
-                # We emit one secrets[] entry per distinct $[VAR] in
-                # the value. If the value has structure beyond a bare
-                # token (e.g. ``$[POSTGRES_USER]:$[POSTGRES_PASSWORD]@...``)
-                # we still emit secrets[] for each VAR — ECS exposes
-                # them as env vars at task start, and the application
-                # composes the URL itself per the doctrine pattern.
-                for ref in runtime_refs:
-                    if ref in secret_keys_seen:
-                        continue
-                    secret_keys_seen.add(ref)
-                    secret_entries.append({
-                        "name": ref,
-                        "valueFrom": _ssm_arn_literal(project, env, ref),
-                    })
-                # The CICL env-block key (k) itself: if it equals the
-                # runtime ref name (the common case), don't double-emit.
-                # If it's a different name (e.g. ``DATABASE_URL: ...``)
-                # we drop the env entry entirely — the app rebuilds it
-                # from the SSM-sourced parts.
+            m = _RUNTIME_REF_RE.fullmatch(v)
+            if m is not None:
+                # Secret part. By the parts-only rule (enforced in the
+                # compiler), a secret resolves to exactly one bare $[REF].
+                # Emit an ECS secret named after the *consumer's* key (k),
+                # with valueFrom pointing at the underlying secret's SSM
+                # path — keeping the container's env-var surface identical
+                # to the fixed/compose side.
+                secret_entries.append({
+                    "name": k,
+                    "valueFrom": _ssm_arn_literal(project, env, m.group(1)),
+                })
                 continue
             # Plain string with no runtime refs.
             env_entries.append({"name": k, "value": v})
             continue
         # Non-string scalar — stringify and emit as plain env.
         env_entries.append({"name": k, "value": str(v)})
-
-    # Also propagate any runtime_refs the compiler tracked for this
-    # service that aren't already in secret_keys_seen. These come from
-    # backing-service ``env:`` declarations that get pulled into the
-    # consumer's container per transfer_tables.md § env (purpose 2).
-    for ref in sorted(svc.runtime_refs):
-        if ref in secret_keys_seen:
-            continue
-        secret_keys_seen.add(ref)
-        secret_entries.append({
-            "name": ref,
-            "valueFrom": _ssm_arn_literal(project, env, ref),
-        })
 
     container_def: dict[str, Any] = {
         "name": svc.name,
@@ -400,15 +377,17 @@ def render_core(svc: CompiledService, *, project: str, env: str, subdomain: str)
         out.append("")
         out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
         out.append( '  listener_arn = aws_lb_listener.alb_https.arn')
-        out.append( '  priority     = 100')
+        out.append(f'  priority     = {priority}')
         out.append( '  action {')
         out.append( '    type             = "forward"')
         out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
         out.append( '  }')
         out.append( '  condition {')
         out.append( '    host_header {')
-        # Phase 4 fix: use the env's full subdomain, not just the env name.
-        out.append(f'      values = ["{subdomain}"]')
+        # Per-service host(s): <service>.<env>.<domain>, plus the bare
+        # <env>.<domain> for the domain_default_service.
+        hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
+        out.append(f'      values = [{hosts_hcl}]')
         out.append( '    }')
         out.append( '  }')
         out.append("}")
@@ -453,12 +432,17 @@ def emit_hcl(compiled: CompiledEnv, out_path: Path) -> None:
     def _backing(svc: CompiledService) -> str:
         return render_backing(svc, project=compiled.project, env=compiled.env)
 
+    # ALB listener rules need a unique priority per web service. Assign
+    # deterministically from the sorted web-core services (100, 101, ...).
+    _web_core = [s for s in core if "web" in s.networks]
+    _priorities = {s.name: 100 + i for i, s in enumerate(_web_core)}
+
     def _core(svc: CompiledService) -> str:
         return render_core(
             svc,
             project=compiled.project,
             env=compiled.env,
-            subdomain=compiled.subdomain,
+            priority=_priorities.get(svc.name, 100),
         )
 
     rendered = tpl.render(
@@ -467,6 +451,7 @@ def emit_hcl(compiled: CompiledEnv, out_path: Path) -> None:
         env=compiled.env,
         domain=compiled.domain,
         subdomain=compiled.subdomain,
+        region=ELASTIC_REGION,
         networks_sorted=sorted(compiled.networks),
         backing_services=backing,
         core_services=core,

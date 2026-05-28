@@ -52,7 +52,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | repo | prerequisite | github, gitlab, etc. | The repository in which project code, docs, infra declarations, etc. are stored. |
 | dns | project | AWS Route53 | DNS handling which project can drive. Each project gets a hosted zone for its domain. |
 | vpc | project | AWS VPC | The project's private network space, shared across all elastic environments. Contains the subnets, IGW, and NAT gateways needed by every environment. |
-| cert_manager | project | AWS ACM certificate | TLS certificate covering `*.<domain>`, used by environment [reverse_proxy]s. |
+| cert_manager | project | AWS ACM certificate | TLS certificate covering `*.${domain}` **and** `*.${env}.${domain}` for each env (`*.dev.${domain}`, `*.test.${domain}`, `*.stage.${domain}`, `*.www.${domain}`), so per-service subdomains like `backend.dev.${domain}` are covered. Used by environment [reverse_proxy]s. |
 | container_registry | project | AWS ECR | The project's container registry, holding [build_image]s. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |
 | network | environment | AWS security group | A security group within the project [vpc], scoping access between [service]s. |
@@ -84,6 +84,7 @@ Consider a project with the following minimal `infra.yml`:
 cicl_version: "1"
 foundation: elastic
 domain: "example.com"
+domain_default_service: api
 container_registry: "registry.example.com"
 repo_url: "https://github.com/owner_account/project_name"
 
@@ -93,7 +94,11 @@ core_services:
 		port: 8080
 		networks: [web, internal]
 		env:
-			DATABASE_URL: ${backing_services.database.url}
+			DATABASE_HOST: ${backing_services.database.host}
+			DATABASE_PORT: ${backing_services.database.port}
+			DATABASE_NAME: ${backing_services.database.db}
+			DATABASE_USER: ${backing_services.database.user}
+			DATABASE_PASSWORD: ${backing_services.database.password}
 		resources:
 			cpu: 1.0
 			memory: 2GB
@@ -113,10 +118,10 @@ A `docker-compose.yml` at the project root containing:
 
 - Two networks: `myproject_dev_web`, `myproject_dev_internal`
 - A named volume: `myproject_dev_database_data`
-- An `api` container on both networks, with Traefik labels for host `dev.example.com`, environment `DATABASE_URL` resolved against the postgres URL template
+- An `api` container on both networks (no published host port), with Traefik labels routing both `dev.example.com` (it's the `domain_default_service`) and `api.dev.example.com` to it, plus `DATABASE_*` env for internally constructing the db url
 - A `database` container on the internal network, postgres 15 image, env vars and healthcheck per the transfer table
 
-Traefik (machine-wide, outside scope) discovers `api` and routes `dev.example.com` to it. The developer accesses the project at that subdomain on the dev machine.
+Traefik (machine-wide, outside scope) discovers `api` and routes `dev.example.com` and `api.dev.example.com` to it over the docker network. The developer accesses the project at those subdomains on the dev machine.
 
 ### Compiled for `prod` (elastic shape)
 
@@ -125,7 +130,7 @@ HCL files describing:
 **Project infrastructure (emitted once for the project):**
 - VPC `myproject` (`10.0.0.0/16`), IGW, 2× NAT gateways
 - Route53 zone for `example.com`
-- ACM cert for `*.example.com`
+- ACM cert for `*.example.com` plus the per-env wildcards `*.dev.example.com`, `*.test.example.com`, `*.stage.example.com`, `*.www.example.com`
 - ECR repo for the `api` image
 
 **Environment infrastructure (emitted for `prod`):**
@@ -134,6 +139,6 @@ HCL files describing:
 - 1 ALB `myproject_prod_alb` in the public subnets, listening on 443 with the project ACM cert
 - 1 ECS cluster + 1 ECS service for `api`, attached to both SGs, registered as an ALB target
 - 1 RDS instance for `database` (identifier `myproject-prod-database`), in the private subnets, attached only to the `internal` SG
-- 1 Route53 A-record: `www.example.com` → `myproject_prod_alb`
+- 2 Route53 A-records: `www.example.com` and the wildcard `*.www.example.com` → `myproject_prod_alb` (the bare host serves the `domain_default_service`; the wildcard serves every `${service}.www.example.com`)
 
-The `api` service runs in private subnets, attached to both the `web` SG (so the ALB can reach it) and the `internal` SG (so it can reach `database`). The `database` runs in private subnets, attached only to the `internal` SG. The two are wired together by the URL template the transfer table defines for postgres on elastic, with the RDS endpoint substituted at HCL-generation time.
+The `api` service runs in private subnets, attached to both the `web` SG (so the ALB can reach it) and the `internal` SG (so it can reach `database`). The `database` runs in private subnets, attached only to the `internal` SG. The two are wired together by the discrete connection parts the postgres engine's `provides:` block defines: `host` resolves to the live RDS endpoint (an `@aws_db_instance.database.endpoint` pass-through), while `user`/`password` arrive as ECS `secrets[]` sourced from SSM. `api` composes its own connection string from those parts at startup.

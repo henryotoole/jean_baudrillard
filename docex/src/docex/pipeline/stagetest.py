@@ -10,6 +10,12 @@ Per [docex.md § stagetest] and [cicd.md § Staging Tests]:
      project bind-mounted at ``/project``. Invoke
      ``/project/infra/stage/stage_test.sh`` with ``$STAGING_URL`` set.
   4. Propagate the container's exit code.
+
+``network_override`` lets a caller put the tester on a specific docker
+network instead of the host network — needed when the target is only
+reachable over a project network (e.g. a local stand-in: web services no
+longer publish host ports, so the tester reaches them by container name
+on the env's ``web`` network).
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ def run_stagetest(
     docker: DockerClient,
     *,
     staging_url_override: str | None = None,
+    network_override: str | None = None,
 ) -> int:
     """Run the stage smoke tests. Returns exit code."""
     infra = ctx.infra
@@ -90,7 +97,7 @@ def run_stagetest(
         mounts=[(project_root, "/project")],
         remove=True,
         env={"STAGING_URL": staging_url},
-        network="host",
+        network=network_override or "host",
     )
     if rc == 0:
         print(f"stagetest: passed (staging_url={staging_url}).")

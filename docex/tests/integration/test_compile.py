@@ -15,6 +15,7 @@ import pytest
 
 from docex.cicl.compile import run_compile
 from docex.context import load_project_context
+from docex.errors import ValidationError
 
 
 _FIXTURE_FIXED = Path(__file__).resolve().parent.parent / "fixtures" / "sample_project"
@@ -94,18 +95,85 @@ def test_compile_is_deterministic(tmp_path: Path):
 
 
 def test_compile_resolves_magic_ref_in_env(tmp_path: Path):
-    """The api service's DATABASE_URL magic ref must resolve to the
-    postgres-engine fixed URL template."""
+    """The api service's DATABASE_* magic refs resolve to the postgres
+    engine's discrete parts (parts-only model — no composed url)."""
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     compose = (root / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
-    assert "DATABASE_URL: postgres://" in compose
-    # Compose runtime form uses ${VAR} not $[VAR].
-    assert "${POSTGRES_USER}" in compose
-    assert "$[POSTGRES_USER]" not in compose
-    # Hostname is the project-scoped service name.
+    # host part resolves to the project-scoped service name.
+    assert "DATABASE_HOST" in compose
     assert "sample-dev-database" in compose
+    # secret parts: compose runtime form uses ${VAR}, never $[VAR].
+    assert "DATABASE_USER" in compose
+    assert "${POSTGRES_USER}" in compose
+    assert "${POSTGRES_PASSWORD}" in compose
+    assert "$[POSTGRES_USER]" not in compose
+    # The composed url part is gone entirely.
+    assert "DATABASE_URL" not in compose
+    assert "postgres://" not in compose
+
+
+def test_dev_test_images_are_registry_less(tmp_path: Path):
+    """dev/test build locally, so the image is a registry-less local tag —
+    never the container_registry host, never the <project-ecr> placeholder."""
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    for env in ("dev", "test"):
+        compose = (root / "infra" / "output" / env / "docker-compose.yml").read_text()
+        assert "image: sample/api:0.1.0" in compose
+        assert "registry.example.com/sample/api" not in compose
+        assert "<project-ecr>" not in compose
+
+
+def test_stage_prod_images_use_registry(tmp_path: Path):
+    """Fixed stage/prod pull from the registry — the image carries the
+    full container_registry host."""
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    for env in ("stage", "prod"):
+        compose = (root / "infra" / "output" / env / "docker-compose.yml").read_text()
+        assert "image: registry.example.com/sample/api:0.1.0" in compose
+
+
+def test_backing_service_port_defaults_from_engine(tmp_path: Path):
+    """A backing service that omits `port:` still resolves its `.port`
+    magic ref — from the engine's transfer-table default_port (postgres
+    → 5432)."""
+    import yaml
+
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    # Drop the explicit `port: 5432` from the database backing service.
+    text = "\n".join(
+        line for line in infra_yml.read_text().splitlines()
+        if line.strip() != "port: 5432"
+    )
+    infra_yml.write_text(text)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    compose = (root / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
+    doc = yaml.safe_load(compose)
+    api = next(b for k, b in doc["services"].items() if k.endswith("api"))
+    assert str(api["environment"]["DATABASE_PORT"]) == "5432"
+
+
+def test_composed_secret_in_env_fails_compile(tmp_path: Path):
+    """Embedding a secret part inside a composed env value violates the
+    parts-only rule and must fail compile (on any foundation)."""
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    text = infra_yml.read_text().replace(
+        "      DATABASE_USER: ${backing_services.database.user}",
+        "      DATABASE_USER: ${backing_services.database.user}\n"
+        "      DATABASE_URL: postgres://${backing_services.database.user}@h/db",
+    )
+    infra_yml.write_text(text)
+    ctx = load_project_context(root)
+    with pytest.raises(ValidationError):
+        run_compile(ctx)
 
 
 def test_example_env_includes_postgres_keys(tmp_path: Path):
@@ -116,6 +184,58 @@ def test_example_env_includes_postgres_keys(tmp_path: Path):
     assert "POSTGRES_USER=" in example
     assert "POSTGRES_PASSWORD=" in example
     assert "# database" in example
+
+
+_SECRET_INFRA = """\
+cicl_version: "1"
+foundation: __FND__
+domain: example.com
+container_registry: reg.example.com
+domain_default_service: api
+core_services:
+  api:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    secrets:
+      BESPOKE_API_KEY: "key for the bespoke API"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+      disk: 25GB
+"""
+
+
+def _write_scratch(tmp_path: Path, foundation: str) -> Path:
+    proj = tmp_path / "p"
+    (proj / "infra").mkdir(parents=True)
+    (proj / "project.yml").write_text('name: p\nversion: "0.1.0"\ndocex_version: "0.4.0"\n')
+    (proj / "infra" / "infra.yml").write_text(_SECRET_INFRA.replace("__FND__", foundation))
+    return proj
+
+
+def test_core_secret_in_example_env_and_compose(tmp_path: Path):
+    """A core service's `secrets:` key surfaces in example.env (grouped under
+    the service) and is wired into the container as a runtime secret."""
+    proj = _write_scratch(tmp_path, "fixed")
+    run_compile(load_project_context(proj))
+    example = (proj / "infra" / "secrets" / "example.env").read_text()
+    assert "# api (core service)" in example
+    assert "BESPOKE_API_KEY=" in example
+    compose = (proj / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
+    # Delivered via compose ${VAR} substitution, never the literal $[VAR].
+    assert "${BESPOKE_API_KEY}" in compose
+    assert "$[BESPOKE_API_KEY]" not in compose
+
+
+def test_core_secret_becomes_ecs_secret_on_elastic(tmp_path: Path):
+    """On elastic the same secret becomes an ECS secrets[] entry sourced from
+    SSM under its own key."""
+    proj = _write_scratch(tmp_path, "elastic")
+    run_compile(load_project_context(proj))
+    tf = (proj / "infra" / "output" / "prod" / "main.tf").read_text()
+    assert 'name = "BESPOKE_API_KEY"' in tf
+    assert "/prod/BESPOKE_API_KEY" in tf
 
 
 def test_compose_depends_on_uses_global_service_keys(tmp_path: Path):

@@ -1,8 +1,9 @@
 """Integration test for ``docex stagetest``.
 
 Brings up the sample fixture's dev stack (acting as a stand-in for a
-deployed staging env) and runs ``docex stagetest`` with the staging
-URL pointed at ``http://localhost:8080``.
+deployed staging env) and runs ``docex stagetest`` against it. Web
+services publish no host ports, so the tester is attached to the env's
+``web`` docker network and reaches the api by container name.
 """
 
 from __future__ import annotations
@@ -33,18 +34,23 @@ def fresh_project(tmp_path: Path) -> Path:
 
 @pytest.mark.integration
 def test_stagetest_against_local_dev(fresh_project: Path):
-    """Bring up dev, run stagetest pointing at localhost:8080, expect 200."""
+    """Bring up dev, run stagetest against the api over the env's web network
+    (web services publish no host ports), expect 200."""
     ctx = load_project_context(fresh_project)
     docker = SubprocessDockerClient()
     rc = run_up(ctx, docker, env="dev")
     if rc != 0:
         pytest.skip(f"could not bring up dev stack: rc={rc}")
 
+    project = ctx.project.name  # "sample"
     try:
         rc = run_stagetest(
             ctx,
             docker,
-            staging_url_override="http://localhost:8080",
+            # Reached by container name on the env's web docker network —
+            # no host port is published.
+            staging_url_override=f"http://{project}-dev-api:8080",
+            network_override=f"{project}_dev_web",
         )
         assert rc == 0
     finally:

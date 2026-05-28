@@ -87,7 +87,7 @@ Every core service gets a `build.sh` script. This is responsible for turning `so
 `build.sh` is the **single canonical build entry point** for every core service. It is invoked in two contexts, but it is the same script in both:
 
 1. **Inside `docker build`** (canonical, authoritative). The Dockerfile's `build` stage `COPY`s `src/` and runs `./build.sh`, depositing artifacts at a known path inside that stage. The `prod` and `test` stages then `COPY --from=build` those artifacts into the final image. This is the path that produces images shipped to `stage` and `prod`.
-2. **Inside a running `dev` container** (iteration convenience). The `dev` stage carries the same build tools. The container has `src/` and `dist/` bind-mounted from the host; running `build.sh` inside it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
+2. **Inside a running `dev` container** (iteration convenience). The `dev` stage carries the same build tools. The container has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` inside it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
 
 Because the authoritative build runs *inside* `docker build`, the artifact is always produced on whatever platform the image is being built for — set explicitly by `docker buildx --platform` during [`docex containerize`](#containerize-step). A developer on an arm64 Mac thus produces correct amd64 production images: the build runs under emulation inside the buildx context, not on the host. There is no path by which a host-architecture artifact can be smuggled into a prod image, because the artifact in a prod image is always produced inside the same `docker build` invocation that produces the image.
 
@@ -102,7 +102,7 @@ The build step is required for any environment to actually function. The develop
 This is what runs inside the Dockerfile during `docex containerize`, `docex up`, and `docex test`. It is not invoked directly by `docex build`.
 
 1. The `build` Dockerfile stage `COPY`s `src/` (and any other build inputs).
-2. It runs `./build.sh`, which deposits artifacts to `dist/` inside the stage.
+2. It runs `./build.sh`, which deposits artifacts to `/service/dist` inside the stage.
 3. The `prod` and `test` stages `COPY --from=build` those artifacts into their final image.
 4. A non-zero exit from `build.sh` fails the `docker build` and aborts the calling `docex` command.
 

@@ -18,8 +18,10 @@
 
 roles:
   relational_db:
+    description: "Relational database backing service."
     postgres:
       foundation: both
+      default_port: 5432
       defaults:
         fixed:
           volumes:
@@ -67,11 +69,6 @@ roles:
         password:
           fixed: "$[POSTGRES_PASSWORD]"
           elastic: "$[POSTGRES_PASSWORD]"
-        # `url` is provided on fixed only. On elastic, consumers compose
-        # their URL from individual parts at startup; see
-        # transfer_tables.md (Apps that need a composed URL ...).
-        url:
-          fixed: "postgres://$[POSTGRES_USER]:$[POSTGRES_PASSWORD]@${global_service_name}:${port}/${name}"
       env:
         POSTGRES_USER: "The username of the postgres user"
         POSTGRES_PASSWORD: "The password of the postgres user"

@@ -204,6 +204,23 @@ class SubprocessDockerClient:
     def push(self, tag: str) -> int:
         return self._run([self._docker, "push", tag])
 
+    def login(self, registry: str, *, username: str, password: str) -> int:
+        # Password via stdin (``--password-stdin``) so it never appears
+        # in argv / the process table.
+        cmd = [
+            self._docker, "login",
+            "--username", username,
+            "--password-stdin",
+            registry,
+        ]
+        try:
+            res = subprocess.run(  # noqa: S603 - chokepoint
+                cmd, input=password, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return 127
+        return res.returncode
+
     def inspect_image_digest(self, tag: str) -> str:
         cmd = [
             self._docker, "image", "inspect",

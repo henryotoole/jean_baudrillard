@@ -20,6 +20,7 @@ The below yaml snippet is a non-exhaustive example of a CICL `infra.yml` file.
 cicl_version: "1"
 foundation: fixed # or "elastic". [More info](./infrastructure.md#foundation).
 domain: "example.com"
+domain_default_service: api  # the web service mapped to the bare <env>.<domain>
 container_registry: "registry.example.com"  # required for fixed; optional for elastic (defaults to project ECR)
 repo_url: "https://github.com/owner_account/project_name"
 
@@ -30,6 +31,13 @@ core_services:
 		port: 8080
 		env:
 			BUCKET_NAME:  ${backing_services.bucket.name}
+			DATABASE_HOST: ${backing_services.database.host}
+			DATABASE_PORT: ${backing_services.database.port}
+			DATABASE_NAME: ${backing_services.database.db}
+			DATABASE_USER: ${backing_services.database.user}
+			DATABASE_PASSWORD: ${backing_services.database.password}
+		secrets:
+			DISCORD_API_KEY: "Key to the discord bot used by the API."
 		resources:
 			cpu: 1.0
 			memory: 2GB
@@ -56,6 +64,7 @@ backing_services:
 
 	bucket:
 		role: object_store
+		port: 9000	# on the web network, so a routing port is required
 		engine: [minio, s3]
 		versioning: true	# A role-specific field.
 		depends_on: [reverse_proxy]
@@ -80,18 +89,31 @@ The table below lists all standard fields for services.
 | resources | yes | core | Computing resources the service requires at runtime. See [Resources](#resources). |
 | depends_on | no | both | List of services that must be running before this one starts. |
 | port | no | both | The port that the service should be available on. |
-| env | no | core | Contains fields which define environment variables for the container. |
+| env | no | core | Contains fields which define infrastructure-driven environment variables for the container. |
 | replicas | no | core | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. |
 | command | no | core | The command to run to launch the core service. |
+| secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Used to construct `example.env` later. |
 | engine | yes | backing | The underlying software package the service will use e.g. 'postgres', 'redis', etc. Can define two options if `fixed` and `elastic` foundations require different engines. |
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
 | schema_owned_by | sometimes | backing | Required for database roles (e.g. `relational_db`) to denote which core service owns the database schema and drives migrations. |
 
 Note that core services do **not** declare an `image` field. Image references are derived deterministically by the compiler from the top-level [`container_registry`](#container-registry), the project name and version (from `project.yml`), and the service name. See [Container Registry](#container-registry) for the full format.
 
-The values for these fields can have "magic refs" like ${backing_services.object_store.name} which are filled with the correct interpolated values when `infra.yml` is converted to docker-compose or OpenTofu config files.
+The values for these fields can have "magic refs" like ${backing_services.object_store.name} which reference service [provided fields](#provided-fields) and are filled with the correct interpolated values when `infra.yml` is converted to docker-compose or OpenTofu config files.
 
 Some services will have additional fields. These are role specific, and will be translated with the [transfer tables](#cicl-transfer-tables) during compilation.
+
+### Provided Fields
+
+Every role may declare fields which are "provided" to other services. These tend to represent fundamental properties like `port` or even secrets like `password`. They are defined per role in the `docex` transfer tables so that `docex` is careful and consistent when compiling `infra.yml` - especially with secrets, which must be carefully handled in compiled output.
+
+Restrictions with infra providers (particularly AWS SSM) mean that provided fields must be *values*, and can not be strings which are interpolated later. A role never exposes a pre-composed connection string. A consumer that needs a composed handle (e.g. a database url) builds it from the parts at startup. In the example above, `api` would need a database url to connect to the `database` backing service. We provide `DATABASE_HOST`, `DATABASE_PORT`, etc. as environmental variables so that the code within `api` can construct a database url at runtime. This produces an identical landscape across all four environments.
+
+The provided fields for each role live in the `docex` transfer tables, not in this doctrine. To discover them, run `docex role <role>` — it lists the role's engines and their provided fields (which are secrets, the required env vars, and the role-specific fields). `docex roles` lists every available role. See [docex.md](./docex.md#role).
+
+### Secret and Env Fields
+
+Two fields define a core service's container environmental variables. `env:` holds values the compiler resolves - literals and magic refs to provided parts. `secrets:` holds bespoke secrets the operator supplies via `<env>.env` (and SSM on elastic), never committed. A given key may appear in at most one of them.
 
 ### Rules
 
@@ -99,7 +121,7 @@ We define some arbitrary but hard rules for these infra files in order to reduce
 
 1. Service names are interpolated into a globally unique name when used as variables.
 	+ For example, a core service needs a bucket name. This name will interpolated from the object store backing service name, the environment name, and the project name.
-2. Services communicate over URLs, and those URLs are deterministically interpolated.
+2. Services communicate over URLs, and those URLs are built from provided fields (host, port, etc.) at startup.
 
 ### Domain
 
@@ -116,18 +138,30 @@ So `domain: "example.com"` yields `dev.example.com`, `test.example.com`, `stage.
 
 There's also a slight difference in intent depending on project foundation. For a project with a `fixed` foundation, DNS configuration is out of scope for infra management and we assume each subdomain has already been routed to the correct machine. For `elastic` foundation projects, the subdomains are configured to route to the correct ALB by OpenTofu.
 
-### Container Registry
+#### Per-Service Subdomains
 
-The `container_registry` top-level config option declares where core service [build images](./shape2.md) are pushed and pulled from. Projects never write image strings by hand — the compiler derives every image reference deterministically as:
+The env subdomains above become the *base* host for each environment. Services on the `web` network are mapped to service subdomains below those env subdomain. These are derived deterministically according to the following scheme:
 
-```
-${container_registry}/${project_name}/${service_name}:${version}
-```
+Service subdomain: `${service_name}.${env}.${domain}` (e.g. `backend.dev.example.com` or `frontend.stage.example.com`)
+
+This allows all `web`-network services to be reachable via a distinct domain.
+
+It's also possible to define a "default" service which is reached with the basic env subdomain with the `domain_default_service` toplevel config option in `infra.yml`. For example, to route `www.example.com` to the `frontend` module in production, `infra.yml` would include the line `domain_default_service: frontend`. This routing is *in addition* to the service subdomain - `www.example.com` and `frontend.www.example.com` will both route to the `frontend` service container. The `domain_default_service` is optional and if it is omitted, there will simply be no container mapped to the project's env subdomain.
+
+Realization is foundation-specific and **network-driven** (any `web` service, regardless of role) — see [networks.md](./specifics/networks.md). Services never reach *each other* by these public hosts; intra-environment calls use [service discovery](./shape2.md) by service name. On `elastic`, managed backing services (RDS, S3, ElastiCache) are reached at their own AWS endpoints, so the per-service host applies to what the project actually proxies — all core services, plus backing *containers* on `fixed`.
+
+### Container Registry and Service Images
+
+The `container_registry` top-level config option declares where core service [build images](./shape2.md) are pushed and pulled from. The compiler derives every image reference deterministically on the basis of environment:
+- **`dev` / `test`** build each core service's image **locally** from its Dockerfile (the compiled compose file carries a `build:` block) and never pull from a registry. The image is therefore a **registry-less local tag**:
+	`${project_name}/${service_name}:${version}`.
+- **`stage` / `prod`** reference an image that is pushed to and pulled from a registry, so the ref carries the full registry host:
+	`${container_registry}/${project_name}/${service_name}:${version}`
 
 with `name` and `version` from `project.yml` and `service_name` from the CICL key under `core_services`. Each core service gets its own image; all images for a project share the project-wide version.
 
 - **Fixed foundation:** `container_registry` is **required**. The doctrine does not provision a registry for fixed projects — it is [prerequisite infrastructure](./shape2.md#fixed-foundation). Typical values are a self-hosted Docker Registry V2 URL or a public registry (Docker Hub, ghcr.io, etc.).
-- **Elastic foundation:** `container_registry` is **optional**. Defaults to the project's auto-provisioned ECR: `<account>.dkr.ecr.us-east-1.amazonaws.com`. Setting it explicitly overrides the default — useful when a project wants to push to an external registry instead.
+- **Elastic foundation:** `container_registry` is **optional**. When omitted, `stage`/`prod` images resolve to the project's auto-provisioned registry (ECR). The registry domain is deterministically interpolated by OpenTofu using provider (AWS) account ID, the `doctrine`-pinned region, and standard AWS form. When provided, `container_registry` explicitly overrides the ECR default such that an external registry can be used instead.
 
 ### Git Repo URL
 
@@ -242,7 +276,7 @@ A single `main.tf` per env contains everything: provider config, state backend r
 
 **Secret declarations** (both foundations):
 
-Alongside the env-specific output, the compiler emits `infra/secrets/example.env` documenting every runtime secret the project's services require, derived from the `env:` blocks of [transfer table](./specifics/transfer_tables.md) entries for each backing service. The developer never writes secret names into the project by hand — the surface stays in sync with doctrine knowledge automatically. See [release_mechanism.md § Secrets](./specifics/release_mechanism.md#secrets) for the full layout of `infra/secrets/` and how the operator's `<env>.env` files are consumed at release time.
+Alongside the env-specific output, the compiler emits `infra/secrets/example.env` documenting every runtime secret the project's services require. This is derived from the `env:` blocks of [transfer table](./specifics/transfer_tables.md) entries for each backing service and `secrets` blocks for core services in `infra.yml`. The developer never writes secret names into the project by hand — the surface stays in sync with doctrine knowledge automatically. See [release_mechanism.md § Secrets](./specifics/release_mechanism.md#secrets) for the full layout of `infra/secrets/` and how the operator's `<env>.env` files are consumed at release time.
 
 ### Validation Rules
 The following rules apply to whether or not an `infra.yml` file is valid.
@@ -258,3 +292,6 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 9. `container_registry` is set when `foundation: fixed`. Omission is permitted under elastic, where it defaults to the project's auto-provisioned ECR.
 10. Every core service has a `resources:` block declaring at least `cpu` and `memory`.
 11. `resources.gpu` is not declared when `foundation: elastic` — GPU workloads are not supported on Fargate.
+12. `domain_default_service`, if set, names a service that is on the `web` network.
+13. Every `web`-network service (other than the `reverse_proxy` role) declares a `port` — the reverse proxy routes to it.
+14. A core service's `env:` and `secrets:` do not declare the same key.

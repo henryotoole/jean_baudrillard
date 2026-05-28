@@ -36,6 +36,9 @@ _PHASE3_COMMANDS = ("check", "merge", "containerize", "release", "stagetest")
 
 _PHASE4_COMMANDS = ("bootstrap",)
 
+# Reference commands (not phase-gated): the role / parts catalog.
+_REFERENCE_COMMANDS = ("roles", "role")
+
 _HELP_TEXT: dict[str, str] = {
     "compile": "Translate infra.yml into per-env infra config (compose / HCL).",
     "describe": "Show an environment's infrastructure (DAG or LLM-JSON).",
@@ -51,6 +54,8 @@ _HELP_TEXT: dict[str, str] = {
     "release": "Deploy the containerized build to stage or prod.",
     "stagetest": "Run staging tests against the deployed stage env.",
     "bootstrap": "Idempotent one-shot setup for elastic projects.",
+    "roles": "List the available service roles (with descriptions).",
+    "role": "Describe a role: engines, provided parts, env vars, fields.",
 }
 
 
@@ -90,6 +95,7 @@ def _format_usage() -> str:
     _group("Phase 2 (implemented)", _PHASE2_COMMANDS)
     _group("Phase 3 (implemented)", _PHASE3_COMMANDS)
     _group("Phase 4 (implemented)", _PHASE4_COMMANDS)
+    _group("Reference", _REFERENCE_COMMANDS)
     lines.append("")
     lines.append("global options:")
     lines.append("  --debug    Show full Python tracebacks on errors.")
@@ -117,12 +123,12 @@ def _cmd_compile(args: list[str]) -> int:
 
 
 def _cmd_describe(args: list[str]) -> int:
-    """``docex describe [<env>] [<format>]``."""
+    """``docex describe [<env>] [--format dag|llm]``."""
     parser = argparse.ArgumentParser(prog="docex describe", add_help=True)
     parser.add_argument("env", nargs="?", default="prod",
                         choices=["dev", "test", "stage", "prod"],
                         help="environment to describe (default: prod)")
-    parser.add_argument("format", nargs="?", default="dag",
+    parser.add_argument("--format", default="dag",
                         choices=["dag", "llm"],
                         help="output format (default: dag)")
     ns = parser.parse_args(args)
@@ -316,7 +322,10 @@ def _cmd_containerize(args: list[str]) -> int:
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
     git = _require_git()
-    return run_containerize(ctx, docker, git)
+    # aws is used only on the elastic ECR-default path; cheap to construct
+    # and never touches AWS until a method is called.
+    aws = _make_aws_client()
+    return run_containerize(ctx, docker, git, aws=aws)
 
 
 def _cmd_release(args: list[str]) -> int:
@@ -383,6 +392,52 @@ def _cmd_bootstrap(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Reference handlers (roles / role)
+# ---------------------------------------------------------------------------
+
+
+def _load_tables_best_effort() -> "object":
+    """Load transfer tables, including project-local extensions when a
+    ``project.yml`` is found by walking up from cwd. Falls back to the
+    bundled tables when not inside a project — the role/parts catalog is
+    reference info that should be queryable anywhere."""
+    from docex.cicl.transfer import load_transfer_tables
+    from docex.context import _find_project_root
+    from docex.errors import ProjectNotFoundError
+
+    try:
+        root = _find_project_root(Path(os.getcwd()))
+    except ProjectNotFoundError:
+        root = None
+    return load_transfer_tables(root)
+
+
+def _cmd_roles(args: list[str]) -> int:
+    """``docex roles [--format text|llm]`` — list available roles."""
+    parser = argparse.ArgumentParser(prog="docex roles", add_help=True)
+    parser.add_argument("--format", default="text", choices=["text", "llm"],
+                        help="output format (default: text)")
+    ns = parser.parse_args(args)
+
+    from docex.roles import list_roles
+
+    return list_roles(_load_tables_best_effort(), fmt=ns.format)
+
+
+def _cmd_role(args: list[str]) -> int:
+    """``docex role <name> [--format text|llm]`` — describe one role."""
+    parser = argparse.ArgumentParser(prog="docex role", add_help=True)
+    parser.add_argument("role", help="role to describe (e.g. relational_db)")
+    parser.add_argument("--format", default="text", choices=["text", "llm"],
+                        help="output format (default: text)")
+    ns = parser.parse_args(args)
+
+    from docex.roles import describe_role
+
+    return describe_role(_load_tables_best_effort(), ns.role, fmt=ns.format)
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -407,6 +462,9 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         "stagetest": _cmd_stagetest,
         # Phase 4
         "bootstrap": _cmd_bootstrap,
+        # Reference
+        "roles": _cmd_roles,
+        "role": _cmd_role,
     }
 
 

@@ -1,8 +1,11 @@
 """Emit ``infra/secrets/example.env``.
 
-For each backing service, the example.env documents every env var
-the service's engine declares in its transfer-table ``env:`` block,
-grouped by service with comment headers.
+The example.env documents every runtime secret the project's services
+require, grouped by service with comment headers:
+
+- each backing service's engine ``env:`` block (e.g. POSTGRES_USER), and
+- each core service's ``secrets:`` block (bespoke, operator-supplied
+  secrets like API keys / tokens).
 """
 
 from __future__ import annotations
@@ -23,6 +26,17 @@ def emit_example_env(
         "",
     ]
     any_emitted = False
+    # Core-service bespoke secrets first (the app's own keys/tokens).
+    for name in sorted(doc.core_services):
+        secrets = doc.core_services[name].secrets or {}
+        if not secrets:
+            continue
+        any_emitted = True
+        lines.append(f"# {name} (core service)")
+        for k in sorted(secrets):
+            lines.append(f"# {secrets[k]}")
+            lines.append(f"{k}=")
+        lines.append("")
     for name in sorted(doc.backing_services):
         svc = doc.backing_services[name]
         engine_decls = svc.engine if isinstance(svc.engine, list) else [svc.engine]

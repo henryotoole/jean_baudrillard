@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from docex import ELASTIC_REGION
 from docex.cicl.fargate import fargate_pair
 from docex.cicl.magic_refs import MagicRefResolver
 from docex.cicl.model import (
@@ -46,6 +47,11 @@ _ENV_SUBDOMAIN_PREFIX = {
 }
 
 _ENVS = ("dev", "test", "stage", "prod")
+
+# Runtime-ref token ($[VAR]). Used to enforce the parts-only rule: a
+# secret-bearing env value must resolve to exactly one bare ref, never a
+# composed string (see transfer_tables.md § provides).
+_RUNTIME_REF_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
 
 
 def _env_foundation(project_foundation: str, env: str) -> str:
@@ -214,18 +220,70 @@ def _network_name(project: str, env: str, network: str) -> str:
     return f"{project}_{env}_{network}"
 
 
-def _image_ref(registry: str | None, project: str, service: str, version: str) -> str:
-    """Build a deterministic image ref per cicl.md § Container Registry."""
-    if not registry:
-        # Elastic default — placeholder; the actual ECR URL is set by the
-        # elastic backend. We don't have AWS account info at compile time
-        # for the smoke fixture, so emit a placeholder the dev can grep.
-        return f"<project-ecr>/{project}/{service}:{version}"
-    return f"{registry}/{project}/{service}:{version}"
+def _image_ref(
+    registry: str | None,
+    project: str,
+    service: str,
+    version: str,
+    *,
+    env: str,
+    foundation: str,
+) -> str:
+    """Build a deterministic image ref per cicl.md § Container Registry.
+
+    The ref depends on the environment:
+
+    - **dev/test** build the image locally from the service's Dockerfile
+      (the compose file carries a ``build:`` block), so they never pull
+      from a registry. We emit a registry-less local tag
+      ``<project>/<service>:<version>`` regardless of whether
+      ``container_registry`` is set — the registry host is meaningless
+      for a local build/tag.
+    - **stage/prod** reference an image pushed to / pulled from a
+      registry. With an explicit ``container_registry`` we use it. On
+      elastic with no ``container_registry`` (the ECR default), the AWS
+      account ID is unknown at compile time (compile stays offline-pure),
+      so we emit an HCL interpolation that OpenTofu resolves at apply
+      time. This branch is only reachable on elastic — fixed always has
+      a registry (validation rule 9).
+    """
+    if env in ("dev", "test"):
+        return f"{project}/{service}:{version}"
+    if registry:
+        return f"{registry.rstrip('/')}/{project}/{service}:{version}"
+    return HCLLiteral(
+        f'"${{data.aws_caller_identity.current.account_id}}'
+        f".dkr.ecr.{ELASTIC_REGION}.amazonaws.com/{project}/{service}:{version}\""
+    )
 
 
 def _env_subdomain(domain: str, env: str) -> str:
     return f"{_ENV_SUBDOMAIN_PREFIX[env]}.{domain}"
+
+
+def _dns_label(name: str) -> str:
+    """A service name as a DNS label (underscores → hyphens, lowercased)."""
+    return name.replace("_", "-").lower()
+
+
+def _web_hosts(
+    name: str, role: str, networks: list[str], subdomain: str,
+    default_service: str | None,
+) -> list[str]:
+    """The public host(s) a web-network service is reachable at.
+
+    Every web-network service gets ``<service>.<env_subdomain>``. The
+    ``domain_default_service`` additionally answers at the bare
+    ``<env_subdomain>``. Non-web services get no hosts. The
+    ``reverse_proxy`` role is excluded — it *is* the edge router, not a
+    routed target.
+    """
+    if role == "reverse_proxy" or "web" not in networks:
+        return []
+    per_service = f"{_dns_label(name)}.{subdomain}"
+    if default_service is not None and name == default_service:
+        return [subdomain, per_service]
+    return [per_service]
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +306,9 @@ class CompiledService:
     depends_on: list[str]
     port: int | None
     env: dict[str, Any]  # core service `env` block, resolved
-    runtime_refs: set[str]
+    # Public host(s) this service is routed at (empty if not web-network).
+    # The reverse proxy (Traefik / ALB) routes these to the container port.
+    web_hosts: list[str] = field(default_factory=list)
     schema_owned_by: str | None = None
     # Phase 4: True iff this is a core service that owns a backing
     # database (i.e. some backing service declares
@@ -319,7 +379,8 @@ def compile_env(
         contexts[name] = {
             "name": name,
             "global_service_name": gname,
-            "port": svc.port if svc.port is not None else "",
+            "port": svc.port if svc.port is not None
+                    else (engine.default_port if engine.default_port is not None else ""),
             "networks": ",".join(svc.networks),
             "project_name": project_name,
             "env_name": env,
@@ -388,18 +449,25 @@ def compile_env(
             body = _apply_fixed_invariants(body, svc, ctx)
             if isinstance(svc, CoreService):
                 body["image"] = _image_ref(
-                    doc.container_registry, project_name, name, project_version
+                    doc.container_registry, project_name, name, project_version,
+                    env=env, foundation=foundation,
                 )
                 body = _deep_merge(body, _resources_to_fixed(svc.resources))
                 if svc.command is not None:
                     body["command"] = svc.command
-                if svc.port is not None:
+                # web-network services are reached through the reverse proxy
+                # over the docker network, never a host port — so they publish
+                # nothing. This removes host-port collisions entirely (incl. 80
+                # /443, which the machine-wide Traefik owns). Non-web core
+                # services may still publish for direct host access.
+                if svc.port is not None and "web" not in svc.networks:
                     body.setdefault("ports", []).append(f"{svc.port}:{svc.port}")
         else:  # elastic
             body = _apply_elastic_invariants(body, svc, ctx)
             if isinstance(svc, CoreService):
                 body["image"] = _image_ref(
-                    doc.container_registry, project_name, name, project_version
+                    doc.container_registry, project_name, name, project_version,
+                    env=env, foundation=foundation,
                 )
                 body = _deep_merge(body, _resources_to_elastic(svc.resources, service_name=name))
                 if svc.command is not None:
@@ -412,17 +480,39 @@ def compile_env(
                 val = svc.env[key]
                 if isinstance(val, str):
                     rendered = resolver.resolve_in_string(val, consumer=name)
+                    if (
+                        not rendered.raw_hcl
+                        and "$[" in rendered.value
+                        and _RUNTIME_REF_RE.fullmatch(rendered.value) is None
+                    ):
+                        # Parts-only rule: a secret part must resolve to a
+                        # bare $[REF], never embedded in a composed string —
+                        # elastic SSM injection can only deliver a secret as
+                        # a standalone value, so a composed secret can't
+                        # resolve symmetrically across foundations.
+                        raise ValidationError([ValidationIssue(
+                            rule="rule_composed_secret_forbidden",
+                            message=(
+                                f"core service {name!r} env {key!r} embeds a "
+                                f"secret inside a composed value "
+                                f"({rendered.value!r}). Reference the discrete "
+                                f"parts (host/port/db/user/password) and compose "
+                                f"the handle in the app at startup."
+                            ),
+                            where=f"core_services.{name}.env.{key}",
+                        )])
                     env_block[key] = (
                         HCLLiteral(rendered.value) if rendered.raw_hcl else rendered.value
                     )
                 else:
                     env_block[key] = val
-
-        runtime_refs: set[str] = set(resolver.runtime_refs.get(name, set()))
-        # Also propagate engine `env:` for backing services to runtime refs —
-        # they wire to compose/SSM regardless of magic-ref reads.
-        for env_key in (engine.env or {}):
-            runtime_refs.add(env_key)
+            # Core-service `secrets:` are operator-supplied secret env vars with
+            # no in-project source (API keys, tokens). Wire each as a self-
+            # referential runtime ref so the existing secret path delivers it —
+            # compose ${KEY} (fixed) / ECS secrets[] (elastic) — and surfaces it
+            # in example.env. Validation forbids a key in both env and secrets.
+            for key in sorted(svc.secrets):
+                env_block[key] = f"$[{key}]"
 
         networks_seen.update(svc.networks)
         is_core = isinstance(svc, CoreService)
@@ -438,7 +528,9 @@ def compile_env(
             depends_on=list(svc.depends_on or []),
             port=svc.port,
             env=env_block,
-            runtime_refs=runtime_refs,
+            web_hosts=_web_hosts(
+                name, svc.role, svc.networks, subdomain, doc.domain_default_service
+            ),
             schema_owned_by=getattr(svc, "schema_owned_by", None),
             schema_owned_by_db=(is_core and name in core_owning_schema),
         )

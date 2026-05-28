@@ -23,6 +23,7 @@
 
 roles:
   reverse_proxy:
+    description: "Edge reverse proxy and TLS terminator (machine-wide traefik on fixed; one ALB per env on elastic)."
     traefik:
       foundation: fixed
       # The traefik service on fixed is intentionally minimal — the

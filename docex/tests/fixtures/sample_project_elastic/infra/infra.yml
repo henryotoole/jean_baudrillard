@@ -1,6 +1,7 @@
 cicl_version: "1"
 foundation: elastic
 domain: "example.com"
+domain_default_service: api
 
 core_services:
   api:
@@ -9,10 +10,13 @@ core_services:
     networks: [web, internal]
     depends_on: [database]
     env:
-      # On elastic, consumers compose URLs at startup from parts.
+      # api composes its own connection string from these parts at startup;
+      # the identical magic refs work on both foundations (parts-only model).
       DATABASE_HOST: ${backing_services.database.host}
       DATABASE_PORT: ${backing_services.database.port}
       DATABASE_NAME: ${backing_services.database.db}
+      DATABASE_USER: ${backing_services.database.user}
+      DATABASE_PASSWORD: ${backing_services.database.password}
     resources:
       cpu: 1.0
       memory: 2GB

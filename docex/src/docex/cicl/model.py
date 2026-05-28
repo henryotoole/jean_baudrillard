@@ -83,6 +83,10 @@ class CoreService(_ServiceBase):
     # the typical case is well-typed.
     resources: Resources
     env: dict[str, Any] = Field(default_factory=dict)
+    # Operator-supplied secret env vars with no in-project source (API keys,
+    # tokens). KEY -> human description. Surfaced in example.env and wired into
+    # the container as a secret. See cicl.md.
+    secrets: dict[str, str] = Field(default_factory=dict)
     replicas: int = Field(default=1, ge=1)
     command: str | list[str] | None = None
 
@@ -108,6 +112,10 @@ class CICLDocument(BaseModel):
     foundation: Literal["fixed", "elastic"]
     domain: str
     container_registry: str | None = None
+    # The web service mapped to the bare <env>.<domain> subdomain. Other
+    # web services live at <service>.<env>.<domain>. Optional; if unset,
+    # nothing occupies the bare subdomain. See cicl.md § Domain.
+    domain_default_service: str | None = None
     core_services: dict[str, CoreService] = Field(default_factory=dict)
     backing_services: dict[str, BackingService] = Field(default_factory=dict)
 

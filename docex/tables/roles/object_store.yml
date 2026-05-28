@@ -15,6 +15,7 @@
 
 roles:
   object_store:
+    description: "Object/blob storage backing service."
     minio:
       foundation: fixed
       defaults:

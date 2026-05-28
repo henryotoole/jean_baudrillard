@@ -143,6 +143,31 @@ class AWSClient(Protocol):
         ...
 
     # ------------------------------------------------------------------
+    # ECR (containerize — elastic ECR-default push)
+    # ------------------------------------------------------------------
+
+    def ecr_authorization_token(self) -> tuple[str, str]:
+        """Return ``(username, password)`` for ``docker login`` to the
+        project's ECR registry.
+
+        Sourced from ECR ``GetAuthorizationToken``; the returned token
+        decodes to ``AWS:<password>``. Used by ``containerize`` when an
+        elastic project relies on the default ECR (no explicit
+        ``container_registry``).
+        """
+        ...
+
+    def ecr_ensure_repository(self, name: str) -> None:
+        """Idempotently ensure an ECR repository named ``name`` exists.
+
+        ``name`` is the repo path (e.g. ``<project>/<service>``); a no-op
+        if it already exists. ECR repositories are project-tier
+        infrastructure — until project-tier OpenTofu provisioning lands,
+        ``containerize`` ensures them here so the push target exists.
+        """
+        ...
+
+    # ------------------------------------------------------------------
     # Lookups (release-time HCL prerequisites)
     # ------------------------------------------------------------------
 

@@ -162,6 +162,17 @@ class DockerClient(Protocol):
         """
         ...
 
+    def login(self, registry: str, *, username: str, password: str) -> int:
+        """``docker login <registry>`` with the password supplied on stdin.
+
+        Used by ``containerize`` to authenticate to the project's ECR
+        when an elastic project relies on the default registry (no
+        explicit ``container_registry``). The password is piped via
+        stdin — never argv — so it can't leak into the process table.
+        Returns exit code.
+        """
+        ...
+
     def inspect_image_digest(self, tag: str) -> str:
         """Return the sha256 image digest for ``tag``, or empty string
         if the image isn't present locally.

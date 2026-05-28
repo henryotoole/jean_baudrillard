@@ -187,6 +187,10 @@ Version control is done with git using [trunk-based branch conventions](./versio
 
 Core services must all have a Dockerfile which describes the environment the container provides to the code. 
 
+All core service containers place the service working directory at a fixed root: `/service`. This root maps to the "core service folder" in the source code, e.g. `web` in the above example codebase. `docex` relies on this convention:
+1. It bind-mounts to this `/service` in compiled compose.yml output.
+2. It expects to find service scripts like `migrate.sh` at `/service/migrate.sh`.
+
 Dockerfiles will all describe multi-stage builds. The following list of stages must be available for *all* core services, as the CI/CD scripts will reference them by name. Additional stages may be added "in between" the standard stages if the developer desires.
 
 | Stage Name | CI/CD purpose |

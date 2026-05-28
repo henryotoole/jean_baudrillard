@@ -32,7 +32,7 @@ infra/secrets/
   prod.env          # operator-maintained, gitignored
 ```
 
-`example.env` is emitted by the compiler from the `env:` blocks of the project's backing services in the [transfer tables](./transfer_tables.md) — every env var any backing service requires shows up there with an empty placeholder value, grouped by the service that introduced it. The developer copies it to `<env>.env` and fills in real values per environment.
+`example.env` is emitted by the compiler from two sources — the `env:` blocks of the project's backing-service engines (in the transfer tables) and the `secrets:` block of each core service. Every secret any service requires shows up there with an empty placeholder, grouped by the service that introduced it. The developer copies it to `<env>.env` and fills in real values per environment.
 
 ### Materialization at release
 
@@ -62,7 +62,7 @@ core/<service>/
   migrations/         # the actual migration files (project tool's format)
 ```
 
-The migration tool is the project's choice — `dbmate`, `alembic`, `flyway`, `goose`, etc. `migrate.sh` is a small shim that invokes the chosen tool against the database identified by the same environment variables the service itself uses at runtime (`POSTGRES_HOST`, `POSTGRES_USER`, etc.). The shim's contract is exit-code only: `0` on success, non-zero on any failure.
+The migration tool is the project's choice — `dbmate`, `alembic`, `flyway`, `goose`, etc. `migrate.sh` is a small shim that invokes the chosen tool against the database identified by the same environment variables the service itself uses at runtime — i.e. the connection parts the service binds from the backing service's `provides:` block (in the doctrine's examples, `DATABASE_HOST`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_NAME`). Because those env-var names are identical across foundations (see [transfer_tables.md § provides](./transfer_tables.md)), the same `migrate.sh` works unchanged on fixed and elastic. The shim's contract is exit-code only: `0` on success, non-zero on any failure.
 
 Only one core service may own a given database. This is enforced via the `schema_owned_by` field in CICL — by this mechanism, a backing service can only have one core service that controls its schema. This invariant exists specifically to avoid race conditions where two services concurrently run migrations against the same schema.
 
