@@ -137,11 +137,15 @@ def test_elastic_emits_caller_identity_data_source(compiled_prod_tf: str):
 
 def test_elastic_image_uses_ecr_when_no_registry(compiled_prod_tf: str):
     """With no container_registry, the elastic image ref resolves to the
-    project ECR via data.aws_caller_identity (account id at apply time) —
-    never the <project-ecr> placeholder."""
+    project ECR repo URL emitted by the project-tier HCL (read via
+    terraform_remote_state), never the <project-ecr> placeholder."""
     tf = compiled_prod_tf
     assert "<project-ecr>" not in tf
-    assert ".dkr.ecr.us-east-1.amazonaws.com/sample/api:0.1.0" in tf
+    assert (
+        "data.terraform_remote_state.project.outputs.ecr_repository_api_url"
+        in tf
+    )
+    assert ":0.1.0" in tf
 
 
 def test_elastic_secret_named_by_consumer_key(compiled_prod_tf: str):
@@ -216,3 +220,92 @@ def test_elastic_stage_listener_rule_uses_per_service_hosts(tmp_path: Path):
     stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
     assert 'values = ["stage.example.com", "api.stage.example.com"]' in stage_tf
     assert 'values = ["stage"]' not in stage_tf
+
+
+# ---------------------------------------------------------------------------
+# v0.6.0 — project-tier HCL + env-tier terraform_remote_state references.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def compiled_elastic_project(tmp_path: Path) -> Path:
+    """Compile the elastic fixture; return the project root."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    return dest
+
+
+def test_project_main_tf_written(compiled_elastic_project: Path):
+    """Elastic compile writes a project-tier main.tf."""
+    project_tf = compiled_elastic_project / "infra" / "output" / "project" / "main.tf"
+    assert project_tf.is_file()
+
+
+def test_project_main_tf_has_zone_vpc_cert_ecr(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "main.tf").read_text()
+    assert 'resource "aws_route53_zone" "project"' in tf
+    assert 'resource "aws_vpc" "project"' in tf
+    assert 'resource "aws_acm_certificate" "project"' in tf
+    assert 'resource "aws_acm_certificate_validation" "project"' in tf
+    # ECR repo for the `api` core service from the elastic fixture.
+    assert 'resource "aws_ecr_repository" "api"' in tf
+
+
+def test_project_main_tf_uses_project_state_key(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "main.tf").read_text()
+    # Distinct state key so env-tier and project-tier states don't collide.
+    assert 'key            = "project/terraform.tfstate"' in tf
+
+
+def test_project_main_tf_emits_outputs(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "main.tf").read_text()
+    for out_name in (
+        "vpc_id",
+        "public_subnet_ids",
+        "private_subnet_ids",
+        "zone_id",
+        "zone_name_servers",
+        "certificate_arn",
+        "ecr_repository_api_url",
+    ):
+        assert f'output "{out_name}"' in tf, f"missing output {out_name!r}"
+
+
+def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    assert 'data "terraform_remote_state" "project"' in tf
+    assert 'key    = "project/terraform.tfstate"' in tf
+    # And the old tag-based data sources are gone.
+    assert 'data "aws_vpc" "project"' not in tf
+    assert 'data "aws_acm_certificate" "project"' not in tf
+    assert 'data "aws_route53_zone" "project"' not in tf
+    assert 'data "aws_subnets"' not in tf
+
+
+def test_env_main_tf_references_remote_state_outputs(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    assert "data.terraform_remote_state.project.outputs.vpc_id" in tf
+    assert "data.terraform_remote_state.project.outputs.public_subnet_ids" in tf
+    assert "data.terraform_remote_state.project.outputs.private_subnet_ids" in tf
+    assert "data.terraform_remote_state.project.outputs.zone_id" in tf
+    assert "data.terraform_remote_state.project.outputs.certificate_arn" in tf
+
+
+def test_fixed_compile_skips_project_main_tf(tmp_path: Path):
+    """Fixed-foundation projects don't need project-tier HCL."""
+    fixed_fixture = (
+        Path(__file__).resolve().parent.parent / "fixtures" / "sample_project"
+    )
+    if not fixed_fixture.is_dir():
+        pytest.skip("no fixed fixture available")
+    dest = tmp_path / "project"
+    shutil.copytree(fixed_fixture, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    project_dir = dest / "infra" / "output" / "project"
+    # Either the directory wasn't created or it's empty.
+    assert not project_dir.exists() or not list(project_dir.iterdir())

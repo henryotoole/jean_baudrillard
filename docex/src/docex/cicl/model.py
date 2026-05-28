@@ -112,6 +112,10 @@ class CICLDocument(BaseModel):
     foundation: Literal["fixed", "elastic"]
     domain: str
     container_registry: str | None = None
+    # Documentary only — the git host and repo are prerequisite infrastructure;
+    # docex doesn't act on this. Accepted so a project that follows the
+    # cicl.md § "Git Repo URL" prose still compiles. See cicl.md.
+    repo_url: str | None = None
     # The web service mapped to the bare <env>.<domain> subdomain. Other
     # web services live at <service>.<env>.<domain>. Optional; if unset,
     # nothing occupies the bare subdomain. See cicl.md § Domain.

@@ -291,24 +291,6 @@ class Boto3AWSClient:
         username, _, password = token.partition(":")
         return username, password
 
-    def ecr_ensure_repository(self, name: str) -> None:
-        ecr = self._client("ecr")
-        try:
-            ecr.describe_repositories(repositoryNames=[name])
-            return
-        except ClientError as e:
-            code = e.response.get("Error", {}).get("Code", "")
-            if code != "RepositoryNotFoundException":
-                raise
-        # Not found — create it. A concurrent create racing us would
-        # surface RepositoryAlreadyExistsException; treat that as success.
-        try:
-            ecr.create_repository(repositoryName=name)
-        except ClientError as e:
-            code = e.response.get("Error", {}).get("Code", "")
-            if code != "RepositoryAlreadyExistsException":
-                raise
-
     # ------------------------------------------------------------------
     # EC2 / ECS lookups
     # ------------------------------------------------------------------

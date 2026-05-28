@@ -235,13 +235,13 @@ def render_backing(svc: CompiledService, *, project: str, env: str) -> str:
         out.append("")
         out.append(f'resource "aws_db_subnet_group" "{svc.name}" {{')
         out.append(f'  name       = "{svc.global_name}"')
-        out.append("  subnet_ids = data.aws_subnets.private.ids")
+        out.append("  subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids")
         out.append("}")
     if rtype == "aws_elasticache_cluster" and nets:
         out.append("")
         out.append(f'resource "aws_elasticache_subnet_group" "{svc.name}" {{')
         out.append(f'  name       = "{svc.global_name}"')
-        out.append("  subnet_ids = data.aws_subnets.private.ids")
+        out.append("  subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids")
         out.append("}")
     return "\n".join(out)
 
@@ -372,7 +372,7 @@ def render_core(svc: CompiledService, *, project: str, env: str, priority: int) 
         out.append(f'  port        = {svc.port or 80}')
         out.append( '  protocol    = "HTTP"')
         out.append( '  target_type = "ip"')
-        out.append( '  vpc_id      = data.aws_vpc.project.id')
+        out.append( '  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id')
         out.append("}")
         out.append("")
         out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
@@ -401,7 +401,7 @@ def render_core(svc: CompiledService, *, project: str, env: str, priority: int) 
     out.append( '  launch_type     = "FARGATE"')
     out.append( '  desired_count   = 1')
     out.append("  network_configuration {")
-    out.append("    subnets         = data.aws_subnets.private.ids")
+    out.append("    subnets         = data.terraform_remote_state.project.outputs.private_subnet_ids")
     sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in sorted(nets))
     out.append(f"    security_groups = [{sg_refs}]")
     out.append("  }")
@@ -413,6 +413,54 @@ def render_core(svc: CompiledService, *, project: str, env: str, priority: int) 
         out.append("  }")
     out.append("}")
     return "\n".join(out)
+
+
+def _hcl_id(service_name: str) -> str:
+    """Normalize a service name into a valid HCL identifier.
+
+    Service names may use hyphens, but tofu resource/output identifiers
+    cannot — the bracket form would be required to dereference them,
+    which complicates downstream HCL. We normalize to underscores so the
+    same name works in `aws_ecr_repository.<id>` and
+    `outputs.ecr_repository_<id>_url`.
+    """
+    return service_name.replace("-", "_")
+
+
+def emit_hcl_project(
+    *,
+    project: str,
+    project_version: str,
+    domain: str,
+    core_service_names: list[str],
+    out_path: Path,
+) -> None:
+    """Emit the project-tier ``main.tf``.
+
+    One copy per project (NOT per env). Backs every elastic env via
+    ``data "terraform_remote_state" "project"``. The state lives under
+    ``key = "project/terraform.tfstate"`` in the same S3 backend the
+    bootstrap creates. The bootstrap runs ``tofu apply`` against this
+    HCL before any env-tier apply can succeed.
+    """
+    env = Environment(
+        loader=FileSystemLoader(_TEMPLATE_DIR),
+        undefined=StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    tpl = env.get_template("project.tf.j2")
+    svc_entries = [
+        {"name": name, "hcl_id": _hcl_id(name)}
+        for name in sorted(core_service_names)
+    ]
+    rendered = tpl.render(
+        project=project,
+        project_version=project_version,
+        domain=domain,
+        region=ELASTIC_REGION,
+        core_service_names=svc_entries,
+    )
+    out_path.write_text(rendered)
 
 
 def emit_hcl(compiled: CompiledEnv, out_path: Path) -> None:

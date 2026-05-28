@@ -12,8 +12,10 @@ shim's mount); the runner itself does not manage credential storage.
 
 from __future__ import annotations
 
+import json
 import subprocess  # noqa: S404 - explicit chokepoint, see module docstring.
 from pathlib import Path
+from typing import Any
 
 
 def tofu_init(workdir: Path, *, backend: bool = True) -> int:
@@ -70,6 +72,7 @@ def tofu_apply(
     *,
     plan_file: Path | None = None,
     auto_approve: bool = False,
+    targets: list[str] | None = None,
 ) -> int:
     """``tofu apply`` in ``workdir``. Returns exit code.
 
@@ -81,6 +84,11 @@ def tofu_apply(
     If ``plan_file`` is given, applies the recorded plan (and
     ``auto_approve`` is irrelevant in that mode — applying a recorded
     plan never re-prompts).
+
+    ``targets`` restricts the apply to the given resource addresses
+    (each rendered as ``-target=<addr>``). Used by ``docex bootstrap``
+    to apply just the Route53 zone in phase 1, before ACM DNS
+    validation is reachable.
     """
     cmd: list[str] = ["tofu", f"-chdir={workdir}", "apply", "-input=false"]
     if plan_file is not None:
@@ -88,8 +96,54 @@ def tofu_apply(
     else:
         if auto_approve:
             cmd.append("-auto-approve")
+        for addr in (targets or []):
+            cmd.append(f"-target={addr}")
     try:
         res = subprocess.run(cmd, check=False)  # noqa: S603
     except FileNotFoundError:
         return 127
     return res.returncode
+
+
+def tofu_state_list(workdir: Path) -> list[str]:
+    """``tofu state list`` in ``workdir``. Returns resource addresses.
+
+    Empty list both on "no state yet" and on subprocess failure — the
+    caller treats either as "phase 1 needed" anyway. Used by
+    ``docex bootstrap`` to determine which phase of the project-tier
+    apply to run (zone-only vs. full).
+    """
+    cmd: list[str] = ["tofu", f"-chdir={workdir}", "state", "list"]
+    try:
+        res = subprocess.run(  # noqa: S603
+            cmd, check=False, capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return []
+    if res.returncode != 0:
+        return []
+    return [line.strip() for line in res.stdout.splitlines() if line.strip()]
+
+
+def tofu_output(workdir: Path, name: str) -> Any:
+    """``tofu output -json <name>`` in ``workdir``. Returns parsed JSON.
+
+    Used by ``docex bootstrap`` to read the project zone's NS records
+    after phase 1, so it can print them for NS delegation. Returns
+    ``None`` if the output doesn't exist (e.g. the zone hasn't been
+    applied yet) or the subprocess fails — the caller is expected to
+    treat ``None`` as "not yet available".
+    """
+    cmd: list[str] = ["tofu", f"-chdir={workdir}", "output", "-json", name]
+    try:
+        res = subprocess.run(  # noqa: S603
+            cmd, check=False, capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return None
+    if res.returncode != 0:
+        return None
+    try:
+        return json.loads(res.stdout)
+    except json.JSONDecodeError:
+        return None

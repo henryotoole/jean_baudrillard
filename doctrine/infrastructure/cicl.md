@@ -272,7 +272,16 @@ infra/output/<env>/
 	main.tf
 ```
 
-A single `main.tf` per env contains everything: provider config, state backend reference, networks, ALB, ECS, backing services, DNS. OpenTofu does not require splitting, and a single file is simpler to read and review.
+A single env `main.tf` contains the env-tier resources: provider config, state backend reference, networks (security groups), ALB, ECS, backing services, env-specific DNS records. OpenTofu does not require splitting, and a single file is simpler to read and review. Each env reads project-tier outputs (VPC, subnets, zone, cert, ECR repos) via `data "terraform_remote_state" "project"`.
+
+**Project-tier output** (elastic foundation only, one per project):
+
+```
+infra/output/project/
+	main.tf
+```
+
+The project `main.tf` provisions the resources shared across every elastic environment: the project VPC, public/private subnets, Route53 hosted zone, ACM certificate, and one ECR repository per core service. It uses a distinct state key (`key = "project/terraform.tfstate"`) in the same S3 backend. Applied by [`docex bootstrap`](./docex.md#bootstrap) — see [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description and the two-phase apply mechanism.
 
 **Secret declarations** (both foundations):
 

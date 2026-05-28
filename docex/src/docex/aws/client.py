@@ -157,16 +157,6 @@ class AWSClient(Protocol):
         """
         ...
 
-    def ecr_ensure_repository(self, name: str) -> None:
-        """Idempotently ensure an ECR repository named ``name`` exists.
-
-        ``name`` is the repo path (e.g. ``<project>/<service>``); a no-op
-        if it already exists. ECR repositories are project-tier
-        infrastructure — until project-tier OpenTofu provisioning lands,
-        ``containerize`` ensures them here so the push target exists.
-        """
-        ...
-
     # ------------------------------------------------------------------
     # Lookups (release-time HCL prerequisites)
     # ------------------------------------------------------------------

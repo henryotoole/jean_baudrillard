@@ -101,8 +101,9 @@ def _make_elastic_ecr_default(sample_ctx, fake_git):
 
 def test_containerize_elastic_ecr_default(sample_ctx, fake_git, fake_docker, fake_aws):
     """Elastic project with no container_registry: containerize derives the
-    ECR registry host from the account ID, logs in, ensures the repo, and
-    pushes the ECR-qualified tag."""
+    ECR registry host from the account ID, logs in, and pushes the
+    ECR-qualified tag. The repo itself is provisioned by `docex bootstrap`
+    as part of the project-tier tofu apply, not by containerize."""
     ctx, fake_git = _make_elastic_ecr_default(sample_ctx, fake_git)
     rc = run_containerize(ctx, fake_docker, fake_git, aws=fake_aws)
     assert rc == 0
@@ -110,7 +111,8 @@ def test_containerize_elastic_ecr_default(sample_ctx, fake_git, fake_docker, fak
     expected_registry = "123456789012.dkr.ecr.us-east-1.amazonaws.com"
     aws_methods = [c[0] for c in fake_aws.calls]
     assert "caller_identity" in aws_methods
-    assert ("ecr_ensure_repository", ("sample/api",), {}) in fake_aws.calls
+    # containerize must NOT ensure the repo; that's bootstrap's job now.
+    assert "ecr_ensure_repository" not in aws_methods
     # Logged in to the derived ECR host before pushing.
     assert ("login", expected_registry, "AWS") in fake_docker.calls
     # Pushed the ECR-qualified tag.

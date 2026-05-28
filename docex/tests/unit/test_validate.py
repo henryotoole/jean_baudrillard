@@ -50,6 +50,21 @@ def test_valid_doc_passes():
     assert issues == []
 
 
+def test_repo_url_accepted():
+    # repo_url is documentary (per cicl.md § Git Repo URL) — the model
+    # accepts it without acting on it. Regression for v0.5.0, which
+    # rejected the documented field as extra input.
+    src = _BASE_FIXED.replace(
+        "container_registry: registry.example.com",
+        'container_registry: registry.example.com\n'
+        'repo_url: "https://github.com/owner/project"',
+    )
+    doc = _doc(src)
+    assert doc.repo_url == "https://github.com/owner/project"
+    issues = validate_document(doc, _tables())
+    assert issues == []
+
+
 def test_rule_domain_default_must_be_web():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",

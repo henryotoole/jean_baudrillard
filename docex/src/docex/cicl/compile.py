@@ -241,19 +241,20 @@ def _image_ref(
       for a local build/tag.
     - **stage/prod** reference an image pushed to / pulled from a
       registry. With an explicit ``container_registry`` we use it. On
-      elastic with no ``container_registry`` (the ECR default), the AWS
-      account ID is unknown at compile time (compile stays offline-pure),
-      so we emit an HCL interpolation that OpenTofu resolves at apply
-      time. This branch is only reachable on elastic — fixed always has
-      a registry (validation rule 9).
+      elastic with no ``container_registry`` (the ECR default), the ECR
+      repo URL is read from the project-tier remote state — the project
+      HCL provisions one ECR repo per core service and outputs the URL.
+      This branch is only reachable on elastic — fixed always has a
+      registry (validation rule 9).
     """
     if env in ("dev", "test"):
         return f"{project}/{service}:{version}"
     if registry:
         return f"{registry.rstrip('/')}/{project}/{service}:{version}"
+    hcl_id = service.replace("-", "_")
     return HCLLiteral(
-        f'"${{data.aws_caller_identity.current.account_id}}'
-        f".dkr.ecr.{ELASTIC_REGION}.amazonaws.com/{project}/{service}:{version}\""
+        f'"${{data.terraform_remote_state.project.outputs.'
+        f'ecr_repository_{hcl_id}_url}}:{version}"'
     )
 
 
@@ -631,7 +632,7 @@ def _deep_merge(base: Any, override: Any) -> Any:
 def run_compile(ctx: Any) -> int:
     """Compile every env and emit outputs. Returns process exit code."""
     from docex.emit.compose import emit_compose
-    from docex.emit.hcl import emit_hcl
+    from docex.emit.hcl import emit_hcl, emit_hcl_project
     from docex.emit.ansible import emit_ansible
     from docex.emit.secrets import emit_example_env
     from docex.errors import InfraFileError
@@ -677,6 +678,21 @@ def run_compile(ctx: Any) -> int:
             hcl_path = env_dir / "main.tf"
             emit_hcl(compiled, hcl_path)
             files_written += 1
+
+    # Project-tier HCL — only for elastic-foundation projects. The env-tier
+    # HCL reads its outputs via terraform_remote_state, so this must exist
+    # before any env-tier apply (docex bootstrap takes care of that).
+    if ctx.infra.foundation == "elastic":
+        project_dir = output_root / "project"
+        project_dir.mkdir(parents=True, exist_ok=True)
+        emit_hcl_project(
+            project=ctx.project.name,
+            project_version=ctx.project.version,
+            domain=ctx.infra.domain,
+            core_service_names=list(ctx.infra.core_services.keys()),
+            out_path=project_dir / "main.tf",
+        )
+        files_written += 1
 
     # Always emit example.env.
     secrets_dir = ctx.project_root / "infra" / "secrets"

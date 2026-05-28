@@ -154,9 +154,8 @@ def run_containerize(
 
         full_tag = _image_tag(registry, project_name, svc, version)
 
-        # Elastic ECR default: ensure the push target repository exists.
-        if ecr:
-            aws.ecr_ensure_repository(f"{project_name}/{svc}")
+        # ECR repositories are provisioned by `docex bootstrap` as part
+        # of the project-tier tofu apply. We don't ensure them here.
 
         # Build.
         rc = docker.buildx_build(

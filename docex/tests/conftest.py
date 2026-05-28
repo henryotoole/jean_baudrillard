@@ -484,9 +484,6 @@ class FakeAWSClient:
         self._record("ecr_authorization_token")
         return ("AWS", "fake-ecr-token")
 
-    def ecr_ensure_repository(self, name: str) -> None:
-        self._record("ecr_ensure_repository", name)
-
     # -- Lookups -------------------------------------------------------
 
     def lookup_project_vpc(self, *, project: str) -> str:

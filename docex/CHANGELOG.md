@@ -12,6 +12,69 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-28
+
+### Added
+
+- **Project-tier elastic infrastructure.** `docex compile` now emits
+  `infra/output/project/main.tf` for elastic-foundation projects,
+  describing the VPC, public/private subnets across two AZs, NAT
+  gateways, Route53 hosted zone for the project's `domain:`, ACM
+  certificate (multi-SAN, with DNS validation records emitted into the
+  project zone), and one ECR repository per core service. Each env's
+  `main.tf` reads these via `data "terraform_remote_state" "project"`
+  (replacing the v0.5.0 tag-based `data.aws_vpc` / `data.aws_subnets` /
+  `data.aws_route53_zone` / `data.aws_acm_certificate` lookups, which
+  expected resources that nothing in docex actually created).
+- **Two-phase `docex bootstrap`.** Bootstrap now creates the state
+  backend (existing) and then applies the project-tier HCL in two
+  phases: phase 1 runs a targeted `tofu apply` against just
+  `aws_route53_zone.project`, prints the zone's NS records, and exits
+  so the operator can NS-delegate from the parent (registrar or parent
+  hosted zone). Phase 2 (on a subsequent `docex bootstrap` run, once
+  the zone is in tofu state) runs an untargeted `tofu apply` for the
+  rest of the project-tier resources; ACM cert validation succeeds iff
+  delegation has propagated. Phase detection is observed from
+  `tofu state list` — same command both times.
+
+### Changed
+
+- **`docex` creates the project's Route53 hosted zone.** Previously
+  ambiguous in the doctrine; now explicit per
+  [`shape2.md`](../doctrine/infrastructure/shape2.md) and
+  [`elastic_bootstrap.md`](../doctrine/infrastructure/specifics/elastic_bootstrap.md):
+  the zone is project-tier, `docex` provisions it, and the operator
+  performs the NS delegation between the two bootstrap phases.
+- **ECR repositories are project-tier.** `docex containerize` no
+  longer calls `ecr_ensure_repository` ad-hoc — repos are provisioned
+  by `docex bootstrap` alongside the rest of the project-tier infra
+  and looked up by the env-tier image ref via
+  `data.terraform_remote_state.project.outputs.ecr_repository_<svc>_url`
+  instead of the prior `data.aws_caller_identity` interpolation.
+- Elastic env-tier `main.tf` now imports project-tier outputs through
+  `terraform_remote_state` (state key `project/terraform.tfstate` in
+  the same S3 backend) rather than discovering resources by tag.
+
+### Fixed
+
+- `CICLDocument` rejected the documented top-level `repo_url` field (per
+  `cicl.md` § Git Repo URL) as extra input, failing compile. It is now
+  accepted; the field stays documentary — docex doesn't act on it.
+- `SubprocessDockerClient._compose_base` passed `--project-directory`
+  computed from the in-container compose-file location, which under
+  DooD overrode the shim's `COMPOSE_PROJECT_DIR` (the host project
+  root) and made the host's docker daemon try to resolve bind-mounts
+  against `/project`. The flag is removed; relative bind-mounts now
+  resolve through `COMPOSE_PROJECT_DIR`, which the shim sets to the
+  host path and `_compose_env` derives from the compose-file location
+  for direct (non-shim) use.
+
+### Removed
+
+- `AWSClient.ecr_ensure_repository` and its boto3 implementation —
+  ECR repositories are now provisioned by the project-tier tofu apply,
+  and no path in docex still calls this method.
+
 ## [0.5.0] - 2026-05-28
 
 The post-`0.4.0` overhaul, driven by first-real-project use: parts-only

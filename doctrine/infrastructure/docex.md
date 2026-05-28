@@ -75,7 +75,11 @@ Describes one role: its engines (and foundations), the **provided parts** that m
 
 ### `bootstrap`
 `docex bootstrap`
-Performs the one-shot setup required to make an elastic-foundation project usable: creates the project's OpenTofu state backend (an S3 bucket for state and a DynamoDB table for locking). Idempotent — safe to re-run, and reconciles configuration drift if any. No-op for fixed-foundation projects. Typically run once per project, immediately after `project.yml` is created and before the first `docex compile`. See [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description of what gets created and why.
+Performs the one-shot setup required to make an elastic-foundation project usable: creates the project's OpenTofu state backend (an S3 bucket for state and a DynamoDB table for locking), then applies the project-tier HCL emitted at `infra/output/project/main.tf` to provision the VPC, Route53 hosted zone, ACM certificate, subnets, and ECR repositories shared across every elastic environment. Idempotent — safe to re-run, and reconciles configuration drift if any. No-op for fixed-foundation projects.
+
+The project-tier apply runs in two phases because ACM DNS validation requires the project zone to be NS-delegated from the parent (registrar or parent hosted zone). Phase 1 applies just the Route53 zone and prints the NS records the operator must delegate; phase 2 (on a subsequent invocation, after delegation propagates) applies the rest. Phase is detected from `tofu state list` — the operator runs the same `docex bootstrap` command both times.
+
+Typically run after `docex compile` and before the first `docex release` for `stage` or `prod`. See [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description of what gets created and why.
 
 ### `up`
 `docex up <env>`

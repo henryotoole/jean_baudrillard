@@ -30,12 +30,18 @@ class SubprocessDockerClient:
         var, against the directory containing the compose file). Our
         compose files live under ``infra/output/<env>/`` but reference
         ``./core/<svc>/...`` relative to the *project root*. So we
-        always set ``COMPOSE_PROJECT_DIR`` to the project root, which
-        is two directories up from the compose file.
+        always ensure ``COMPOSE_PROJECT_DIR`` is set to the project
+        root.
 
-        The bin/docex shim sets this already for DooD invocations; we
-        also set it here so direct ``SubprocessDockerClient`` use (in
-        tests, scripts) works without the shim.
+        Under DooD (docex runs inside its own container), ``/project``
+        inside the container is the *host*'s project root; the docker
+        daemon lives on the host and resolves bind-mount paths against
+        the host filesystem, where ``/project`` does not exist. The
+        ``bin/docex`` shim therefore sets ``COMPOSE_PROJECT_DIR`` to
+        the host project root before exec'ing docex, and we honor that
+        value via ``setdefault`` here. Direct ``SubprocessDockerClient``
+        use (tests, scripts) hits the fallback path: we derive the
+        project root from the compose file's location.
         """
         env = dict(os.environ)
         # compose_file = <project_root>/infra/output/<env>/docker-compose.yml
@@ -64,17 +70,17 @@ class SubprocessDockerClient:
     # ------------------------------------------------------------------
 
     def _compose_base(self, compose_file: Path, env_file: Path | None) -> list[str]:
-        # ``-f`` is the compose file; ``--project-directory`` tells
-        # compose where to resolve relative paths in the YAML (the
-        # compose file's relative bind mounts use ``./core/<svc>/...``
-        # relative to the project root, NOT the compose file's parent).
+        # ``-f`` is the compose file. Relative bind-mount resolution
+        # (``./core/<svc>/...``) is driven by ``COMPOSE_PROJECT_DIR``,
+        # set in ``_compose_env`` so that under DooD the shim's host
+        # path is honored. Passing ``--project-directory`` here would
+        # take precedence over the env var and, inside docex,
+        # silently resolve to ``/project`` (the in-container path),
+        # which the host's docker daemon then fails to find on disk.
         # ``--env-file`` must come before the subcommand per the v2 CLI.
-        # compose_file = <project_root>/infra/output/<env>/docker-compose.yml
-        project_root = compose_file.parent.parent.parent.parent
         cmd = [
             self._docker, "compose",
             "-f", str(compose_file),
-            "--project-directory", str(project_root),
         ]
         if env_file is not None:
             cmd.extend(["--env-file", str(env_file)])

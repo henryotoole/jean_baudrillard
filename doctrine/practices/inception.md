@@ -98,7 +98,8 @@ Much time may separate __PART IV__ and __PART V__. The operator may wish to keep
 2. The `stage.env` and `prod.env` files must be written with the relevant secrets. Some of these may have to come from the operator.
 3. The `$pr/infra/stage` resources will need to be created. These are described in detail [here](../infrastructure/tests.md#staging-tests).
 4. The LLM should check all the [prerequisite infrastructure](../infrastructure/shape2.md#description-of-shape) for the project's foundation. If any is misconfigured or doesn't exist, the operator should be notified and asked to fix it.
-5. The LLM should carefully proceed along the CI/CD pipeline. See [CI/CD Pipeline](../infrastructure/cicd.md#the-pipeline) and run each step in order.
+5. **(Elastic foundation only)** `docex bootstrap` must have produced both the OpenTofu state backend and the project-tier infrastructure (VPC, Route53 zone, ACM cert, ECR repos). Per [elastic_bootstrap.md](../infrastructure/specifics/elastic_bootstrap.md#two-phase-project-tier-apply), this runs in two phases separated by an operator NS-delegation step at the parent registrar (or parent hosted zone). Confirm both phases have completed before proceeding.
+6. The LLM should carefully proceed along the CI/CD pipeline. See [CI/CD Pipeline](../infrastructure/cicd.md#the-pipeline) and run each step in order.
 
 After doing a production release for the first time, any barriers will be overcome and future releases will proceed smoothly.
 

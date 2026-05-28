@@ -31,45 +31,17 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 # ---------------------------------------------------------------------------
-# Project-tier resources (VPC, ECR, Route53, ACM) referenced by data sources.
-# These are emitted into ../project/main.tf in a future phase; here we use
-# data-source lookups so the env-tier HCL can reference them.
+# Project-tier outputs (VPC, subnets, Route53 zone, ACM cert, ECR repos).
+# Provisioned once by `docex bootstrap` against ../project/main.tf; the
+# env-tier apply just composes them.
 # ---------------------------------------------------------------------------
-data "aws_vpc" "project" {
-  tags = {
-    project = "{{ project }}"
+data "terraform_remote_state" "project" {
+  backend = "s3"
+  config = {
+    bucket = "{{ project }}-tofu-state"
+    key    = "project/terraform.tfstate"
+    region = "{{ region }}"
   }
-}
-
-data "aws_subnets" "private" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.project.id]
-  }
-  tags = {
-    project = "{{ project }}"
-    tier    = "private"
-  }
-}
-
-data "aws_subnets" "public" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.project.id]
-  }
-  tags = {
-    project = "{{ project }}"
-    tier    = "public"
-  }
-}
-
-data "aws_route53_zone" "project" {
-  name = "{{ domain }}"
-}
-
-data "aws_acm_certificate" "project" {
-  domain      = "*.{{ domain }}"
-  most_recent = true
 }
 
 # ---------------------------------------------------------------------------
@@ -79,7 +51,7 @@ data "aws_acm_certificate" "project" {
 resource "aws_security_group" "{{ short }}" {
   name        = "{{ project }}_{{ env }}_{{ short }}"
   description = "{{ short }} network for {{ project }} {{ env }}"
-  vpc_id      = data.aws_vpc.project.id
+  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
   tags = {
     project    = "{{ project }}"
     env        = "{{ env }}"
@@ -114,7 +86,7 @@ resource "aws_security_group_rule" "{{ short }}_self_ingress" {
 resource "aws_security_group" "alb" {
   name        = "{{ project }}_{{ env }}_alb"
   description = "ALB ingress for {{ project }} {{ env }}"
-  vpc_id      = data.aws_vpc.project.id
+  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
   ingress {
     from_port   = 443
     to_port     = 443
@@ -148,7 +120,7 @@ resource "aws_lb" "alb" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = data.aws_subnets.public.ids
+  subnets            = data.terraform_remote_state.project.outputs.public_subnet_ids
   tags = {
     project    = "{{ project }}"
     env        = "{{ env }}"
@@ -161,7 +133,7 @@ resource "aws_lb_listener" "alb_https" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = data.aws_acm_certificate.project.arn
+  certificate_arn   = data.terraform_remote_state.project.outputs.certificate_arn
   default_action {
     type = "fixed-response"
     fixed_response {
@@ -218,7 +190,7 @@ resource "aws_ecs_cluster" "cluster" {
 # Route53 record: <env-subdomain> -> ALB
 # ---------------------------------------------------------------------------
 resource "aws_route53_record" "env" {
-  zone_id = data.aws_route53_zone.project.zone_id
+  zone_id = data.terraform_remote_state.project.outputs.zone_id
   name    = "{{ subdomain }}"
   type    = "A"
   alias {
@@ -232,7 +204,7 @@ resource "aws_route53_record" "env" {
 # same ALB; the listener rules dispatch by host header. One wildcard record
 # covers every web service in this env.
 resource "aws_route53_record" "env_wildcard" {
-  zone_id = data.aws_route53_zone.project.zone_id
+  zone_id = data.terraform_remote_state.project.outputs.zone_id
   name    = "*.{{ subdomain }}"
   type    = "A"
   alias {

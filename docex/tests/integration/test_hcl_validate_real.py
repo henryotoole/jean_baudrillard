@@ -103,6 +103,33 @@ def test_tofu_validate_passes_on_elastic_prod(compiled_elastic: Path):
     )
 
 
+def test_tofu_validate_passes_on_project_main_tf(tmp_path: Path):
+    """``tofu validate`` exits 0 against the project-tier main.tf.
+
+    Regression guard for v0.6.0's project-tier provisioning: the HCL must
+    parse and its references must resolve before bootstrap will accept it.
+    """
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    project_dir = dest / "infra" / "output" / "project"
+
+    init = _run(
+        ["tofu", "init", "-backend=false", "-input=false"],
+        cwd=project_dir,
+    )
+    assert init.returncode == 0, (
+        f"tofu init failed:\nstdout: {init.stdout}\nstderr: {init.stderr}"
+    )
+
+    validate = _run(["tofu", "validate"], cwd=project_dir)
+    assert validate.returncode == 0, (
+        f"tofu validate failed:\nstdout: {validate.stdout}\nstderr: {validate.stderr}"
+    )
+
+
 def test_tofu_validate_passes_on_elastic_stage(tmp_path: Path):
     """Same regression guard but for stage env."""
     dest = tmp_path / "project"
