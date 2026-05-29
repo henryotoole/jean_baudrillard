@@ -11,3 +11,13 @@ Most import engineer meta-planning docs. This is my actual hard *to change* list
 ## To Add To Autocommmands
 
 (Added all.)
+
+## Doctrine / Docex 0.6.0
+
+### `repo_url` Missing
+
+Unfortunately, I added `repo_url` to the doctrine but NOT to docex. It trips an error when added. We just need to add it in to `docex`. Double check, but I'm fairly certain `repo_url` doesn't *do* anything; it merely documents the repo URL.
+
+### Project Directory Bind-Mount Error
+
+Memory at docex-compose-bind-mount-path.md.

@@ -4,11 +4,11 @@
 
 # WARNING: This is hard-coded for claude right now.
 
-cd ./setup/claude
+set -euo pipefail
 
-source settings.sh
-. settings.sh
-source doctrine.sh
-. doctrine.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLAUDE_SETUP_DIR="${SCRIPT_DIR}/setup/claude"
 
-# TODO write @./jean_baudrillard/JEAN.md to CLAUDE.md
+bash "${CLAUDE_SETUP_DIR}/settings.sh"
+bash "${CLAUDE_SETUP_DIR}/jeanlink.sh"
+bash "${CLAUDE_SETUP_DIR}/skills.sh"

@@ -7,7 +7,8 @@ This guide defines special words and phrases that have unique context for all ma
 | Doctrine |  | Fundamental and immutable rules for software engineering. |
 | Development Machine |  | The discrete server on which development occurs. `dev` and `test` envs run here. Code is written here. Git commands, ansible playbooks, and OpenTofu calls originate on this machine with credentials on this machine. |
 | Operator |  | The human engineer working on the development machine with LLM's to write code. |
-| Project Root |  | The directory of the root folder of the project. This is not the filesystem root. Sometimes this will be indicated as `$pr` e.g. "$pr/dir/file.txt". |
+| Project Root | "$pr" | The directory of the root folder of the project. This is not the filesystem root. Sometimes this will be indicated as `$pr` e.g. "$pr/dir/file.txt". |
+| jean root | "$jb" | The directory of the root folder of the repo that contains the doctrine, `docex`, etc. Sometimes this will be indicated as `$jb` e.g. "$jb/doctrine/overview.md". |
 | Project | "codebase" | Refers to all code and infrastructure within the scope of the project root. Includes docker compose config, dockerfiles, code architecture, and the code itself. |
 | Service |  | Refers to both "core services" and "backing services". |
 | Core Service | "application service", "application container" | Any service that executes code which is unique to this project. |

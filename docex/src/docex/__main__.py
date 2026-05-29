@@ -6,7 +6,7 @@ every phase. Commands not implemented in this phase print a sensible
 than a generic "unknown command" error, so users discover the eventual
 surface from day one.
 
-See ``design_proposal.md`` § Subcommand Surface for the complete list.
+See ``plans/core/masterplan.md`` § Subcommand Surface for the complete list.
 """
 
 from __future__ import annotations

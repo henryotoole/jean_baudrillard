@@ -35,6 +35,7 @@
       "Bash(diff:*)",
       "Bash(cmp:*)",
 
+      "Bash(git add:*)",
       "Bash(git status:*)",
       "Bash(git log:*)",
       "Bash(git diff:*)",

@@ -1,6 +1,20 @@
-# `docex` — Design Proposal
+# `docex` — Masterplan
 
-`docex` is the executor of the [doctrine](../doctrine/overview.md). It is a single, versioned container image that bundles every deterministic doctrine-shipped tool — the [CICL](../doctrine/infrastructure/cicl.md) compiler, the [transfer tables](../doctrine/infrastructure/specifics/transfer_tables.md), the CI/CD orchestration ([cicd.md](../doctrine/infrastructure/cicd.md)), the foundation-specific release machinery ([release_mechanism.md](../doctrine/infrastructure/specifics/release_mechanism.md)), and the elastic state-backend bootstrap ([elastic_bootstrap.md](../doctrine/infrastructure/specifics/elastic_bootstrap.md)) — behind one cohesive command-line surface. Each project pins one `docex` version, ships one `./bin/docex` shim, and never carries doctrine source code in its own repository.
+> **A note on shape.** This masterplan does not look quite like a typical
+> doctrine-adherent masterplan. The standard masterplan (per
+> [`doctrine/practices/docs.md`](../../../doctrine/practices/docs.md))
+> describes a multi-service, hexagonally-architectured project organized
+> around core/backing services and inter-module flows. `docex` is a
+> single-process tool that *executes* the doctrine against other projects;
+> it has no backing services, no inter-service flows, and is not
+> hexagonally-architectured. The document below therefore reads more like
+> a design proposal — goals, architecture, command surface, distribution
+> model — because that is what a masterplan for `docex` actually is. See
+> [`docex_process.md`](./docex_process.md) for the development process
+> this masterplan hangs off, and why `docex`'s documentation layout
+> deliberately diverges from the standard in other small ways.
+
+`docex` is the executor of the [doctrine](../../../doctrine/overview.md). It is a single, versioned container image that bundles every deterministic doctrine-shipped tool — the [CICL](../../../doctrine/infrastructure/cicl.md) compiler, the [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md), the CI/CD orchestration ([cicd.md](../../../doctrine/infrastructure/cicd.md)), the foundation-specific release machinery ([release_mechanism.md](../../../doctrine/infrastructure/specifics/release_mechanism.md)), and the elastic state-backend bootstrap ([elastic_bootstrap.md](../../../doctrine/infrastructure/specifics/elastic_bootstrap.md)) — behind one cohesive command-line surface. Each project pins one `docex` version, ships one `./bin/docex` shim, and never carries doctrine source code in its own repository.
 
 The name is intentional: `docex` is *not* the doctrine. The doctrine is the body of rules and principles; `docex` is what executes those rules deterministically against a project.
 
@@ -84,7 +98,7 @@ When the shim runs, it reads this field and uses it as the image tag. Bumping `d
 
 ## Subcommand Surface
 
-The subcommand surface is the full set of commands defined in [docex.md](../doctrine/infrastructure/docex.md). Every command listed here is in scope for the design; [Implementation Order](#implementation-order) phases the actual build.
+The subcommand surface is the full set of commands defined in [docex.md](../../../doctrine/infrastructure/docex.md). Every command listed here is in scope for the design; [Implementation Order](#implementation-order) phases the actual build.
 
 | Command | Foundation behavior | Reads | Writes / acts on |
 | ------- | ------------------- | ----- | ---------------- |
@@ -103,7 +117,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../doct
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
 | `stagetest` | both | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL | ephemeral stage-tester container, exit code |
 
-Each command's authoritative behavior lives in [docex.md](../doctrine/infrastructure/docex.md) and the cross-referenced specifics; this table is a navigation aid, not a re-spec.
+Each command's authoritative behavior lives in [docex.md](../../../doctrine/infrastructure/docex.md) and the cross-referenced specifics; this table is a navigation aid, not a re-spec.
 
 ### Cross-command orchestration
 
@@ -118,7 +132,7 @@ A few commands compose others rather than duplicate logic:
 
 **Bundled (lives in the image):**
 - The Python CLI: command dispatcher, CICL compiler, all orchestration code.
-- The canonical [transfer tables](../doctrine/infrastructure/specifics/transfer_tables.md) (`/opt/docex/tables/`).
+- The canonical [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md) (`/opt/docex/tables/`).
 - The Ansible playbook template used by fixed-foundation releases (rendered per project by `compile`).
 - CLI dependencies: `docker`, `tofu`, `ansible`, `aws`, `git`, `jq`, plus the Python runtime.
 - Doctrine prose excerpts that back `docex why`.
@@ -168,7 +182,7 @@ Several commands branch internally on `foundation:` from `infra.yml`. The shim a
 | `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` |
 | `migrate` (during release) | one-off container in the existing internal docker network on the host | ECS `RunTask` against the migration task definition |
 
-The `dev` and `test` environments are always fixed regardless of declared foundation, per [shape2.md § Shape and Environment](../doctrine/infrastructure/shape2.md#shape-and-environment).
+The `dev` and `test` environments are always fixed regardless of declared foundation, per [shape2.md § Shape and Environment](../../../doctrine/infrastructure/shape2.md#shape-and-environment).
 
 ## Credentials & Ambient Host State
 
@@ -213,9 +227,15 @@ The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` i
 
 ```
 jean_baudrillard/docex/
-├── design_proposal.md       (this file)
-├── change_process.md        (how docex itself is changed — read before editing docex)
 ├── CHANGELOG.md             (per-version change record; Keep a Changelog + SemVer)
+├── pyproject.toml
+├── Dockerfile
+├── plans/                   (doctrine-shaped planning tree — see docex_process.md for the divergences)
+│   ├── core/                (flat; no per-module subfolders since docex isn't hexagonal)
+│   │   ├── masterplan.md    (this file)
+│   │   └── docex_process.md (how docex itself is changed; read before editing docex)
+│   ├── modifications/       (one folder per mod; same shape as the doctrine prescribes)
+│   └── references/          (external API / spec docs the project relies on)
 ├── src/
 │   └── docex/               (Python package; CLI entrypoint + all subcommands)
 │       ├── __main__.py      (argparse dispatcher)
@@ -227,9 +247,8 @@ jean_baudrillard/docex/
 ├── tables/                  (canonical transfer tables, copied to /opt/docex/tables/)
 ├── ansible/                 (playbook template rendered by compile for fixed releases)
 ├── doctrine_excerpts/       (data feeding `docex why`)
-├── Dockerfile
-├── tests/
-└── release/                 (publishing automation)
+├── bin/                     (the project-installed shim, sourced from here)
+└── tests/
 ```
 
 ### Implementation language
@@ -275,7 +294,7 @@ The container model is the doctrine's friend here. `docex:1.2.3` bakes in specif
 
 ## Out of Scope (For This Proposal)
 
-These align with the [Deferred section of infrastructure.md](../doctrine/infrastructure/infrastructure.md#deferred) plus a few proposal-specific items.
+These align with the [Deferred section of infrastructure.md](../../../doctrine/infrastructure/infrastructure.md#deferred) plus a few proposal-specific items.
 
 1. **Multi-machine fixed foundation.** Single host per env for now; multi-host (docker swarm or otherwise) waits on a future doctrine extension.
 2. **Automated CI/CD triggers.** `docex` is invoked manually or by a thin CI runner that just shells out to it. PR-triggered pipelines, GitHub Actions wrappers, etc. are out of scope.
@@ -283,6 +302,6 @@ These align with the [Deferred section of infrastructure.md](../doctrine/infrast
 4. **Observability.** Logging servers, metrics, error tracking. Highest-priority future addition but not in this version.
 5. **Rollback.** `docex rollback` is anticipated but not yet specified.
 6. **Public image hosting.** `docex` images are built locally and consumed from the local Docker store. Hosting on a public registry — and the per-provider auth that implies — is deferred until multi-machine teams need it.
-7. **Externally-rotated secrets.** All secrets are project-controlled and clobbered on each release; AWS-managed RDS rotation and friends are deferred per [release_mechanism.md § Caveats](../doctrine/infrastructure/specifics/release_mechanism.md#caveats).
-8. **The full CICL spec.** Covered in [cicl.md](../doctrine/infrastructure/cicl.md) and [transfer_tables.md](../doctrine/infrastructure/specifics/transfer_tables.md); not duplicated here.
+7. **Externally-rotated secrets.** All secrets are project-controlled and clobbered on each release; AWS-managed RDS rotation and friends are deferred per [release_mechanism.md § Caveats](../../../doctrine/infrastructure/specifics/release_mechanism.md#caveats).
+8. **The full CICL spec.** Covered in [cicl.md](../../../doctrine/infrastructure/cicl.md) and [transfer_tables.md](../../../doctrine/infrastructure/specifics/transfer_tables.md); not duplicated here.
 9. **Hexagonal architecture concerns.** Separate doctrine track; orthogonal to `docex`.
