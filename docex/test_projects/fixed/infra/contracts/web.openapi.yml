@@ -1,0 +1,71 @@
+# OpenAPI contract for the `web` service.
+#
+# docex check's contract gate verifies that paths declared here exist in
+# the running web service (provider-side contract testing). Two specific
+# rules:
+#   - GET /health is mandatory for any service on the `web` network
+#     (per doctrine/infrastructure/contracts.md § Health Checks).
+#   - Per-depends_on health subpaths (/health/db) are required only when
+#     the dependency is a *core service* downstream in web's chain. `db`
+#     is a backing service so no /health/db endpoint is required.
+
+openapi: "3.0.3"
+info:
+  title: docex_smoke_fixed.web
+  version: "0.0.1"
+  description: |
+    Test-project web service for the doctrine smoke test. POST a payload
+    to /pings, the worker picks it up via postgres.
+servers:
+  - url: "https://www.doctrine-fixed.luxrnd.tech"
+    description: prod
+  - url: "https://stage.doctrine-fixed.luxrnd.tech"
+    description: stage
+
+paths:
+  /health:
+    get:
+      summary: Service liveness.
+      operationId: health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version:
+                    type: string
+                    example: "0.0.1"
+
+  /pings:
+    post:
+      summary: Enqueue a ping for the worker to process.
+      operationId: createPing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload:
+                  type: string
+                  minLength: 1
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+        "400":
+          description: Invalid payload

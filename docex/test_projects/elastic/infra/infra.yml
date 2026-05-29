@@ -1,0 +1,54 @@
+cicl_version: "1"
+foundation: elastic
+domain: "doctrine-elastic.luxrnd.tech"
+domain_default_service: web
+# container_registry omitted on elastic — defaults to the project ECR
+# provisioned by `docex bootstrap`. See cicl.md § Container Registry.
+repo_url: "https://github.com/luxedo/jean_baudrillard"
+
+core_services:
+  web:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [db]
+    env:
+      # Built from db's provided parts at startup (parts-only model).
+      # On elastic, DATABASE_HOST resolves to the RDS endpoint and
+      # USER/PASSWORD come from SSM via ECS secrets[].
+      DATABASE_HOST: ${backing_services.db.host}
+      DATABASE_PORT: ${backing_services.db.port}
+      DATABASE_NAME: ${backing_services.db.db}
+      DATABASE_USER: ${backing_services.db.user}
+      DATABASE_PASSWORD: ${backing_services.db.password}
+    resources:
+      cpu: 0.25
+      memory: 512MB
+      # Fargate ephemeral_storage minimum is 21 GiB; CICL accepts decimal
+      # GB so 25GB is a safe floor that satisfies the minimum after
+      # decimal->binary rounding.
+      disk: 25GB
+
+  worker:
+    role: web
+    # No port — `worker` isn't on the web network, so no ALB exposure.
+    networks: [internal]
+    depends_on: [db]
+    env:
+      DATABASE_HOST: ${backing_services.db.host}
+      DATABASE_PORT: ${backing_services.db.port}
+      DATABASE_NAME: ${backing_services.db.db}
+      DATABASE_USER: ${backing_services.db.user}
+      DATABASE_PASSWORD: ${backing_services.db.password}
+    resources:
+      cpu: 0.25
+      memory: 512MB
+      disk: 25GB
+
+backing_services:
+  db:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    schema_owned_by: web
