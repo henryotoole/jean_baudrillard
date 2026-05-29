@@ -176,10 +176,6 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     for name in sorted(compiled.services):
         svc = compiled.services[name]
         block = _service_block(svc)
-        if isinstance(block.get("depends_on"), list):
-            block["depends_on"] = [
-                simple_to_global.get(d, d) for d in block["depends_on"]
-            ]
 
         # Phase 2: dev compose gets bind mounts on core services so
         # ``docex build`` can refresh host-side dist/ without rebuilding
@@ -241,6 +237,34 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             block["labels"] = _traefik_labels(svc)
 
         services[svc.global_name] = block
+
+    # Second pass: rewrite each service's depends_on from compose short-form
+    # (list of names) to long-form (map keyed by global name with a condition).
+    # WHY: short-form only waits for the target container to *start*. Backing
+    # services like postgres take measurable time to become reachable after
+    # starting; a dependent service (or `compose exec` from `docex up`) that
+    # connects too early hits a refused TCP socket. service_healthy uses the
+    # target's already-declared healthcheck as the gate; service_started is
+    # the safe fallback when the target declares no healthcheck (semantically
+    # equivalent to compose short-form).
+    # A second pass is required because the condition depends on whether the
+    # target's emitted block contains a ``healthcheck`` key — every block must
+    # exist before we can resolve any dependency's condition.
+    for block in services.values():
+        deps = block.get("depends_on")
+        if not isinstance(deps, list):
+            continue
+        long_form: dict[str, Any] = {}
+        for dep in deps:
+            target_global = simple_to_global.get(dep, dep)
+            target_block = services.get(target_global, {})
+            cond = (
+                "service_healthy"
+                if "healthcheck" in target_block
+                else "service_started"
+            )
+            long_form[target_global] = {"condition": cond}
+        block["depends_on"] = long_form
 
     # Build top-level dict without the x-logging key (we render it by hand
     # so its YAML anchor reference is exact).

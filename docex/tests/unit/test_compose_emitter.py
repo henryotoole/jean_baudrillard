@@ -149,3 +149,58 @@ def test_backing_service_on_web_is_routed(tmp_path: Path):
     assert "traefik.enable=true" in labels
     rule = next(l for l in labels if ".rule=" in l)
     assert "Host(`db.dev.example.com`)" in rule
+
+
+def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: Path):
+    """api depends on db (postgres → engine table declares a healthcheck),
+    so the emitted long-form depends_on must wait for service_healthy."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    api = _find_core_service_block(services, "api")
+    deps = api.get("depends_on")
+    assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
+    # The dep key must be the project-scoped global name of `db`.
+    db_key = next((k for k in deps if k.endswith("db")), None)
+    assert db_key is not None, f"db not in api.depends_on: {sorted(deps)}"
+    assert deps[db_key] == {"condition": "service_healthy"}, deps[db_key]
+
+
+def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path: Path):
+    """A dep target without a healthcheck must get service_started. We add a
+    reverse_proxy backing service to the fixture — its transfer-table entry
+    declares no healthcheck — and point api at it via depends_on."""
+    root = _copy_fixture(tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    original = infra_yml.read_text()
+    # Add reverse_proxy backing service and point api.depends_on at it. The
+    # reverse_proxy role's fixed defaults are empty, so the emitted compose
+    # block has no healthcheck — the exact shape needed for this branch.
+    modified = original.replace(
+        "    depends_on: [db]",
+        "    depends_on: [db, proxy]",
+        1,
+    ) + (
+        "\n  proxy:\n"
+        "    role: reverse_proxy\n"
+        "    engine: traefik\n"
+        "    networks: [web]\n"
+    )
+    infra_yml.write_text(modified)
+
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    api = _find_core_service_block(services, "api")
+    deps = api.get("depends_on")
+    assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
+    proxy_key = next((k for k in deps if k.endswith("proxy")), None)
+    assert proxy_key is not None, f"proxy not in api.depends_on: {sorted(deps)}"
+    # Confirm the proxy block really has no healthcheck (guards the test
+    # against silently degrading if a future doctrine change adds one).
+    proxy_block = services[proxy_key]
+    assert "healthcheck" not in proxy_block, proxy_block
+    assert deps[proxy_key] == {"condition": "service_started"}, deps[proxy_key]

@@ -275,6 +275,16 @@ x-logging: &default-logging
 		max-file: "3"
 ```
 
+### Depends-on emission (fixed)
+
+Compose `depends_on` is always emitted in long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or `compose exec` from `docex up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
+
+```yml
+depends_on:
+	${global_service_name_of_target}:
+		condition: service_healthy   # or service_started
+```
+
 ### Per-resource (elastic)
 
 Every Tofu resource emitted for a service receives:

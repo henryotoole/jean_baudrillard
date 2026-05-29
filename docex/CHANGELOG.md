@@ -12,6 +12,24 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Fixed
+
+- Compose `depends_on` is now emitted in long-form with
+  `condition: service_healthy` when the target service declares a
+  healthcheck, and `service_started` otherwise. Previously emitted as
+  short-form (a flat list), which only waits for the target to start —
+  so `docex up dev` and `docex test` would race postgres's
+  initialization and fail `migrate.sh` with `connection refused`.
+  Surfaced by the new `test_projects/` walks.
+
+### Changed
+
+- `tests/integration/test_up_down_real.py` and
+  `tests/integration/test_migrate_real.py` now reference the sample
+  fixture's backing service by its current name (`db`) instead of the
+  stale `database`. Stale `POSTGRES_DB` / `POSTGRES_HOST` lines in
+  `tests/fixtures/sample_project/infra/secrets/dev.env` removed.
+
 ## [0.7.0] - 2026-05-29
 
 The first-real-release shake-out: eight bugs surfaced by maptrack's
