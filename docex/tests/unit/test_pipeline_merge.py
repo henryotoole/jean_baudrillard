@@ -129,3 +129,38 @@ def test_merge_deletes_feature_branch_local_and_remote(
     # One local + one remote.
     assert any(c[3] is False for c in deletes), deletes  # local
     assert any(c[3] is True for c in deletes), deletes  # remote
+
+
+def test_merge_seeds_main_on_empty_origin(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    """First release: origin/main doesn't exist. Merge skips rebase,
+    fast-forwards a fresh local main to the feature tip, tags, and
+    pushes — publishing origin/main for the first time."""
+    fake_git.branch = "feature/x"
+    fake_git.refs = set()  # empty remote
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    # rebase must NOT have been attempted.
+    assert not [c for c in fake_git.calls if c[0] == "rebase"]
+    # Fast-forward DID run, targeting main from the feature tip.
+    ffs = [c for c in fake_git.calls if c[0] == "fast_forward"]
+    assert ffs, "expected fast_forward to seed main"
+    # Push still happens — that's what publishes the new main + tag.
+    pushes = [c for c in fake_git.calls if c[0] == "push"]
+    assert pushes, "expected push of main + tag"
+
+
+def test_merge_skips_remote_feature_delete_on_empty_origin(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    """When seeding origin/main from scratch, there's no remote feature
+    branch to delete — skip the remote delete to avoid a noisy warning."""
+    fake_git.branch = "feature/x"
+    fake_git.refs = set()
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    deletes = [c for c in fake_git.calls if c[0] == "delete_branch"]
+    # Local delete happens; remote delete is skipped.
+    assert any(c[3] is False for c in deletes), deletes
+    assert not any(c[3] is True for c in deletes), deletes

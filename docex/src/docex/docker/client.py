@@ -36,6 +36,7 @@ class DockerClient(Protocol):
         build: bool = True,
         detach: bool = True,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
         """Run ``docker compose up`` for the given file.
 
@@ -43,6 +44,11 @@ class DockerClient(Protocol):
         ``env_file`` is passed to compose's top-level ``--env-file``
         so ``${VAR}`` substitutions in the compose file resolve from
         the project's ``infra/secrets/<env>.env`` (per doctrine).
+        ``project_dir`` overrides the path compose uses as its working
+        directory (``--project-directory``); defaults to whatever the
+        ``bin/docex`` shim's ``COMPOSE_PROJECT_DIR`` env var carries
+        (the host project root). ``docex check`` overrides this with
+        the host path of its ephemeral worktree.
         """
         ...
 
@@ -52,12 +58,14 @@ class DockerClient(Protocol):
         *,
         preserve_volumes: bool = True,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
         """Run ``docker compose down`` for the given file.
 
         ``preserve_volumes=True`` is the default (dev env doctrine).
         ``preserve_volumes=False`` adds ``-v``, deleting named
-        volumes too (test env teardown).
+        volumes too (test env teardown). ``project_dir`` — see
+        :meth:`compose_up`.
         """
         ...
 
@@ -69,12 +77,13 @@ class DockerClient(Protocol):
         *,
         env: dict[str, str] | None = None,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
         """Run a one-shot ``docker compose run --rm`` for a service.
 
         Used when a command needs a fresh container rather than the
         existing one (mostly future Phase 3 work; included here so
-        the protocol is stable).
+        the protocol is stable). ``project_dir`` — see :meth:`compose_up`.
         """
         ...
 
@@ -85,17 +94,28 @@ class DockerClient(Protocol):
         command: list[str],
         *,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
         """Run a command inside a *running* service container.
 
         This is the primary mechanism used by ``docex build``,
         ``docex migrate``, and the build-test step of ``docex test``.
+        ``project_dir`` — see :meth:`compose_up`. Must match whatever
+        value was used at ``compose_up`` time so compose finds the
+        same project name.
         """
         ...
 
-    def compose_ps(self, compose_file: Path, *, env_file: Path | None = None) -> list[str]:
+    def compose_ps(
+        self,
+        compose_file: Path,
+        *,
+        env_file: Path | None = None,
+        project_dir: Path | None = None,
+    ) -> list[str]:
         """Return the names of services currently running under this
-        compose file. Empty list means nothing is up."""
+        compose file. Empty list means nothing is up.
+        ``project_dir`` — see :meth:`compose_up`."""
         ...
 
     def build_image(self, context: Path, *, target: str, tag: str) -> int:

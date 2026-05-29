@@ -16,30 +16,25 @@ def _compose_file(project_root: Path) -> Path:
     return project_root / "infra" / "output" / "dev" / "docker-compose.yml"
 
 
-def test_compose_base_does_not_pass_project_directory(tmp_path):
-    # Under DooD, passing ``--project-directory`` would override
-    # COMPOSE_PROJECT_DIR set by the shim and resolve to the
-    # in-container ``/project`` on the host's docker daemon. We
-    # rely on COMPOSE_PROJECT_DIR instead. Regression for v0.5.0,
-    # which leaked an in-container path into spawned compose calls.
+def test_compose_base_passes_project_directory_from_explicit_override(tmp_path):
+    """When a project_dir is passed explicitly (e.g. docex check's worktree
+    override), it wins over the env var and the derived fallback."""
     client = SubprocessDockerClient()
-    cmd = client._compose_base(_compose_file(tmp_path), env_file=None)
-    assert "--project-directory" not in cmd
+    cmd = client._compose_base(
+        _compose_file(tmp_path), env_file=None, project_dir=Path("/explicit/override"),
+    )
+    assert "--project-directory" in cmd
+    assert cmd[cmd.index("--project-directory") + 1] == "/explicit/override"
 
 
-def test_compose_env_honors_existing_compose_project_dir(monkeypatch, tmp_path):
-    # The bin/docex shim sets COMPOSE_PROJECT_DIR to the host project
-    # root before launching docex. We must not overwrite it.
-    monkeypatch.setenv("COMPOSE_PROJECT_DIR", "/host/project/path")
+def test_compose_base_derives_project_directory_from_compose_file(tmp_path):
+    """With no explicit override, --project-directory is derived from the
+    compose file's location: <root>/infra/output/<env>/docker-compose.yml.
+    Under DooD the shim mirrors the host path inside the container, so
+    this derived value is simultaneously a valid in-container path (for
+    compose's client reads) and a valid host path (for the daemon's
+    bind-mount resolution)."""
     client = SubprocessDockerClient()
-    env = client._compose_env(_compose_file(tmp_path))
-    assert env["COMPOSE_PROJECT_DIR"] == "/host/project/path"
-
-
-def test_compose_env_falls_back_to_derived_root(monkeypatch, tmp_path):
-    # Direct (non-shim) use: no COMPOSE_PROJECT_DIR in the env, so we
-    # derive it from the compose file location.
-    monkeypatch.delenv("COMPOSE_PROJECT_DIR", raising=False)
-    client = SubprocessDockerClient()
-    env = client._compose_env(_compose_file(tmp_path))
-    assert env["COMPOSE_PROJECT_DIR"] == str(tmp_path)
+    cmd = client._compose_base(_compose_file(tmp_path), env_file=None, project_dir=None)
+    assert "--project-directory" in cmd
+    assert cmd[cmd.index("--project-directory") + 1] == str(tmp_path)

@@ -55,32 +55,54 @@ def run_merge(
         )
         return 1
 
-    # 3. Fetch + rebase the developer's tree ---------------------------
+    # 3. Fetch + decide between rebase-onto-trunk or seed-trunk -------
     rc = git.fetch(project_root, remote="origin")
     if rc != 0:
         print(f"error: 'git fetch origin' exited {rc}.", file=sys.stderr)
         return rc
 
-    rc = git.rebase(project_root, "origin/main")
-    if rc != 0:
-        # Abort so we don't leave the working tree mid-rebase.
-        git.rebase_abort(project_root)
+    empty_origin = not git.ref_exists(project_root, "origin/main")
+    if empty_origin:
+        # First release on an empty remote: there's no trunk to rebase
+        # onto. Seed it by fast-forwarding a freshly-created local main
+        # to the feature tip; the push at step 6 publishes it as
+        # origin/main. The defensive recheck above already passed in
+        # "first-release mode" (gates skipped), so we know the tree
+        # is otherwise valid.
         print(
-            f"error: 'git rebase origin/main' exited {rc}. Resolve the "
-            "conflict on your feature branch and retry.",
+            "merge: origin/main does not exist — seeding main from the "
+            f"current feature branch ({feature!r}).",
             file=sys.stderr,
         )
-        return rc
+        rc = git.fast_forward(project_root, "main", feature)
+        if rc != 0:
+            print(
+                f"error: failed to create 'main' at {feature!r} (exit {rc}). "
+                "Manual recovery needed.",
+                file=sys.stderr,
+            )
+            return rc
+    else:
+        rc = git.rebase(project_root, "origin/main")
+        if rc != 0:
+            # Abort so we don't leave the working tree mid-rebase.
+            git.rebase_abort(project_root)
+            print(
+                f"error: 'git rebase origin/main' exited {rc}. Resolve the "
+                "conflict on your feature branch and retry.",
+                file=sys.stderr,
+            )
+            return rc
 
-    # 4. Fast-forward main to the rebased tip --------------------------
-    rc = git.fast_forward(project_root, "main", feature)
-    if rc != 0:
-        print(
-            f"error: fast-forward of 'main' to {feature!r} exited {rc}. "
-            "Manual recovery needed.",
-            file=sys.stderr,
-        )
-        return rc
+        # 4. Fast-forward main to the rebased tip --------------------------
+        rc = git.fast_forward(project_root, "main", feature)
+        if rc != 0:
+            print(
+                f"error: fast-forward of 'main' to {feature!r} exited {rc}. "
+                "Manual recovery needed.",
+                file=sys.stderr,
+            )
+            return rc
 
     # We're now on main with HEAD == feature's tip.
 
@@ -116,13 +138,17 @@ def run_merge(
             "delete the local branch by hand if needed.",
             file=sys.stderr,
         )
-    rc_remote = git.delete_branch(project_root, feature, remote=True)
-    if rc_remote != 0:
-        print(
-            f"warning: deleting remote {feature!r} exited {rc_remote}; "
-            "may have already been deleted.",
-            file=sys.stderr,
-        )
+    # On an empty-origin seed there's no remote feature branch to delete
+    # (nothing was ever pushed). Skip the remote delete to avoid a
+    # noisy warning operators can't act on.
+    if not empty_origin:
+        rc_remote = git.delete_branch(project_root, feature, remote=True)
+        if rc_remote != 0:
+            print(
+                f"warning: deleting remote {feature!r} exited {rc_remote}; "
+                "may have already been deleted.",
+                file=sys.stderr,
+            )
 
     print(f"merge: {feature!r} merged into main and tagged {tag_name}.")
     return 0

@@ -45,6 +45,16 @@ class GitClient(Protocol):
         """``git fetch <remote>``. Returns exit code."""
         ...
 
+    def ref_exists(self, cwd: Path, ref: str) -> bool:
+        """Return True iff ``git rev-parse --verify`` resolves ``ref``.
+
+        Used to distinguish a brand-new project (no ``origin/main`` yet
+        because the remote is empty) from an established one. Lets
+        ``check`` and ``merge`` switch into a "first release on empty
+        remote" path that seeds main from the feature branch.
+        """
+        ...
+
     def merge_base(self, cwd: Path, a: str, b: str) -> str:
         """Return ``git merge-base <a> <b>`` (the common ancestor SHA).
         Returns the empty string if no common ancestor exists."""
@@ -104,6 +114,16 @@ class GitClient(Protocol):
 
     def worktree_remove(self, cwd: Path, path: Path, *, force: bool = False) -> int:
         """``git worktree remove [-f] <path>``. Returns exit code."""
+        ...
+
+    def worktree_prune(self, cwd: Path) -> int:
+        """``git worktree prune``. Returns exit code.
+
+        Used to clean up the worktree-list entry after a fallback
+        ``shutil.rmtree`` removed the worktree directory directly —
+        otherwise ``git worktree list`` keeps a stale entry pointing
+        at the now-missing path.
+        """
         ...
 
     def list_tags(self, cwd: Path, *, pattern: str | None = None) -> list[str]:

@@ -330,5 +330,11 @@ class Boto3AWSClient:
             )
         return str(clusters[0]["clusterArn"])
 
+    def ecs_cluster_exists(self, name: str) -> bool:
+        ecs = self._client("ecs")
+        resp = ecs.describe_clusters(clusters=[name])
+        clusters = resp.get("clusters", [])
+        return bool(clusters) and clusters[0].get("status") == "ACTIVE"
+
 
 __all__ = ["Boto3AWSClient", "BotoCoreError", "ClientError", "NoCredentialsError"]

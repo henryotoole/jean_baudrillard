@@ -96,8 +96,19 @@ COPY ansible/ /opt/docex/ansible/
 # works for CI. ``--no-cache-dir`` keeps the image lean.
 RUN pip install --no-cache-dir ".[test]"
 
-# Operate on /project — the project tree is bind-mounted at runtime by
-# the shim. WORKDIR matters for relative paths printed in errors.
-WORKDIR /project
+# Bake `safe.directory = *` into the image's system gitconfig. With
+# the shim's --user uid mapping the in-container uid matches the host
+# file owner and git's dubious-ownership check is satisfied anyway,
+# but baking this in costs nothing and protects against edge cases
+# where the image is run without --user (e.g. ad-hoc `docker run
+# docex bash` for debugging).
+RUN git config --system --add safe.directory '*'
+
+# The shim sets `-w "$PROJECT_ROOT"` at runtime — bind-mounting the
+# host project at the same path inside the container so DooD path
+# resolution agrees in both directions. The image's WORKDIR is a
+# sensible default for ad-hoc `docker run docex bash` debugging
+# sessions; the shim overrides it.
+WORKDIR /
 
 ENTRYPOINT ["docex"]

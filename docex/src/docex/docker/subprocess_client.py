@@ -7,7 +7,6 @@ protocol. That single chokepoint is what makes the unit tests cheap.
 
 from __future__ import annotations
 
-import os
 import subprocess  # noqa: S404 - explicit chokepoint, see module docstring
 from pathlib import Path
 
@@ -22,32 +21,35 @@ class SubprocessDockerClient:
     def __init__(self, *, docker_bin: str = "docker") -> None:
         self._docker = docker_bin
 
-    def _compose_env(self, compose_file: Path) -> dict[str, str]:
-        """Return an env dict for ``subprocess.run`` calls to compose.
+    def _resolve_project_dir(
+        self, compose_file: Path, project_dir: Path | None
+    ) -> str:
+        """Pick the host path compose should use as its project directory.
 
-        Critical: compose resolves relative bind-mount paths in the
-        compose YAML against ``COMPOSE_PROJECT_DIR`` (or, absent that
-        var, against the directory containing the compose file). Our
-        compose files live under ``infra/output/<env>/`` but reference
-        ``./core/<svc>/...`` relative to the *project root*. So we
-        always ensure ``COMPOSE_PROJECT_DIR`` is set to the project
-        root.
+        Precedence:
+          1. Explicit ``project_dir`` argument (caller knows best — e.g.
+             ``docex check`` overrides this to the path of an ephemeral
+             worktree).
+          2. Derived from the compose file's location:
+             ``compose_file.parent.parent.parent.parent`` matches the
+             standard layout
+             ``<root>/infra/output/<env>/docker-compose.yml``.
 
-        Under DooD (docex runs inside its own container), ``/project``
-        inside the container is the *host*'s project root; the docker
-        daemon lives on the host and resolves bind-mount paths against
-        the host filesystem, where ``/project`` does not exist. The
-        ``bin/docex`` shim therefore sets ``COMPOSE_PROJECT_DIR`` to
-        the host project root before exec'ing docex, and we honor that
-        value via ``setdefault`` here. Direct ``SubprocessDockerClient``
-        use (tests, scripts) hits the fallback path: we derive the
-        project root from the compose file's location.
+        Under DooD the ``bin/docex`` shim mirrors the host project root
+        as the same path inside docex's container, so the derived path
+        is simultaneously a valid in-container path (for compose's
+        client-side reads) and a valid host path (for the daemon's
+        bind-mount resolution). No env-var lookup needed.
+
+        Note: docker compose v2 does NOT honor ``COMPOSE_PROJECT_DIR``
+        as an env var (verified empirically against v2 v5.1.3). We
+        always pass ``--project-directory`` on the CLI;
+        ``_compose_base`` does that from the value returned here.
         """
-        env = dict(os.environ)
+        if project_dir is not None:
+            return str(project_dir)
         # compose_file = <project_root>/infra/output/<env>/docker-compose.yml
-        project_root = compose_file.parent.parent.parent.parent
-        env.setdefault("COMPOSE_PROJECT_DIR", str(project_root))
-        return env
+        return str(compose_file.parent.parent.parent.parent)
 
     # ------------------------------------------------------------------
     # Availability
@@ -69,18 +71,23 @@ class SubprocessDockerClient:
     # docker compose wrappers
     # ------------------------------------------------------------------
 
-    def _compose_base(self, compose_file: Path, env_file: Path | None) -> list[str]:
-        # ``-f`` is the compose file. Relative bind-mount resolution
-        # (``./core/<svc>/...``) is driven by ``COMPOSE_PROJECT_DIR``,
-        # set in ``_compose_env`` so that under DooD the shim's host
-        # path is honored. Passing ``--project-directory`` here would
-        # take precedence over the env var and, inside docex,
-        # silently resolve to ``/project`` (the in-container path),
-        # which the host's docker daemon then fails to find on disk.
-        # ``--env-file`` must come before the subcommand per the v2 CLI.
+    def _compose_base(
+        self,
+        compose_file: Path,
+        env_file: Path | None,
+        project_dir: Path | None,
+    ) -> list[str]:
+        # ``-f`` is the compose file. ``--project-directory`` tells
+        # compose where to resolve relative paths (build contexts and
+        # bind-mount sources) — it must be a host path the docker
+        # daemon can find, since the daemon lives on the host. See
+        # ``_resolve_project_dir`` for precedence. ``--env-file`` must
+        # come before the subcommand per the v2 CLI.
+        project_dir_str = self._resolve_project_dir(compose_file, project_dir)
         cmd = [
             self._docker, "compose",
             "-f", str(compose_file),
+            "--project-directory", project_dir_str,
         ]
         if env_file is not None:
             cmd.extend(["--env-file", str(env_file)])
@@ -93,13 +100,14 @@ class SubprocessDockerClient:
         build: bool = True,
         detach: bool = True,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
-        cmd = self._compose_base(compose_file, env_file) + ["up"]
+        cmd = self._compose_base(compose_file, env_file, project_dir) + ["up"]
         if build:
             cmd.append("--build")
         if detach:
             cmd.append("-d")
-        return self._run(cmd, env=self._compose_env(compose_file))
+        return self._run(cmd)
 
     def compose_down(
         self,
@@ -107,11 +115,12 @@ class SubprocessDockerClient:
         *,
         preserve_volumes: bool = True,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
-        cmd = self._compose_base(compose_file, env_file) + ["down"]
+        cmd = self._compose_base(compose_file, env_file, project_dir) + ["down"]
         if not preserve_volumes:
             cmd.append("-v")
-        return self._run(cmd, env=self._compose_env(compose_file))
+        return self._run(cmd)
 
     def compose_run_one_off(
         self,
@@ -121,13 +130,14 @@ class SubprocessDockerClient:
         *,
         env: dict[str, str] | None = None,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
-        cmd = self._compose_base(compose_file, env_file) + ["run", "--rm"]
+        cmd = self._compose_base(compose_file, env_file, project_dir) + ["run", "--rm"]
         for key, val in (env or {}).items():
             cmd.extend(["-e", f"{key}={val}"])
         cmd.append(service)
         cmd.extend(command)
-        return self._run(cmd, env=self._compose_env(compose_file))
+        return self._run(cmd)
 
     def compose_exec(
         self,
@@ -136,11 +146,12 @@ class SubprocessDockerClient:
         command: list[str],
         *,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
         # ``-T`` disables pseudo-tty allocation so this works when
         # called non-interactively (e.g. from CI).
-        cmd = self._compose_base(compose_file, env_file) + ["exec", "-T", service] + command
-        return self._run(cmd, env=self._compose_env(compose_file))
+        cmd = self._compose_base(compose_file, env_file, project_dir) + ["exec", "-T", service] + command
+        return self._run(cmd)
 
     # ------------------------------------------------------------------
     # docker build / run (used for one-shot stage builds outside compose)
@@ -246,15 +257,20 @@ class SubprocessDockerClient:
             return ""
         return res.stdout.strip()
 
-    def compose_ps(self, compose_file: Path, *, env_file: Path | None = None) -> list[str]:
-        cmd = self._compose_base(compose_file, env_file) + ["ps", "--services", "--status=running"]
+    def compose_ps(
+        self,
+        compose_file: Path,
+        *,
+        env_file: Path | None = None,
+        project_dir: Path | None = None,
+    ) -> list[str]:
+        cmd = self._compose_base(compose_file, env_file, project_dir) + ["ps", "--services", "--status=running"]
         try:
             res = subprocess.run(  # noqa: S603
                 cmd,
                 capture_output=True,
                 text=True,
                 check=False,
-                env=self._compose_env(compose_file),
             )
         except FileNotFoundError:
             return []
@@ -266,10 +282,10 @@ class SubprocessDockerClient:
     # Internal
     # ------------------------------------------------------------------
 
-    def _run(self, cmd: list[str], *, env: dict[str, str] | None = None) -> int:
+    def _run(self, cmd: list[str]) -> int:
         """Run ``cmd`` with inherited stdio; return its exit code."""
         try:
-            res = subprocess.run(cmd, check=False, env=env)  # noqa: S603
+            res = subprocess.run(cmd, check=False)  # noqa: S603
         except FileNotFoundError:
             # Docker not installed at all. Tell the caller this is fatal.
             return 127

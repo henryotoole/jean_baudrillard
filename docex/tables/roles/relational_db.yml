@@ -22,6 +22,99 @@ roles:
     postgres:
       foundation: both
       default_port: 5432
+      # Names RDS rejects as DBName for a postgres engine, plus the
+      # postgres SQL-standard reserved keyword set the operator is
+      # most likely to trip on when naming a backing service after a
+      # generic concept ("database", "user", "admin"). Validation is
+      # case-insensitive. If your project needs one of these as a
+      # display name, alias around it (e.g. service name `app_db`).
+      reserved_names:
+        # Common RDS/admin collisions:
+        - database
+        - postgres
+        - admin
+        - master
+        - root
+        - public
+        - rdsadmin
+        # SQL-standard reserved keywords that postgres also reserves:
+        - all
+        - analyse
+        - analyze
+        - and
+        - any
+        - array
+        - as
+        - asc
+        - asymmetric
+        - both
+        - case
+        - cast
+        - check
+        - collate
+        - column
+        - constraint
+        - create
+        - current_catalog
+        - current_date
+        - current_role
+        - current_time
+        - current_timestamp
+        - current_user
+        - default
+        - deferrable
+        - desc
+        - distinct
+        - do
+        - else
+        - end
+        - except
+        - 'false'
+        - fetch
+        - for
+        - foreign
+        - from
+        - grant
+        - group
+        - having
+        - in
+        - initially
+        - intersect
+        - into
+        - lateral
+        - leading
+        - limit
+        - localtime
+        - localtimestamp
+        - not
+        - 'null'
+        - offset
+        - 'on'
+        - only
+        - or
+        - order
+        - placing
+        - primary
+        - references
+        - returning
+        - select
+        - session_user
+        - some
+        - symmetric
+        - table
+        - then
+        - to
+        - trailing
+        - 'true'
+        - union
+        - unique
+        - user
+        - using
+        - variadic
+        - when
+        - where
+        - window
+        - with
       defaults:
         fixed:
           volumes:

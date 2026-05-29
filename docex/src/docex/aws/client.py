@@ -179,3 +179,12 @@ class AWSClient(Protocol):
         """Return the ARN of the ECS cluster with the given name. Raises
         if not found."""
         ...
+
+    def ecs_cluster_exists(self, name: str) -> bool:
+        """Return True iff an ACTIVE ECS cluster with the given name
+        exists. Used by ``release`` to distinguish a first-time release
+        (the cluster hasn't been provisioned yet, so migrations must
+        wait until after ``tofu apply``) from a subsequent release
+        (cluster exists; migrations run first per the doctrine order).
+        """
+        ...

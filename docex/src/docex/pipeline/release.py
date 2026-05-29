@@ -156,10 +156,25 @@ def _release_elastic(
     tofu_init: TofuInit,
     tofu_apply: TofuApply,
 ) -> int:
-    """Elastic release flow: SSM push → ECS migrate → tofu apply.
+    """Elastic release flow.
 
-    Order is non-negotiable per release_mechanism.md. Any earlier
-    failure aborts the rest.
+    Steady-state order, per release_mechanism.md:
+      1. SSM push
+      2. ECS migrate (against the existing cluster + RDS)
+      3. tofu apply (rolls out the new image)
+
+    First-release adjustment: when the env's ECS cluster doesn't exist
+    yet, step 2 is structurally impossible — the migration task can't
+    run against a cluster that hasn't been created. In that case the
+    flow becomes:
+      1. SSM push
+      3. tofu apply (creates cluster, RDS, task definitions, *and* the
+          ECS service running the new image)
+      2. ECS migrate (against the now-live cluster/RDS)
+
+    Subsequent releases against the same env find the cluster present
+    and fall back to the doctrine order. Both orders end with the
+    migration having run and the new image deployed.
     """
     project_root = ctx.project_root
     project_name = ctx.project.name
@@ -189,34 +204,63 @@ def _release_elastic(
     pushed = _push_secrets(aws, env_file, project=project_name, env=env)
     print(f"release: pushed {pushed} secret(s) to SSM under /{project_name}/{env}/")
 
-    # 2. Run migrations via ECS RunTask (delegates to the elastic
-    #    migrate path). We import here to avoid an orchestrate -> pipeline
-    #    cycle at module load time.
+    # First-time-release detection: the env's ECS cluster (named
+    # ``<project>-<env>``) is created by tofu apply. If it isn't there
+    # yet, the migrate step would error with "no ACTIVE ECS cluster"
+    # before tofu had a chance to create it.
+    cluster_name = f"{project_name}-{env}"
+    first_release = not aws.ecs_cluster_exists(cluster_name)
+    if first_release:
+        print(
+            f"release: ECS cluster {cluster_name!r} not yet provisioned — "
+            f"first-time release detected; applying infra before migrate."
+        )
+
+    # Imported here to avoid an orchestrate -> pipeline cycle at module
+    # load time. The migrate function expects a docker client even on
+    # elastic paths to satisfy its uniform signature; pass None here —
+    # the elastic branch does not touch it.
     from docex.orchestrate.migrate import run_migrate
 
-    # The migrate function expects a docker client even on elastic
-    # paths to satisfy its uniform signature; pass None here — the
-    # elastic branch does not touch it.
-    rc_mig = run_migrate(ctx, docker=None, env=env, aws=aws)  # type: ignore[arg-type]
-    if rc_mig != 0:
-        print(
-            f"error: migration phase exited {rc_mig}; aborting release "
-            f"before tofu apply.",
-            file=sys.stderr,
-        )
-        return rc_mig
+    def _do_migrate() -> int:
+        return run_migrate(ctx, docker=None, env=env, aws=aws)  # type: ignore[arg-type]
 
-    # 3. tofu init + tofu apply (auto-approve, since release is push-button).
-    rc_init = tofu_init(out_dir)
-    if rc_init != 0:
-        raise TofuApplyFailed(
-            f"'tofu init' for env {env!r} exited {rc_init}"
-        )
-    rc_apply = tofu_apply(out_dir, auto_approve=True)
-    if rc_apply != 0:
-        raise TofuApplyFailed(
-            f"'tofu apply' for env {env!r} exited {rc_apply}"
-        )
+    def _do_apply() -> None:
+        rc_init = tofu_init(out_dir)
+        if rc_init != 0:
+            raise TofuApplyFailed(
+                f"'tofu init' for env {env!r} exited {rc_init}"
+            )
+        rc_apply = tofu_apply(out_dir, auto_approve=True)
+        if rc_apply != 0:
+            raise TofuApplyFailed(
+                f"'tofu apply' for env {env!r} exited {rc_apply}"
+            )
+
+    if first_release:
+        # apply → migrate
+        _do_apply()
+        rc_mig = _do_migrate()
+        if rc_mig != 0:
+            print(
+                f"error: first-release migration phase exited {rc_mig} after "
+                f"tofu apply succeeded. The env's infra is up but its schema "
+                f"is in an unknown state — fix the migration and re-run "
+                f"`docex release {env}`.",
+                file=sys.stderr,
+            )
+            return rc_mig
+    else:
+        # migrate → apply (doctrine order)
+        rc_mig = _do_migrate()
+        if rc_mig != 0:
+            print(
+                f"error: migration phase exited {rc_mig}; aborting release "
+                f"before tofu apply.",
+                file=sys.stderr,
+            )
+            return rc_mig
+        _do_apply()
 
     print(f"release: {env} deployed successfully via OpenTofu.")
     return 0

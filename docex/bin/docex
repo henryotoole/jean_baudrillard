@@ -32,25 +32,78 @@ if [[ -z "$DOCEX_VERSION" ]]; then
   exit 1
 fi
 
-# Mount list. Future phases need every mount listed here; missing ones
-# on the host are silently skipped so a fixed-only developer's machine
-# (no ~/.aws) does not fail. Inside the container, docex itself fails
-# loudly if a missing mount is actually needed by the requested command.
+# Mount the project at the *same host path* inside the container.
+#
+# Under DooD (docex's containers spawn sibling containers on the host
+# daemon), the path a bind-mount source points at must exist BOTH where
+# docex reads it (inside docex's container) and where the host daemon
+# looks for it (on the host filesystem). Mirroring the host path —
+# rather than mounting to a fixed in-container path like /project —
+# makes those two contexts agree:
+#
+#   - Compose's build contexts resolve to paths the in-container
+#     compose client can read.
+#   - Compose's bind-mount sources resolve to paths the host docker
+#     daemon can find.
+#   - Migration paths and similar follow the same logic.
+#
+# `getpwuid()` resolution also relies on /etc/passwd reporting a home
+# dir that matches a real, traversable in-container path; that's why
+# credential mounts (~/.aws, ~/.docker, ~/.gitconfig, ~/.ssh) also live
+# at the host's HOME path inside the container.
 MOUNTS=(
-  -v "$PROJECT_ROOT:/project"
+  -v "$PROJECT_ROOT:$PROJECT_ROOT"
+  -v "/etc/passwd:/etc/passwd:ro"
+  -v "/etc/group:/etc/group:ro"
 )
 [[ -S "/var/run/docker.sock" ]] && MOUNTS+=(-v "/var/run/docker.sock:/var/run/docker.sock")
-[[ -f "$HOME/.docker/config.json" ]] && MOUNTS+=(-v "$HOME/.docker/config.json:/root/.docker/config.json:ro")
-[[ -d "$HOME/.aws" ]] && MOUNTS+=(-v "$HOME/.aws:/root/.aws:ro")
-[[ -f "$HOME/.gitconfig" ]] && MOUNTS+=(-v "$HOME/.gitconfig:/root/.gitconfig:ro")
-[[ -d "$HOME/.ssh" ]] && MOUNTS+=(-v "$HOME/.ssh:/root/.ssh:ro")
+# The docker CLI writes runtime state into ~/.docker (buildx builder
+# definitions, credential helper cache, etc.) so this mount is rw, not
+# ro. Permissions align because the in-container uid matches the host
+# uid that owns ~/.docker. Ensure the directory exists on the host so
+# the bind has a real source — otherwise docker would silently create
+# an empty root-owned dir on the host side.
+mkdir -p "$HOME/.docker"
+MOUNTS+=(-v "$HOME/.docker:$HOME/.docker")
+[[ -d "$HOME/.aws" ]] && MOUNTS+=(-v "$HOME/.aws:$HOME/.aws:ro")
+[[ -f "$HOME/.gitconfig" ]] && MOUNTS+=(-v "$HOME/.gitconfig:$HOME/.gitconfig:ro")
+[[ -d "$HOME/.ssh" ]] && MOUNTS+=(-v "$HOME/.ssh:$HOME/.ssh:ro")
 
-# Pass COMPOSE_PROJECT_DIR so any docker compose calls inside docex
-# resolve bind mounts against the host's PROJECT_ROOT, not /project
-# inside the container. See design_proposal.md § Docker-outside-of-Docker.
-exec docker run --rm \
-  -e "COMPOSE_PROJECT_DIR=$PROJECT_ROOT" \
+# Run flags. The container runs as the host's uid:gid so any files
+# docex writes into the project tree end up owned by the operator on
+# the host instead of root. HOME mirrors the host so credential
+# lookups (passwd-driven for ssh, env-driven for git/aws/docker) all
+# agree. WORKDIR mirrors the host path so docex's `os.getcwd()`
+# matches what the operator sees on the host.
+RUN_FLAGS=(
+  --rm
+  --user "$(id -u):$(id -g)"
+  -e "HOME=$HOME"
+  -w "$PROJECT_ROOT"
+)
+
+# DooD socket access: when we run as a non-root user, we lose root's
+# implicit access to /var/run/docker.sock. The socket is owned by the
+# docker group on the host; --group-add lets the in-container user
+# join that group at runtime without needing it in /etc/group inside
+# the image.
+if [[ -S "/var/run/docker.sock" ]]; then
+  DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock)"
+  RUN_FLAGS+=(--group-add "$DOCKER_SOCK_GID")
+fi
+
+# ssh-agent forwarding: when the operator's SSH key only lives in
+# ssh-agent (no key file on disk), mounting ~/.ssh isn't enough — the
+# container needs to reach the agent socket. We forward the host's
+# $SSH_AUTH_SOCK to a fixed path and tell the in-container ssh to use
+# it. Skipped silently when SSH_AUTH_SOCK is unset (no agent in use).
+if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
+  MOUNTS+=(-v "$SSH_AUTH_SOCK:/ssh-agent.sock")
+  RUN_FLAGS+=(-e "SSH_AUTH_SOCK=/ssh-agent.sock")
+fi
+
+exec docker run \
+  "${RUN_FLAGS[@]}" \
   "${MOUNTS[@]}" \
-  -w /project \
   "docex:$DOCEX_VERSION" \
   "$@"

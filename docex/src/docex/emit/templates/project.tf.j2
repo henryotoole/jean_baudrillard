@@ -222,6 +222,67 @@ resource "aws_ecr_repository" "{{ svc.hcl_id }}" {
 {% endfor %}
 
 # ---------------------------------------------------------------------------
+# ECS task execution role.
+#
+# Fargate assumes this role *during launch* to pull images from ECR,
+# fetch SSM parameters referenced in container `secrets[]` blocks, and
+# write to CloudWatch Logs. Distinct from any "task role" the app
+# itself might use to call AWS APIs at runtime — task role is per-app
+# and out of scope for the doctrine skeleton.
+#
+# Provisioned at the project tier (not per-env) because the role's
+# permissions are derived from project identity (the SSM prefix), not
+# env identity. Each env's ECS task definitions reference the role ARN
+# via terraform_remote_state.
+# ---------------------------------------------------------------------------
+data "aws_caller_identity" "current" {}
+
+resource "aws_iam_role" "task_execution" {
+  name = "{{ project }}-task-execution"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+
+# AWS-managed policy: covers ECR pulls + CloudWatch Logs writes.
+resource "aws_iam_role_policy_attachment" "task_execution_managed" {
+  role       = aws_iam_role.task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Inline policy: lets Fargate decrypt SecureString parameters from this
+# project's SSM prefix, so containers' `secrets[]` entries resolve.
+# Scoped to `/${project}/*` so a leaked role can't read other projects.
+resource "aws_iam_role_policy" "task_execution_ssm" {
+  name = "{{ project }}-task-execution-ssm"
+  role = aws_iam_role.task_execution.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["ssm:GetParameters", "ssm:GetParameter", "ssm:GetParametersByPath"]
+        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ project }}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+# ---------------------------------------------------------------------------
 # Outputs. Consumed by each env's main.tf via terraform_remote_state.
 # ---------------------------------------------------------------------------
 output "vpc_id" {
@@ -246,6 +307,10 @@ output "zone_name_servers" {
 
 output "certificate_arn" {
   value = aws_acm_certificate_validation.project.certificate_arn
+}
+
+output "task_execution_role_arn" {
+  value = aws_iam_role.task_execution.arn
 }
 {% for svc in core_service_names %}
 output "ecr_repository_{{ svc.hcl_id }}_url" {

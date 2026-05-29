@@ -9,22 +9,22 @@ core_services:
     role: web
     port: 8080
     networks: [web, internal]
-    depends_on: [database]
+    depends_on: [db]
     env:
       # api composes its own connection string from these parts at startup;
       # the identical magic refs work on both foundations (parts-only model).
-      DATABASE_HOST: ${backing_services.database.host}
-      DATABASE_PORT: ${backing_services.database.port}
-      DATABASE_NAME: ${backing_services.database.db}
-      DATABASE_USER: ${backing_services.database.user}
-      DATABASE_PASSWORD: ${backing_services.database.password}
+      DATABASE_HOST: ${backing_services.db.host}
+      DATABASE_PORT: ${backing_services.db.port}
+      DATABASE_NAME: ${backing_services.db.db}
+      DATABASE_USER: ${backing_services.db.user}
+      DATABASE_PASSWORD: ${backing_services.db.password}
     resources:
       cpu: 1.0
       memory: 2GB
       disk: 20GB
 
 backing_services:
-  database:
+  db:
     role: relational_db
     engine: postgres
     version: "15"

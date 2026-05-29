@@ -116,6 +116,12 @@ For elastic projects, the compiler emits a separate "migration" ECS task definit
 
 This ordering ensures migrations are fully complete and verified before any new application tasks attempt to use the new schema. The application rollout that follows is a standard rolling deploy with no migration-related race conditions.
 
+#### First-time release of an env
+
+The first time an elastic env is released, the cluster, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. `docex release` detects this case via an `ecs_cluster_exists` probe and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the cluster, RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
+
+The transient consequence: on a first release, the application's ECS service comes up before the migration runs. Until the migration completes, the application tasks may crash-loop or 500 against the not-yet-created schema. This is acceptable because there are no users on a first deploy and the window is bounded by migration runtime. Subsequent releases find the cluster present and follow the steady-state order, preserving the zero-downtime properties documented below.
+
 ### Backward-compatibility requirement
 
 Both foundations execute migrations against a live database that old application code is also using. During the rolling-deploy window:

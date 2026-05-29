@@ -103,7 +103,7 @@ def test_compile_resolves_magic_ref_in_env(tmp_path: Path):
     compose = (root / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
     # host part resolves to the project-scoped service name.
     assert "DATABASE_HOST" in compose
-    assert "sample-dev-database" in compose
+    assert "sample-dev-db" in compose
     # secret parts: compose runtime form uses ${VAR}, never $[VAR].
     assert "DATABASE_USER" in compose
     assert "${POSTGRES_USER}" in compose
@@ -166,9 +166,9 @@ def test_composed_secret_in_env_fails_compile(tmp_path: Path):
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
     infra_yml = root / "infra" / "infra.yml"
     text = infra_yml.read_text().replace(
-        "      DATABASE_USER: ${backing_services.database.user}",
-        "      DATABASE_USER: ${backing_services.database.user}\n"
-        "      DATABASE_URL: postgres://${backing_services.database.user}@h/db",
+        "      DATABASE_USER: ${backing_services.db.user}",
+        "      DATABASE_USER: ${backing_services.db.user}\n"
+        "      DATABASE_URL: postgres://${backing_services.db.user}@h/db",
     )
     infra_yml.write_text(text)
     ctx = load_project_context(root)
@@ -183,7 +183,7 @@ def test_example_env_includes_postgres_keys(tmp_path: Path):
     example = (root / "infra" / "secrets" / "example.env").read_text()
     assert "POSTGRES_USER=" in example
     assert "POSTGRES_PASSWORD=" in example
-    assert "# database" in example
+    assert "# db" in example
 
 
 _SECRET_INFRA = """\
@@ -240,7 +240,7 @@ def test_core_secret_becomes_ecs_secret_on_elastic(tmp_path: Path):
 
 def test_compose_depends_on_uses_global_service_keys(tmp_path: Path):
     """``depends_on`` in compose must reference compose service keys
-    (global names like ``sample-dev-database``), not the simple names
+    (global names like ``sample-dev-db``), not the simple names
     used in infra.yml. Docker compose rejects the file otherwise.
     """
     import yaml
@@ -293,6 +293,6 @@ def test_describe_dag_and_llm(tmp_path: Path):
     assert parsed["env"] == "prod"
     assert parsed["foundation"] == "fixed"
     assert any(
-        edge["from"] == "api" and edge["to"] == "database"
+        edge["from"] == "api" and edge["to"] == "db"
         for edge in parsed["edges"]
     )

@@ -33,7 +33,7 @@ The name is intentional: `docex` is *not* the doctrine. The doctrine is the body
 │  - Python CLI (compiler + command dispatcher + orchestration)   │
 │  - Bundled transfer tables (canonical)                          │
 │  - CLI deps: docker, tofu, ansible, aws, git, jq                │
-│  - Operates on /project (bind-mounted from host)                │
+│  - Project + HOME mirrored at their host paths inside container │
 └────────┬──────────────────┬───────────────────────┬─────────────┘
          │ docker.sock      │ ~/.aws, ~/.docker     │ network egress
          ▼                  ▼                       ▼
@@ -51,17 +51,22 @@ The name is intentional: `docex` is *not* the doctrine. The doctrine is the body
 `./bin/docex` is a small bash script, checked into every project. Its responsibilities:
 
 1. Read `docex_version` from `project.yml`.
-2. Construct the `docker run` invocation with the full [mount set](#filesystem-surface):
-   - `--rm` so containers don't accumulate
-   - `-v "$PWD":/project` — project tree
-   - `-v /var/run/docker.sock:/var/run/docker.sock` — [DooD](#docker-outside-of-docker)
-   - `-v "$HOME/.docker/config.json":/root/.docker/config.json:ro` — registry auth
-   - `-v "$HOME/.aws":/root/.aws:ro` — elastic foundation creds
-   - `-v "$HOME/.gitconfig":/root/.gitconfig:ro` and `-v "$HOME/.ssh":/root/.ssh:ro` — git ops (`merge`, ephemeral worktree)
-   - `-w /project` — working directory
+2. Construct the `docker run` invocation with the full [mount set](#filesystem-surface). Mounts mirror their host paths inside the container — the project root, the operator's HOME, and credential directories are visible at the same path the host sees them. This makes DooD path resolution agree in both directions: build contexts and bind-mount sources resolve consistently for compose's in-container client and the host's docker daemon (see [DooD](#docker-outside-of-docker)). Concrete flags:
+   - `--rm` so containers don't accumulate.
+   - `--user "$(id -u):$(id -g)"` so writes to the project tree land operator-owned on the host (not root) and so `git` doesn't trip on dubious-ownership.
+   - `--group-add` for the host's docker-socket gid so the non-root in-container user can use `/var/run/docker.sock`.
+   - `-e "HOME=$HOME"` — mirror host HOME inside the container.
+   - `-w "$PROJECT_ROOT"` — working directory matches the host's project path.
+   - `-v "$PROJECT_ROOT:$PROJECT_ROOT"` — project tree at its host path.
+   - `-v /etc/passwd:/etc/passwd:ro` and `-v /etc/group:/etc/group:ro` so `getpwuid()` resolves the running uid (ssh requires this).
+   - `-v /var/run/docker.sock:/var/run/docker.sock` — DooD.
+   - `-v "$HOME/.docker:$HOME/.docker"` — rw so docker CLI can write buildx state, credential cache, etc.
+   - `-v "$HOME/.aws:$HOME/.aws:ro"` — elastic foundation creds.
+   - `-v "$HOME/.gitconfig:$HOME/.gitconfig:ro"` and `-v "$HOME/.ssh:$HOME/.ssh:ro"` — git ops (`check`, `merge`).
+   - `-v "$SSH_AUTH_SOCK:/ssh-agent.sock" -e "SSH_AUTH_SOCK=/ssh-agent.sock"` when an ssh-agent is present, so agent-only authentication setups work.
 3. Pass through all CLI args.
 
-Mounts that don't exist on the host (e.g. `~/.aws` on a fixed-only developer's box) are skipped by the shim — docex will fail loudly inside the container if a missing mount is actually needed by the requested command.
+Mounts that don't exist on the host (e.g. `~/.aws` on a fixed-only developer's box) are skipped by the shim — docex will fail loudly inside the container if a missing mount is actually needed by the requested command. `~/.docker` is the exception: the shim creates it on the host if missing so the in-container docker CLI always has a writable state dir.
 
 The shim never changes between `docex` versions. The `docex_install.sh` script in the `jean_baudrillard` repo copies it into projects and writes the `docex_version` pin into their `project.yml`. The same script is used to upgrade a project from one `docex` version to another.
 
@@ -129,7 +134,7 @@ A few commands compose others rather than duplicate logic:
 
 ## Filesystem Surface
 
-Every path `docex` reads or writes inside `/project`. All paths are relative to the project root.
+Every path `docex` reads or writes lives inside the project tree. The shim bind-mounts the project root at the same path inside the container as on the host (rather than at a fixed in-container path like `/project`), so paths reported in docex output match what the operator sees on disk and so DooD path resolution agrees in both directions. All paths below are relative to the project root.
 
 **Read:**
 - `project.yml` — name, version, docex_version
@@ -149,7 +154,7 @@ Every path `docex` reads or writes inside `/project`. All paths are relative to 
 - `core/<svc>/dist/` — `build` output (dev iteration only; formal builds keep artifacts inside `docker build`)
 - Ephemeral git worktrees under `.docex/worktrees/` (or similar) — created and destroyed by `check`
 
-**Conspicuously not touched by docex:** anything outside `/project`. The container is sandboxed to the project tree plus the explicitly-mounted credential paths.
+**Conspicuously not touched by docex:** anything outside the project tree. The container is sandboxed to the project root plus the explicitly-mounted credential paths under the operator's HOME.
 
 ## Foundation-Aware Behavior
 
@@ -183,10 +188,11 @@ If a required credential is missing, `docex` fails loudly with a message pointin
 
 `docex` needs to build, tag, push, and run containers on behalf of the project. It does this via the **DooD** pattern: the `docex` container runs the `docker` CLI, but the CLI talks to the **host's** docker daemon over a mounted socket. No nested daemon, no `--privileged`, no special VM tricks.
 
-Two consequences worth being explicit about:
+Three consequences worth being explicit about:
 
 1. **Containers `docex` spawns are siblings, not children.** When `docex up dev` runs `docker compose up`, the resulting containers attach to the host's docker, not to docex. They outlive the docex invocation, which is exactly what we want — `docex up` returns immediately and the dev stack keeps running.
-2. **Paths are host-relative for spawned containers.** When `docex` runs `docker compose -f infra/output/dev/docker-compose.yml up`, the compose file references project paths (e.g. bind-mounts for `src/` and `dist/`); those paths must resolve on the *host*, not inside docex. The shim addresses this by ensuring `/project` inside docex maps to `$PWD` outside, and by passing through any necessary host-path env vars (e.g. `COMPOSE_PROJECT_DIR`) so docker compose generates correct bind mounts. This is a subtle DooD pitfall; the implementation must get it right and have tests for it.
+2. **Paths are host-relative for spawned containers.** When `docex` runs `docker compose -f .../dev/docker-compose.yml up`, the compose file references project paths (build contexts, bind-mount sources for `src/` and `dist/`); those paths must resolve to something the host's docker daemon can find. The shim solves this by mirroring the host project path inside the container — `$PROJECT_ROOT` is mounted at `$PROJECT_ROOT` (not at a fixed `/project`), so any path docex emits is simultaneously a valid in-container path (for compose's client-side reads) and a valid host path (for the daemon's bind-mount resolution). Compose itself receives the project directory via `--project-directory` on the CLI rather than via env var — docker compose v2 does NOT honor `COMPOSE_PROJECT_DIR`.
+3. **The in-container user matches the host user.** The shim passes `--user "$(id -u):$(id -g)"`, mounts `/etc/passwd`/`/etc/group` from the host, and mirrors `$HOME` inside the container. The result: files docex writes to the project tree are operator-owned on the host (no `sudo chown -R` after every compile), `git` doesn't trip on dubious-ownership, and tools that resolve the running user via `getpwuid()` (ssh) find a coherent home directory matching the credential mounts.
 
 DinD is rejected as slower, more dangerous (requires `--privileged`), and unnecessary for our use case.
 

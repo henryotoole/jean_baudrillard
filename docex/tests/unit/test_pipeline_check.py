@@ -210,3 +210,20 @@ def test_check_happy_path_aggregates_all_passing(
     assert rc == 0, capsys.readouterr().out
     out = capsys.readouterr().out
     assert "all gates and tests passed" in out
+
+
+def test_check_empty_origin_skips_trunk_gates(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """First release on an empty remote: origin/main doesn't exist yet.
+    The trunk-comparing gates can't run, so they're skipped with a
+    banner; other gates still run."""
+    ctx, fake_git = worktree_setup
+    fake_git.refs = set()  # nothing exists on the remote
+    rc = run_check(ctx, fake_docker, fake_git)
+    assert rc == 0, capsys.readouterr().out
+    out = capsys.readouterr().out + capsys.readouterr().err
+    # The skipped gates appear as PASS with the "skipped" reason.
+    assert "skipped (empty origin/main)" in out
+    # rebase MUST NOT have been called — no trunk to rebase onto.
+    assert not [c for c in fake_git.calls if c[0] == "rebase"]

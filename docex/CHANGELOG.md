@@ -12,6 +12,118 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-29
+
+The first-real-release shake-out: eight bugs surfaced by maptrack's
+PART V (first production release of a brand-new elastic project)
+that v0.6.0 couldn't reach. The campaign closes out `docex check` /
+`merge` / `release` for first-time use, fixes the DooD
+permission/path model end-to-end, and adds project-tier IAM +
+engine-reserved-name validation that AWS would otherwise flag at
+apply time.
+
+### Changed
+
+- **The docex container now runs as the host's uid:gid, with the
+  project tree and the operator's HOME mirrored at the same path
+  inside the container.** Previously docex bind-mounted the project
+  at `/project` and ran as root. v0.7.0 mirrors host paths instead —
+  bind-mounts the project at `$PROJECT_ROOT:$PROJECT_ROOT`,
+  bind-mounts credentials (`~/.aws`, `~/.docker`, `~/.gitconfig`,
+  `~/.ssh`) at the same host path inside the container, mounts
+  `/etc/passwd` + `/etc/group` so `getpwuid()` resolves the running
+  uid, passes `--user "$(id -u):$(id -g)"` so writes land
+  operator-owned on the host, and sets `-w "$PROJECT_ROOT"`. The
+  Dockerfile bakes `git config --system safe.directory '*'` for
+  defense in depth.
+  - Fixes the "dubious ownership in repository at '/project'" failure
+    that blocked `docex check`/`merge`/`containerize` whenever the
+    host project files were owned by a non-root uid.
+  - Fixes the "every file docex writes ends up root-owned" papercut
+    that forced operators to `sudo chown -R` after every compile.
+  - Fixes the impedance mismatch that made compose's
+    `--project-directory` need either an in-container path (works for
+    build contexts, breaks bind-mount sources) or a host path (vice
+    versa). With paths mirrored, the same value works for both.
+  - Migration: projects that already have root-owned files left over
+    from pre-fix runs need a one-time
+    `sudo chown -R $(id -u):$(id -g) .` in the project root. The shim
+    itself is overwritten by `bash docex_install.sh <project>`.
+- **The shim now forwards `SSH_AUTH_SOCK`.** When the operator's SSH
+  key is held in ssh-agent (no key file on disk), the shim
+  bind-mounts the host's agent socket to `/ssh-agent.sock` inside the
+  container and sets `SSH_AUTH_SOCK` to that path. Skipped silently
+  when `SSH_AUTH_SOCK` is unset on the host. Fixes the
+  `Permission denied (publickey)` failure on `docex check`/`merge`
+  for agent-only authentication setups.
+
+### Added
+
+- **`docex check` and `docex merge` handle an empty `origin/main`.**
+  Brand-new projects (the first PART V release after inception) have
+  no `origin/main` yet because the remote was just created and nothing
+  has been pushed. `check` now detects this via a new
+  `GitClient.ref_exists` probe and skips the trunk-comparing gates
+  (`no_merge_conflicts`, `worktree_clean`, `latest_main`,
+  `version_bumped`, `version_not_released`) with a clear
+  "first-release mode" banner; other gates still run against the
+  worktree. `merge` skips rebase entirely on an empty remote and
+  instead seeds `main` by fast-forwarding it to the feature branch
+  tip, tags `v<version>`, and pushes — publishing `origin/main` for
+  the first time. The remote-feature-branch delete is also skipped
+  on this path (there's nothing to delete).
+- **`docex release` handles the first-time release of an elastic env.**
+  Doctrine steady-state order on elastic is `SSM push → migrate →
+  tofu apply`, but on the very first release of an env the ECS
+  cluster and RDS the migrate step targets don't exist yet — they
+  are created by `tofu apply`. The release pipeline now probes the
+  env's ECS cluster via a new `AWSClient.ecs_cluster_exists` method;
+  when absent, the flow swaps to `SSM push → tofu apply → migrate`,
+  so the migration runs against the now-live cluster and RDS.
+  Subsequent releases find the cluster present and follow the
+  doctrine order. Doctrine: `cicd.md` § Release Step,
+  `release_mechanism.md` § First-time release of an env.
+- **Reserved-name validation per engine.** Transfer-table engine
+  entries now carry an optional `reserved_names:` list. The compiler
+  matches each backing-service name against it (case-insensitive) at
+  validate time and fails with `rule_engine_reserved_name` if the
+  service is named after a reserved engine identifier. The bundled
+  `relational_db.postgres` entry lists postgres SQL-reserved keywords
+  plus common RDS DBName collisions (`database`, `user`, `admin`,
+  `master`, `postgres`, `public`, …). Catches the
+  `InvalidParameterValue: DBName database cannot be used` failure at
+  `tofu apply` time and gives the operator a fix-now error message
+  pointing at the offending service.
+- **Project-tier ECS task execution role.** The project-tier HCL now
+  provisions an `aws_iam_role` named `<project>-task-execution` with
+  the AWS-managed `AmazonECSTaskExecutionRolePolicy` attached (ECR
+  pulls + CloudWatch Logs) plus an inline policy granting
+  `ssm:GetParameters`/`kms:Decrypt` scoped to the project's SSM
+  prefix (so a leaked role can't reach other projects' secrets). The
+  role ARN is exposed as the `task_execution_role_arn` output and
+  every env-tier `aws_ecs_task_definition` (both the main service
+  and migration variants) now sets `execution_role_arn` from it.
+  Fixes the `Fargate requires task definition to have execution
+  role ARN to support ECR images` failure at `tofu apply` time.
+
+### Fixed
+
+- **`docex check`'s worktree build resolves correctly.** The 0.6.0
+  attempt to fix compose path resolution leaned on `COMPOSE_PROJECT_DIR`
+  as an env var; compose v2 v5.1.3 does not honor that. v0.7.0 always
+  passes `--project-directory` on the CLI and threads a `project_dir`
+  override through the `DockerClient` compose methods so `docex check`
+  can point compose at the ephemeral worktree's path while the regular
+  `up`/`test`/`migrate` paths use the project root. The check pipeline
+  also now passes the main project's `infra/secrets/test.env` to the
+  worktree build so compose's `${VAR}` substitution warnings don't
+  drown the real build output.
+- **`docex check` worktree cleanup goes straight to
+  `git worktree remove --force`**, with `shutil.rmtree` + `git worktree
+  prune` as the fallback. The earlier "try without force first" pass
+  was guaranteed to fail when the build left untracked
+  `.terraform/`/`dist/` artifacts in the worktree.
+
 ## [0.6.0] - 2026-05-28
 
 ### Added

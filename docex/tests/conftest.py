@@ -53,15 +53,21 @@ class FakeDockerClient:
         return self.available
 
     def compose_up(self, compose_file: Path, *, build: bool = True, detach: bool = True,
-                   env_file: Path | None = None) -> int:
+                   env_file: Path | None = None,
+                   project_dir: Path | None = None) -> int:
         key = ("compose_up", str(compose_file), build, detach)
         self.calls.append(key)
+        if project_dir is not None:
+            self.calls.append(("compose_up_project_dir", str(project_dir)))
         return self.exit_codes.get(key, self._fallback("compose_up"))
 
     def compose_down(self, compose_file: Path, *, preserve_volumes: bool = True,
-                     env_file: Path | None = None) -> int:
+                     env_file: Path | None = None,
+                     project_dir: Path | None = None) -> int:
         key = ("compose_down", str(compose_file), preserve_volumes)
         self.calls.append(key)
+        if project_dir is not None:
+            self.calls.append(("compose_down_project_dir", str(project_dir)))
         return self.exit_codes.get(key, self._fallback("compose_down"))
 
     def compose_run_one_off(
@@ -72,19 +78,25 @@ class FakeDockerClient:
         *,
         env: dict[str, str] | None = None,
         env_file: Path | None = None,
+        project_dir: Path | None = None,
     ) -> int:
         key = ("compose_run_one_off", str(compose_file), service, tuple(command))
         self.calls.append(key)
         return self.exit_codes.get(key, self._fallback("compose_run_one_off"))
 
     def compose_exec(self, compose_file: Path, service: str, command: list[str],
-                     *, env_file: Path | None = None) -> int:
+                     *, env_file: Path | None = None,
+                     project_dir: Path | None = None) -> int:
         key = ("compose_exec", str(compose_file), service, tuple(command))
         self.calls.append(key)
+        if project_dir is not None:
+            self.calls.append(("compose_exec_project_dir", str(project_dir)))
         # Allow scripting failure for ("compose_exec", svc, cmd_tuple).
         return self.exit_codes.get(key, self._fallback("compose_exec", service, tuple(command)))
 
-    def compose_ps(self, compose_file: Path, *, env_file: Path | None = None) -> list[str]:
+    def compose_ps(self, compose_file: Path, *,
+                   env_file: Path | None = None,
+                   project_dir: Path | None = None) -> list[str]:
         self.calls.append(("compose_ps", str(compose_file)))
         return list(self.ps_services)
 
@@ -231,6 +243,10 @@ class FakeGitClient:
     tag_exists_map: dict[str, bool] = field(default_factory=dict)
     merge_bases: dict[tuple, str] = field(default_factory=dict)
     file_at_ref: dict[tuple, str] = field(default_factory=dict)
+    # Refs that ``ref_exists`` should return True for. Tests scripting an
+    # empty remote set this to ``set()`` (or omit ``origin/main``); the
+    # default models an established repo with a populated main.
+    refs: set[str] = field(default_factory=lambda: {"origin/main", "main", "HEAD"})
     exit_codes: dict[tuple, int] = field(default_factory=dict)
     default_exit: int = 0
     calls: list[tuple] = field(default_factory=list)
@@ -252,6 +268,10 @@ class FakeGitClient:
     def merge_base(self, cwd, a, b):
         self.calls.append(("merge_base", str(cwd), a, b))
         return self.merge_bases.get((a, b), "")
+
+    def ref_exists(self, cwd, ref):
+        self.calls.append(("ref_exists", str(cwd), ref))
+        return ref in self.refs
 
     def tag_exists(self, cwd, name):
         self.calls.append(("tag_exists", str(cwd), name))
@@ -321,6 +341,10 @@ class FakeGitClient:
             shutil.rmtree(path, ignore_errors=True)
         return rc
 
+    def worktree_prune(self, cwd):
+        self.calls.append(("worktree_prune", str(cwd)))
+        return self.exit_codes.get(("worktree_prune",), self.default_exit)
+
     def checkout(self, cwd, ref):
         self.calls.append(("checkout", str(cwd), ref))
         return self.exit_codes.get(("checkout", ref), self.default_exit)
@@ -386,6 +410,7 @@ class FakeAWSClient:
     subnets: list[str] = field(default_factory=lambda: ["subnet-a", "subnet-b"])
     sg_id: str = "sg-fake0001"
     cluster_arn: str = "arn:aws:ecs:us-east-1:123456789012:cluster/fake"
+    cluster_exists: bool = True
     ecs_exit_codes: dict[str, int] = field(default_factory=dict)
     raise_on: dict[str, Exception] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
@@ -503,6 +528,10 @@ class FakeAWSClient:
     def get_ecs_cluster_arn(self, name: str) -> str:
         self._record("get_ecs_cluster_arn", name)
         return self.cluster_arn
+
+    def ecs_cluster_exists(self, name: str) -> bool:
+        self._record("ecs_cluster_exists", name)
+        return self.cluster_exists
 
 
 @pytest.fixture

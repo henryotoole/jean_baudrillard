@@ -54,10 +54,13 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
     original_exec = fake_docker.compose_exec
     boom_token = object()
 
-    def _raising_exec(compose_file, service, command, *, env_file=None):
+    def _raising_exec(compose_file, service, command, *, env_file=None, project_dir=None):
         if command and command[0] == "./test.sh":
             raise RuntimeError(boom_token)
-        return original_exec(compose_file, service, command, env_file=env_file)
+        return original_exec(
+            compose_file, service, command,
+            env_file=env_file, project_dir=project_dir,
+        )
 
     fake_docker.compose_exec = _raising_exec  # type: ignore[method-assign]
 

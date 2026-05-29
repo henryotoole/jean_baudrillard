@@ -101,8 +101,8 @@ def test_backing_service_never_gets_core_bind_mounts(tmp_path: Path):
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    database = _find_core_service_block(services, "database")
-    volumes = database.get("volumes") or []
+    db = _find_core_service_block(services, "db")
+    volumes = db.get("volumes") or []
     for v in volumes:
         assert "/service/src" not in v, v
         assert "/service/dist" not in v, v
@@ -137,15 +137,15 @@ def test_backing_service_on_web_is_routed(tmp_path: Path):
     Traefik labels too, at its per-service host."""
     root = _copy_fixture(tmp_path)
     infra_yml = root / "infra" / "infra.yml"
-    # Put the (ported) database on the web network.
+    # Put the (ported) db on the web network.
     infra_yml.write_text(
         infra_yml.read_text().replace("networks: [internal]", "networks: [web, internal]")
     )
     ctx = load_project_context(root)
     run_compile(ctx)
     services = _compose_services(root, "dev")
-    database = _find_core_service_block(services, "database")
-    labels = database.get("labels") or []
+    db = _find_core_service_block(services, "db")
+    labels = db.get("labels") or []
     assert "traefik.enable=true" in labels
     rule = next(l for l in labels if ".rule=" in l)
-    assert "Host(`database.dev.example.com`)" in rule
+    assert "Host(`db.dev.example.com`)" in rule

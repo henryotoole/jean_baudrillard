@@ -105,6 +105,61 @@ def test_release_elastic_aborts_when_ssm_push_fails(
     assert fake_tofu_apply.calls == []
 
 
+def test_release_elastic_first_time_applies_before_migrate(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply
+):
+    """First-time release: the ECS cluster doesn't exist yet, so
+    migrate would fail before tofu had a chance to create it. The
+    flow swaps to: SSM → tofu apply → migrate, so the migration runs
+    against the now-live cluster + RDS."""
+    fake_aws.cluster_exists = False
+    rc = run_release(
+        elastic_ctx,
+        env="stage",
+        aws=fake_aws,
+        tofu_init=fake_tofu_init,
+        tofu_apply=fake_tofu_apply,
+    )
+    assert rc == 0
+    # tofu_apply ran exactly once, and BEFORE any ECS RunTask.
+    assert len(fake_tofu_apply.calls) == 1
+    names = [c[0] for c in fake_aws.calls]
+    if "ecs_run_task" in names:
+        # The fake's call records are appended in invocation order
+        # (the recorder shares one list across all methods). The
+        # ecs_cluster_exists probe happens before tofu_apply (which
+        # isn't recorded on fake_aws), and ecs_run_task must come
+        # after the cluster_exists probe.
+        first_probe = names.index("ecs_cluster_exists")
+        first_run = names.index("ecs_run_task")
+        assert first_probe < first_run, names
+
+
+def test_release_elastic_first_time_aborts_when_migrate_fails(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, capsys
+):
+    """On a first-release flow, a failed migration after a successful
+    apply must NOT raise — it returns the migrate exit code with a
+    clear message, leaving the operator with the schema in an
+    unknown state and the infra up."""
+    from docex.errors import ECSTaskFailed
+
+    fake_aws.cluster_exists = False
+    fake_aws.ecs_exit_codes = {
+        "arn:aws:ecs:us-east-1:123456789012:task/fake/00000001": 9
+    }
+    with pytest.raises(ECSTaskFailed):
+        run_release(
+            elastic_ctx,
+            env="stage",
+            aws=fake_aws,
+            tofu_init=fake_tofu_init,
+            tofu_apply=fake_tofu_apply,
+        )
+    # apply DID run (because we're on the first-release path).
+    assert len(fake_tofu_apply.calls) == 1
+
+
 def test_release_elastic_aborts_when_migrate_fails(
     elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply
 ):

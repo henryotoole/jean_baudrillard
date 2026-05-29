@@ -52,6 +52,15 @@ class SubprocessGitClient:
         res = self._capture(["merge-base", a, b], cwd=cwd)
         return (res or "").strip()
 
+    def ref_exists(self, cwd: Path, ref: str) -> bool:
+        # ``rev-parse --verify --quiet`` returns 0 iff the ref resolves.
+        # Non-zero (and silent stderr) means absent — which is exactly
+        # what we want as "empty origin/main on a brand-new project".
+        res = self._capture(["rev-parse", "--verify", "--quiet", ref], cwd=cwd)
+        if res is None:
+            return False
+        return bool(res.strip())
+
     def tag_exists(self, cwd: Path, name: str) -> bool:
         # `git tag -l <name>` prints the name iff it exists. An empty
         # stdout (or non-zero exit) ⇒ no such tag.
@@ -120,6 +129,9 @@ class SubprocessGitClient:
             args.append("--force")
         args.append(str(path))
         return self._run(args, cwd=cwd)
+
+    def worktree_prune(self, cwd: Path) -> int:
+        return self._run(["worktree", "prune"], cwd=cwd)
 
     def checkout(self, cwd: Path, ref: str) -> int:
         return self._run(["checkout", ref], cwd=cwd)

@@ -51,6 +51,12 @@ class EngineEntry:
     # The port the engine listens on by default. Used for the ${port}
     # substitution variable when a service omits the `port:` field.
     default_port: int | None = None
+    # Names the engine reserves and won't accept as identifiers — e.g.
+    # postgres reserves SQL keywords like ``select`` and ``database``.
+    # Compile-time validation matches the backing-service name against
+    # this list (case-insensitive) so the operator hears about a
+    # collision at ``docex compile`` time instead of at ``tofu apply``.
+    reserved_names: list[str] = field(default_factory=list)
 
     def supports(self, foundation: str) -> bool:
         return self.foundation in (foundation, "both")
@@ -227,6 +233,14 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
         env=raw.get("env", {}) or {},
         naming=raw.get("naming", {}) or {},
         default_port=raw.get("default_port"),
+        reserved_names=[
+            # YAML 1.1 parses bare ``true`` / ``false`` / ``on`` as
+            # booleans; coerce to lowercase strings so the
+            # case-insensitive identifier match works regardless of how
+            # the operator wrote them in the table.
+            str(item).lower()
+            for item in (raw.get("reserved_names") or [])
+        ],
     )
 
 

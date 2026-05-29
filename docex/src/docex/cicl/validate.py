@@ -68,6 +68,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_domain_default_service(doc))
     issues.extend(_validate_web_service_ports(doc))
     issues.extend(_validate_env_secrets_overlap(doc))
+    issues.extend(_validate_reserved_engine_names(doc, tables))
     return issues
 
 
@@ -467,5 +468,52 @@ def _validate_env_secrets_overlap(doc: CICLDocument) -> list[ValidationIssue]:
                     f"and `secrets:` — declare it in exactly one"
                 ),
                 where=f"core_services.{name}",
+            ))
+    return issues
+
+
+def _validate_reserved_engine_names(
+    doc: CICLDocument, tables: TransferTables
+) -> list[ValidationIssue]:
+    """Reject backing-service names the engine reserves.
+
+    The compiler derives identifiers like RDS's ``DBName`` (postgres) and
+    the schema name from the service's name. AWS rejects names from
+    each engine's reserved-keyword list at ``CreateDBInstance`` time,
+    so a service named ``database`` (or ``user``, ``select``, …)
+    compiles cleanly but blows up at ``tofu apply``. We catch the
+    collision at compile time and tell the operator to rename.
+    """
+    issues: list[ValidationIssue] = []
+    for name, svc in sorted(doc.backing_services.items()):
+        candidates = svc.engine if isinstance(svc.engine, list) else [svc.engine]
+        # Use the same per-foundation precedence the compiler will:
+        # pick the first candidate the project's declared foundation
+        # supports. (Per-env compilation resolves again — but the
+        # service NAME doesn't vary per env, so checking once is
+        # sufficient.)
+        entry = None
+        for cand in candidates:
+            try:
+                cand_entry = tables.engine(svc.role, cand)
+            except Exception:
+                continue
+            if cand_entry.supports(doc.foundation):
+                entry = cand_entry
+                break
+        if entry is None or not entry.reserved_names:
+            continue
+        reserved = {r.lower() for r in entry.reserved_names}
+        if name.lower() in reserved:
+            issues.append(ValidationIssue(
+                rule="rule_engine_reserved_name",
+                message=(
+                    f"backing service {name!r} (role {svc.role!r}, engine "
+                    f"{entry.engine!r}) uses a reserved engine identifier. "
+                    f"AWS RDS would reject this at apply time. Rename the "
+                    f"service to something not on the engine's reserved list "
+                    f"(e.g. {name}_db, or a project-scoped name)."
+                ),
+                where=f"backing_services.{name}",
             ))
     return issues

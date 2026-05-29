@@ -315,6 +315,10 @@ def render_core(svc: CompiledService, *, project: str, env: str, priority: int) 
     out.append( '  network_mode             = "awsvpc"')
     out.append(f'  cpu                      = "{cpu}"')
     out.append(f'  memory                   = "{memory}"')
+    # Fargate requires execution_role_arn for ECR image pulls and SSM
+    # secret decryption. The role is provisioned at the project tier
+    # so every env in the project shares one role identity.
+    out.append( '  execution_role_arn       = data.terraform_remote_state.project.outputs.task_execution_role_arn')
     if ephemeral:
         out.append("  ephemeral_storage {")
         out.append(f"    size_in_gib = {ephemeral.get('size_in_gib', 21)}")
@@ -354,6 +358,7 @@ def render_core(svc: CompiledService, *, project: str, env: str, priority: int) 
         out.append( '  network_mode             = "awsvpc"')
         out.append(f'  cpu                      = "{cpu}"')
         out.append(f'  memory                   = "{memory}"')
+        out.append( '  execution_role_arn       = data.terraform_remote_state.project.outputs.task_execution_role_arn')
         out.append("  container_definitions = jsonencode([")
         out.append(f"    {_hcl_value(mig_container, indent=4)},")
         out.append("  ])")

@@ -186,15 +186,15 @@ def test_elastic_does_not_emit_literal_runtime_refs(compiled_prod_tf: str):
 def test_elastic_rds_password_uses_ssm_data_source(compiled_prod_tf: str):
     """The aws_db_instance must reference an SSM data source for password,
     not a literal string."""
-    assert 'data "aws_ssm_parameter" "database_postgres_password"' in compiled_prod_tf
+    assert 'data "aws_ssm_parameter" "db_postgres_password"' in compiled_prod_tf
     # And the resource must reference it.
-    assert "data.aws_ssm_parameter.database_postgres_password.value" in compiled_prod_tf
+    assert "data.aws_ssm_parameter.db_postgres_password.value" in compiled_prod_tf
 
 
 def test_elastic_rds_username_uses_ssm_data_source(compiled_prod_tf: str):
     """Same pattern for username."""
-    assert 'data "aws_ssm_parameter" "database_postgres_user"' in compiled_prod_tf
-    assert "data.aws_ssm_parameter.database_postgres_user.value" in compiled_prod_tf
+    assert 'data "aws_ssm_parameter" "db_postgres_user"' in compiled_prod_tf
+    assert "data.aws_ssm_parameter.db_postgres_user.value" in compiled_prod_tf
 
 
 # ---------------------------------------------------------------------------

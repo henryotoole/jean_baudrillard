@@ -29,7 +29,7 @@ def test_up_calls_compose_up_then_migrate(sample_ctx, fake_docker):
     assert methods.index("compose_up") < methods.index("compose_exec")
 
     # Migration exec is the migrate.sh for the api service (it owns the
-    # database schema). The compose key is the project-scoped global
+    # db schema). The compose key is the project-scoped global
     # name (sample-dev-api), not the simple name (api).
     migrate_calls = [
         c for c in fake_docker.calls

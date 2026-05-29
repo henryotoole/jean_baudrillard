@@ -503,17 +503,25 @@ def _cleanup_worktree(
     git: GitClient,
 ) -> None:
     """Remove the worktree and delete the temp branch, swallowing
-    errors so cleanup never masks the underlying check failure."""
+    errors so cleanup never masks the underlying check failure.
+
+    Build steps leave behind untracked files inside the worktree
+    (`.terraform/`, `dist/`, etc.) that ``git worktree remove`` refuses
+    by default. We go straight to ``--force``; it skips git's
+    "modified or untracked" check. If git still can't remove the
+    worktree (some other edge case), fall back to ``shutil.rmtree`` —
+    cleanup is best-effort.
+    """
     if not worktree.exists():
         # Nothing to remove.
         return
-    rc = git.worktree_remove(project_root, worktree, force=False)
-    if rc != 0:
-        # Retry with --force; cosmetic if it still fails, but try
-        # filesystem removal as a last resort.
-        rc = git.worktree_remove(project_root, worktree, force=True)
-        if rc != 0 and worktree.exists():
-            shutil.rmtree(worktree, ignore_errors=True)
+    rc = git.worktree_remove(project_root, worktree, force=True)
+    if rc != 0 and worktree.exists():
+        shutil.rmtree(worktree, ignore_errors=True)
+        # Tell git to forget the worktree entry even though we removed
+        # the directory under its feet — otherwise `git worktree list`
+        # leaves a stale entry pointing at a missing path.
+        git.worktree_prune(project_root)
     # Best-effort temp-branch delete; if the worktree already moved
     # off it, this can fail harmlessly.
     git.delete_branch(project_root, temp_branch, remote=False)
@@ -576,25 +584,50 @@ def run_check(
         )
         return rc
 
+    # First-release-on-empty-remote detection: a brand-new project's
+    # remote has no `main` ref yet (e.g. inception's first PART V
+    # release). Trunk-comparing gates have nothing to compare against
+    # and rebase has nothing to rebase onto. We run the gates that
+    # don't depend on origin/main and skip the rest with a banner.
+    empty_origin = not git.ref_exists(project_root, "origin/main")
+
     report = CheckReport()
     try:
-        # 4. Rebase onto fetched origin/main ----------------------------
-        rebase_rc = git.rebase(worktree, "origin/main")
-        if rebase_rc != 0:
-            # Abort so the worktree's tree returns to a sane state for
-            # ``worktree_remove`` to succeed.
-            git.rebase_abort(worktree)
+        if empty_origin:
+            # No trunk to rebase onto — just check out at HEAD.
+            print(
+                "check: origin/main does not exist yet — running in "
+                "first-release mode (trunk-comparing gates are "
+                "skipped). `docex merge` will seed origin/main from "
+                "this feature branch.",
+                file=sys.stderr,
+            )
+            # Trunk-comparing gates get a single PASS line each so the
+            # report still makes sense.
+            report.add("no_merge_conflicts", True, "skipped (empty origin/main)")
+            report.add("worktree_clean", True, "skipped (empty origin/main)")
+            report.add("latest_main", True, "skipped (empty origin/main)")
+            report.add("version_bumped", True, "skipped (empty origin/main)")
+            report.add("version_not_released", True, "skipped (empty origin/main)")
+        else:
+            # 4. Rebase onto fetched origin/main ----------------------------
+            rebase_rc = git.rebase(worktree, "origin/main")
+            if rebase_rc != 0:
+                # Abort so the worktree's tree returns to a sane state for
+                # ``worktree_remove`` to succeed.
+                git.rebase_abort(worktree)
 
-        # 5. Gate checks -------------------------------------------------
-        _gate_no_merge_conflicts(rebase_rc, report)
-        _gate_clean_worktree(worktree, git, report)
-        _gate_latest_main(project_root, worktree, git, report)
-        _gate_version_bumped(project_root, worktree, report)
+            # 5. Gate checks -------------------------------------------------
+            _gate_no_merge_conflicts(rebase_rc, report)
+            _gate_clean_worktree(worktree, git, report)
+            _gate_latest_main(project_root, worktree, git, report)
+            _gate_version_bumped(project_root, worktree, report)
 
         # Load the worktree's ProjectContext for the remaining gates.
         worktree_ctx = load_project_context(worktree)
 
-        _gate_version_not_released(project_root, worktree, git, report)
+        if not empty_origin:
+            _gate_version_not_released(project_root, worktree, git, report)
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
         _gate_health_endpoints(worktree, worktree_ctx, contracts, report)
         _gate_service_scripts(worktree, worktree_ctx, report)
@@ -616,12 +649,21 @@ def run_check(
             )
             return rc
 
+        # Secret files are gitignored, so the worktree doesn't have
+        # them — use the MAIN project's env file for variable
+        # substitution. Build doesn't need real values; this just
+        # silences "${VAR} not set" warnings that otherwise drown the
+        # real build output.
+        env_file = env_file_for(ctx, "test")
+
+        # Override compose's --project-directory to the worktree path
+        # so build contexts and bind-mounts resolve against the
+        # worktree tree, not the main project tree.
         compose_path = compose_file_for(worktree_ctx, "test")
-        env_file = env_file_for(worktree_ctx, "test")
         # Use compose_up with build=True then immediately down; we want
         # to confirm `docker build` succeeds without leaving containers
         # around. Easier: a dedicated compose build step.
-        rc = _compose_build(docker, compose_path, env_file)
+        rc = _compose_build(docker, compose_path, env_file, worktree)
         if rc != 0:
             print(
                 f"error: 'docker compose build' against worktree exited {rc}.",
@@ -632,7 +674,11 @@ def run_check(
         # 7. Run the full test loop -------------------------------------
         from docex.orchestrate.test import run_test
 
-        rc = run_test(worktree_ctx, docker)
+        rc = run_test(
+            worktree_ctx, docker,
+            project_dir=worktree,
+            env_file_override=env_file,
+        )
         if rc != 0:
             print(
                 f"error: 'docex test' against worktree exited {rc}.",
@@ -653,6 +699,7 @@ def _compose_build(
     docker: DockerClient,
     compose_file: Path,
     env_file: Path | None,
+    project_dir: Path | None = None,
 ) -> int:
     """Trigger ``docker compose build`` via the DockerClient abstraction.
 
@@ -667,9 +714,13 @@ def _compose_build(
         build=True,
         detach=True,
         env_file=env_file,
+        project_dir=project_dir,
     )
     # Down regardless — we just wanted the build step.
-    docker.compose_down(compose_file, preserve_volumes=False, env_file=env_file)
+    docker.compose_down(
+        compose_file, preserve_volumes=False,
+        env_file=env_file, project_dir=project_dir,
+    )
     return rc
 
 

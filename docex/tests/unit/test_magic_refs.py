@@ -52,13 +52,13 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
                 role="web",
                 networks=["web", "internal"],
                 resources=Resources(cpu=1.0, memory="2GB"),
-                depends_on=["database"],
+                depends_on=["db"],
                 port=8080,
                 env={},
             ),
         },
         backing_services={
-            "database": BackingService(
+            "db": BackingService(
                 role="relational_db",
                 networks=["internal"],
                 engine="postgres",
@@ -86,15 +86,15 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
                 "project_name": "p", "env_name": "dev", "role_name": "web",
                 "env_subdomain": "dev.example.com",
             },
-            "database": {
-                "name": "database",
-                "global_service_name": "p-dev-database",
+            "db": {
+                "name": "db",
+                "global_service_name": "p-dev-db",
                 "port": 5432,
                 "project_name": "p", "env_name": "dev", "role_name": "relational_db",
                 "env_subdomain": "dev.example.com",
             },
         },
-        engines={"api": api_engine, "database": db_engine},
+        engines={"api": api_engine, "db": db_engine},
     )
     return resolver, db_engine
 
@@ -110,9 +110,9 @@ def test_find_magic_refs():
 def test_resolve_simple_magic_ref():
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
-        "${backing_services.database.host}", consumer="api"
+        "${backing_services.db.host}", consumer="api"
     )
-    assert rendered.value == "p-dev-database"
+    assert rendered.value == "p-dev-db"
 
 
 def test_resolve_secret_part_propagates_runtime_ref():
@@ -121,7 +121,7 @@ def test_resolve_secret_part_propagates_runtime_ref():
     runtime refs, so the compiler can wire it into the container."""
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
-        "${backing_services.database.user}", consumer="api"
+        "${backing_services.db.user}", consumer="api"
     )
     assert rendered.value == "$[POSTGRES_USER]"
     assert "POSTGRES_USER" in rendered.runtime_refs
@@ -131,10 +131,10 @@ def test_resolve_secret_part_propagates_runtime_ref():
 def test_magic_ref_hcl_passthrough_on_elastic():
     resolver, _ = _make_resolver(foundation="elastic")
     rendered = resolver.resolve_in_string(
-        "${backing_services.database.host}", consumer="api"
+        "${backing_services.db.host}", consumer="api"
     )
     assert rendered.raw_hcl is True
-    assert "aws_db_instance.database.endpoint" in rendered.value
+    assert "aws_db_instance.db.endpoint" in rendered.value
 
 
 def test_magic_ref_unknown_service():
@@ -149,27 +149,27 @@ def test_magic_ref_unknown_part():
     resolver, _ = _make_resolver()
     with pytest.raises(SubstitutionError):
         resolver.resolve_in_string(
-            "${backing_services.database.nope}", consumer="api"
+            "${backing_services.db.nope}", consumer="api"
         )
 
 
 def test_dependency_tracking():
     resolver, _ = _make_resolver()
     resolver.resolve_in_string(
-        "${backing_services.database.host}", consumer="api"
+        "${backing_services.db.host}", consumer="api"
     )
     deps = [(d.consumer, d.target, d.part) for d in resolver.deps]
-    assert ("api", "database", "host") in deps
+    assert ("api", "db", "host") in deps
 
 
 def test_magic_ref_empty_resolution_errors():
     """A magic ref to a part that resolves to empty (e.g. an unset port
     with no engine default) is a hard error, not a silent empty emit."""
     resolver, _ = _make_resolver()
-    # Simulate a database with neither a declared port nor an engine
+    # Simulate a db with neither a declared port nor an engine
     # default: the port context var is empty, so ${port} resolves to "".
-    resolver.contexts["database"]["port"] = ""
+    resolver.contexts["db"]["port"] = ""
     with pytest.raises(SubstitutionError):
         resolver.resolve_in_string(
-            "${backing_services.database.port}", consumer="api"
+            "${backing_services.db.port}", consumer="api"
         )

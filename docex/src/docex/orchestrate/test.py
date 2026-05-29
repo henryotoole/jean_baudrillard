@@ -17,6 +17,7 @@ steps 2-3 still tears the env down. Exit 0 only if every step exited 0.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
@@ -33,16 +34,34 @@ from docex.orchestrate._common import (
 _TEST_ENV = "test"
 
 
-def run_test(ctx: ProjectContext, docker: DockerClient) -> int:
-    """Run the full build-test cycle. Returns process exit code."""
+def run_test(
+    ctx: ProjectContext,
+    docker: DockerClient,
+    *,
+    project_dir: "Path | None" = None,
+    env_file_override: "Path | None" = None,
+) -> int:
+    """Run the full build-test cycle. Returns process exit code.
+
+    ``project_dir`` and ``env_file_override`` exist for ``docex check``,
+    which calls ``run_test`` against an ephemeral worktree whose
+    secret files (gitignored) don't exist on disk. The check pipeline
+    passes the host path of the worktree as ``project_dir`` so compose
+    resolves build contexts and bind-mounts to the worktree, and the
+    main project's ``infra/secrets/test.env`` as ``env_file_override``
+    so compose's ``${VAR}`` substitutions resolve cleanly.
+    """
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, _TEST_ENV)
-    env_file = env_file_for(ctx, _TEST_ENV)
+    env_file = env_file_override if env_file_override is not None else env_file_for(ctx, _TEST_ENV)
 
     first_failure: int = 0
     try:
         # 1. compose up --build -d
-        rc = docker.compose_up(compose_file, build=True, detach=True, env_file=env_file)
+        rc = docker.compose_up(
+            compose_file, build=True, detach=True,
+            env_file=env_file, project_dir=project_dir,
+        )
         if rc != 0:
             print(
                 f"error: 'docker compose up' for test env exited {rc}.",
@@ -53,7 +72,10 @@ def run_test(ctx: ProjectContext, docker: DockerClient) -> int:
         # 2. migrate every schema-owning service.
         for svc in services_with_schema(ctx):
             key = compose_service_key(ctx, _TEST_ENV, svc)
-            rc = docker.compose_exec(compose_file, key, ["./migrate.sh"], env_file=env_file)
+            rc = docker.compose_exec(
+                compose_file, key, ["./migrate.sh"],
+                env_file=env_file, project_dir=project_dir,
+            )
             if rc != 0:
                 print(
                     f"error: migrate.sh for {svc!r} in test env exited {rc}.",
@@ -66,7 +88,10 @@ def run_test(ctx: ProjectContext, docker: DockerClient) -> int:
         # 3. test.sh for each core service.
         for svc in core_services(ctx):
             key = compose_service_key(ctx, _TEST_ENV, svc)
-            rc = docker.compose_exec(compose_file, key, ["./test.sh"], env_file=env_file)
+            rc = docker.compose_exec(
+                compose_file, key, ["./test.sh"],
+                env_file=env_file, project_dir=project_dir,
+            )
             if rc != 0:
                 print(
                     f"error: test.sh for {svc!r} exited {rc}.",
@@ -77,7 +102,10 @@ def run_test(ctx: ProjectContext, docker: DockerClient) -> int:
     finally:
         # 4. Always tear down — even if a Python exception interrupted
         # us. preserve_volumes=False: test env's data is throwaway.
-        td_rc = docker.compose_down(compose_file, preserve_volumes=False, env_file=env_file)
+        td_rc = docker.compose_down(
+            compose_file, preserve_volumes=False,
+            env_file=env_file, project_dir=project_dir,
+        )
         if td_rc != 0 and first_failure == 0:
             # Don't mask a real test failure with a teardown failure,
             # but do surface teardown failures when tests passed.
