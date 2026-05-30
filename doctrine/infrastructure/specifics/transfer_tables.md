@@ -263,6 +263,20 @@ restart: unless-stopped
 networks: ${networks}
 ```
 
+Additionally, services on the `web` network receive these Traefik discovery labels:
+
+```yml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.${global_service_name}.rule=${host_rule}"
+  - "traefik.http.routers.${global_service_name}.entrypoints=websecure"
+  - "traefik.http.routers.${global_service_name}.tls=true"
+  - "traefik.http.routers.${global_service_name}.tls.certresolver=doctrine"
+  - "traefik.http.services.${global_service_name}.loadbalancer.server.port=${port}"
+```
+
+`${host_rule}` is the per-service [host rule](../cicl.md#per-service-subdomains). The literal resolver name `doctrine` is the prescribed handle for the single machine-wide cert resolver — the operator configures Traefik with a resolver of that exact name, and docex emits labels referencing it. Decoupling the *name* (a doctrine handshake) from the *implementation* (currently Let's Encrypt + DNS-01) lets the doctrine evolve the underlying mechanism without changing the handle.
+
 ### Per-compose-file (fixed)
 
 Every emitted `docker-compose.yml` is prepended with the YAML anchor referenced above:

@@ -168,6 +168,43 @@ def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: P
     assert deps[db_key] == {"condition": "service_healthy"}, deps[db_key]
 
 
+def test_web_network_is_shared_external_and_others_are_project_scoped(tmp_path: Path):
+    """Per doctrine/infrastructure/specifics/networks.md § Network
+    Definition Name vs. Compiled Name, fixed-foundation `web` compiles to
+    the bare external network `web`; every other network keeps
+    ${project}_${env}_${name} scoping."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    path = root / "infra" / "output" / "dev" / "docker-compose.yml"
+    doc = yaml.safe_load(path.read_text())
+    networks = doc["networks"]
+
+    assert networks["web"] == {"name": "web", "external": True}, networks["web"]
+    # `internal` (or any other CICL-defined network) stays project-scoped.
+    internal = networks["internal"]
+    assert internal["name"].endswith("_dev_internal"), internal
+    assert internal.get("internal") is True, internal
+
+
+def test_web_router_emits_certresolver_doctrine(tmp_path: Path):
+    """Per doctrine transfer_tables.md § Foundation Invariants §
+    Per-container (fixed), web-network services must carry a
+    tls.certresolver=doctrine label so Traefik knows which resolver to
+    use for cert acquisition."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    api = _find_core_service_block(services, "api")
+    labels = api.get("labels") or []
+    # Must include the certresolver label keyed by the service's global name.
+    expected_suffix = ".tls.certresolver=doctrine"
+    assert any(l.endswith(expected_suffix) for l in labels), labels
+
+
 def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path: Path):
     """A dep target without a healthcheck must get service_started. We add a
     reverse_proxy backing service to the fixture — its transfer-table entry

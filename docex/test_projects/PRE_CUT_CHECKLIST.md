@@ -60,7 +60,8 @@ No DNS records to pre-create — just confirm the operator has Route53 admin on 
 ### A.6 Reverse proxy + cert manager — fixed
 
 - [ ] Traefik is installed and running on the dev machine, configured machine-wide.
-- [ ] Traefik's Let's Encrypt **DNS-01** challenge is configured against the Route53 zone for `luxrnd.tech` (HTTP-01 won't work for the per-env wildcards). Traefik's Route53 IAM is part of the AWS creds from A.1.
+- [ ] Traefik is attached to the bare external Docker network named `web`. (docex's fixed-foundation compose emits `web` as this shared network; Traefik must share it to route to project containers.)
+- [ ] Traefik has a single ACME cert resolver named exactly `doctrine`, configured with the **DNS-01** challenge against the Route53 zone for `luxrnd.tech` (HTTP-01 won't work for the per-env wildcards). Traefik's Route53 IAM is a dedicated narrow user with permissions scoped to the `luxrnd.tech` zone.
 - [ ] Traefik is listening on `:443` with the docker provider enabled so it auto-discovers the test project's compose containers.
 
 ### A.7 Fixed deploy credentials

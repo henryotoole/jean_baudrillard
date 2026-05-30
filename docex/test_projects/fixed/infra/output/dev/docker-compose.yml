@@ -12,7 +12,8 @@ networks:
     internal: true
     name: docex_smoke_fixed_dev_internal
   web:
-    name: docex_smoke_fixed_dev_web
+    external: true
+    name: web
 services:
   docex-smoke-fixed-dev-db:
     container_name: docex-smoke-fixed-dev-db
@@ -61,6 +62,7 @@ services:
       || Host(`web.dev.doctrine-fixed.luxrnd.tech`)
     - traefik.http.routers.docex-smoke-fixed-dev-web.entrypoints=websecure
     - traefik.http.routers.docex-smoke-fixed-dev-web.tls=true
+    - traefik.http.routers.docex-smoke-fixed-dev-web.tls.certresolver=doctrine
     - traefik.http.services.docex-smoke-fixed-dev-web.loadbalancer.server.port=8080
     logging: *default-logging
     networks:

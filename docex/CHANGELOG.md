@@ -21,6 +21,21 @@ first post-`0.4.0` overhaul.
   so `docex up dev` and `docex test` would race postgres's
   initialization and fail `migrate.sh` with `connection refused`.
   Surfaced by the new `test_projects/` walks.
+- Fixed-foundation `web` network now compiles to a bare external Docker
+  network named `web` rather than `${project}_${env}_web`. The
+  machine-wide Traefik can only attach to one network and can't reach
+  project-scoped ones; the project-scoped form silently broke HTTPS
+  routing for every service. `internal` and any other CICL-defined
+  networks keep their project-scoped naming (true isolation plane).
+  Elastic security groups untouched. Surfaced by C.4 of the fixed
+  test_projects walk.
+- Compose Traefik discovery labels now include
+  `tls.certresolver=doctrine` for each web-routed service. Traefik v3
+  doesn't propagate an entrypoint-default cert resolver into a router
+  with explicit `tls={}` from labels, so the previous output never
+  triggered ACME and served Traefik's self-signed default cert. The
+  doctrine prescribes the literal handle `doctrine` as the name of the
+  single machine-wide cert resolver.
 
 ### Changed
 

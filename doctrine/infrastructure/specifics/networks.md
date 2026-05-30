@@ -19,6 +19,8 @@ Networks are given short, meaningful names in the `infra.yml` file like `web`, `
 
 Therefore, the compiled name must be interpolated to ensure scope-uniqueness. The format is always `compiled_name = ${project}_${env}_${network_definition_name}`, whether it applies to a docker network name or an AWS SG.
 
+**Exception: fixed-foundation `web`.** When compiling fixed-foundation output, the network named `web` compiles to a bare external network named `web` rather than `${project}_${env}_web`. This is the single shared public-routing plane that the machine-wide [reverse_proxy] attaches to; project-scoping it would force per-project reverse-proxy instances. See [`Implementation by Name § networks: [web]`](#networks-web) for the rationale. The exception applies only to fixed-foundation Docker networks — `web` in elastic-foundation output still compiles to a per-env, per-project security group named `${project}_${env}_web` for clarity in the AWS console.
+
 ### Implementation by Name
 
 #### `networks: [web]`
@@ -27,7 +29,7 @@ A service on the `web` network is reachable from the public internet over HTTP/S
 
 `web`-network services **do not publish host ports**. The reverse proxy reaches them over the project network on their declared `port`, so there's nothing to bind on the host. (This is why a `web` service may use any port — including 80 — and why two web services never collide.)
 
-- **Fixed:** the container gets Traefik discovery labels (`traefik.enable=true`, a `Host(…)` router rule covering the service's subdomain(s), `loadbalancer.server.port=<port>`, etc.) and joins the `{project}_{env}_web` docker network, which the machine-wide Traefik watches. Traefik terminates TLS and routes each subdomain to the container over the network.
+- **Fixed:** the container gets Traefik discovery labels (`traefik.enable=true`, a `Host(…)` router rule covering the service's subdomain(s), `loadbalancer.server.port=<port>`, `tls.certresolver=doctrine`, etc.) and joins the bare external `web` docker network, which the machine-wide Traefik is also attached to. Traefik terminates TLS — using the resolver named `doctrine`, which the operator configures with DNS-01 against Let's Encrypt (HTTP-01 cannot issue the per-env wildcard certs this scheme requires) — and routes each subdomain to the container over the network. The `web` network is shared across all fixed-foundation projects on the host: it is the public-routing plane, and service-level authentication is the right defense against cross-tenant exposure on it.
 - **Elastic:** the (core) service is registered as an ALB target group with a listener rule matching its subdomain(s) at a unique priority. The env's ALB listens on 443 (and 80, redirecting), terminates TLS using the project's ACM cert, and forwards to the task. The service's security group accepts ingress only from the ALB's security group. Managed backing services (RDS, S3, ElastiCache) on `web` are not ALB targets — they're reached at their own AWS endpoints; their `web` membership affects only the security group.
 
 #### `networks: [internal]` (DEFAULT FOR ALL NON-SPECIAL-NAMED NETWORKS)

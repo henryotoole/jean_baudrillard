@@ -12,7 +12,8 @@ networks:
     internal: true
     name: docex_smoke_elastic_test_internal
   web:
-    name: docex_smoke_elastic_test_web
+    external: true
+    name: web
 services:
   docex-smoke-elastic-test-db:
     container_name: docex-smoke-elastic-test-db
@@ -61,6 +62,7 @@ services:
       || Host(`web.test.doctrine-elastic.luxrnd.tech`)
     - traefik.http.routers.docex-smoke-elastic-test-web.entrypoints=websecure
     - traefik.http.routers.docex-smoke-elastic-test-web.tls=true
+    - traefik.http.routers.docex-smoke-elastic-test-web.tls.certresolver=doctrine
     - traefik.http.services.docex-smoke-elastic-test-web.loadbalancer.server.port=8080
     logging: *default-logging
     networks:

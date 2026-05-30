@@ -62,20 +62,28 @@ def _named_volumes(compiled: CompiledEnv) -> list[str]:
 
 
 def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
-    """Top-level ``networks:`` block. Each project-scoped network is
-    declared as ``${project}_${env}_${shortname}`` mapping its short
-    name to the compose-level external/internal driver."""
+    """Top-level ``networks:`` block.
+
+    Every non-``web`` network compiles to a project-scoped docker network
+    named ``${project}_${env}_${shortname}`` with ``internal: true``.
+
+    The ``web`` network is special-cased: it compiles to a bare external
+    docker network named ``web`` that the machine-wide Traefik is also
+    attached to. This is the shared public-routing plane, per
+    ``doctrine/infrastructure/specifics/networks.md § Network Definition
+    Name vs. Compiled Name``.
+    """
     out: dict[str, Any] = {}
     for short in sorted(compiled.networks):
+        if short == "web":
+            # WHY: project-scoping `web` would force per-project Traefik
+            # instances, which can't coexist on :443. The bare external
+            # `web` network is the single host-wide public-routing plane
+            # the machine-wide Traefik attaches to.
+            out[short] = {"name": "web", "external": True}
+            continue
         full = f"{compiled.project}_{compiled.env}_{short}"
-        # On fixed: every project-defined network is a docker network the
-        # compiler creates. Internal networks are internal=true; web is
-        # joined by traefik on the host so it must be NOT internal so
-        # the machine-wide traefik can attach.
-        cfg: dict[str, Any] = {"name": full}
-        if short != "web":
-            cfg["internal"] = True
-        out[short] = cfg
+        out[short] = {"name": full, "internal": True}
     return out
 
 
@@ -89,6 +97,14 @@ def _traefik_labels(svc: CompiledService) -> list[str]:
     no host port is published. These are generated here (per ``web_hosts``)
     rather than carried as static labels in the transfer table, so routing
     is driven by network membership, not role.
+
+    The ``tls.certresolver=doctrine`` label is mandatory: per ``doctrine/
+    infrastructure/specifics/transfer_tables.md § Foundation Invariants §
+    Per-container (fixed)``, the doctrine prescribes the literal handle
+    ``doctrine`` as the name of the machine-wide cert resolver. Traefik
+    v3 does not propagate an entrypoint-level default ``tls.certResolver``
+    into a router whose ``tls={}`` is set from labels, so emitting
+    ``tls=true`` without naming the resolver suppresses ACME entirely.
     """
     gname = svc.global_name
     rule = " || ".join(f"Host(`{h}`)" for h in svc.web_hosts)
@@ -97,6 +113,7 @@ def _traefik_labels(svc: CompiledService) -> list[str]:
         f"traefik.http.routers.{gname}.rule={rule}",
         f"traefik.http.routers.{gname}.entrypoints=websecure",
         f"traefik.http.routers.{gname}.tls=true",
+        f"traefik.http.routers.{gname}.tls.certresolver=doctrine",
         f"traefik.http.services.{gname}.loadbalancer.server.port={svc.port}",
     ]
 
