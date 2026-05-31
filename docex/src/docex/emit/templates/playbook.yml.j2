@@ -37,7 +37,7 @@
 {% for svc in core_services_with_schema %}
     - name: Run migrations for {{ svc.name }}
       ansible.builtin.command:
-        cmd: docker compose run --rm {{ svc.name }} /service/migrate.sh
+        cmd: docker compose run --rm {{ svc.global_name }} /service/migrate.sh
         chdir: "{{ '{{' }} deploy_root {{ '}}' }}"
       register: {{ svc.name }}_migrate_result
       changed_when: true

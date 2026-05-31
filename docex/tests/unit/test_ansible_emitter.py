@@ -72,7 +72,11 @@ def test_playbook_migration_uses_compose_run(tmp_path: Path):
     task = _find_migration_task(root, "stage", "api")
     assert "ansible.builtin.command" in task, task
     cmd = task["ansible.builtin.command"]["cmd"]
-    assert cmd == "docker compose run --rm api /service/migrate.sh", cmd
+    # The compose service KEY is the global name (project-scoped),
+    # not the short name. Using `api` here would fail at runtime with
+    # `no such service: api` because the compose file declares
+    # `sample-stage-api:` etc. The cmd must reference that global form.
+    assert cmd == "docker compose run --rm sample-stage-api /service/migrate.sh", cmd
 
 
 def test_playbook_migration_does_not_use_auto_remove(tmp_path: Path):

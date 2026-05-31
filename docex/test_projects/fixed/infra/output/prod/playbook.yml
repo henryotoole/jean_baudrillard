@@ -37,7 +37,7 @@
 
     - name: Run migrations for web
       ansible.builtin.command:
-        cmd: docker compose run --rm web /service/migrate.sh
+        cmd: docker compose run --rm docex-smoke-fixed-prod-web /service/migrate.sh
         chdir: "{{ deploy_root }}"
       register: web_migrate_result
       changed_when: true

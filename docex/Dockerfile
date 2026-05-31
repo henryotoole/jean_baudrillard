@@ -115,6 +115,11 @@ RUN git config --system --add safe.directory '*'
 # the right place for per-run ephemera.
 ENV ANSIBLE_LOCAL_TEMP=/tmp/.ansible-tmp
 ENV ANSIBLE_PERSISTENT_CONTROL_PATH_DIR=/tmp/.ansible-cp
+# ANSIBLE_SSH_CONTROL_PATH_DIR is the SSH connection plugin's ControlPath
+# directory — separate from the two above (which cover the controller's
+# per-run tmp and the persistent-connection plugin's sockets). Default
+# is $HOME/.ansible/cp; same EACCES failure mode without this.
+ENV ANSIBLE_SSH_CONTROL_PATH_DIR=/tmp/.ansible-ssh-cp
 
 # The shim sets `-w "$PROJECT_ROOT"` at runtime — bind-mounting the
 # host project at the same path inside the container so DooD path
