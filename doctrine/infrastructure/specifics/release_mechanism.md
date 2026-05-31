@@ -155,7 +155,7 @@ The playbook's tasks, in order:
 
 Each task uses an idempotent Ansible module (`community.docker.docker_image`, `template`, `community.docker.docker_compose_v2`, etc.). Re-running the playbook against an unchanged target produces zero changes.
 
-**SSH Credentials.** An SSH private key authorized on each target host for a dedicated `deploy` user (member of the `docker` group). The keypair is provisioned to the host during fixed-foundation prerequisite setup. The doctrine prescribes one keypair per `(project, env)` — generated once, never shared across projects.
+**SSH Credentials.** An SSH private key authorized on each target host for a dedicated `deploy` user (member of the `docker` group, with passwordless sudo so the playbook's `become: true` tasks can elevate without prompting). The keypair is provisioned to the host during fixed-foundation prerequisite setup. The doctrine prescribes one keypair per `(project, env)` — generated once, never shared across projects. The `deploy` user also requires `~/.docker/config.json` populated with credentials for the project's `container_registry` (the playbook's image pulls run as `deploy`); `root` requires the same (`docker compose up` runs under `become: true`).
 
 The private key is placed by the operator at `infra/deploy_creds/<env>` (e.g., `infra/deploy_creds/prod`); `docex release <env>` reads from this fixed path. The `deploy_creds/` directory is created by the project bootstrap pre-populated with a `.gitignore` (so its contents can never be committed) and a `README.md` explaining what belongs there.
 

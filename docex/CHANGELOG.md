@@ -36,6 +36,28 @@ first post-`0.4.0` overhaul.
   triggered ACME and served Traefik's self-signed default cert. The
   doctrine prescribes the literal handle `doctrine` as the name of the
   single machine-wide cert resolver.
+- Dockerfile installs the `community.docker` ansible collection at
+  `/usr/share/ansible/collections` (system-wide), not the build-time
+  `$HOME/.ansible/collections`. The runtime in-container user is the
+  operator's uid (not root); the previous install path was unreachable
+  to it and modules like `community.docker.docker_compose_v2`
+  silently failed to resolve.
+- Dockerfile sets `ANSIBLE_LOCAL_TEMP=/tmp/.ansible-tmp` and
+  `ANSIBLE_PERSISTENT_CONTROL_PATH_DIR=/tmp/.ansible-cp` so ansible's
+  runtime scratch dirs don't try to write under `$HOME` (which the
+  image doesn't provide as a writable path for the operator uid).
+- Emitted `ansible.cfg` uses `stdout_callback = default` +
+  `result_format = yaml` (ansible-core 2.13+) instead of the
+  deprecated `stdout_callback = yaml` plugin from `community.general`
+  (removed in v12).
+- Migration tasks in the emitted playbook now use `docker compose run
+  --rm <svc> /service/migrate.sh` via `ansible.builtin.command`
+  instead of `community.docker.docker_container`. The one-off
+  migration container now inherits the application service's full
+  environment by definition (image, compile-time-resolved
+  `DATABASE_*` env vars, runtime `env_file` secrets, networks,
+  depends_on). Side effect: `auto_remove: true` is gone, so when
+  migration fails the exit code and logs are captured normally.
 
 ### Changed
 

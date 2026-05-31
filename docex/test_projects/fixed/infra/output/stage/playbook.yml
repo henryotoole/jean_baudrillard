@@ -36,15 +36,11 @@
         state: present
 
     - name: Run migrations for web
-      community.docker.docker_container:
-        name: "{{ project }}_{{ env }}_web_migrate"
-        image: "registry.luxrnd.tech/docex_smoke_fixed/web:0.0.1"
-        command: /service/migrate.sh
-        networks:
-          - name: "{{ project }}_{{ env }}_internal"
-        env_file: "{{ deploy_root }}/.env"
-        detach: false
-        auto_remove: true
+      ansible.builtin.command:
+        cmd: docker compose run --rm web /service/migrate.sh
+        chdir: "{{ deploy_root }}"
+      register: web_migrate_result
+      changed_when: true
       tags:
         - migrate
 

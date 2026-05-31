@@ -30,6 +30,22 @@ Every box below must be checked off on the dev machine before the walk begins.
   ```
 - [ ] `cd test_projects/fixed && ./bin/docex --version` prints the candidate version. Same for `elastic/`.
 
+### A.2.1 Test projects are self-contained git repos
+
+The doctrine assumes a project is its own git repository (per [`inception.md`](../../doctrine/practices/inception.md)). The smoke-test projects under `test_projects/` are also tracked at the doctrine-repo level for distribution convenience, but each MUST additionally be its own git repo so docex's CI/CD gate checks (`check`, `merge`, `containerize`) can introspect a real repo state inside the docex container. This is one-time setup at first walk and persists; later walks just verify it's still present.
+
+- [ ] `test_projects/fixed/.git` exists, on branch `main`, with a tag `v0.0.1` at HEAD and a clean working tree. If not, initialize:
+  ```
+  cd test_projects/fixed
+  git init -b main
+  git add .
+  git commit -m "Initial v0.0.1 state for smoke-test project"
+  git tag v0.0.1
+  ```
+- [ ] Same for `test_projects/elastic/`.
+
+The nested-repo state is intentional and harmless to the outer doctrine repo — files inside `test_projects/*/` remain tracked at the outer level via their original commit history; the inner `.git/` directories are simply not crossed by the outer repo's walkers. Edits inside a test project dirty both repos; the operator commits in both as needed.
+
 ### A.3 DNS — fixed foundation
 
 The fixed project's domain is `doctrine-fixed.luxrnd.tech`, served from this dev machine. The operator's Route53 zone for `luxrnd.tech` must contain records pointing the env subdomains (and their per-service wildcards) at the dev machine's public IP `$DEV_IP`:
@@ -54,7 +70,7 @@ No DNS records to pre-create — just confirm the operator has Route53 admin on 
 ### A.5 Container registry — fixed
 
 - [ ] A Docker Registry V2 instance is reachable at `https://registry.luxrnd.tech` from the dev machine and from itself when serving as the `prod` host.
-- [ ] `~/.docker/config.json` has credentials for this registry.
+- [ ] The **operator's** `~/.docker/config.json` has credentials for this registry. This is the push side, used by `docex containerize`. Pull-side credentials (`deploy` and `root` on the target host) are covered in A.7.
 - [ ] If running the registry locally on the dev machine: it persists images to a volume (so the `release prod` pull side finds them after `release stage` pushed them).
 
 ### A.6 Reverse proxy + cert manager — fixed
@@ -64,14 +80,35 @@ No DNS records to pre-create — just confirm the operator has Route53 admin on 
 - [ ] Traefik has a single ACME cert resolver named exactly `doctrine`, configured with the **DNS-01** challenge against the Route53 zone for `luxrnd.tech` (HTTP-01 won't work for the per-env wildcards). Traefik's Route53 IAM is a dedicated narrow user with permissions scoped to the `luxrnd.tech` zone.
 - [ ] Traefik is listening on `:443` with the docker provider enabled so it auto-discovers the test project's compose containers.
 
-### A.7 Fixed deploy credentials
+### A.7 Fixed deploy credentials and deploy target user
 
+Per [`release_mechanism.md § Fixed Foundation: Ansible`](../../doctrine/infrastructure/specifics/release_mechanism.md#fixed-foundation-ansible), the rendered playbook lands on the deploy target as a dedicated `deploy` user — member of the `docker` group, with passwordless sudo so `become: true` tasks can elevate without prompting. The dev machine doubles as the deploy target for this smoke walk, so the user must exist on it locally.
+
+- [ ] Create the `deploy` user with docker group membership and passwordless sudo, if not present:
+  ```
+  sudo useradd -m -s /bin/bash -G docker deploy
+  echo "deploy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/deploy-nopasswd
+  sudo chmod 0440 /etc/sudoers.d/deploy-nopasswd
+  ```
 - [ ] Generate an SSH keypair for each env if not already present:
   ```
   ssh-keygen -t ed25519 -f test_projects/fixed/infra/deploy_creds/stage -N ''
   ssh-keygen -t ed25519 -f test_projects/fixed/infra/deploy_creds/prod -N ''
   ```
-- [ ] Append both public keys (`stage.pub`, `prod.pub`) to `~/.ssh/authorized_keys` on the dev machine (which is also the deploy target).
+- [ ] Authorize both public keys (`stage.pub`, `prod.pub`) for the `deploy` user on the deploy target:
+  ```
+  sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+  sudo install -m 600 -o deploy -g deploy /dev/null /home/deploy/.ssh/authorized_keys
+  cat test_projects/fixed/infra/deploy_creds/stage.pub test_projects/fixed/infra/deploy_creds/prod.pub | sudo tee -a /home/deploy/.ssh/authorized_keys >/dev/null
+  ```
+- [ ] `docker login <registry>` as the `deploy` user, so unprivileged `docker compose` invocations (image pulls during release) can authenticate:
+  ```
+  sudo -u deploy docker login registry.luxrnd.tech
+  ```
+- [ ] `docker login <registry>` as `root` as well, because the emitted playbook uses `become: true` and runs `docker compose` as root:
+  ```
+  sudo docker login registry.luxrnd.tech
+  ```
 
 ### A.8 Per-project secrets — both foundations
 

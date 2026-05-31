@@ -48,11 +48,14 @@ RUN apt-get update \
 # install just the community.docker collection separately below.
 RUN pip install --no-cache-dir "ansible-core==2.17.6"
 
-# Install the community.docker Ansible collection. The emitted
-# playbook templates use community.docker.docker_compose_v2 and
-# community.docker.docker_container; ansible-galaxy installs them
-# into the standard system collections path.
-RUN ansible-galaxy collection install community.docker:==3.10.4
+# Install the community.docker Ansible collection at the system-wide
+# collections path. We install at /usr/share/ansible/collections rather
+# than the default $HOME/.ansible/collections because the in-container
+# user at runtime is the operator's uid (not root), whose HOME is
+# /home/<operator> — a directory the image does not provide. Ansible
+# checks the system path during module resolution regardless of HOME
+# state, so collections installed here are always available.
+RUN ansible-galaxy collection install community.docker:==3.10.4 -p /usr/share/ansible/collections
 
 # ---------------------------------------------------------------------------
 # Phase 4 additions
@@ -103,6 +106,15 @@ RUN pip install --no-cache-dir ".[test]"
 # where the image is run without --user (e.g. ad-hoc `docker run
 # docex bash` for debugging).
 RUN git config --system --add safe.directory '*'
+
+# Redirect ansible's runtime scratch (per-run tmp dir, control sockets)
+# to /tmp rather than $HOME/.ansible/{tmp,cp}. The image's /home is
+# root-owned and the operator's HOME path doesn't exist as a writable
+# directory at runtime — ansible-core's default scratch paths would
+# fail with EACCES. /tmp is always present, writable by any uid, and
+# the right place for per-run ephemera.
+ENV ANSIBLE_LOCAL_TEMP=/tmp/.ansible-tmp
+ENV ANSIBLE_PERSISTENT_CONTROL_PATH_DIR=/tmp/.ansible-cp
 
 # The shim sets `-w "$PROJECT_ROOT"` at runtime — bind-mounting the
 # host project at the same path inside the container so DooD path

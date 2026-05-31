@@ -36,15 +36,11 @@
         state: present
 {% for svc in core_services_with_schema %}
     - name: Run migrations for {{ svc.name }}
-      community.docker.docker_container:
-        name: "{{ '{{' }} project {{ '}}' }}_{{ '{{' }} env {{ '}}' }}_{{ svc.name }}_migrate"
-        image: "{{ image_for(svc) }}"
-        command: /service/migrate.sh
-        networks:
-          - name: "{{ '{{' }} project {{ '}}' }}_{{ '{{' }} env {{ '}}' }}_internal"
-        env_file: "{{ '{{' }} deploy_root {{ '}}' }}/.env"
-        detach: false
-        auto_remove: true
+      ansible.builtin.command:
+        cmd: docker compose run --rm {{ svc.name }} /service/migrate.sh
+        chdir: "{{ '{{' }} deploy_root {{ '}}' }}"
+      register: {{ svc.name }}_migrate_result
+      changed_when: true
       tags:
         - migrate
 {% endfor %}
