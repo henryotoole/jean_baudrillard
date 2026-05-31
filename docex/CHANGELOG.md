@@ -58,6 +58,28 @@ first post-`0.4.0` overhaul.
   `DATABASE_*` env vars, runtime `env_file` secrets, networks,
   depends_on). Side effect: `auto_remove: true` is gone, so when
   migration fails the exit code and logs are captured normally.
+- Dockerfile also sets `ANSIBLE_SSH_CONTROL_PATH_DIR=/tmp/.ansible-ssh-cp`.
+  The SSH connection plugin's ControlPath directory is separate from
+  `ANSIBLE_LOCAL_TEMP` and `ANSIBLE_PERSISTENT_CONTROL_PATH_DIR`, and
+  still defaulted to `$HOME/.ansible/cp` — same EACCES failure mode.
+- Emitter's playbook migration task now references services by their
+  project-scoped global name (`docex-smoke-fixed-stage-web`), not the
+  CICL short name (`web`). The compose file's service keys are the
+  global form, so `docker compose run --rm <short_name>` failed with
+  "no such service".
+- `test_projects/fixed/teardown.sh` now loops over both underscore
+  and hyphen forms of the project name when sweeping stray docker
+  resources by `--filter name=`. Docker's substring match never
+  found the actual runtime names (which use hyphens) under the
+  underscore project name, leaving stage/prod stacks orphaned after
+  teardown.
+
+### Removed
+
+- `_image_for` helper in `src/docex/emit/ansible.py`. Was registered
+  as a Jinja variable for the legacy migration playbook task's
+  explicit `image:` field; mod 003's switch to `docker compose run`
+  made it unreferenced.
 
 ### Changed
 

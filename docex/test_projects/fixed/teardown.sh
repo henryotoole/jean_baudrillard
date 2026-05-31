@@ -15,6 +15,11 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_NAME="docex_smoke_fixed"
+# Hyphenated form. Doctrine name-translation rules (transfer_tables.md
+# § naming) produce hyphenated container/network/volume names from
+# underscore project names; teardown's `docker ... --filter name=…`
+# substring matching needs both forms to find every running resource.
+PROJECT_NAME_HYPHEN="${PROJECT_NAME//_/-}"
 REGISTRY_HOST="registry.luxrnd.tech"
 
 echo "==> tearing down $PROJECT_NAME"
@@ -31,16 +36,22 @@ done
 
 # -- 2. Stray containers/networks/volumes by name prefix ------------------
 # WHY: compose-named resources should be caught above, but a partial run
-# can leave artifacts that compose's project filter no longer sees.
+# can leave artifacts that compose's project filter no longer sees. We
+# loop over both name forms because docex's name-translation produces
+# hyphenated runtime names (`docex-smoke-fixed-…`) from the underscore
+# project name (`docex_smoke_fixed`), and `--filter name=` is substring
+# match — the underscore form never appears in hyphenated runtime names.
 echo "-- stray docker resources by name prefix"
-for container in $(docker ps -aq --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
-  docker rm -f "$container" >/dev/null || true
-done
-for network in $(docker network ls -q --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
-  docker network rm "$network" >/dev/null 2>&1 || true
-done
-for volume in $(docker volume ls -q --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
-  docker volume rm "$volume" >/dev/null 2>&1 || true
+for pattern in "$PROJECT_NAME" "$PROJECT_NAME_HYPHEN"; do
+  for container in $(docker ps -aq --filter "name=${pattern}" 2>/dev/null || true); do
+    docker rm -f "$container" >/dev/null 2>&1 || true
+  done
+  for network in $(docker network ls -q --filter "name=${pattern}" 2>/dev/null || true); do
+    docker network rm "$network" >/dev/null 2>&1 || true
+  done
+  for volume in $(docker volume ls -q --filter "name=${pattern}" 2>/dev/null || true); do
+    docker volume rm "$volume" >/dev/null 2>&1 || true
+  done
 done
 
 # -- 3. Local images for this project ------------------------------------
