@@ -178,7 +178,7 @@ Some networks will get special properties if they have a certain name. The full 
 
 The default is for networks to be internal and closed, such that only services on the network get access to each other.
 
-Details on networks, how they are evaluated, and how they compile out can be found [here](./specifics/networks.md).
+Details on networks, how they are evaluated, and how they compile out can be found [here](./specifics/networks.md). In practice, the network names defined in `infra.yml` are translated into project-scoped names. Services on a given network name will remain on a network together, but the actual name which will show up in compiled output can change form a bit.
 
 ### Resources
 
