@@ -53,10 +53,8 @@ roles:
       env:
         MINIO_ROOT_USER: "MinIO root access key"
         MINIO_ROOT_PASSWORD: "MinIO root secret key"
-      naming:
-        separator: hyphen
-        case: lower
-        max_len: 63
+      # Fixed-only docker container; use the `docker` policy.
+      naming: docker
 
     s3:
       foundation: elastic
@@ -78,9 +76,6 @@ roles:
         region:
           elastic: "us-east-1"
       env: {}
-      naming:
-        # S3 bucket names: lowercase, no underscores, 3..63 chars, globally
-        # unique across all of AWS.
-        separator: hyphen
-        case: lower
-        max_len: 63
+      # S3 bucket names: lowercase, no underscores, 3..63 chars, globally
+      # unique across all of AWS. See tables/naming_policies.yml § s3.
+      naming: s3

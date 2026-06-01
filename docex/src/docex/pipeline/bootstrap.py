@@ -36,6 +36,7 @@ from docex import ELASTIC_REGION
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.errors import BootstrapFailed
+from docex.naming import apply_policy
 from docex.opentofu.subprocess_runner import (
     tofu_apply,
     tofu_init,
@@ -57,8 +58,13 @@ def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
         return 0
 
     project = ctx.project.name
-    bucket = f"{project}-tofu-state"
-    table = f"{project}-tofu-locks"
+    # Route the raw underscore-joined names through the matching naming
+    # policies. `s3` hyphenates and lowercases (S3 buckets reject
+    # underscores); `ddb` preserves underscores (DynamoDB accepts both
+    # and the doctrine prefers the project-name form).
+    policies = ctx.transfer_tables.naming_policies
+    bucket = apply_policy(f"{project}_tofu_state", policies.get("s3"))
+    table = apply_policy(f"{project}_tofu_locks", policies.get("ddb"))
 
     try:
         # ----- Step 1: state backend (boto3) ----------------------------

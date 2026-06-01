@@ -36,6 +36,7 @@ from docex.cicl.substitute import HCLLiteral, substitute_tree
 from docex.cicl.transfer import EngineEntry, TransferTables
 from docex.cicl.validate import validate_document
 from docex.errors import ValidationError, ValidationIssue
+from docex.naming import NamingPolicy, apply_policy
 
 
 # Subdomain prefixes per env (from cicl.md § Domain).
@@ -189,31 +190,11 @@ def _resources_to_elastic(res: Resources, *, service_name: str) -> dict[str, Any
 # ---------------------------------------------------------------------------
 
 
-def _apply_naming(name: str, naming: dict[str, Any]) -> str:
-    out = name
-    sep = naming.get("separator", "underscore")
-    if sep == "hyphen":
-        out = out.replace("_", "-")
-    elif sep == "underscore":
-        out = out.replace("-", "_")
-    case = naming.get("case", "any")
-    if case == "lower":
-        out = out.lower()
-    max_len = naming.get("max_len")
-    if isinstance(max_len, int) and len(out) > max_len:
-        # Surface a clear error; per transfer_tables.md rule 9.
-        raise ValueError(
-            f"name {out!r} exceeds engine max_len {max_len}; "
-            "shorten project/env/service names"
-        )
-    return out
-
-
 def _global_service_name(
-    project: str, env: str, service: str, naming: dict[str, Any]
+    project: str, env: str, service: str, policy: NamingPolicy
 ) -> str:
     raw = f"{project}_{env}_{service}"
-    return _apply_naming(raw, naming)
+    return apply_policy(raw, policy)
 
 
 def _network_name(project: str, env: str, network: str) -> str:
@@ -376,7 +357,8 @@ def compile_env(
     contexts: dict[str, dict[str, Any]] = {}
     for name, svc in sorted(doc.all_services().items()):
         engine = engines_by_service[name]
-        gname = _global_service_name(project_name, env, name, engine.naming)
+        policy = tables.naming_policies.get(engine.naming)
+        gname = _global_service_name(project_name, env, name, policy)
         contexts[name] = {
             "name": name,
             "global_service_name": gname,
@@ -676,7 +658,11 @@ def run_compile(ctx: Any) -> int:
                 files_written += 3  # playbook.yml, inventory.yml, ansible.cfg
         else:
             hcl_path = env_dir / "main.tf"
-            emit_hcl(compiled, hcl_path)
+            emit_hcl(
+                compiled,
+                hcl_path,
+                naming_policies=ctx.transfer_tables.naming_policies,
+            )
             files_written += 1
 
     # Project-tier HCL — only for elastic-foundation projects. The env-tier
@@ -690,6 +676,7 @@ def run_compile(ctx: Any) -> int:
             project_version=ctx.project.version,
             domain=ctx.infra.domain,
             core_service_names=list(ctx.infra.core_services.keys()),
+            naming_policies=ctx.transfer_tables.naming_policies,
             out_path=project_dir / "main.tf",
         )
         files_written += 1

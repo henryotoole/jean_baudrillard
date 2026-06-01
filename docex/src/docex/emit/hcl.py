@@ -40,6 +40,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from docex import ELASTIC_REGION
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
+from docex.naming import NamingPolicies, NamingPolicy, apply_policy
 
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -246,7 +247,14 @@ def render_backing(svc: CompiledService, *, project: str, env: str) -> str:
     return "\n".join(out)
 
 
-def render_core(svc: CompiledService, *, project: str, env: str, priority: int) -> str:
+def render_core(
+    svc: CompiledService,
+    *,
+    project: str,
+    env: str,
+    priority: int,
+    alb_policy: NamingPolicy,
+) -> str:
     """Render a core service to ECS task definition + service + (optional) target group.
 
     Phase 4 partitions the service's env block into ``environment[]``
@@ -372,8 +380,13 @@ def render_core(svc: CompiledService, *, project: str, env: str, priority: int) 
 
     # Target group + listener rule if on the web network.
     if "web" in nets:
+        # ALB target-group names disallow underscores, so the name is
+        # policy-translated regardless of the engine's own naming. The
+        # service's global_name may be underscore-form (ecs policy) or
+        # already hyphen-form; apply_policy is idempotent in either case.
+        tg_name = apply_policy(f"{svc.global_name}_tg", alb_policy)
         out.append(f'resource "aws_lb_target_group" "{svc.name}" {{')
-        out.append(f'  name        = "{svc.global_name}-tg"')
+        out.append(f'  name        = "{tg_name}"')
         out.append(f'  port        = {svc.port or 80}')
         out.append( '  protocol    = "HTTP"')
         out.append( '  target_type = "ip"')
@@ -438,6 +451,7 @@ def emit_hcl_project(
     project_version: str,
     domain: str,
     core_service_names: list[str],
+    naming_policies: NamingPolicies,
     out_path: Path,
 ) -> None:
     """Emit the project-tier ``main.tf``.
@@ -458,17 +472,47 @@ def emit_hcl_project(
         {"name": name, "hcl_id": _hcl_id(name)}
         for name in sorted(core_service_names)
     ]
+    # Resolve every structural-resource name through its policy before
+    # the template runs — policies live in transfer tables, template
+    # stays free of identifier logic.
+    s3_p = naming_policies.get("s3")
+    ddb_p = naming_policies.get("ddb")
+    iam_p = naming_policies.get("iam")
+    ecr_p = naming_policies.get("ecr_repo")
+    ssm_p = naming_policies.get("ssm_path")
+
+    ecr_repo_names = {
+        name: (
+            apply_policy(project, ecr_p) + "/" + apply_policy(name, ecr_p)
+        )
+        for name in core_service_names
+    }
     rendered = tpl.render(
         project=project,
         project_version=project_version,
         domain=domain,
         region=ELASTIC_REGION,
         core_service_names=svc_entries,
+        state_bucket=apply_policy(f"{project}_tofu_state", s3_p),
+        state_lock_table=apply_policy(f"{project}_tofu_locks", ddb_p),
+        task_execution_role_name=apply_policy(
+            f"{project}_task_execution", iam_p
+        ),
+        task_execution_ssm_policy_name=apply_policy(
+            f"{project}_task_execution_ssm", iam_p
+        ),
+        ecr_repo_names=ecr_repo_names,
+        ssm_path_project=apply_policy(project, ssm_p),
     )
     out_path.write_text(rendered)
 
 
-def emit_hcl(compiled: CompiledEnv, out_path: Path) -> None:
+def emit_hcl(
+    compiled: CompiledEnv,
+    out_path: Path,
+    *,
+    naming_policies: NamingPolicies,
+) -> None:
     env = Environment(
         loader=FileSystemLoader(_TEMPLATE_DIR),
         undefined=StrictUndefined,
@@ -490,12 +534,18 @@ def emit_hcl(compiled: CompiledEnv, out_path: Path) -> None:
     _web_core = [s for s in core if "web" in s.networks]
     _priorities = {s.name: 100 + i for i, s in enumerate(_web_core)}
 
+    s3_p = naming_policies.get("s3")
+    ddb_p = naming_policies.get("ddb")
+    alb_p = naming_policies.get("alb")
+    ecs_p = naming_policies.get("ecs")
+
     def _core(svc: CompiledService) -> str:
         return render_core(
             svc,
             project=compiled.project,
             env=compiled.env,
             priority=_priorities.get(svc.name, 100),
+            alb_policy=alb_p,
         )
 
     rendered = tpl.render(
@@ -510,5 +560,17 @@ def emit_hcl(compiled: CompiledEnv, out_path: Path) -> None:
         core_services=core,
         render_backing=_backing,
         render_core=_core,
+        state_bucket=apply_policy(
+            f"{compiled.project}_tofu_state", s3_p
+        ),
+        state_lock_table=apply_policy(
+            f"{compiled.project}_tofu_locks", ddb_p
+        ),
+        alb_name=apply_policy(
+            f"{compiled.project}_{compiled.env}_alb", alb_p
+        ),
+        ecs_cluster_name=apply_policy(
+            f"{compiled.project}_{compiled.env}", ecs_p
+        ),
     )
     out_path.write_text(rendered)

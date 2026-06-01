@@ -268,6 +268,133 @@ def test_compose_has_logging_anchor(tmp_path: Path):
     assert "logging: *default-logging" in compose
 
 
+# ---------------------------------------------------------------------------
+# Mod 005 — naming policies sweep across project/env HCL output.
+# ---------------------------------------------------------------------------
+
+
+_NAMING_INFRA = """\
+cicl_version: "1"
+foundation: elastic
+domain: example.com
+domain_default_service: web
+core_services:
+  web:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [db]
+    env:
+      DATABASE_HOST: ${backing_services.db.host}
+      DATABASE_PORT: ${backing_services.db.port}
+      DATABASE_NAME: ${backing_services.db.db}
+      DATABASE_USER: ${backing_services.db.user}
+      DATABASE_PASSWORD: ${backing_services.db.password}
+    resources:
+      cpu: 0.25
+      memory: 512MB
+      disk: 25GB
+backing_services:
+  db:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    schema_owned_by: web
+"""
+
+
+def _write_underscore_project(tmp_path: Path) -> Path:
+    """A project whose name carries underscores — surfaces every policy
+    site where the doctrine must hyphen-translate for AWS validators
+    (S3, RDS, ALB) and where it preserves underscores (DDB, ECS, IAM)."""
+    proj = tmp_path / "p"
+    (proj / "infra").mkdir(parents=True)
+    (proj / "project.yml").write_text(
+        'name: docex_smoke_elastic\nversion: "0.0.1"\ndocex_version: "0.7.0"\n'
+    )
+    (proj / "infra" / "infra.yml").write_text(_NAMING_INFRA)
+    return proj
+
+
+def test_project_tier_state_backend_names_translated(tmp_path: Path):
+    """Per mod 005: the project-tier S3 bucket name is hyphen-translated
+    (the `s3` policy); the DynamoDB lock table preserves underscores
+    (the `ddb` policy)."""
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
+    assert 'bucket         = "docex-smoke-elastic-tofu-state"' in project_tf
+    assert 'dynamodb_table = "docex_smoke_elastic_tofu_locks"' in project_tf
+    # Hyphenated underscored form must NOT appear (would be the legacy bug).
+    assert "docex_smoke_elastic-tofu-state" not in project_tf
+
+
+def test_project_tier_ecr_and_iam_names_use_correct_policies(tmp_path: Path):
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
+    # ECR repos: lowercase + underscore (project string preserved), `/svc` joiner.
+    assert 'name                 = "docex_smoke_elastic/web"' in project_tf
+    # IAM role + inline SSM policy names: underscores preserved.
+    assert 'name = "docex_smoke_elastic_task_execution"' in project_tf
+    assert 'name = "docex_smoke_elastic_task_execution_ssm"' in project_tf
+    # SSM resource ARN: same underscore-preserving form.
+    assert "/docex_smoke_elastic/*" in project_tf
+
+
+def test_env_tier_state_backend_alb_ecs_cluster_names(tmp_path: Path):
+    """Stage/prod main.tf state backend + ALB + ECS cluster names follow
+    the matching policies (S3 = hyphen, DDB = underscore, ALB = hyphen,
+    ECS = underscore)."""
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    for env in ("stage", "prod"):
+        tf = (proj / "infra" / "output" / env / "main.tf").read_text()
+        # State backend (same names as project tier — points at the same bucket).
+        assert 'bucket         = "docex-smoke-elastic-tofu-state"' in tf
+        assert 'dynamodb_table = "docex_smoke_elastic_tofu_locks"' in tf
+        assert f'bucket = "docex-smoke-elastic-tofu-state"' in tf
+        # ALB: hyphen + lower not enforced (case=any); the project string still
+        # hyphenates because the alb policy uses `separator: hyphen`.
+        assert f'name               = "docex-smoke-elastic-{env}-alb"' in tf
+        # ECS cluster: underscores preserved (ecs policy).
+        assert f'name = "docex_smoke_elastic_{env}"' in tf
+
+
+def test_env_tier_rds_and_ecs_service_names(tmp_path: Path):
+    """RDS identifier uses the `rds` policy (hyphen + lower); ECS service
+    name follows the web role's `ecs` policy (underscore preserved)."""
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    for env in ("stage", "prod"):
+        tf = (proj / "infra" / "output" / env / "main.tf").read_text()
+        # RDS instance identifier (postgres → rds policy).
+        assert f'identifier = "docex-smoke-elastic-{env}-db"' in tf
+        # ECS service + task family (web → ecs policy).
+        assert f'name            = "docex_smoke_elastic_{env}_web"' in tf
+        assert f'family                   = "docex_smoke_elastic_{env}_web"' in tf
+        # Migration task family.
+        assert f'family                   = "docex_smoke_elastic_{env}_web_migrate"' in tf
+
+
+def test_bootstrap_state_backend_matches_project_tier(tmp_path: Path):
+    """The bucket/table names the bootstrap creates must match the names
+    referenced in the project-tier `backend "s3"` block. Drift here is
+    exactly the bug mod 005 closes."""
+    proj = _write_underscore_project(tmp_path)
+    ctx = load_project_context(proj)
+    run_compile(ctx)
+
+    project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
+    policies = ctx.transfer_tables.naming_policies
+    from docex.naming import apply_policy
+    bucket = apply_policy("docex_smoke_elastic_tofu_state", policies.get("s3"))
+    table = apply_policy("docex_smoke_elastic_tofu_locks", policies.get("ddb"))
+    assert f'bucket         = "{bucket}"' in project_tf
+    assert f'dynamodb_table = "{table}"' in project_tf
+
+
 def test_describe_dag_and_llm(tmp_path: Path):
     """describe command runs end-to-end and the LLM form parses as JSON."""
     from docex.describe import run_describe

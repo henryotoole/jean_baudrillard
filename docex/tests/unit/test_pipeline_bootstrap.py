@@ -149,13 +149,15 @@ def test_bootstrap_wraps_aws_exception_in_bootstrap_failed(
 def test_bootstrap_uses_project_scoped_resource_names(
     elastic_ctx_compiled, fake_aws, stub_tofu
 ):
-    """Bucket = ``<project>-tofu-state``; table = ``<project>-tofu-locks``."""
+    """Per mod 005: bucket name follows the `s3` policy (hyphen + lower);
+    table name follows the `ddb` policy (underscore preserved)."""
     run_bootstrap(elastic_ctx_compiled, fake_aws)
-    # The fixture's project name is 'sample'.
+    # The fixture's project name is 'sample' — no underscores to translate,
+    # so both end up with the literal joiner each policy prescribes.
     bucket_calls = [c for c in fake_aws.calls if c[0] == "s3_bucket_exists"]
     table_calls = [c for c in fake_aws.calls if c[0] == "ddb_table_exists"]
     assert bucket_calls and bucket_calls[0][1][0] == "sample-tofu-state"
-    assert table_calls and table_calls[0][1][0] == "sample-tofu-locks"
+    assert table_calls and table_calls[0][1][0] == "sample_tofu_locks"
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +208,48 @@ def test_bootstrap_requires_compile_output(elastic_ctx, fake_aws):
     with pytest.raises(BootstrapFailed) as exc_info:
         run_bootstrap(elastic_ctx, fake_aws)
     assert "docex compile" in str(exc_info.value).lower()
+
+
+def test_bootstrap_underscored_project_hyphenates_s3_bucket(
+    tmp_path, fake_aws, stub_tofu
+):
+    """Mod 005 regression — a project name with underscores
+    (``docex_smoke_elastic``) must compile its S3 bucket name to the
+    hyphenated form (``docex-smoke-elastic-tofu-state``) so AWS accepts
+    it. The DDB table preserves underscores."""
+    from docex.context import load_project_context
+
+    proj = tmp_path / "p"
+    (proj / "infra").mkdir(parents=True)
+    (proj / "project.yml").write_text(
+        'name: docex_smoke_elastic\nversion: "0.0.1"\ndocex_version: "0.7.0"\n'
+    )
+    (proj / "infra" / "infra.yml").write_text(
+        'cicl_version: "1"\n'
+        'foundation: elastic\n'
+        'domain: example.com\n'
+        'domain_default_service: web\n'
+        'core_services:\n'
+        '  web:\n'
+        '    role: web\n'
+        '    port: 8080\n'
+        '    networks: [web, internal]\n'
+        '    resources:\n'
+        '      cpu: 0.25\n'
+        '      memory: 512MB\n'
+        '      disk: 25GB\n'
+    )
+    ctx = load_project_context(proj)
+    rc = run_compile(ctx)
+    assert rc == 0
+
+    rc = run_bootstrap(ctx, fake_aws)
+    assert rc == 0
+    bucket_calls = [c for c in fake_aws.calls if c[0] == "s3_create_bucket"]
+    table_calls = [c for c in fake_aws.calls if c[0] == "ddb_create_locking_table"]
+    assert bucket_calls, fake_aws.calls
+    assert bucket_calls[0][1][0] == "docex-smoke-elastic-tofu-state"
+    assert table_calls and table_calls[0][1][0] == "docex_smoke_elastic_tofu_locks"
 
 
 def test_bootstrap_phase2_surfaces_tofu_apply_failure(

@@ -61,20 +61,67 @@ The following variables are always available inside a transfer table entry:
 
 When `infra.yml` references another service via a magic ref like `${backing_services.database.host}`, the compiler resolves it by looking up the named service's engine and rendering the matching part from its `provides:` block — in this case, the postgres engine's `host` part. Magic refs are a CICL feature; transfer tables provide the resolution targets.
 
-## Naming Conventions
+## Naming Policies
 
-Most resources in compiled output need a globally-unique name to avoid collisions across projects and environments. The doctrine prescribes the format:
+Most resources in compiled output need a globally-unique name to avoid collisions across projects and environments. The doctrine prescribes the *internal* form:
 
 ```
 ${project_name}_${env_name}_${service_name}
 ```
 
-Different downstream systems have different naming constraints:
+That internal form then passes through a **naming policy** appropriate to the target AWS resource type (or to docker, on fixed) before reaching the emitted artifact. Different downstream systems have different constraints:
 
 - **Docker container/network names** accept both underscores and hyphens.
 - **AWS resource identifiers** vary by service: RDS allows hyphens but not underscores; S3 bucket names must be lowercase with hyphens and globally unique across all of AWS; SGs are more permissive; etc.
 
-The compiler resolves this with a per-engine convention: use underscores as the separator by default, falling back to hyphens (and other transformations like lowercasing) where required. Each engine's transfer table entry should declare its naming constraints explicitly so the compiler can enforce them consistently.
+Policies live as a top-level `naming_policies:` block in the transfer tables, named by resource type. Engines reference one by name (`naming: rds`); structural emitters in `docex` code (state backend, project ECR/IAM, SSM path prefix) hardcode the policy name they need.
+
+### Schema
+
+```yml
+naming_policies:
+	<policy_name>:
+		separator: underscore | hyphen
+		case: any | lower
+		max_len: <int>   # optional
+```
+
+- **`separator`** — chooses what `_` in the internal form becomes in the rendered name. `hyphen` translates each `_` to `-`; `underscore` preserves the underscore form (and translates stray `-` back to `_` for symmetry).
+- **`case`** — `any` preserves case; `lower` lowercases the rendered name.
+- **`max_len`** — if set, a rendered name exceeding this length fails compile with a clear error rather than being silently truncated.
+
+### Doctrine-shipped policies
+
+| Policy | Resource(s) | Separator | Case | Max len |
+| ------ | ----------- | --------- | ---- | ------- |
+| `s3` | S3 bucket | hyphen | lower | 63 |
+| `rds` | RDS instance identifier, DB subnet group, ElastiCache cluster | hyphen | lower | 63 |
+| `ddb` | DynamoDB table | underscore | any | 255 |
+| `alb` | ALB and target-group name | hyphen | any | 32 |
+| `ecs` | ECS cluster, service, task-definition family | underscore | any | 255 |
+| `ecr_repo` | ECR repository | underscore | lower | 256 |
+| `iam` | IAM role / policy | underscore | any | 64 |
+| `ssm_path` | SSM parameter path segment | underscore | any | 1024 |
+| `docker` | Docker network / container / volume | underscore | any | (none) |
+| `http_host` | DNS label (hostname) | hyphen | lower | (none) |
+
+Default rule, expressed once: **where AWS allows both underscore and hyphen, the doctrine prefers underscore** (matching the project-name form). Hyphen-translation happens only where AWS requires it (S3, RDS, ALB).
+
+### How engines reference a policy
+
+Inside `roles.<role>.<engine>`, the `naming:` field is a string reference into `naming_policies:`:
+
+```yml
+roles:
+  relational_db:
+    postgres:
+      ...
+      naming: rds          # resolves to the `rds` policy
+```
+
+### How structural emitters reference a policy
+
+Resources `docex` emits that are not associated with any `infra.yml` service — the OpenTofu state-backend bucket and DDB table, the project-tier ECR repos, the project task-execution IAM role, the SSM path prefix — pick a policy by hardcoded name in `docex` code. The body of the policy still comes from `naming_policies:` (so it remains reloadable / overridable from a project-local table); only the *choice* of policy is doctrine knowledge embedded in `docex` itself.
 
 ## Anatomy of a Role Definition
 
@@ -100,10 +147,7 @@ roles:
 					elastic: "..."
 			env:
 				<ENV_VAR_NAME>: "human-readable description"
-			naming:
-				separator: underscore | hyphen
-				case: any | lower
-				max_len: <int>
+			naming: <policy_name>   # reference into top-level naming_policies:
 ```
 
 ### Walking example: `relational_db` / `postgres`
@@ -160,10 +204,7 @@ roles:
 			env:
 				POSTGRES_USER: "The username of the postgres user"
 				POSTGRES_PASSWORD: "The password of the postgres user"
-			naming:
-				separator: hyphen   # for elastic (RDS identifier); fixed permits underscore but we use hyphen consistently
-				case: lower
-				max_len: 63
+			naming: rds   # RDS identifier (hyphen + lower + 63); applied on both foundations for consistency
 ```
 
 ### Field reference
@@ -184,7 +225,7 @@ roles:
 	1. **`example.env` generation:** every backing service's `env` entries become rows in `infra/secrets/example.env`, grouped by service.
 	2. **Secret wiring:** when a core service binds one of this engine's `provides:` parts whose template includes a `$[...]` runtime ref (e.g. `DATABASE_USER: ${backing_services.database.user}`, where `user` resolves to `$[POSTGRES_USER]`), the compiler wires the secret into the consumer's container under the consumer's **own** key (`DATABASE_USER`) — emitted as a compose `environment:` line `DATABASE_USER: ${POSTGRES_USER}` (fixed) or an ECS `secrets[]` entry `{ name = "DATABASE_USER", valueFrom = <SSM path of POSTGRES_USER> }` (elastic). The container's env-var surface is therefore identical across foundations; only the delivery mechanism differs. The underlying secret's name (`POSTGRES_USER`) is what identifies it in `.env`/SSM — it is not what the application reads. Because a secret part resolves to exactly one bare `$[REF]` (never a composed string), this binding is always 1:1; embedding a secret inside a larger value is a compile error.
 
-- **`naming`** (optional, but engine-specific constraints must be declared somewhere) — machine-readable form of the engine's identifier constraints. Lets the compiler pick the right separator, case, and length when forming `${global_service_name}` for this engine's resources without hardcoding per-engine rules in the compiler itself.
+- **`naming`** (required) — name of a policy declared in the top-level `naming_policies:` block. The compiler applies the policy's separator/case/max_len when forming `${global_service_name}` for this engine's resources, so per-engine identifier rules live in one declarative table rather than scattered through emit code. See [Naming Policies](#naming-policies) for the canonical set and the doctrine-wide separator preference.
 
 ### Walking example: `web` / `container`
 
@@ -235,17 +276,14 @@ roles:
 					fixed: "${port}"
 					elastic: "${port}"
 			env: {}
-			naming:
-				separator: hyphen
-				case: lower
-				max_len: 63
+			naming: ecs   # ECS cluster/service/task family (underscore, case-preserving, 255)
 ```
 
 This entry shows what differs from a backing service like postgres:
 
 - **No project-side `engine:` declaration.** Core service roles have a single canonical engine (`container`); the project does not pick one in `infra.yml`. The transfer table's engine layer is filled by the `container` placeholder for schema uniformity.
 - **`env: {}` is empty.** Core services do not introduce engine-required env vars the way postgres does (POSTGRES_USER, etc.). The project's own env vars are declared directly in its `core_services.<name>.env` block in `infra.yml`.
-- **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject-prod-api` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
+- **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject_prod_api` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
 - **`health_check_path` is a role-specific field.** The project supplies the value (e.g., `/health`) in its `infra.yml`, and the transfer table translates it into a docker healthcheck block for fixed or an ALB target-group health check for elastic.
 
 ## Foundation Invariants
@@ -384,4 +422,5 @@ When loading transfer tables (doctrine and project-local merged) and compiling a
 6. Every runtime ref (`$[...]`) appearing in any `provides:` part template is also declared in the engine's `env:` block — so dependency propagation can wire it up correctly when a consumer references that part.
 7. Every magic ref in `infra.yml` (e.g., `${backing_services.database.host}`) names a part the referenced engine's `provides:` block exposes.
 8. `@<expr>` refs appear only in elastic-side templates (`provides.<part>.elastic`, `defaults.elastic`, etc.) and never in fixed-side templates, where HCL syntax is meaningless.
-9. The `naming` constraints declared by each engine are satisfied by the `${global_service_name}` the compiler generates; impossible cases (e.g., a project name + env name + service name combination that exceeds an engine's `max_len`) fail compile cleanly with a descriptive error.
+9. The `naming` policy resolved for each engine is satisfied by the `${global_service_name}` the compiler generates; impossible cases (e.g., a project name + env name + service name combination that exceeds the policy's `max_len`) fail compile cleanly with a descriptive error.
+10. Every engine's `naming:` value is the name of a policy declared in `naming_policies:` (bundled or project-local). An unknown policy ref fails compile at load time.

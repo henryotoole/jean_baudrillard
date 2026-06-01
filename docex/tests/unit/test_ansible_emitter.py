@@ -75,8 +75,9 @@ def test_playbook_migration_uses_compose_run(tmp_path: Path):
     # The compose service KEY is the global name (project-scoped),
     # not the short name. Using `api` here would fail at runtime with
     # `no such service: api` because the compose file declares
-    # `sample-stage-api:` etc. The cmd must reference that global form.
-    assert cmd == "docker compose run --rm sample-stage-api /service/migrate.sh", cmd
+    # `sample_stage_api:` etc. The cmd must reference that global form.
+    # (Per mod 005: web role uses the `ecs` naming policy → underscore.)
+    assert cmd == "docker compose run --rm sample_stage_api /service/migrate.sh", cmd
 
 
 def test_playbook_migration_does_not_use_auto_remove(tmp_path: Path):

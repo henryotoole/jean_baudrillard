@@ -17,10 +17,10 @@ terraform {
     }
   }
   backend "s3" {
-    bucket         = "{{ project }}-tofu-state"
+    bucket         = "{{ state_bucket }}"
     key            = "project/terraform.tfstate"
     region         = "{{ region }}"
-    dynamodb_table = "{{ project }}-tofu-locks"
+    dynamodb_table = "{{ state_lock_table }}"
     encrypt        = true
   }
 }
@@ -211,7 +211,7 @@ resource "aws_acm_certificate_validation" "project" {
 # ---------------------------------------------------------------------------
 {% for svc in core_service_names %}
 resource "aws_ecr_repository" "{{ svc.hcl_id }}" {
-  name                 = "{{ project }}/{{ svc.name }}"
+  name                 = "{{ ecr_repo_names[svc.name] }}"
   image_tag_mutability = "MUTABLE"
   tags = {
     project    = "{{ project }}"
@@ -238,7 +238,7 @@ resource "aws_ecr_repository" "{{ svc.hcl_id }}" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "task_execution" {
-  name = "{{ project }}-task-execution"
+  name = "{{ task_execution_role_name }}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -263,7 +263,7 @@ resource "aws_iam_role_policy_attachment" "task_execution_managed" {
 # project's SSM prefix, so containers' `secrets[]` entries resolve.
 # Scoped to `/${project}/*` so a leaked role can't read other projects.
 resource "aws_iam_role_policy" "task_execution_ssm" {
-  name = "{{ project }}-task-execution-ssm"
+  name = "{{ task_execution_ssm_policy_name }}"
   role = aws_iam_role.task_execution.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -271,7 +271,7 @@ resource "aws_iam_role_policy" "task_execution_ssm" {
       {
         Effect = "Allow"
         Action = ["ssm:GetParameters", "ssm:GetParameter", "ssm:GetParametersByPath"]
-        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ project }}/*"
+        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ ssm_path_project }}/*"
       },
       {
         Effect   = "Allow"

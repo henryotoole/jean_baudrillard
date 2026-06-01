@@ -112,7 +112,7 @@ def test_migrate_test_calls_compose_exec(sample_ctx, fake_docker):
 
 def test_migrate_dev_short_circuits_on_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample_dev_api", ("./migrate.sh",))
     ] = 9
     rc = run_migrate(sample_ctx, fake_docker, env="dev")
     assert rc == 9

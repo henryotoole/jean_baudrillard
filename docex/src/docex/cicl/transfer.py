@@ -25,6 +25,7 @@ from typing import Any, Iterable
 import yaml
 
 from docex.errors import TransferTableError
+from docex.naming import NamingPolicies, parse_policies
 
 # Candidate locations for the bundled tables. The first one found wins.
 # In the container image, the tables live at /opt/docex/tables/. When
@@ -47,7 +48,10 @@ class EngineEntry:
     fields: dict[str, Any] = field(default_factory=dict)
     provides: dict[str, Any] = field(default_factory=dict)
     env: dict[str, str] = field(default_factory=dict)
-    naming: dict[str, Any] = field(default_factory=dict)
+    # Reference into ``naming_policies:`` — resolved against
+    # TransferTables.naming_policies by callers (compile.py,
+    # orchestrate/migrate.py). See doctrine § Naming Policies.
+    naming: str = ""
     # The port the engine listens on by default. Used for the ${port}
     # substitution variable when a service omits the `port:` field.
     default_port: int | None = None
@@ -91,6 +95,11 @@ class TransferTables:
     # role_name -> human-readable description, from the reserved role-level
     # `description:` key in the transfer table (optional).
     descriptions: dict[str, str] = field(default_factory=dict)
+    # Top-level naming policies (canonical AWS-resource-type rules);
+    # engines reference one by name via ``EngineEntry.naming``.
+    naming_policies: NamingPolicies = field(
+        default_factory=lambda: NamingPolicies(by_name={})
+    )
 
     def roles(self) -> list[str]:
         """All known role names, sorted."""
@@ -223,6 +232,13 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
             f"role {role!r} engine {engine!r}: foundation must be "
             f"'fixed', 'elastic', or 'both' (got {foundation!r})"
         )
+    naming_ref = raw.get("naming")
+    if not isinstance(naming_ref, str) or not naming_ref:
+        raise TransferTableError(
+            f"role {role!r} engine {engine!r}: `naming:` must be a string "
+            f"naming-policy reference (got {naming_ref!r}). "
+            f"See transfer_tables.md § Naming Policies."
+        )
     return EngineEntry(
         role=role,
         engine=engine,
@@ -231,7 +247,7 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
         fields=raw.get("fields", {}) or {},
         provides=raw.get("provides", {}) or {},
         env=raw.get("env", {}) or {},
-        naming=raw.get("naming", {}) or {},
+        naming=naming_ref,
         default_port=raw.get("default_port"),
         reserved_names=[
             # YAML 1.1 parses bare ``true`` / ``false`` / ``on`` as
@@ -258,11 +274,14 @@ def load_transfer_tables(project_root: Path | None) -> TransferTables:
 
     for root in sources:
         for _path, doc in _read_yaml_files(root):
-            roles = doc.get("roles")
-            if not isinstance(roles, dict):
-                continue
-            # Merge under the same top-level shape: ``{"roles": {...}}``
-            raw_merged = _deep_merge(raw_merged, {"roles": roles})
+            if "roles" in doc and isinstance(doc["roles"], dict):
+                raw_merged = _deep_merge(raw_merged, {"roles": doc["roles"]})
+            if "naming_policies" in doc and isinstance(doc["naming_policies"], dict):
+                raw_merged = _deep_merge(
+                    raw_merged, {"naming_policies": doc["naming_policies"]}
+                )
+
+    policies = parse_policies(raw_merged.get("naming_policies", {}))
 
     by_role: dict[str, dict[str, EngineEntry]] = {}
     descriptions: dict[str, str] = {}
@@ -281,7 +300,12 @@ def load_transfer_tables(project_root: Path | None) -> TransferTables:
                 raise TransferTableError(
                     f"role {role!r} engine {engine!r}: expected a mapping"
                 )
-            by_role.setdefault(role, {})[engine] = _parse_entry(
-                role, engine, raw_entry
-            )
-    return TransferTables(by_role=by_role, descriptions=descriptions)
+            entry = _parse_entry(role, engine, raw_entry)
+            # Cross-validate the naming ref against the policy table.
+            policies.get(entry.naming)
+            by_role.setdefault(role, {})[engine] = entry
+    return TransferTables(
+        by_role=by_role,
+        descriptions=descriptions,
+        naming_policies=policies,
+    )

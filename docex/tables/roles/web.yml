@@ -48,7 +48,6 @@ roles:
           fixed: "${port}"
           elastic: "${port}"
       env: {}
-      naming:
-        separator: hyphen
-        case: lower
-        max_len: 63
+      # Core service: ECS task/service on elastic, docker container on fixed.
+      # ECS accepts both separators; the doctrine prefers underscore.
+      naming: ecs

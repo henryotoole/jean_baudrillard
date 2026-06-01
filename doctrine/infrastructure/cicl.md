@@ -304,3 +304,4 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 12. `domain_default_service`, if set, names a service that is on the `web` network.
 13. Every `web`-network service (other than the `reverse_proxy` role) declares a `port` — the reverse proxy routes to it.
 14. A core service's `env:` and `secrets:` do not declare the same key.
+15. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).

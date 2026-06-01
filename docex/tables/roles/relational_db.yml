@@ -165,9 +165,6 @@ roles:
       env:
         POSTGRES_USER: "The username of the postgres user"
         POSTGRES_PASSWORD: "The password of the postgres user"
-      naming:
-        # RDS forbids underscores in identifiers; we pick hyphen consistently
-        # across foundations so the same name shape works in both.
-        separator: hyphen
-        case: lower
-        max_len: 63
+      # RDS forbids underscores in identifiers; the `rds` policy is hyphen +
+      # lower + 63 chars. See tables/naming_policies.yml § rds.
+      naming: rds

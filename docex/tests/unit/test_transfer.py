@@ -88,3 +88,95 @@ def test_project_local_overrides_bundled(tmp_path: Path):
     assert pg_elastic["instance_class"] == "db.t3.large"
     # Sibling keys from the bundled table survive.
     assert "allocated_storage" in pg_elastic
+
+
+# ---------------------------------------------------------------------------
+# Mod 005 — naming policies.
+# ---------------------------------------------------------------------------
+
+
+def test_bundled_loader_exposes_naming_policies():
+    """The bundled `tables/naming_policies.yml` populates
+    ``TransferTables.naming_policies`` with the canonical doctrine set."""
+    tables = load_transfer_tables(project_root=None)
+    by_name = tables.naming_policies.by_name
+    # Every canonical AWS-resource policy must be present.
+    for policy_name in ("s3", "rds", "ddb", "alb", "ecs", "ecr_repo", "iam", "ssm_path", "docker", "http_host"):
+        assert policy_name in by_name, f"missing policy {policy_name}"
+    # Sanity: the s3 policy has the documented rule shape.
+    s3 = tables.naming_policies.get("s3")
+    assert s3.separator == "hyphen"
+    assert s3.case == "lower"
+    assert s3.max_len == 63
+
+
+def test_bundled_engines_reference_known_policies():
+    """Every loaded engine entry's `naming` ref resolves in the policy table."""
+    tables = load_transfer_tables(project_root=None)
+    for engine_entry in tables.all_engines():
+        # `get` raises TransferTableError for unknown policies.
+        tables.naming_policies.get(engine_entry.naming)
+
+
+def test_loader_rejects_engine_with_unknown_policy_ref(tmp_path: Path):
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    bad = {
+        "roles": {
+            "relational_db": {
+                "postgres": {"naming": "totally_made_up"},
+            }
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "relational_db.yml").write_text(
+        yaml.safe_dump(bad)
+    )
+    with pytest.raises(TransferTableError) as exc_info:
+        load_transfer_tables(project_root=proj)
+    msg = str(exc_info.value)
+    assert "totally_made_up" in msg
+
+
+def test_loader_rejects_inline_naming_struct(tmp_path: Path):
+    """Per mod 005, the old inline `naming:` struct schema is unsupported —
+    the loader requires a string policy reference."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    legacy = {
+        "roles": {
+            "object_store": {
+                "minio": {
+                    "naming": {"separator": "hyphen", "case": "lower", "max_len": 63},
+                }
+            }
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "object_store.yml").write_text(
+        yaml.safe_dump(legacy)
+    )
+    with pytest.raises(TransferTableError) as exc_info:
+        load_transfer_tables(project_root=proj)
+    msg = str(exc_info.value)
+    assert "naming" in msg
+    # The error should point at the doctrine reference.
+    assert "policy" in msg.lower() or "string" in msg.lower()
+
+
+def test_project_local_naming_policy_override(tmp_path: Path):
+    """A project-local table can declare additional naming policies (or
+    override leaf fields of existing ones) and the engines may reference
+    them."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    override = {
+        "naming_policies": {
+            "rds": {"separator": "hyphen", "case": "lower", "max_len": 50},
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "policies.yml").write_text(
+        yaml.safe_dump(override)
+    )
+    tables = load_transfer_tables(project_root=proj)
+    rds = tables.naming_policies.get("rds")
+    assert rds.max_len == 50  # Overridden.
+    assert rds.separator == "hyphen"  # Preserved from bundled.

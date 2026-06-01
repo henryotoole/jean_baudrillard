@@ -37,7 +37,5 @@ roles:
         host:
           fixed: "${global_service_name}"
       env: {}
-      naming:
-        separator: hyphen
-        case: lower
-        max_len: 63
+      # Fixed-only docker container; no AWS resource. Use the `docker` policy.
+      naming: docker

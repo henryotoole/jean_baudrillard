@@ -88,6 +88,28 @@ first post-`0.4.0` overhaul.
   fixture's backing service by its current name (`db`) instead of the
   stale `database`. Stale `POSTGRES_DB` / `POSTGRES_HOST` lines in
   `tests/fixtures/sample_project/infra/secrets/dev.env` removed.
+- **BREAKING (transfer tables)** — the per-engine inline `naming:`
+  struct is replaced by a string reference into a new top-level
+  `naming_policies:` table. Project-local transfer tables must
+  migrate: e.g. `naming: { separator: hyphen, case: lower, max_len:
+  63 }` becomes `naming: rds`. See
+  `doctrine/infrastructure/specifics/transfer_tables.md` § Naming
+  Policies for the canonical policy set.
+- ECS cluster, service, task-definition family, and migration task
+  names now use underscore form (matching the project-name
+  convention) instead of the previous hyphen form. Existing
+  deployments will see tofu plan a recreation of those resources on
+  next apply; ECS is stateless and the recreate is safe.
+- The OpenTofu state-backend S3 bucket name is now hyphen-translated
+  so projects with underscore-bearing names (e.g.
+  `docex_smoke_elastic`) pass S3 bucket-name validation. Existing
+  buckets retain their old name; new bootstraps create the hyphen
+  form. The DDB lock table preserves underscores (DynamoDB accepts
+  both, doctrine prefers the project-name form).
+- Project-tier ECR repository names, IAM role/policy names, and SSM
+  path prefix now route through `ecr_repo`, `iam`, and `ssm_path`
+  policies respectively. For projects with underscored names, all
+  three now preserve underscores rather than mixing forms.
 
 ## [0.7.0] - 2026-05-29
 

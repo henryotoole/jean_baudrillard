@@ -31,7 +31,7 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
             "user": {"fixed": "$[POSTGRES_USER]", "elastic": "$[POSTGRES_USER]"},
         },
         env={"POSTGRES_USER": "the postgres user"},
-        naming={"separator": "hyphen", "case": "lower", "max_len": 63},
+        naming="rds",
     )
     api_engine = EngineEntry(
         role="web",
@@ -40,7 +40,7 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
         provides={
             "host": {"fixed": "${global_service_name}", "elastic": "${global_service_name}"},
         },
-        naming={"separator": "hyphen", "case": "lower", "max_len": 63},
+        naming="ecs",
     )
     doc = CICLDocument(
         cicl_version="1",

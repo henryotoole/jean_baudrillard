@@ -13,10 +13,10 @@ terraform {
   }
   # State backend reference (provisioned by `docex bootstrap`).
   backend "s3" {
-    bucket         = "{{ project }}-tofu-state"
+    bucket         = "{{ state_bucket }}"
     key            = "{{ env }}/terraform.tfstate"
     region         = "{{ region }}"
-    dynamodb_table = "{{ project }}-tofu-locks"
+    dynamodb_table = "{{ state_lock_table }}"
     encrypt        = true
   }
 }
@@ -38,7 +38,7 @@ data "aws_caller_identity" "current" {}
 data "terraform_remote_state" "project" {
   backend = "s3"
   config = {
-    bucket = "{{ project }}-tofu-state"
+    bucket = "{{ state_bucket }}"
     key    = "project/terraform.tfstate"
     region = "{{ region }}"
   }
@@ -116,7 +116,7 @@ resource "aws_security_group" "alb" {
 # Reverse proxy: one ALB per env
 # ---------------------------------------------------------------------------
 resource "aws_lb" "alb" {
-  name               = "{{ project }}-{{ env }}-alb"
+  name               = "{{ alb_name }}"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
@@ -162,7 +162,7 @@ resource "aws_lb_listener" "alb_http_redirect" {
 # ECS cluster
 # ---------------------------------------------------------------------------
 resource "aws_ecs_cluster" "cluster" {
-  name = "{{ project }}-{{ env }}"
+  name = "{{ ecs_cluster_name }}"
   tags = {
     project    = "{{ project }}"
     env        = "{{ env }}"

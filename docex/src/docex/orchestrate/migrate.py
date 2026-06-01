@@ -22,6 +22,7 @@ from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import AnsibleRunFailed, ECSTaskFailed, EnvNotSupported
+from docex.naming import apply_policy
 from docex.orchestrate._common import (
     compose_file_for,
     compose_service_key,
@@ -202,10 +203,12 @@ def _migrate_elastic(
         return 0
 
     project = ctx.project.name
-    # Resource naming follows the compiler's conventions:
-    #   ECS cluster: ``<project>-<env>`` (hyphenated; see main.tf.j2)
-    #   security group: ``<project>_<env>_internal`` (underscore-separated)
-    cluster_name = f"{project}-{env}"
+    # Resource naming follows the compiler's naming policies:
+    #   ECS cluster: ``ecs`` policy → ``<project>_<env>`` (underscore)
+    #   security group: ``<project>_<env>_internal`` (literal underscores in main.tf.j2)
+    tables = ctx.transfer_tables
+    ecs_policy = tables.naming_policies.get("ecs")
+    cluster_name = apply_policy(f"{project}_{env}", ecs_policy)
     sg_name = f"{project}_{env}_internal"
 
     # Look up cluster + subnets + SG once for the whole batch.
@@ -286,36 +289,23 @@ def _migration_task_family(
 
     Must match the compiler's elastic HCL emitter
     (`render_core`: ``mig_family = svc.global_name + "_migrate"``).
-    We re-apply the engine's naming rules so this works without
+    We re-resolve the engine's naming policy so this works without
     re-compiling the project context.
     """
-    # Use the transfer tables to find the engine for the service's role
-    # (core services have a single canonical engine per role on
-    # elastic). The compiled global_name = apply_naming("project_env_svc").
-    # For the relational_db-owning core service, the engine is the
-    # service's own role's engine, not postgres's. We pick whatever
-    # engine the service's role supports on elastic.
     tables = ctx.transfer_tables
     core = ctx.infra.core_services.get(svc) if ctx.infra else None
     if core is None:
         # Fallback: best-effort underscore form.
         return f"{project}_{env}_{svc}_migrate"
     engines = tables.role(core.role)
-    naming = {}
+    engine_entry = None
     for eng_name in sorted(engines):
         entry = engines[eng_name]
         if entry.supports("elastic"):
-            naming = entry.naming
+            engine_entry = entry
             break
+    if engine_entry is None:
+        return f"{project}_{env}_{svc}_migrate"
+    policy = tables.naming_policies.get(engine_entry.naming)
     raw = f"{project}_{env}_{svc}"
-    # Apply the naming rules: separator + case + max_len.
-    sep = naming.get("separator", "underscore")
-    case = naming.get("case", "any")
-    name = raw
-    if sep == "hyphen":
-        name = name.replace("_", "-")
-    elif sep == "underscore":
-        name = name.replace("-", "_")
-    if case == "lower":
-        name = name.lower()
-    return f"{name}_migrate"
+    return f"{apply_policy(raw, policy)}_migrate"

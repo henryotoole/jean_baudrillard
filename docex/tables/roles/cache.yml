@@ -47,8 +47,6 @@ roles:
           fixed: "${port}"
           elastic: "${port}"
       env: {}
-      naming:
-        # ElastiCache cluster IDs forbid underscores and must be lowercase.
-        separator: hyphen
-        case: lower
-        max_len: 40
+      # ElastiCache cluster identifiers follow the same constraints as RDS
+      # (hyphen + lower + 63 char ceiling). Reuse the `rds` policy.
+      naming: rds

@@ -19,7 +19,7 @@ Two AWS resources, both at the project tier, both shared across all elastic envi
 
 #### S3 bucket for state
 
-- **Name:** `<project>-tofu-state` (deterministic from the project name in `project.yml`)
+- **Name:** derived from the project name by applying the `s3` naming policy (see [transfer_tables.md § Naming Policies](./transfer_tables.md#naming-policies)) to `<project>_tofu_state`. For a project named `docex_smoke_elastic`, the rendered bucket name is `docex-smoke-elastic-tofu-state` — S3 requires lowercase and rejects underscores.
 - **Versioning:** enabled — so a corrupted or mistakenly-edited state file can be rolled back
 - **Server-side encryption:** enabled (AES256 / SSE-S3)
 - **Public access:** all four block-public-access settings enabled
@@ -27,7 +27,7 @@ Two AWS resources, both at the project tier, both shared across all elastic envi
 
 #### DynamoDB table for locking
 
-- **Name:** `<project>-tofu-locks` (deterministic from the project name)
+- **Name:** derived from the project name by applying the `ddb` naming policy to `<project>_tofu_locks`. DynamoDB accepts both underscores and hyphens; the doctrine preserves underscores. For `docex_smoke_elastic`, the rendered table name is `docex_smoke_elastic_tofu_locks`.
 - **Primary key:** attribute `LockID` of type `String` — this is the schema OpenTofu's S3 backend expects
 - **Billing mode:** on-demand (pay-per-request) — cheap for the low write volume of state locks
 - **Region:** same as the state bucket
@@ -37,6 +37,8 @@ OpenTofu's S3 backend writes a lock record to this table when `tofu apply` start
 ### Project-tier infrastructure
 
 Applied by OpenTofu against `infra/output/project/main.tf`, with its own state file at `key = "project/terraform.tfstate"` in the bucket above. Each resource appears once per project and is referenced by every env's `main.tf`.
+
+All resource identifiers are formed by applying the matching naming policy from [transfer_tables.md § Naming Policies](./transfer_tables.md#naming-policies): S3 → `s3`, RDS → `rds`, ALB → `alb`, ECS → `ecs`, ECR repo → `ecr_repo`, IAM → `iam`, SSM path → `ssm_path`. This is the single place name translation happens, so projects with underscore-bearing names compile consistently across every emit site.
 
 - **Route53 hosted zone** for the project's `domain:` (e.g. `<project>.<parent>.<tld>`). `docex` creates the zone; the operator NS-delegates from the parent (registrar or parent Route53 zone). Zone outputs include the name servers the operator must use for the delegation.
 - **ACM certificate** covering `*.<domain>` plus per-env wildcards (`*.dev.<domain>`, `*.test.<domain>`, `*.stage.<domain>`, `*.www.<domain>`), with DNS validation records emitted into the project zone.
