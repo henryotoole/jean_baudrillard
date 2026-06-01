@@ -12,6 +12,22 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-06-01
+
+### Fixed
+
+- `pipeline/release.py` steady-state path now runs a targeted
+  `tofu apply -target=aws_ecs_task_definition.<svc>_migrate` for each
+  schema-owning service before invoking `run_migrate`. Previously the
+  migrate step used the LATEST registered task-definition revision —
+  which on a steady-state release is whatever was pushed by the
+  PREVIOUS release, so any current-release change to a migration
+  task-def's body (image tag, env vars, secret refs) was invisible
+  to migrate. Implements `release_mechanism.md § Elastic-foundation
+  mechanism` step 2, which was prescribed but not implemented. Main
+  service task defs are still rolled only after migrations succeed,
+  preserving the doctrine's zero-downtime backward-compat window.
+
 ## [0.8.2] - 2026-06-01
 
 ### Fixed
