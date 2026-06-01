@@ -12,6 +12,24 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-06-01
+
+### Fixed
+
+- Postgres `host` provided part on elastic now resolves to
+  `aws_db_instance.<name>.address` (hostname only) instead of
+  `aws_db_instance.<name>.endpoint` (which is `host:port` already
+  concatenated). The old value made consumers composing `host:port`
+  produce `host:port:port` DSNs — DNS lookup fails. Aligns with
+  `cicl.md § Provided Fields`'s parts-only contract.
+- `pipeline/release.py`'s first-time-release cluster-existence
+  probe now applies the `ecs` naming policy to `<project>_<env>`
+  instead of literally hyphen-joining them. After mod 005, the live
+  cluster name is underscore-form; the literal hyphen-joined probe
+  was always missing the cluster and falsely triggering the
+  first-time-release branch on steady-state releases (harmless —
+  tofu apply is idempotent — but the log message lied).
+
 ## [0.8.1] - 2026-06-01
 
 ### Fixed
