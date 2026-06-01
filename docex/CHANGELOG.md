@@ -12,6 +12,24 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-01
+
+### Fixed
+
+- Every per-network `aws_security_group` emitted in the env-tier
+  `main.tf` now carries an explicit allow-all egress block. Terraform's
+  `aws_security_group` resource denies all egress when no `egress`
+  clause is given — overriding AWS's default — which prevented Fargate
+  tasks from reaching SSM, ECR, and other AWS service endpoints.
+  Defense-in-depth egress restriction is deferred (see
+  `infrastructure.md § Deferred`).
+- Postgres `reserved_names` extended with `db`, `template0`,
+  `template1`. The doctrine's compile-time `reserved_names` check now
+  catches these RDS-rejected DBName values instead of failing at
+  `tofu apply` time. Doctrine intent (per `transfer_tables.md`) was
+  already to catch reserved-name collisions at compile; this fills in
+  the missed entries.
+
 ## [0.8.0] - 2026-06-01
 
 ### Fixed
