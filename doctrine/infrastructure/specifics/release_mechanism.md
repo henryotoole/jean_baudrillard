@@ -1,12 +1,12 @@
 # Release Mechanism
 
-This file describes how `docex release <env>` pushes a built release out to its target environment. As with other specifics, this is documentation for the compiler implementer and the curious developer; it is not meant to be loaded as general doctrine context.
+This file describes how `./bin/docex release <env>` pushes a built release out to its target environment. As with other specifics, this is documentation for the compiler implementer and the curious developer; it is not meant to be loaded as general doctrine context.
 
 ## General Flow
 
 A release combines three orthogonal inputs into a running stack:
 - A `build_image` pulled from the project's `container_registry`
-- The `environment_config` emitted by `docex compile` for the target environment
+- The `environment_config` emitted by `./bin/docex compile` for the target environment
 - The environment's `secrets` (typically `.env`-style files)
 
 The operation is **push-initiated** and **idempotent**. A control node (the developer's machine, a CI runner, or `docex` running in its own container on either) initiates the deploy; the target converges to the declared desired state; re-running the same release against an already-converged target is a no-op. This holds for both foundations.
@@ -25,7 +25,7 @@ The project keeps per-environment `.env` files under `infra/secrets/`:
 infra/secrets/
   .gitignore        # auto-created by project bootstrap; ignores *.env
   README.md         # auto-created by project bootstrap; explains usage
-  example.env       # auto-emitted by `docex compile`; committed
+  example.env       # auto-emitted by `./bin/docex compile`; committed
   dev.env           # operator-maintained, gitignored
   test.env          # operator-maintained, gitignored
   stage.env         # operator-maintained, gitignored
@@ -39,7 +39,7 @@ infra/secrets/
 The `.env` is the canonical source; the deployment target is overwritten *from* it on every release.
 
 - **Fixed (Ansible):** the playbook reads `infra/secrets/<env>.env` from the control node and renders it onto the host as `/opt/<project>/<env>/.env`. Docker Compose reads this file when starting containers.
-- **Elastic (OpenTofu):** before `tofu apply` runs, `docex release` reads `infra/secrets/<env>.env` and pushes each `KEY=value` pair to SSM Parameter Store at `/<project>/<env>/KEY` as a `SecureString` (encrypted with the default `aws/ssm` KMS key). The emitted HCL then provisions ECS task definitions whose `secrets` blocks reference those SSM paths; ECS resolves the values when starting tasks.
+- **Elastic (OpenTofu):** before `tofu apply` runs, `./bin/docex release` reads `infra/secrets/<env>.env` and pushes each `KEY=value` pair to SSM Parameter Store at `/<project>/<env>/KEY` as a `SecureString` (encrypted with the default `aws/ssm` KMS key). The emitted HCL then provisions ECS task definitions whose `secrets` blocks reference those SSM paths; ECS resolves the values when starting tasks.
 
 In both cases, the `.env` wins on every release. Manual edits to the host `.env` (fixed) or SSM parameters (elastic) are overwritten on the next deploy. This is by design: it preserves the deterministic doctrine, but means the operator must use the `.env` for everything, including hot-fixes.
 
@@ -70,9 +70,9 @@ Only one core service may own a given database. This is enforced via the `schema
 
 Migrations run at three points, all orchestrated implicitly by `docex`:
 
-- **`docex up <env>`** (`dev`): after the compose stack is up, before the developer interacts with the env.
-- **`docex test`**: after the `test` env's compose stack is up, before any service's `test.sh` runs. Tests always see a fully-migrated schema.
-- **`docex release <env>`** (`stage`, `prod`): after the database is reachable but before the new application code is fully rolled out. Foundation-specific mechanism below.
+- **`./bin/docex up <env>`** (`dev`): after the compose stack is up, before the developer interacts with the env.
+- **`./bin/docex test`**: after the `test` env's compose stack is up, before any service's `test.sh` runs. Tests always see a fully-migrated schema.
+- **`./bin/docex release <env>`** (`stage`, `prod`): after the database is reachable but before the new application code is fully rolled out. Foundation-specific mechanism below.
 
 In every case, migration runs inside a container based on the service's image — never on the host, never inside the application's runtime container.
 
@@ -106,7 +106,7 @@ For elastic projects, the compiler emits a separate "migration" ECS task definit
 - Main task definition: runs the application's normal entrypoint.
 - Migration task definition: runs `/service/migrate.sh` and exits.
 
-`docex release <env>` sequences:
+`./bin/docex release <env>` sequences:
 
 1. **Push secrets to SSM** (existing step).
 2. **Update the migration task definition image tag** to the new version via the AWS API (`RegisterTaskDefinition`). This does not affect any running services.
@@ -118,7 +118,7 @@ This ordering ensures migrations are fully complete and verified before any new 
 
 #### First-time release of an env
 
-The first time an elastic env is released, the cluster, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. `docex release` detects this case via an `ecs_cluster_exists` probe and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the cluster, RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
+The first time an elastic env is released, the cluster, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. `./bin/docex release` detects this case via an `ecs_cluster_exists` probe and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the cluster, RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
 
 The transient consequence: on a first release, the application's ECS service comes up before the migration runs. Until the migration completes, the application tasks may crash-loop or 500 against the not-yet-created schema. This is acceptable because there are no users on a first deploy and the window is bounded by migration runtime. Subsequent releases find the cluster present and follow the steady-state order, preserving the zero-downtime properties documented below.
 
@@ -146,7 +146,7 @@ Projects that can tolerate downtime can ignore this — they'll experience error
 
 ## Fixed Foundation: Ansible
 
-For fixed-foundation projects, `docex release <env>` invokes `ansible-playbook` (from inside the `docex` container) against an inventory of stage/prod hosts. The playbook itself is emitted by `docex compile` alongside the compose files for that environment.
+For fixed-foundation projects, `./bin/docex release <env>` invokes `ansible-playbook` (from inside the `docex` container) against an inventory of stage/prod hosts. The playbook itself is emitted by `./bin/docex compile` alongside the compose files for that environment.
 
 The playbook's tasks, in order:
 1. `docker pull` the project's `build_image` at the tagged version. Uses the registry credentials already present in the target host's `~/.docker/config.json` — see [Registry Credentials](#registry-credentials) below.
@@ -157,11 +157,11 @@ Each task uses an idempotent Ansible module (`community.docker.docker_image`, `t
 
 **SSH Credentials.** An SSH private key authorized on each target host for a dedicated `deploy` user (member of the `docker` group, with passwordless sudo so the playbook's `become: true` tasks can elevate without prompting). The keypair is provisioned to the host during fixed-foundation prerequisite setup. The doctrine prescribes one keypair per `(project, env)` — generated once, never shared across projects. The `deploy` user also requires `~/.docker/config.json` populated with credentials for the project's `container_registry` (the playbook's image pulls run as `deploy`); `root` requires the same (`docker compose up` runs under `become: true`).
 
-The private key is placed by the operator at `infra/deploy_creds/<env>` (e.g., `infra/deploy_creds/prod`); `docex release <env>` reads from this fixed path. The `deploy_creds/` directory is created by the project bootstrap pre-populated with a `.gitignore` (so its contents can never be committed) and a `README.md` explaining what belongs there.
+The private key is placed by the operator at `infra/deploy_creds/<env>` (e.g., `infra/deploy_creds/prod`); `./bin/docex release <env>` reads from this fixed path. The `deploy_creds/` directory is created by the project bootstrap pre-populated with a `.gitignore` (so its contents can never be committed) and a `README.md` explaining what belongs there.
 
 This `deploy_creds/` folder is the doctrine's single prescribed home for *file-based* deploy-time credentials introduced by the doctrine itself. Cloud credentials with established conventions (AWS via `~/.aws/credentials`, the docker registry via `~/.docker/config.json`) continue to live in their conventional locations — see [credentials.md § Fixed](../credentials.md#fixed).
 
-**Registry Credentials.** The playbook does not `docker login` during release. The target host's `~/.docker/config.json` is populated out of band as part of `host_machine` prerequisite setup, and `docker pull` succeeds against the project's `container_registry` using whatever creds are already there. The operator's side (`docex containerize` / `docker push`) follows the same convention on the development machine — login once, conventional location, no doctrine machinery in between. See [credentials.md § Container Registry](../credentials.md#fixed-container-registry) for the full layout.
+**Registry Credentials.** The playbook does not `docker login` during release. The target host's `~/.docker/config.json` is populated out of band as part of `host_machine` prerequisite setup, and `docker pull` succeeds against the project's `container_registry` using whatever creds are already there. The operator's side (`./bin/docex containerize` / `docker push`) follows the same convention on the development machine — login once, conventional location, no doctrine machinery in between. See [credentials.md § Container Registry](../credentials.md#fixed-container-registry) for the full layout.
 
 If the host's creds are missing or stale, `docker pull` fails loudly and the release aborts before any compose changes. The fix is to re-run `docker login` on the host as the deploy user; the doctrine does not attempt to manage this from the operator's side.
 
@@ -169,14 +169,14 @@ If the host's creds are missing or stale, `docker pull` fails loudly and the rel
 
 ## Elastic Foundation: OpenTofu
 
-For elastic-foundation projects, `docex release <env>` performs two operations in sequence: it first pushes secrets to SSM Parameter Store (per [Secrets](#secrets) above), then invokes `tofu apply` against the HCL emitted by `docex compile` for the target environment. If the SSM push fails, `tofu apply` does not run — the release fails cleanly with no infrastructure changes attempted.
+For elastic-foundation projects, `./bin/docex release <env>` performs two operations in sequence: it first pushes secrets to SSM Parameter Store (per [Secrets](#secrets) above), then invokes `tofu apply` against the HCL emitted by `./bin/docex compile` for the target environment. If the SSM push fails, `tofu apply` does not run — the release fails cleanly with no infrastructure changes attempted.
 
 OpenTofu reads the emitted HCL, diffs against the current AWS state, and applies. For a typical release where only the image tag has changed, this updates each core service's ECS task definition, causing ECS to roll the service: pull the new image from ECR, drain old tasks, start new tasks, run health checks. For initial provisioning or for releases that include infrastructure changes, the same apply additionally creates or modifies VPC, subnet, ALB, RDS, etc. resources.
 
 **Credentials.** An AWS access key or assumed role with permission to manage the project's resources. Sourced by `tofu` from standard AWS environment variables (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, `AWS_PROFILE`, or OIDC tokens supplied by CI). The doctrine prescribes a dedicated IAM role per project, with least-privilege permissions.
 
-**State.** OpenTofu requires a state file to track the mapping between HCL resources and real-world AWS resources. This state is stored in an S3 bucket with DynamoDB locking, both provisioned as project infrastructure once per project. Their creation is a separate one-shot operation (`docex bootstrap`) run when the project first adopts the elastic foundation — see [elastic_bootstrap.md](./elastic_bootstrap.md) for the full description of what it creates and how. Subsequent `docex release <env>` runs assume the state backend exists and use it transparently.
+**State.** OpenTofu requires a state file to track the mapping between HCL resources and real-world AWS resources. This state is stored in an S3 bucket with DynamoDB locking, both provisioned as project infrastructure once per project. Their creation is a separate one-shot operation (`./bin/docex bootstrap`) run when the project first adopts the elastic foundation — see [elastic_bootstrap.md](./elastic_bootstrap.md) for the full description of what it creates and how. Subsequent `./bin/docex release <env>` runs assume the state backend exists and use it transparently.
 
 ## Why Symmetric Push
 
-Both foundations use push-initiated releases. This is intentional: `docex release <env>` has the same shape regardless of foundation — compile, decide, run from a place with credentials, watch convergence, re-run any time to reconcile.
+Both foundations use push-initiated releases. This is intentional: `./bin/docex release <env>` has the same shape regardless of foundation — compile, decide, run from a place with credentials, watch convergence, re-run any time to reconcile.

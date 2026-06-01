@@ -6,7 +6,7 @@ This file describes the details of our handling of CI/CD.
 
 This doctrine prescribes a "[trunk based](./version_control.md)" branch strategy for development. New feature work occurs in feature branches. Eventually, when a feature branch is complete, this CI/CD pipeline is used to properly test, merge, and release it. All formal pipeline operations are documented below and are implemented as `docex` commands. 
 
-The pipeline starts off at the end of development. By this point, the developer has been working in a feature branch to make changes to the code and commits as needed. The feature is "complete" and the developer has manually run tests (`docex test`) to ensure their changes are *at least* working at the tip of the feature branch. The developer has incremented the `project.yml` version and the working tree is clean.
+The pipeline starts off at the end of development. By this point, the developer has been working in a feature branch to make changes to the code and commits as needed. The feature is "complete" and the developer has manually run tests (`./bin/docex test`) to ensure their changes are *at least* working at the tip of the feature branch. The developer has incremented the `project.yml` version and the working tree is clean.
 
 The CI/CD pipeline moves this "finished" feature branch into production:
 1. **Check** - Creates an ephemeral worktree merging the feature and main branches and performs gate checks.
@@ -24,11 +24,11 @@ The entire CI/CD process *can* be performed solely by running `docex` commands o
 
 ### Manual `docex` Chain
 The entire CI/CD pipeline can be performed by chaining the following commands (presuming all checks, builds, and tests pass):
-`docex merge`
-`docex containerize`
-`docex release stage`
-`docex stagetest`
-`docex release prod`
+`./bin/docex merge`
+`./bin/docex containerize`
+`./bin/docex release stage`
+`./bin/docex stagetest`
+`./bin/docex release prod`
 
 ## Pipeline Operations
 
@@ -58,7 +58,7 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 If any steps fail, the repo is reverted back to its original state.
 
 #### `docex`
-`docex check`
+`./bin/docex check`
 
 ### Review
 
@@ -68,7 +68,7 @@ This step is optional, and is not covered more deeply in this version of the `do
 
 ### Merge
 
-This step simply merges the feature branch into the main branch (technically we rebase, but "merge" captures the intent more) and tags the relevant commit. The release tag is applied to the merge tip, not to the original version-bump commit. This way, if any fix-up commits after a failed docex check occur they require no special handling.
+This step simply merges the feature branch into the main branch (technically we rebase, but "merge" captures the intent more) and tags the relevant commit. The release tag is applied to the merge tip, not to the original version-bump commit. This way, if any fix-up commits after a failed `./bin/docex check` occur they require no special handling.
 
 #### Process
 1. Re-run gate checks just in case the main branch moved.
@@ -78,7 +78,7 @@ This step simply merges the feature branch into the main branch (technically we 
 5. Delete the feature branch (local + remote)
 
 #### `docex`
-`docex merge`
+`./bin/docex merge`
 
 ### Build Step
 
@@ -89,17 +89,17 @@ Every core service gets a `build.sh` script. This is responsible for turning `so
 1. **Inside `docker build`** (canonical, authoritative). The Dockerfile's `build` stage `COPY`s `src/` and runs `./build.sh`, depositing artifacts at a known path inside that stage. The `prod` and `test` stages then `COPY --from=build` those artifacts into the final image. This is the path that produces images shipped to `stage` and `prod`.
 2. **Inside a running `dev` container** (iteration convenience). The `dev` stage carries the same build tools. The container has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` inside it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
 
-Because the authoritative build runs *inside* `docker build`, the artifact is always produced on whatever platform the image is being built for — set explicitly by `docker buildx --platform` during [`docex containerize`](#containerize-step). A developer on an arm64 Mac thus produces correct amd64 production images: the build runs under emulation inside the buildx context, not on the host. There is no path by which a host-architecture artifact can be smuggled into a prod image, because the artifact in a prod image is always produced inside the same `docker build` invocation that produces the image.
+Because the authoritative build runs *inside* `docker build`, the artifact is always produced on whatever platform the image is being built for — set explicitly by `docker buildx --platform` during [`./bin/docex containerize`](#containerize-step). A developer on an arm64 Mac thus produces correct amd64 production images: the build runs under emulation inside the buildx context, not on the host. There is no path by which a host-architecture artifact can be smuggled into a prod image, because the artifact in a prod image is always produced inside the same `docker build` invocation that produces the image.
 
 The `build artifact` must always be deposited in the service's `dist/` directory — inside the container during `docker build`, or at `$pr/core/${core_service_name}/dist` on the host during dev iteration (the host folder is the bind-mount of that same path inside the dev container). It is recommended that build-tool cache *not* end up in `dist/`, as `dist/` is cleared before every rebuild.
 
 The developer must write and maintain `build.sh`. They must also write the Dockerfile such that its `build` stage invokes `build.sh` — see [Core Service Containers](./infrastructure.md#core-service-containers).
 
-The build step is required for any environment to actually function. The developer rarely invokes it directly; `docex up <env>`, `docex test`, and `docex containerize` all cause Docker to build (or rebuild) images as needed, which in turn runs `build.sh` inside the `build` stage.
+The build step is required for any environment to actually function. The developer rarely invokes it directly; `./bin/docex up <env>`, `./bin/docex test`, and `./bin/docex containerize` all cause Docker to build (or rebuild) images as needed, which in turn runs `build.sh` inside the `build` stage.
 
 #### Process (formal, during `docker build`)
 
-This is what runs inside the Dockerfile during `docex containerize`, `docex up`, and `docex test`. It is not invoked directly by `docex build`.
+This is what runs inside the Dockerfile during `./bin/docex containerize`, `./bin/docex up`, and `./bin/docex test`. It is not invoked directly by `./bin/docex build`.
 
 1. The `build` Dockerfile stage `COPY`s `src/` (and any other build inputs).
 2. It runs `./build.sh`, which deposits artifacts to `/service/dist` inside the stage.
@@ -108,7 +108,7 @@ This is what runs inside the Dockerfile during `docex containerize`, `docex up`,
 
 #### Process (dev iteration)
 
-This is what `docex build` performs against a running `dev` environment, refreshing artifacts without a container rebuild.
+This is what `./bin/docex build` performs against a running `dev` environment, refreshing artifacts without a container rebuild.
 
 1. Ensure a dev-stage container of each target core service is available — either by reusing the running dev environment's containers, or by spawning an ephemeral dev container as needed.
 2. Remove all contents of `$pr/core/${core_service_name}/dist` on the development machine.
@@ -118,8 +118,8 @@ This is what `docex build` performs against a running `dev` environment, refresh
 4. Updated artifacts appear in the host's `dist` folder via the container's bind-mount.
 
 #### `docex`
-`docex build` to refresh all core services' `dist/` folders in the running dev environment.
-`docex build <core_service_name>` to refresh a specific core service.
+`./bin/docex build` to refresh all core services' `dist/` folders in the running dev environment.
+`./bin/docex build <core_service_name>` to refresh a specific core service.
 
 ### Build Test Step
 
@@ -137,7 +137,7 @@ In order for tests to all be automatically run for a project, each core service 
 4. Tear down the test environment.
 
 #### `docex`
-`docex test` performs the build testing step.
+`./bin/docex test` performs the build testing step.
 
 ### Containerize Step
 
@@ -154,7 +154,7 @@ Cross-platform builds are handled by `docker buildx`. The target platform is set
 4. `docker push` each tagged image.
 
 #### `docex`
-`docex containerize`
+`./bin/docex containerize`
 
 
 ### Migrate Step
@@ -174,7 +174,7 @@ Depending on the target environment, `migrate.sh` will be run a little different
 	3. Return non-0 if a problem occurs.
 
 #### `docex`
-`docex migrate <env>`
+`./bin/docex migrate <env>`
 
 ### Release Step
 
@@ -195,10 +195,10 @@ This process is different depending on whether the project has a `fixed` or `ela
 2. Run [Migrate Step](#migrate-step) against the target env via a one-off ECS task using the new image. If any migration fails, abort the release before applying service changes.
 3. Use `tofu apply` to propagate compiled HCL. This will kick off image updates, secret injection, and service config changes.
 
-**First-time release of an env.** On the very first release of an elastic environment, the ECS cluster and RDS the migration task targets don't exist yet — they're created by step 3. `docex release` detects this case (the env's `<project>-<env>` ECS cluster is absent) and swaps the order to `1 → 3 → 2`: secrets, then `tofu apply` to create infrastructure (and roll out the new image), then migrate against the now-live cluster + RDS. The migration still runs before the env is considered "deployed successfully". Subsequent releases find the cluster present and follow the steady-state order above.
+**First-time release of an env.** On the very first release of an elastic environment, the ECS cluster and RDS the migration task targets don't exist yet — they're created by step 3. `./bin/docex release` detects this case (the env's `<project>-<env>` ECS cluster is absent) and swaps the order to `1 → 3 → 2`: secrets, then `tofu apply` to create infrastructure (and roll out the new image), then migrate against the now-live cluster + RDS. The migration still runs before the env is considered "deployed successfully". Subsequent releases find the cluster present and follow the steady-state order above.
 
 #### `docex`
-`docex release <env>` release to target environment, where env is either `stage` or `prod`
+`./bin/docex release <env>` release to target environment, where env is either `stage` or `prod`
 
 ### Staging Tests
 
@@ -217,7 +217,7 @@ The developer also maintains `$pr/infra/stage/stage_test.sh`. It is a shim that 
 	+ `STAGING_URL` env var pointing at the deployed staging env.
 	+ Command: `<project-root>/infra/stage/stage_test.sh`.
 4. `stage_test.sh` runs the project's staging tests against the deployed env via HTTPS.
-5. The container exits and is auto-removed; its exit code propagates through `docker run` to `docex stagetest`.
+5. The container exits and is auto-removed; its exit code propagates through `docker run` to `./bin/docex stagetest`.
 
 #### `docex`
-`docex stagetest`
+`./bin/docex stagetest`

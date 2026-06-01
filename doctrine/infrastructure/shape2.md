@@ -48,7 +48,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | Name | Infrastructure Tier | Means | Description |
 | ---- | ------------------- | ----- | ----------- |
 | aws_account | prerequisite | An AWS account | The AWS account in which all elastic resources are provisioned. The doctrine assumes one project per account; multi-tenant accounts are out of scope. |
-| registrar | prerequisite | NameSilo, GoDaddy, etc. + NS delegation | A registrar's DNS configuration, with nameservers delegated to our [dns] (AWS Route53) so the project controls its own records. The operator performs this delegation between the two phases of [`docex bootstrap`](./specifics/elastic_bootstrap.md#two-phase-project-tier-apply), using the NS records printed by phase 1. |
+| registrar | prerequisite | NameSilo, GoDaddy, etc. + NS delegation | A registrar's DNS configuration, with nameservers delegated to our [dns] (AWS Route53) so the project controls its own records. The operator performs this delegation between the two phases of [`./bin/docex bootstrap`](./specifics/elastic_bootstrap.md#two-phase-project-tier-apply), using the NS records printed by phase 1. |
 | repo | prerequisite | github, gitlab, etc. | The repository in which project code, docs, infra declarations, etc. are stored. |
 | dns | project | AWS Route53 | DNS handling which project can drive. `docex` creates one hosted zone per project for its `domain:`; the operator NS-delegates to it from the parent. |
 | vpc | project | AWS VPC | The project's private network space, shared across all elastic environments. Contains the subnets, IGW, and NAT gateways needed by every environment. |

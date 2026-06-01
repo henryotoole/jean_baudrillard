@@ -56,8 +56,8 @@ Staging tests should at least perform the following:
 	1. Secrets and environmental variables are wired up properly.
 	2. Services can actually reach each other over the network.
 
-Staging tests are run per-project, not per-service. They are run *by* the project-wide `$pr/infra/stage/stage_test.sh` [stage test shim](./cicd.md#staging-tests) and are run *in* a special "test environment" image that is launched by the `docex stagetest` command and described by `$pr/infra/stage/Dockerfile`. The tests themselves are written by the developer and go in the `$pr/infra/stage/tests` folder.
+Staging tests are run per-project, not per-service. They are run *by* the project-wide `$pr/infra/stage/stage_test.sh` [stage test shim](./cicd.md#staging-tests) and are run *in* a special "test environment" image that is launched by the `./bin/docex stagetest` command and described by `$pr/infra/stage/Dockerfile`. The tests themselves are written by the developer and go in the `$pr/infra/stage/tests` folder.
 
 While the `doctrine` describes these files, it is the project developer's responsibility to write and maintain them. The developer writes the tests, ensures they are called by `stage_test.sh`, and ensures that if any of them fail, `stage_test.sh` will return a non-0 exit code. 
 
-The developer must also ensure that the Dockerfile produces an environment with the necessary libraries and tooling to run those tests. Bind-mounting `$pr/infra/stage` directory is handled by `docex stagetest`.
+The developer must also ensure that the Dockerfile produces an environment with the necessary libraries and tooling to run those tests. Bind-mounting `$pr/infra/stage` directory is handled by `./bin/docex stagetest`.

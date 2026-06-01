@@ -109,7 +109,7 @@ Every role may declare fields which are "provided" to other services. These tend
 
 Restrictions with infra providers (particularly AWS SSM) mean that provided fields must be *values*, and can not be strings which are interpolated later. A role never exposes a pre-composed connection string. A consumer that needs a composed handle (e.g. a database url) builds it from the parts at startup. In the example above, `api` would need a database url to connect to the `database` backing service. We provide `DATABASE_HOST`, `DATABASE_PORT`, etc. as environmental variables so that the code within `api` can construct a database url at runtime. This produces an identical landscape across all four environments.
 
-The provided fields for each role live in the `docex` transfer tables, not in this doctrine. To discover them, run `docex role <role>` — it lists the role's engines and their provided fields (which are secrets, the required env vars, and the role-specific fields). `docex roles` lists every available role. See [docex.md](./docex.md#role).
+The provided fields for each role live in the `docex` transfer tables, not in this doctrine. To discover them, run `./bin/docex role <role>` — it lists the role's engines and their provided fields (which are secrets, the required env vars, and the role-specific fields). `./bin/docex roles` lists every available role. See [docex.md](./docex.md#role).
 
 ### Secret and Env Fields
 
@@ -220,7 +220,7 @@ Furthermore, if Service A reference's Service B's information via magic ref, the
 
 The compiler translates `infra.yml` into docker-compose config or OpenTofu HCL.
 
-The compiler is bundled into `docex` as a command e.g. `docex compile`.
+The compiler is bundled into `docex` as a command e.g. `./bin/docex compile`.
 
 ### Simplifications
 
@@ -263,7 +263,7 @@ infra/output/<env>/
 	ansible.cfg               # stage/prod only
 ```
 
-For `dev` and `test`, just the compose file — those envs run locally and don't need an Ansible playbook. `docex up` and `docex up test` invoke `docker compose -f infra/output/<env>/docker-compose.yml up` under the hood.
+For `dev` and `test`, just the compose file — those envs run locally and don't need an Ansible playbook. `./bin/docex up` and `./bin/docex up test` invoke `docker compose -f infra/output/<env>/docker-compose.yml up` under the hood.
 
 **Elastic envs** (`stage` and `prod` when foundation is elastic):
 
@@ -281,7 +281,7 @@ infra/output/project/
 	main.tf
 ```
 
-The project `main.tf` provisions the resources shared across every elastic environment: the project VPC, public/private subnets, Route53 hosted zone, ACM certificate, and one ECR repository per core service. It uses a distinct state key (`key = "project/terraform.tfstate"`) in the same S3 backend. Applied by [`docex bootstrap`](./docex.md#bootstrap) — see [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description and the two-phase apply mechanism.
+The project `main.tf` provisions the resources shared across every elastic environment: the project VPC, public/private subnets, Route53 hosted zone, ACM certificate, and one ECR repository per core service. It uses a distinct state key (`key = "project/terraform.tfstate"`) in the same S3 backend. Applied by [`./bin/docex bootstrap`](./docex.md#bootstrap) — see [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description and the two-phase apply mechanism.
 
 **Secret declarations** (both foundations):
 

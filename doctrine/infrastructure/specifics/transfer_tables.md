@@ -15,7 +15,7 @@ Transfer tables make use of three distinct kinds of substitution, each resolved 
 
 | Syntax | Resolved by | When | Example |
 | ------ | ----------- | ---- | ------- |
-| `${var}` | docex compiler | at `docex compile` | `${global_service_name}` → `myproject-prod-database` |
+| `${var}` | docex compiler | at `./bin/docex compile` | `${global_service_name}` → `myproject-prod-database` |
 | `$[var]` | docker-compose or ECS | at container start (runtime) | `$[POSTGRES_USER]` → value of `POSTGRES_USER` env var |
 | `@<expr>` | OpenTofu | at `tofu apply` (elastic only) | `@aws_db_instance.database.endpoint` → the live RDS endpoint |
 
@@ -130,7 +130,7 @@ A role is defined under the top-level `roles:` block. Each role contains one or 
 ```yml
 roles:
 	<role_name>:
-		description: "<one-line role summary>"   # optional; surfaced by `docex roles`
+		description: "<one-line role summary>"   # optional; surfaced by `./bin/docex roles`
 		<engine_name>:
 			foundation: fixed | elastic | both
 			default_port: <int>   # optional
@@ -329,7 +329,7 @@ x-logging: &default-logging
 
 ### Depends-on emission (fixed)
 
-Compose `depends_on` is always emitted in long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or `compose exec` from `docex up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
+Compose `depends_on` is always emitted in long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or `compose exec` from `./bin/docex up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
 
 ```yml
 depends_on:

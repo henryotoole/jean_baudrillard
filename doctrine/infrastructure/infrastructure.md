@@ -253,5 +253,5 @@ Some things must be deferred for now:
 2. Automated CI/CD flow (in the sense that a pull request kicks off the process). All CI/CD can be achieved with `docex` commands; this can be done manually by a developer with strict discipline. These commands could be worked into github, GitLab, or some other service. That's beyond the scope of this version.
 3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. health check all services, check DNS) which run alongside project-defined stage tests.
 4. Observability. This is top of my list for a furture improvement - right now this doctrine produces "blind" systems without log servers or error tracking. This is very bad, and will be added in ASAP.
-5. Rollback feature - we need a `docex rollback` to pull production back in case of a failure.
+5. Rollback feature - we need a `./bin/docex rollback` to pull production back in case of a failure.
 6. Real defense-in-depth with networks, permissions, and validation cross-service.

@@ -11,3 +11,9 @@ Everything is loaded into context currently. This is blurring the context window
 ## Gap 02 - Fixed Prerequisite Infra Setup
 
 Right now there are no clear instructions on how to setup prerequisite infrastructure and `docex` isn't terrifically clear about failures when something is missing or wrong. See [here](./fixed_manual.md) for details.
+
+## Gap 03 - Skills Aren't Tested
+
+This is a sort of meta-gap. It's not an issue with the doctrine, but rather how it is deployed. We use skills now to carry the doctrine into context. However, these skills have no evaluation structure. This will become terrifically important as time runs on.
+
+https://agentskills.io/skill-creation/evaluating-skills
