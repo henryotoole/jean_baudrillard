@@ -61,3 +61,14 @@ Staging tests are run per-project, not per-service. They are run *by* the projec
 While the `doctrine` describes these files, it is the project developer's responsibility to write and maintain them. The developer writes the tests, ensures they are called by `stage_test.sh`, and ensures that if any of them fail, `stage_test.sh` will return a non-0 exit code. 
 
 The developer must also ensure that the Dockerfile produces an environment with the necessary libraries and tooling to run those tests. Bind-mounting `$pr/infra/stage` directory is handled by `./bin/docex stagetest`.
+
+### Injected environment
+
+`./bin/docex stagetest` injects a small set of doctrine-defined env vars into the stage tester container so the project's tests can stay free of values that have to be hand-synced on every release:
+
+| Variable | Source | Purpose |
+| -------- | ------ | ------- |
+| `STAGING_URL` | derived from `infra.yml`'s `domain` field | The public URL of the deployed staging environment. Tests issue HTTPS calls against this. |
+| `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. Tests that assert a deployed `/health` returns the expected version read this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. |
+
+The contract is one-way and stable: docex injects these on every `stagetest` run; the project's tests are free to read or ignore them. Adding new doctrine-injected variables is a doctrine change, not a project change.

@@ -134,13 +134,20 @@ roles:
 		<engine_name>:
 			foundation: fixed | elastic | both
 			default_port: <int>   # optional
+			emits:
+				fixed: [<target_name>, ...]     # first entry = default target
+				elastic: [<target_name>, ...]   # first entry = default target
 			defaults:
 				fixed: { ... }
 				elastic: { ... }
 			fields:
 				<role_specific_field>:
-					fixed: { ... }
-					elastic: { ... }
+					fixed:
+						target: <target_name>   # optional; defaults to first emits.fixed entry
+						<translation body>
+					elastic:
+						target: <target_name>   # optional; defaults to first emits.elastic entry
+						<translation body>
 			provides:
 				<part_name>:
 					fixed: "..."
@@ -157,6 +164,9 @@ roles:
 	relational_db:
 		postgres:
 			foundation: both
+			emits:
+				fixed: [compose_service]
+				elastic: [rds_instance]
 			defaults:
 				fixed:
 					volumes:
@@ -201,11 +211,16 @@ roles:
 				password:
 					fixed: "$[POSTGRES_PASSWORD]"
 					elastic: "$[POSTGRES_PASSWORD]"
+				sslmode:
+					fixed: "disable"
+					elastic: "require"
 			env:
 				POSTGRES_USER: "The username of the postgres user"
 				POSTGRES_PASSWORD: "The password of the postgres user"
 			naming: rds   # RDS identifier (hyphen + lower + 63); applied on both foundations for consistency
 ```
+
+The `sslmode` part exists specifically to bridge a real fixed↔elastic difference that the doctrine would otherwise force projects to encode by hand: local postgres containers accept plain TCP, while AWS RDS rejects non-SSL connections under its default `pg_hba.conf`. Without a `provides:` part, every project's `migrate.sh` (and any other code that builds a connection string) would grow if/else-on-hostname logic — the exact coupling `provides:` exists to eliminate. Surfacing `sslmode` as a part keeps the parts-only model load-bearing on both foundations.
 
 ### Field reference
 
@@ -213,9 +228,11 @@ roles:
 
 - **`default_port`** (optional) — the port this engine listens on by default. When a service using the engine omits the `port:` field in `infra.yml`, the compiler uses this value for the `${port}` substitution variable (and hence the `port` provided-part). Omit it for engines with no canonical port; a magic ref to a port that is neither declared nor defaulted resolves to empty, which is a compile error.
 
-- **`defaults`** (required) — per-foundation blocks of YAML that get merged into the emitted resource definition for every service using this engine. For fixed this is the docker-compose service skeleton (volumes, healthcheck, environment); for elastic it is the Tofu resource block (instance class, storage settings, etc.).
+- **`emits`** (required) — per-foundation list of named destinations this engine's translations can land on. The first entry in each list is the *default target* — where `defaults:` lands and where any `fields.<f>.<foundation>` entry without an explicit `target:` lands. Subsequent entries are alternative destinations selectable via `target:`. Each destination name corresponds to a concrete emit site the compiler knows how to render (e.g., `compose_service` → the docker-compose service block; `rds_instance` → the `aws_db_instance` HCL resource; `target_group` → the `aws_lb_target_group` HCL resource). Some destinations are conditional on other state — `target_group`, for instance, only exists when the service is on the `web` network — and routing to an inapplicable destination is a compile error. The set of destination names the compiler recognizes is closed and lives in doctrine knowledge inside docex; a transfer table cannot invent new ones.
 
-- **`fields`** (optional) — declares the role-specific fields the project may set on this service in `infra.yml` (e.g., `version: "15"` for relational_db, `versioning: true` for object_store), and how each translates per foundation. The compile-time variable `${field_value}` refers to the value the project supplied.
+- **`defaults`** (required) — per-foundation blocks of YAML that get merged into the default target's emitted resource for every service using this engine. For fixed this is typically the docker-compose service skeleton (volumes, healthcheck, environment); for elastic it is the engine's primary Tofu resource block (instance class, storage settings, etc.). `defaults:` cannot route to a non-default target — that's what `fields:` translations with `target:` are for.
+
+- **`fields`** (optional) — declares the role-specific fields the project may set on this service in `infra.yml` (e.g., `version: "15"` for relational_db, `versioning: true` for object_store), and how each translates per foundation. The compile-time variable `${field_value}` refers to the value the project supplied. Each per-foundation translation may declare an optional `target:` naming the destination from the engine's `emits:` list; when omitted, the translation lands on the default target. This is what lets a single field on a single service contribute to *more than one* emitted resource — e.g., `health_check_path` on a `web/container` service routes to `target_group` on elastic (the ALB target group's health check) while still landing on `compose_service` (the container's docker healthcheck) on fixed.
 
 - **`provides`** (optional) — declares the discrete connection **parts** of this engine that consumers may reference via magic refs (e.g., `${backing_services.database.host}`). Each part is foundation-aware: a separate template per foundation. Templates may use any of the three [substitution syntaxes](#substitution-grammar) — `${var}` for compile-time values, `$[var]` for runtime app refs, or `@<expr>` for HCL pass-through (elastic only, used for provider-allocated values like RDS endpoints). Common part names are short and consistent across engines of the same role: `host`, `port`, `db`, `user`, `password` for relational_db; `bucket_name`, `region`, `endpoint`, `access_key`, `secret_key` for object_store; etc. Engines may expose any additional parts they need. **An engine never exposes a pre-composed connection string — there is no `url` part** (see the rule below).
 
@@ -234,6 +251,9 @@ roles:
 	web:
 		container:
 			foundation: both
+			emits:
+				fixed: [compose_service]
+				elastic: [task_definition, ecs_service, target_group]
 			defaults:
 				fixed:
 					# Port, env, and depends_on come from the project's infra.yml.
@@ -256,13 +276,15 @@ roles:
 			fields:
 				health_check_path:
 					fixed:
+						# target omitted → defaults to compose_service
 						healthcheck:
 							test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
 							interval: 30s
 							timeout: 5s
 							retries: 3
 					elastic:
-						target_group_health_check:
+						target: target_group
+						health_check:
 							path: ${field_value}
 							healthy_threshold: 2
 							unhealthy_threshold: 3
@@ -284,7 +306,7 @@ This entry shows what differs from a backing service like postgres:
 - **No project-side `engine:` declaration.** Core service roles have a single canonical engine (`container`); the project does not pick one in `infra.yml`. The transfer table's engine layer is filled by the `container` placeholder for schema uniformity.
 - **`env: {}` is empty.** Core services do not introduce engine-required env vars the way postgres does (POSTGRES_USER, etc.). The project's own env vars are declared directly in its `core_services.<name>.env` block in `infra.yml`.
 - **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject_prod_api` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
-- **`health_check_path` is a role-specific field.** The project supplies the value (e.g., `/health`) in its `infra.yml`, and the transfer table translates it into a docker healthcheck block for fixed or an ALB target-group health check for elastic.
+- **`health_check_path` is a role-specific field that crosses emit targets.** The project supplies the value (e.g., `/health`) in its `infra.yml`. On fixed, the translation lands on the default `compose_service` target as a docker healthcheck block. On elastic, the translation routes via `target: target_group` to the ALB target group's `health_check` block — *not* to the ECS task definition (the default elastic target). Without the `target:` redirect, the field would silently land on the wrong resource and the ALB would fall back to checking `/`. This is the canonical example of why `emits:` and `target:` exist; before this mechanism the field was structurally undeliverable.
 
 ## Foundation Invariants
 
@@ -424,3 +446,5 @@ When loading transfer tables (doctrine and project-local merged) and compiling a
 8. `@<expr>` refs appear only in elastic-side templates (`provides.<part>.elastic`, `defaults.elastic`, etc.) and never in fixed-side templates, where HCL syntax is meaningless.
 9. The `naming` policy resolved for each engine is satisfied by the `${global_service_name}` the compiler generates; impossible cases (e.g., a project name + env name + service name combination that exceeds the policy's `max_len`) fail compile cleanly with a descriptive error.
 10. Every engine's `naming:` value is the name of a policy declared in `naming_policies:` (bundled or project-local). An unknown policy ref fails compile at load time.
+11. Every engine declares a non-empty `emits.fixed` and `emits.elastic` list (the latter only required if the engine supports the elastic foundation). Every destination name in those lists is one the compiler recognizes; unknown destination names fail compile at load time.
+12. Every `fields.<f>.<foundation>.target:` value (if set) names a destination in the engine's `emits.<foundation>` list. If the named destination is conditional (e.g., `target_group` requires the service to be on the `web` network) and the condition does not hold for the service being compiled, that is also a compile error — surfaced with a hint pointing at the missing condition.
