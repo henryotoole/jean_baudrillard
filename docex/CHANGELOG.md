@@ -12,6 +12,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-01
+
 ### Fixed
 
 - Compose `depends_on` is now emitted in long-form with
