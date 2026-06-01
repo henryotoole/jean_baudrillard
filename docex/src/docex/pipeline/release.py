@@ -27,7 +27,7 @@ from docex.errors import (
     TofuApplyFailed,
 )
 from docex.naming import apply_policy
-from docex.orchestrate._common import ensure_compiled
+from docex.orchestrate._common import ensure_compiled, services_with_schema
 
 
 # Type alias for the injected ansible runner (Phase 3, fixed branch).
@@ -253,7 +253,34 @@ def _release_elastic(
             )
             return rc_mig
     else:
-        # migrate → apply (doctrine order)
+        # Steady-state: bump migration task-def revisions, migrate, then full apply.
+        # WHY: RunTask in _do_migrate() resolves the LATEST registered
+        # revision, which without a pre-step is the *previous* release's
+        # task-def — stale env/secret refs and the prior image tag. The
+        # targeted apply pushes each migration task-def to match the
+        # current release's emitted HCL so migrate sees fresh content.
+        # Main service task-defs are intentionally NOT in the target
+        # set — the rolling deploy of the new application code happens
+        # only after migrations succeed.
+        # See release_mechanism.md § Elastic-foundation mechanism step 2.
+        schema_owners = services_with_schema(ctx)
+        if schema_owners:
+            rc_init = tofu_init(out_dir)
+            if rc_init != 0:
+                raise TofuApplyFailed(
+                    f"'tofu init' for env {env!r} exited {rc_init}"
+                )
+            targets = [
+                f"aws_ecs_task_definition.{svc}_migrate"
+                for svc in schema_owners
+            ]
+            rc_pre = tofu_apply(out_dir, auto_approve=True, targets=targets)
+            if rc_pre != 0:
+                raise TofuApplyFailed(
+                    f"pre-migrate targeted 'tofu apply' for env {env!r} "
+                    f"exited {rc_pre}; aborting release before migrate."
+                )
+
         rc_mig = _do_migrate()
         if rc_mig != 0:
             print(
