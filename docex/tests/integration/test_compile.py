@@ -417,6 +417,25 @@ def test_every_emitted_sg_has_egress(tmp_path: Path):
         )
 
 
+# ---------------------------------------------------------------------------
+# Mod 007 — postgres host part uses RDS `.address`, not `.endpoint`.
+# ---------------------------------------------------------------------------
+
+
+def test_db_host_uses_address_not_endpoint(tmp_path: Path):
+    """The postgres engine's `host` provided part must resolve to
+    ``aws_db_instance.<svc>.address`` — the hostname only. ``.endpoint``
+    embeds ``:port``, which produces malformed ``host:port:port`` DSNs at
+    consumer-side composition. Regression guard for mod 007."""
+    root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        assert "aws_db_instance.appdb.address" in tf
+        assert "aws_db_instance.appdb.endpoint" not in tf
+
+
 def test_describe_dag_and_llm(tmp_path: Path):
     """describe command runs end-to-end and the LLM form parses as JSON."""
     from docex.describe import run_describe

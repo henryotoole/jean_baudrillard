@@ -12,9 +12,10 @@
 #     into a `data "aws_ssm_parameter"` block referencing
 #     /<project>/<env>/POSTGRES_USER (etc.). The release flow's SSM
 #     push step guarantees those parameters exist before tofu apply.
-#   - The `host` provides template uses `@aws_db_instance.${name}.endpoint`
-#     so consumers reading `${backing_services.<db>.host}` get the live
-#     RDS endpoint at apply time.
+#   - The `host` provides template uses `@aws_db_instance.${name}.address`
+#     (hostname only, no port) so consumers reading
+#     `${backing_services.<db>.host}` can compose `host:port` themselves
+#     without the malformed `host:port:port` that `.endpoint` produces.
 
 roles:
   relational_db:
@@ -152,7 +153,7 @@ roles:
       provides:
         host:
           fixed: "${global_service_name}"
-          elastic: "@aws_db_instance.${name}.endpoint"
+          elastic: "@aws_db_instance.${name}.address"
         port:
           fixed: "${port}"
           elastic: "${port}"

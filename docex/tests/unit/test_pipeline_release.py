@@ -187,6 +187,34 @@ def test_release_elastic_aborts_when_migrate_fails(
     assert fake_tofu_apply.calls == []
 
 
+def test_release_elastic_probes_cluster_via_ecs_naming_policy(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply
+):
+    """Mod 007: the first-time-release cluster probe must use the ``ecs``
+    naming policy (underscore-preserving), not a stale hyphen-joined
+    literal. Otherwise the probe always misses on steady-state releases
+    (the live cluster is underscore-joined) and falls into the
+    first-release branch on every invocation."""
+    run_release(
+        elastic_ctx,
+        env="stage",
+        aws=fake_aws,
+        tofu_init=fake_tofu_init,
+        tofu_apply=fake_tofu_apply,
+    )
+    probes = [
+        call for call in fake_aws.calls if call[0] == "ecs_cluster_exists"
+    ]
+    assert probes, "expected ecs_cluster_exists to be probed once"
+    # The fixture's project name is "sample"; the ecs policy joins on
+    # underscore. The pre-mod-007 literal would have been "sample-stage".
+    name_arg = probes[0][1][0]
+    assert name_arg == "sample_stage", (
+        f"cluster probe used {name_arg!r}; expected 'sample_stage' "
+        f"per the ecs naming policy"
+    )
+
+
 def test_release_rejects_dev_test(sample_ctx, fake_ansible):
     for env in ("dev", "test"):
         with pytest.raises(EnvNotSupported):

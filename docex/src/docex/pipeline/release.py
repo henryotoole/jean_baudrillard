@@ -26,6 +26,7 @@ from docex.errors import (
     SSMPushFailed,
     TofuApplyFailed,
 )
+from docex.naming import apply_policy
 from docex.orchestrate._common import ensure_compiled
 
 
@@ -204,11 +205,12 @@ def _release_elastic(
     pushed = _push_secrets(aws, env_file, project=project_name, env=env)
     print(f"release: pushed {pushed} secret(s) to SSM under /{project_name}/{env}/")
 
-    # First-time-release detection: the env's ECS cluster (named
-    # ``<project>-<env>``) is created by tofu apply. If it isn't there
-    # yet, the migrate step would error with "no ACTIVE ECS cluster"
-    # before tofu had a chance to create it.
-    cluster_name = f"{project_name}-{env}"
+    # First-time-release detection: the env's ECS cluster (named per
+    # the ``ecs`` naming policy on the project/env pair) is created by
+    # tofu apply. If it isn't there yet, the migrate step would error
+    # with "no ACTIVE ECS cluster" before tofu had a chance to create it.
+    ecs_policy = ctx.transfer_tables.naming_policies.get("ecs")
+    cluster_name = apply_policy(f"{project_name}_{env}", ecs_policy)
     first_release = not aws.ecs_cluster_exists(cluster_name)
     if first_release:
         print(

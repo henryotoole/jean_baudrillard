@@ -50,6 +50,16 @@ resource "aws_security_group" "internal" {
   name        = "docex_smoke_elastic_stage_internal"
   description = "internal network for docex_smoke_elastic stage"
   vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
+  # WHY: aws_security_group denies egress when no egress block is given,
+  # overriding AWS's allow-all default. Without this, Fargate tasks can't
+  # reach SSM/ECR. Per-network egress restriction is deferred — see
+  # infrastructure.md § Deferred rule 6.
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   tags = {
     project    = "docex_smoke_elastic"
     env        = "stage"
@@ -72,6 +82,16 @@ resource "aws_security_group" "web" {
   name        = "docex_smoke_elastic_stage_web"
   description = "web network for docex_smoke_elastic stage"
   vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
+  # WHY: aws_security_group denies egress when no egress block is given,
+  # overriding AWS's allow-all default. Without this, Fargate tasks can't
+  # reach SSM/ECR. Per-network egress restriction is deferred — see
+  # infrastructure.md § Deferred rule 6.
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
   tags = {
     project    = "docex_smoke_elastic"
     env        = "stage"
