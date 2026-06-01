@@ -166,6 +166,9 @@ roles:
         password:
           fixed: "$[POSTGRES_PASSWORD]"
           elastic: "$[POSTGRES_PASSWORD]"
+        sslmode:
+          fixed: "disable"
+          elastic: "require"
       env:
         POSTGRES_USER: "The username of the postgres user"
         POSTGRES_PASSWORD: "The password of the postgres user"

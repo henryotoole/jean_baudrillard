@@ -29,6 +29,7 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
             "host": {"fixed": "${global_service_name}", "elastic": "@aws_db_instance.${name}.endpoint"},
             "port": {"fixed": "${port}", "elastic": "${port}"},
             "user": {"fixed": "$[POSTGRES_USER]", "elastic": "$[POSTGRES_USER]"},
+            "sslmode": {"fixed": "disable", "elastic": "require"},
         },
         env={"POSTGRES_USER": "the postgres user"},
         naming="rds",
@@ -173,3 +174,25 @@ def test_magic_ref_empty_resolution_errors():
         resolver.resolve_in_string(
             "${backing_services.db.port}", consumer="api"
         )
+
+
+def test_resolve_sslmode_part_compile_time_constant():
+    """sslmode is a doctrine-provided part with foundation-specific
+    compile-time constants — `disable` on fixed, `require` on elastic —
+    so projects can reference it without encoding foundation-aware
+    logic. See mod 009."""
+    resolver_fixed, _ = _make_resolver(foundation="fixed")
+    rendered_fixed = resolver_fixed.resolve_in_string(
+        "${backing_services.db.sslmode}", consumer="api"
+    )
+    assert rendered_fixed.value == "disable"
+    assert rendered_fixed.raw_hcl is False
+    assert rendered_fixed.runtime_refs == set()
+
+    resolver_elastic, _ = _make_resolver(foundation="elastic")
+    rendered_elastic = resolver_elastic.resolve_in_string(
+        "${backing_services.db.sslmode}", consumer="api"
+    )
+    assert rendered_elastic.value == "require"
+    assert rendered_elastic.raw_hcl is False
+    assert rendered_elastic.runtime_refs == set()

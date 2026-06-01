@@ -18,10 +18,12 @@ def _dsn_from_env() -> str:
         "dbname": os.environ["DATABASE_NAME"],
         "user": os.environ["DATABASE_USER"],
         "password": os.environ["DATABASE_PASSWORD"],
+        "sslmode": os.environ["DATABASE_SSLMODE"],
     }
     return (
         f"host={parts['host']} port={parts['port']} dbname={parts['dbname']} "
-        f"user={parts['user']} password={parts['password']}"
+        f"user={parts['user']} password={parts['password']} "
+        f"sslmode={parts['sslmode']}"
     )
 
 

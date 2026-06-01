@@ -21,6 +21,7 @@ core_services:
       DATABASE_NAME: ${backing_services.db.db}
       DATABASE_USER: ${backing_services.db.user}
       DATABASE_PASSWORD: ${backing_services.db.password}
+      DATABASE_SSLMODE: ${backing_services.db.sslmode}
     resources:
       cpu: 0.25
       memory: 512MB
@@ -37,6 +38,7 @@ core_services:
       DATABASE_NAME: ${backing_services.db.db}
       DATABASE_USER: ${backing_services.db.user}
       DATABASE_PASSWORD: ${backing_services.db.password}
+      DATABASE_SSLMODE: ${backing_services.db.sslmode}
     resources:
       cpu: 0.25
       memory: 512MB

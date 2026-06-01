@@ -12,6 +12,19 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- `sslmode` provided part on `relational_db`/`postgres` — compile-time
+  constant, `"disable"` on fixed and `"require"` on elastic. Closes the
+  one fixed↔elastic difference the parts-only model wasn't hiding:
+  local postgres containers accept plaintext while AWS RDS rejects
+  non-SSL connections under its default `pg_hba.conf`. Without this
+  part, projects' `migrate.sh` and DSN-composing code had to encode
+  if/else-on-hostname logic — exactly the cross-foundation coupling
+  `provides:` exists to eliminate. The two smoke projects' `migrate.sh`
+  files are now byte-identical; both web and worker root.py modules
+  consume the new env var. Mod 009.
+
 ## [0.8.3] - 2026-06-01
 
 ### Fixed
