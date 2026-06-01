@@ -136,9 +136,9 @@ HCL files describing:
 **Environment infrastructure (emitted for `prod`):**
 - 4 subnets: `myproject_prod_public_a`, `_public_b`, `_private_a`, `_private_b`
 - 2 SGs: `myproject_prod_web`, `myproject_prod_internal`
-- 1 ALB `myproject_prod_alb` in the public subnets, listening on 443 with the project ACM cert
+- 1 ALB `myproject-prod-alb` in the public subnets, listening on 443 with the project ACM cert
 - 1 ECS cluster + 1 ECS service for `api`, attached to both SGs, registered as an ALB target
 - 1 RDS instance for `database` (identifier `myproject-prod-database`), in the private subnets, attached only to the `internal` SG
-- 2 Route53 A-records: `www.example.com` and the wildcard `*.www.example.com` → `myproject_prod_alb` (the bare host serves the `domain_default_service`; the wildcard serves every `${service}.www.example.com`)
+- 2 Route53 A-records: `www.example.com` and the wildcard `*.www.example.com` → `myproject-prod-alb` (the bare host serves the `domain_default_service`; the wildcard serves every `${service}.www.example.com`)
 
-The `api` service runs in private subnets, attached to both the `web` SG (so the ALB can reach it) and the `internal` SG (so it can reach `database`). The `database` runs in private subnets, attached only to the `internal` SG. The two are wired together by the discrete connection parts the postgres engine's `provides:` block defines: `host` resolves to the live RDS endpoint (an `@aws_db_instance.database.endpoint` pass-through), while `user`/`password` arrive as ECS `secrets[]` sourced from SSM. `api` composes its own connection string from those parts at startup.
+The `api` service runs in private subnets, attached to both the `web` SG (so the ALB can reach it) and the `internal` SG (so it can reach `database`). The `database` runs in private subnets, attached only to the `internal` SG. The two are wired together by the discrete connection parts the postgres engine's `provides:` block defines: `host` resolves to the live RDS hostname (an `@aws_db_instance.database.address` pass-through), while `user`/`password` arrive as ECS `secrets[]` sourced from SSM. `api` composes its own connection string from those parts at startup.

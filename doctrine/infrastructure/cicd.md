@@ -213,9 +213,9 @@ The developer also maintains `$pr/infra/stage/stage_test.sh`. It is a shim that 
 2. Build the staging tester image if missing or stale. Tag with `${project_name}-stage-tester`.
 3. Spawn an ephemeral container from the tester image:
 	+ `--rm` for auto-cleanup.
-	+ Bind-mount the project root at `/project`.
+	+ Bind-mount the project root at the same path inside the container as on the host (matching docex's host-path mirror such that any path the operator sees on disk is also valid in the container).
 	+ `STAGING_URL` env var pointing at the deployed staging env.
-	+ Command: `/project/infra/stage/stage_test.sh`.
+	+ Command: `<project-root>/infra/stage/stage_test.sh`.
 4. `stage_test.sh` runs the project's staging tests against the deployed env via HTTPS.
 5. The container exits and is auto-removed; its exit code propagates through `docker run` to `docex stagetest`.
 

@@ -74,7 +74,7 @@ Inner-first matters because the inner repo is the authoritative history — forg
 
 The elastic project provisions real AWS resources. Tag discipline matters for cleanup:
 
-- Every doctrine-emitted AWS resource is named with the project name as a prefix (e.g. `docex_smoke_elastic-prod-alb`, `docex-smoke-elastic-prod-database`). Naming alone is sufficient to identify project resources in v1.
+- Every doctrine-emitted AWS resource is named with the project name as a prefix (e.g. `docex-smoke-elastic-prod-alb`, `docex-smoke-elastic-prod-appdb`). Naming alone is sufficient to identify project resources in v1.
 - [`verify_clean.sh`](#) in each project queries for any lingering resource by that prefix and exits non-zero if anything remains.
 - A future doctrine improvement: first-class `managed_by` tagging on every emitted resource — would let `verify_clean.sh` filter by tag and not rely on naming. Tracked as a follow-up; not blocking.
 
