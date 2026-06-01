@@ -26,6 +26,8 @@ roles:
     description: "Edge reverse proxy and TLS terminator (machine-wide traefik on fixed; one ALB per env on elastic)."
     traefik:
       foundation: fixed
+      emits:
+        fixed: [compose_service]
       # The traefik service on fixed is intentionally minimal — the
       # machine-wide traefik does the actual work. We emit nothing
       # extra; the compiler treats this as a marker role.

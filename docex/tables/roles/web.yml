@@ -16,6 +16,9 @@ roles:
     description: "Core service — the project's own code, served behind the reverse proxy."
     container:
       foundation: both
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service, target_group]
       defaults:
         # Routing is network-driven, not role-static: the compiler emits
         # Traefik discovery labels (fixed) and an ALB target group + listener
@@ -34,7 +37,8 @@ roles:
               timeout: 5s
               retries: 3
           elastic:
-            target_group_health_check:
+            target: target_group
+            health_check:
               path: ${field_value}
               healthy_threshold: 2
               unhealthy_threshold: 3

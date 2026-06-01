@@ -18,6 +18,9 @@ roles:
     redis:
       foundation: both
       default_port: 6379
+      emits:
+        fixed: [compose_service]
+        elastic: [elasticache_cluster]
       defaults:
         fixed:
           volumes:

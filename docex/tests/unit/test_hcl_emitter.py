@@ -294,6 +294,62 @@ def test_env_main_tf_references_remote_state_outputs(compiled_elastic_project: P
     assert "data.terraform_remote_state.project.outputs.certificate_arn" in tf
 
 
+# ---------------------------------------------------------------------------
+# Mod 010 — health_check block on aws_lb_target_group from target_extras.
+# ---------------------------------------------------------------------------
+
+
+def test_aws_lb_target_group_emits_health_check_from_target_extras(tmp_path: Path):
+    """When a web-network service declares `health_check_path`, the emitted
+    `aws_lb_target_group` HCL must include a nested `health_check { ... }`
+    block — not a stray `target_group_health_check` key on the task
+    definition. This is the bug mod 010 closes.
+    """
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    # Patch the fixture's `web`/`api` service to declare a health check.
+    infra_yml = dest / "infra" / "infra.yml"
+    infra_yml.write_text(
+        infra_yml.read_text().replace(
+            "    networks: [web, internal]\n",
+            "    networks: [web, internal]\n    health_check_path: /health\n",
+            1,
+        )
+    )
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+    # Target group exists and carries a health_check sub-block.
+    assert 'resource "aws_lb_target_group" "api"' in tf
+    assert "health_check {" in tf
+    assert 'path = "/health"' in tf
+    assert "healthy_threshold = 2" in tf
+    assert "interval = 30" in tf
+    # The pre-mod-010 wrapper key must never reach the task definition.
+    assert "target_group_health_check" not in tf
+
+
+def test_aws_lb_target_group_omits_health_check_when_no_field(tmp_path: Path):
+    """Services that do not declare `health_check_path` produce a target
+    group with no `health_check` block — preserves the prior shape for
+    services that opt out."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+    assert 'resource "aws_lb_target_group" "api"' in tf
+    # No health_check block emitted when no field was declared.
+    # (We have to be careful: an aws_db_instance might also emit a
+    # `health_check` block in some templates, so scope by service.)
+    tg_block_start = tf.find('resource "aws_lb_target_group" "api"')
+    tg_block_end = tf.find("}", tg_block_start) + 1
+    tg_block = tf[tg_block_start:tg_block_end]
+    assert "health_check" not in tg_block
+
+
 def test_fixed_compile_skips_project_main_tf(tmp_path: Path):
     """Fixed-foundation projects don't need project-tier HCL."""
     fixed_fixture = (

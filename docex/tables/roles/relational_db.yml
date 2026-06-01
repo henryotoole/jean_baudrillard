@@ -23,6 +23,9 @@ roles:
     postgres:
       foundation: both
       default_port: 5432
+      emits:
+        fixed: [compose_service]
+        elastic: [rds_instance]
       # Names RDS rejects as DBName for a postgres engine, plus the
       # postgres SQL-standard reserved keyword set the operator is
       # most likely to trip on when naming a backing service after a

@@ -14,6 +14,43 @@ first post-`0.4.0` overhaul.
 
 ### Added
 
+- `emits:` + `target:` schema for cross-resource field routing. Engines
+  now declare an ordered per-foundation list of emit destinations; the
+  first entry is the default target (where `defaults:` and any field
+  translation without an explicit `target:` lands). A field translation
+  may declare `target: <name>` from that list to land on a non-default
+  destination — letting a single field configure something other than
+  the engine's primary emitted resource. The destination-name set is
+  closed and lives in docex source as `EMIT_DESTINATIONS` in
+  `cicl/transfer.py`. Compile-time validation catches unknown emit
+  destinations, undeclared `target:` refs, and `target: target_group`
+  on services not on the `web` network. New validation issue codes:
+  `EMITS_MISSING`, `EMITS_UNKNOWN_DESTINATION`, `FIELD_TARGET_UNDECLARED`,
+  `FIELD_TARGET_NOT_APPLICABLE`. Mod 010.
+
+### Fixed
+
+- `health_check_path: /health` on a `web`-network core service now
+  reaches the compiled HCL's `aws_lb_target_group` as a nested
+  `health_check { path = "/health" ... }` block. Previously the field's
+  elastic translation was deep-merged into the ECS task-definition body
+  (where its `target_group_health_check:` wrapper was meaningless and
+  silently dropped) while the target group resource was emitted with
+  hardcoded fields only. ALB fell back to checking `/`, which the
+  application didn't serve, and the rolling deploy cycled tasks
+  indefinitely on 404s. Fixed by routing the translation via
+  `target: target_group` (mod 010's new machinery). The maptrack smoke
+  release tripped on this; manual patching the live target group via
+  `elbv2 modify-target-group --health-check-path` was the workaround.
+
+### Changed
+
+- `EngineEntry.field_translation()` return type changed from
+  `dict[str, Any] | None` to `tuple[str, dict[str, Any]] | None` — the
+  string is the resolved target destination, the dict is the
+  translation body minus the `target:` key. Internal API only; no
+  callers outside docex's own source tree.
+
 - `sslmode` provided part on `relational_db`/`postgres` — compile-time
   constant, `"disable"` on fixed and `"require"` on elastic. Closes the
   one fixed↔elastic difference the parts-only model wasn't hiding:

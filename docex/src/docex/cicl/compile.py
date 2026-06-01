@@ -297,6 +297,11 @@ class CompiledService:
     # ``schema_owned_by: <this_service>``). Used by the elastic HCL
     # emitter to know whether to emit a *_migrate task definition.
     schema_owned_by_db: bool = False
+    # Field translations that route to a non-default emit target.
+    # Keyed by destination name (e.g. "target_group"); the value is the
+    # resolved translation body. Empty dict when no fields routed
+    # off-default. Mod 010.
+    target_extras: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass
@@ -393,39 +398,55 @@ def compile_env(
         engine = engines_by_service[name]
         ctx = contexts[name]
 
-        # 1. Start with engine defaults for this foundation.
+        # 1. Start with engine defaults — these always land on the
+        #    engine's default target.
+        default_target = engine.default_target(foundation)
         body: dict[str, Any] = engine.defaults_for(foundation)
         body = _apply_substitution(body, ctx, foundation, resolver, name)
+        target_extras: dict[str, dict[str, Any]] = {}
+
+        def _route_translation(
+            translation_body: dict[str, Any], target: str, fctx: dict[str, Any]
+        ) -> None:
+            """Substitute then merge into default body or target_extras."""
+            nonlocal body
+            resolved = _apply_substitution(
+                translation_body, fctx, foundation, resolver, name,
+                use_local_ctx=True,
+            )
+            if target == default_target:
+                body = _deep_merge(body, resolved)
+            else:
+                existing = target_extras.get(target, {})
+                target_extras[target] = _deep_merge(existing, resolved)
 
         # 2. Apply each role-specific field declared on the service.
-        extras = (svc.model_extra or {})
-        for fname, fvalue in sorted(extras.items()):
+        extras_yaml = (svc.model_extra or {})
+        for fname, fvalue in sorted(extras_yaml.items()):
             if fname in ("version", "schema_owned_by"):
                 # `version` is a field; `schema_owned_by` is structural.
                 pass
-            trans = engine.field_translation(fname, foundation)
-            if trans is None:
+            translated = engine.field_translation(fname, foundation)
+            if translated is None:
                 # Unknown role-specific field on this engine/foundation —
                 # the validator already reported it; skip gracefully.
                 continue
-            # field_value substitution context.
-            field_ctx = {**ctx, "field_value": fvalue}
-            block = _apply_substitution(
-                trans, field_ctx, foundation, resolver, name, use_local_ctx=True
+            target, translation_body = translated
+            _route_translation(
+                translation_body, target, {**ctx, "field_value": fvalue}
             )
-            body = _deep_merge(body, block)
 
         # Special-case: backing services also expose `version` as a field
         # (per the canonical postgres/redis tables), but the value lives on
         # the model, not in model_extra.
         if isinstance(svc, BackingService) and svc.version is not None:
-            trans = engine.field_translation("version", foundation)
-            if trans is not None:
-                field_ctx = {**ctx, "field_value": svc.version}
-                block = _apply_substitution(
-                    trans, field_ctx, foundation, resolver, name, use_local_ctx=True
+            translated = engine.field_translation("version", foundation)
+            if translated is not None:
+                target, translation_body = translated
+                _route_translation(
+                    translation_body, target,
+                    {**ctx, "field_value": svc.version},
                 )
-                body = _deep_merge(body, block)
 
         # 3. Apply per-foundation invariants and image refs.
         if foundation == "fixed":
@@ -516,6 +537,7 @@ def compile_env(
             ),
             schema_owned_by=getattr(svc, "schema_owned_by", None),
             schema_owned_by_db=(is_core and name in core_owning_schema),
+            target_extras=target_extras,
         )
 
     return CompiledEnv(

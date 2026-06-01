@@ -391,6 +391,18 @@ def render_core(
         out.append( '  protocol    = "HTTP"')
         out.append( '  target_type = "ip"')
         out.append( '  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id')
+        tg_extras = svc.target_extras.get("target_group", {})
+        hc = tg_extras.get("health_check")
+        if hc:
+            out.append("  health_check {")
+            # Python dicts preserve insertion order, so iteration matches the
+            # field-translation declaration order from the transfer table.
+            for k, v in hc.items():
+                if isinstance(v, str):
+                    out.append(f'    {k} = "{v}"')
+                else:
+                    out.append(f'    {k} = {v}')
+            out.append("  }")
         out.append("}")
         out.append("")
         out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')

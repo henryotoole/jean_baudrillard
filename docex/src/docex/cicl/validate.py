@@ -69,6 +69,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_web_service_ports(doc))
     issues.extend(_validate_env_secrets_overlap(doc))
     issues.extend(_validate_reserved_engine_names(doc, tables))
+    issues.extend(_validate_emits(doc, tables))
     return issues
 
 
@@ -469,6 +470,150 @@ def _validate_env_secrets_overlap(doc: CICLDocument) -> list[ValidationIssue]:
                 ),
                 where=f"core_services.{name}",
             ))
+    return issues
+
+
+def _engine_for_service(
+    svc: Any, tables: TransferTables, foundation: str
+) -> Any:
+    """Resolve the engine entry that applies to ``svc`` under ``foundation``.
+
+    Mirrors the precedence logic the compiler uses: for backing services,
+    walk the ``engine:`` candidates and return the first that supports
+    the foundation; for core services, walk all engines of the role and
+    return the first that supports the foundation. Returns ``None`` if
+    the role isn't known or nothing matches — callers skip in that case.
+    """
+    role = svc.role
+    if role not in tables.by_role:
+        return None
+    if isinstance(svc, BackingService):
+        candidates = svc.engine if isinstance(svc.engine, list) else [svc.engine]
+    else:
+        candidates = sorted(tables.role(role).keys())
+    for cand in candidates:
+        try:
+            entry = tables.engine(role, cand)
+        except Exception:
+            continue
+        if entry.supports(foundation):
+            return entry
+    return None
+
+
+def _validate_emits(
+    doc: CICLDocument, tables: TransferTables
+) -> list[ValidationIssue]:
+    """Check every used engine declares `emits:` correctly, and that
+    every `target:` reference resolves to a declared destination.
+
+    See transfer_tables.md § Validation rules 11 + 12. Mod 010.
+    """
+    from docex.cicl.transfer import EMIT_DESTINATIONS
+
+    issues: list[ValidationIssue] = []
+
+    # Foundations the project may compile for: fixed always (dev/test);
+    # elastic additionally if the project's foundation is elastic.
+    project_foundations = ["fixed"]
+    if doc.foundation == "elastic":
+        project_foundations.append("elastic")
+
+    seen_engines: set[tuple[str, str]] = set()
+    for svc_name, svc in doc.all_services().items():
+        engine = _engine_for_service(svc, tables, doc.foundation)
+        if engine is None:
+            continue
+        key = (engine.role, engine.engine)
+        if key not in seen_engines:
+            seen_engines.add(key)
+
+            # Rule 11: emits.<foundation> exists and is non-empty for every
+            # foundation the engine + project supports. Destination names
+            # are in the doctrine-recognized closed set.
+            for fnd in project_foundations:
+                if not engine.supports(fnd):
+                    continue
+                decls = (engine.emits or {}).get(fnd) or []
+                if not decls:
+                    issues.append(ValidationIssue(
+                        rule="EMITS_MISSING",
+                        message=(
+                            f"engine {engine.engine!r} of role {engine.role!r} "
+                            f"declares no `emits:` for foundation {fnd!r}. Every "
+                            f"engine must declare at least one emit destination "
+                            f"per supported foundation. See transfer_tables.md § "
+                            f"Validation rule 11."
+                        ),
+                    ))
+                    continue
+                for dest in decls:
+                    if dest not in EMIT_DESTINATIONS.get(fnd, frozenset()):
+                        issues.append(ValidationIssue(
+                            rule="EMITS_UNKNOWN_DESTINATION",
+                            message=(
+                                f"engine {engine.engine!r} of role "
+                                f"{engine.role!r}: `emits.{fnd}` declares "
+                                f"unknown destination {dest!r}. Known "
+                                f"destinations for {fnd!r}: "
+                                f"{sorted(EMIT_DESTINATIONS.get(fnd, []))}."
+                            ),
+                        ))
+
+            # Rule 12: every field translation's `target:` (if set) names
+            # a destination in the engine's `emits.<foundation>`.
+            for field_name, per_field in (engine.fields or {}).items():
+                if not isinstance(per_field, dict):
+                    continue
+                for fnd, translation in per_field.items():
+                    if not isinstance(translation, dict):
+                        continue
+                    target = translation.get("target")
+                    if target is None:
+                        continue
+                    declared = set((engine.emits or {}).get(fnd) or [])
+                    if target not in declared:
+                        issues.append(ValidationIssue(
+                            rule="FIELD_TARGET_UNDECLARED",
+                            message=(
+                                f"engine {engine.engine!r} of role "
+                                f"{engine.role!r}: field "
+                                f"{field_name!r}.{fnd} declares "
+                                f"target={target!r} but engine's "
+                                f"emits.{fnd}={sorted(declared)!r} does not "
+                                f"include it. See transfer_tables.md § "
+                                f"Validation rule 12."
+                            ),
+                        ))
+
+        # Rule 12 — conditional target check: `target: target_group`
+        # requires the consuming service to be on the `web` network.
+        # The translation is invalid for any service not on `web`.
+        if "web" not in (svc.networks or []):
+            for field_name, per_field in (engine.fields or {}).items():
+                if not isinstance(per_field, dict):
+                    continue
+                # Check whether the project actually set this field on this
+                # service. If not, the translation is dormant — no issue.
+                if field_name not in (svc.model_extra or {}):
+                    continue
+                trans = per_field.get(doc.foundation)
+                if not isinstance(trans, dict):
+                    continue
+                if trans.get("target") == "target_group":
+                    issues.append(ValidationIssue(
+                        rule="FIELD_TARGET_NOT_APPLICABLE",
+                        message=(
+                            f"service {svc_name!r} declares field "
+                            f"{field_name!r} (routes to `target_group`) "
+                            f"but is not on the `web` network. Add `web` "
+                            f"to its `networks:` list or remove the "
+                            f"field. See transfer_tables.md § Validation "
+                            f"rule 12."
+                        ),
+                        where=svc_name,
+                    ))
+
     return issues
 
 

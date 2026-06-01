@@ -18,6 +18,8 @@ roles:
     description: "Object/blob storage backing service."
     minio:
       foundation: fixed
+      emits:
+        fixed: [compose_service]
       defaults:
         fixed:
           image: "minio/minio:latest"
@@ -58,6 +60,8 @@ roles:
 
     s3:
       foundation: elastic
+      emits:
+        elastic: [s3_bucket]
       defaults:
         elastic:
           force_destroy: false

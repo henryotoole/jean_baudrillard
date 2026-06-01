@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -245,3 +247,185 @@ def test_rule_11_no_gpu_on_elastic():
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
     assert "rule_11_no_gpu_on_elastic" in rules
+
+
+# ---------------------------------------------------------------------------
+# Mod 010 — emits: + target: routing validation.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_emits_passes_on_bundled_tables():
+    """Every bundled engine declares its `emits:` correctly; validation
+    should produce zero EMITS_* / FIELD_TARGET_* issues on a clean doc."""
+    doc = _doc(_BASE_FIXED)
+    issues = validate_document(doc, _tables())
+    codes = {i.rule for i in issues}
+    assert "EMITS_MISSING" not in codes
+    assert "EMITS_UNKNOWN_DESTINATION" not in codes
+    assert "FIELD_TARGET_UNDECLARED" not in codes
+    assert "FIELD_TARGET_NOT_APPLICABLE" not in codes
+
+
+def test_validate_emits_missing_for_supported_foundation(tmp_path: Path):
+    """An engine that supports a foundation but declares no emits for it
+    fails validation with EMITS_MISSING.
+
+    We exercise this by introducing a project-local role/engine that
+    declares `foundation: both` but `emits:` only for fixed. The deep
+    merge would preserve the bundled `emits.elastic` on existing engines,
+    so a fresh engine is the clean test bed.
+    """
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    override = {
+        "roles": {
+            "custom_thing": {
+                "myengine": {
+                    "foundation": "both",
+                    "naming": "ecs",
+                    "emits": {"fixed": ["compose_service"]},
+                    "provides": {},
+                }
+            }
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "override.yml").write_text(
+        yaml.safe_dump(override)
+    )
+    tables = load_transfer_tables(project_root=proj)
+    # An elastic doc consuming the custom role so the elastic foundation
+    # path triggers.
+    src = """
+cicl_version: "1"
+foundation: elastic
+domain: example.com
+core_services:
+  api:
+    role: web
+    networks: [web, internal]
+    port: 8080
+    resources:
+      cpu: 1.0
+      memory: 2GB
+backing_services:
+  thing:
+    role: custom_thing
+    engine: myengine
+    networks: [internal]
+"""
+    doc = _doc(src)
+    issues = validate_document(doc, tables)
+    rules = [i.rule for i in issues]
+    assert "EMITS_MISSING" in rules
+
+
+def test_validate_emits_unknown_destination(tmp_path: Path):
+    """An engine declaring an unrecognized destination name fails with
+    EMITS_UNKNOWN_DESTINATION."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    override = {
+        "roles": {
+            "relational_db": {
+                "postgres": {
+                    "emits": {
+                        "fixed": ["compose_service"],
+                        "elastic": ["not_a_real_destination"],
+                    },
+                }
+            }
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "override.yml").write_text(
+        yaml.safe_dump(override)
+    )
+    tables = load_transfer_tables(project_root=proj)
+    src = _BASE_FIXED.replace("foundation: fixed", "foundation: elastic")
+    src = src.replace("container_registry: registry.example.com\n", "")
+    doc = _doc(src)
+    issues = validate_document(doc, tables)
+    rules = [i.rule for i in issues]
+    assert "EMITS_UNKNOWN_DESTINATION" in rules
+
+
+def test_validate_field_target_undeclared(tmp_path: Path):
+    """A field translation whose `target:` is not in the engine's `emits:`
+    list fails with FIELD_TARGET_UNDECLARED."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    override = {
+        "roles": {
+            "relational_db": {
+                "postgres": {
+                    "fields": {
+                        "version": {
+                            "elastic": {
+                                # target_group isn't in postgres's emits.
+                                "target": "target_group",
+                                "engine_version": "${field_value}",
+                            },
+                        },
+                    },
+                }
+            }
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "override.yml").write_text(
+        yaml.safe_dump(override)
+    )
+    tables = load_transfer_tables(project_root=proj)
+    src = _BASE_FIXED.replace("foundation: fixed", "foundation: elastic")
+    src = src.replace("container_registry: registry.example.com\n", "")
+    doc = _doc(src)
+    issues = validate_document(doc, tables)
+    rules = [i.rule for i in issues]
+    assert "FIELD_TARGET_UNDECLARED" in rules
+
+
+def test_validate_field_target_not_applicable_when_service_off_web():
+    """`target: target_group` requires the consuming service to be on the
+    `web` network. A service that declares `health_check_path` but isn't
+    on `web` fails with FIELD_TARGET_NOT_APPLICABLE."""
+    # Build an elastic doc where the web service is taken off the `web`
+    # network and given a health_check_path. Health check field still
+    # routes to `target_group` per the bundled web.yml.
+    src = """
+cicl_version: "1"
+foundation: elastic
+domain: example.com
+core_services:
+  api:
+    role: web
+    networks: [internal]
+    port: 8080
+    health_check_path: /health
+    resources:
+      cpu: 1.0
+      memory: 2GB
+"""
+    doc = _doc(src)
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "FIELD_TARGET_NOT_APPLICABLE" in rules
+
+
+def test_validate_field_target_applicable_when_on_web():
+    """Same field on a service that IS on `web` should NOT trip the rule."""
+    src = """
+cicl_version: "1"
+foundation: elastic
+domain: example.com
+core_services:
+  api:
+    role: web
+    networks: [web, internal]
+    port: 8080
+    health_check_path: /health
+    resources:
+      cpu: 1.0
+      memory: 2GB
+"""
+    doc = _doc(src)
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "FIELD_TARGET_NOT_APPLICABLE" not in rules

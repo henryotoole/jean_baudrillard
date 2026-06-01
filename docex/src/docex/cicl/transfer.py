@@ -37,6 +37,25 @@ _BUNDLED_TABLES_CANDIDATES: list[Path] = [
 ]
 
 
+# The closed set of emit destinations the compiler recognizes. Engines
+# declare a subset of these in their `emits:` block; fields route to
+# one of them via `target:`. Adding a destination requires growing the
+# routing layer in compile.py + emit/hcl.py — that's the point: new
+# destinations are doctrine knowledge embedded in docex source, not a
+# free extension surface in the transfer tables.
+EMIT_DESTINATIONS: dict[str, frozenset[str]] = {
+    "fixed": frozenset({"compose_service"}),
+    "elastic": frozenset({
+        "task_definition",
+        "ecs_service",
+        "target_group",
+        "rds_instance",
+        "elasticache_cluster",
+        "s3_bucket",
+    }),
+}
+
+
 @dataclass
 class EngineEntry:
     """A single role/engine entry from a transfer table."""
@@ -61,6 +80,12 @@ class EngineEntry:
     # this list (case-insensitive) so the operator hears about a
     # collision at ``docex compile`` time instead of at ``tofu apply``.
     reserved_names: list[str] = field(default_factory=list)
+    # Per-foundation ordered list of emit destinations. First entry =
+    # default target (where `defaults:` and any field translation
+    # without an explicit `target:` lands). Subsequent entries are
+    # alternative destinations selectable via `target:` on a field
+    # translation. See transfer_tables.md § emits.
+    emits: dict[str, list[str]] = field(default_factory=dict)
 
     def supports(self, foundation: str) -> bool:
         return self.foundation in (foundation, "both")
@@ -77,13 +102,45 @@ class EngineEntry:
                 out[part_name] = per_foundation[foundation]
         return out
 
+    def default_target(self, foundation: str) -> str:
+        """Return the engine's default emit destination for ``foundation``.
+
+        Raises TransferTableError if the engine declares no `emits:` for
+        that foundation. Every engine that supports a foundation must
+        declare a non-empty emits list for it — checked by validation.
+        """
+        targets = (self.emits or {}).get(foundation) or []
+        if not targets:
+            raise TransferTableError(
+                f"engine {self.engine!r} of role {self.role!r}: no `emits:` "
+                f"declared for foundation {foundation!r}. Every engine must "
+                f"declare at least one emit destination per supported "
+                f"foundation."
+            )
+        return targets[0]
+
     def field_translation(
         self, field_name: str, foundation: str
-    ) -> dict[str, Any] | None:
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Resolve a role-specific field translation to (target, body).
+
+        Returns ``None`` if the engine doesn't define the field for this
+        foundation. The ``target`` is the field's explicit ``target:``
+        when set, otherwise the engine's default target for this
+        foundation. The ``body`` is the translation YAML *minus* the
+        ``target:`` key.
+        """
         f = (self.fields or {}).get(field_name)
         if f is None:
             return None
-        return f.get(foundation)
+        per_foundation = f.get(foundation)
+        if per_foundation is None:
+            return None
+        if not isinstance(per_foundation, dict):
+            return None
+        body = dict(per_foundation)
+        target = body.pop("target", None) or self.default_target(foundation)
+        return (target, body)
 
 
 @dataclass
@@ -239,6 +296,20 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
             f"naming-policy reference (got {naming_ref!r}). "
             f"See transfer_tables.md § Naming Policies."
         )
+    raw_emits = raw.get("emits") or {}
+    if not isinstance(raw_emits, dict):
+        raise TransferTableError(
+            f"role {role!r} engine {engine!r}: `emits:` must be a "
+            f"mapping of foundation -> list of destinations"
+        )
+    emits: dict[str, list[str]] = {}
+    for fnd, targets in raw_emits.items():
+        if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
+            raise TransferTableError(
+                f"role {role!r} engine {engine!r}: `emits.{fnd}:` must be "
+                f"a list of destination name strings"
+            )
+        emits[fnd] = list(targets)
     return EngineEntry(
         role=role,
         engine=engine,
@@ -257,6 +328,7 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
             str(item).lower()
             for item in (raw.get("reserved_names") or [])
         ],
+        emits=emits,
     )
 
 

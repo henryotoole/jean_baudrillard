@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from docex.cicl.transfer import (
+    EngineEntry,
     _deep_merge,
     load_transfer_tables,
 )
@@ -160,6 +161,134 @@ def test_loader_rejects_inline_naming_struct(tmp_path: Path):
     assert "naming" in msg
     # The error should point at the doctrine reference.
     assert "policy" in msg.lower() or "string" in msg.lower()
+
+
+# ---------------------------------------------------------------------------
+# Mod 010 — emits: + target: routing on field translations.
+# ---------------------------------------------------------------------------
+
+
+def test_engine_default_target_returns_first_emits_entry():
+    entry = EngineEntry(
+        role="web",
+        engine="container",
+        foundation="both",
+        emits={
+            "fixed": ["compose_service"],
+            "elastic": ["task_definition", "ecs_service", "target_group"],
+        },
+        naming="ecs",
+    )
+    assert entry.default_target("fixed") == "compose_service"
+    assert entry.default_target("elastic") == "task_definition"
+
+
+def test_engine_default_target_errors_when_no_emits_declared():
+    entry = EngineEntry(
+        role="web", engine="container", foundation="fixed", naming="ecs"
+    )
+    with pytest.raises(TransferTableError):
+        entry.default_target("fixed")
+
+
+def test_field_translation_returns_target_and_body():
+    entry = EngineEntry(
+        role="web",
+        engine="container",
+        foundation="both",
+        emits={"elastic": ["task_definition", "target_group"]},
+        fields={
+            "health_check_path": {
+                "elastic": {
+                    "target": "target_group",
+                    "health_check": {"path": "${field_value}"},
+                },
+            },
+        },
+        naming="ecs",
+    )
+    result = entry.field_translation("health_check_path", "elastic")
+    assert result is not None
+    target, body = result
+    assert target == "target_group"
+    assert body == {"health_check": {"path": "${field_value}"}}
+    # The `target:` key is stripped from the returned body.
+    assert "target" not in body
+
+
+def test_field_translation_defaults_target_to_first_emit():
+    entry = EngineEntry(
+        role="relational_db",
+        engine="postgres",
+        foundation="both",
+        emits={"elastic": ["rds_instance"]},
+        fields={"version": {"elastic": {"engine_version": "${field_value}"}}},
+        naming="rds",
+    )
+    result = entry.field_translation("version", "elastic")
+    assert result is not None
+    target, body = result
+    assert target == "rds_instance"
+    assert body == {"engine_version": "${field_value}"}
+
+
+def test_field_translation_returns_none_for_missing_field():
+    entry = EngineEntry(
+        role="web",
+        engine="container",
+        foundation="both",
+        emits={"elastic": ["task_definition"]},
+        naming="ecs",
+    )
+    assert entry.field_translation("nonexistent", "elastic") is None
+
+
+def test_field_translation_returns_none_when_foundation_undefined():
+    entry = EngineEntry(
+        role="web",
+        engine="container",
+        foundation="both",
+        emits={"fixed": ["compose_service"], "elastic": ["task_definition"]},
+        fields={"only_fixed": {"fixed": {"a": 1}}},
+        naming="ecs",
+    )
+    assert entry.field_translation("only_fixed", "elastic") is None
+
+
+def test_emits_parsed_from_bundled_tables():
+    """The doctrine's bundled tables now declare `emits:` for every engine."""
+    tables = load_transfer_tables(project_root=None)
+    postgres = tables.engine("relational_db", "postgres")
+    assert postgres.emits == {
+        "fixed": ["compose_service"],
+        "elastic": ["rds_instance"],
+    }
+    container = tables.engine("web", "container")
+    assert container.emits == {
+        "fixed": ["compose_service"],
+        "elastic": ["task_definition", "ecs_service", "target_group"],
+    }
+    minio = tables.engine("object_store", "minio")
+    assert minio.emits == {"fixed": ["compose_service"]}
+    s3 = tables.engine("object_store", "s3")
+    assert s3.emits == {"elastic": ["s3_bucket"]}
+
+
+def test_loader_rejects_malformed_emits(tmp_path: Path):
+    """`emits:` must be a mapping of foundation -> list of strings."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    bad = {
+        "roles": {
+            "relational_db": {
+                "postgres": {"emits": "this should be a mapping"},
+            }
+        }
+    }
+    (proj / "infra" / "transfer_tables" / "bad.yml").write_text(yaml.safe_dump(bad))
+    with pytest.raises(TransferTableError) as exc_info:
+        load_transfer_tables(project_root=proj)
+    assert "emits" in str(exc_info.value)
 
 
 def test_project_local_naming_policy_override(tmp_path: Path):
