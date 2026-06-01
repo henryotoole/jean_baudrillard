@@ -76,4 +76,4 @@ and how the rest of this repo is maintained.
 
 Two doctrine-faithful smoke-test projects live at [`docex/test_projects/`](../../test_projects/): one per foundation. Before cutting a minor or major version, the operator walks both through their full release paths (`bootstrap → compile → containerize → release stage → stagetest → release prod → teardown`) against real infrastructure. The procedure — including the pre-walk doctrine-conformance audit — is in [`docex/test_projects/PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md). Patch cuts skip this; minor and major cuts require it green.
 
-For more details on the structure of these projects, please see the [test project README](../../test_projects/README.md).
+For the architecture and design of those projects (why two foundations, code identity, git structure, commit cadence, cut lifecycle), see [`test_projects.md`](./test_projects.md).
