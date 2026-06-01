@@ -30,13 +30,16 @@ roles:
       # display name, alias around it (e.g. service name `app_db`).
       reserved_names:
         # Common RDS/admin collisions:
-        - database
-        - postgres
         - admin
+        - database
+        - db
         - master
-        - root
+        - postgres
         - public
         - rdsadmin
+        - root
+        - template0
+        - template1
         # SQL-standard reserved keywords that postgres also reserves:
         - all
         - analyse

@@ -25,9 +25,9 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
         assert rc == 0
 
         # Confirm the migration's table exists by asking psql.
-        # We exec into the db container.
+        # We exec into the appdb container.
         env_file = fresh_project / "infra" / "secrets" / "dev.env"
-        # Find db service's project-scoped global name.
+        # Find appdb service's project-scoped global name.
         ps_out = subprocess.check_output(
             ["docker", "compose", "-f", str(compose_file),
              "--project-directory", str(fresh_project),
@@ -36,10 +36,10 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
             text=True,
         )
         db_key = next(
-            (s.strip() for s in ps_out.splitlines() if s.strip().endswith("db")),
-            "db",
+            (s.strip() for s in ps_out.splitlines() if s.strip().endswith("appdb")),
+            "appdb",
         )
-        # The default db name is the backing-service name "db" (from the
+        # The default DBName is the backing-service name "appdb" (from the
         # engine table's ${name} substitution), not the project name.
         result = subprocess.run(
             [
@@ -47,7 +47,7 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
                 "--project-directory", str(fresh_project),
                 "--env-file", str(env_file),
                 "exec", "-T", db_key,
-                "psql", "-U", "sample", "-d", "db",
+                "psql", "-U", "sample", "-d", "appdb",
                 "-c", "\\dt health",
             ],
             capture_output=True,

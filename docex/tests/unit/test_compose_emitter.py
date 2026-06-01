@@ -101,8 +101,8 @@ def test_backing_service_never_gets_core_bind_mounts(tmp_path: Path):
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    db = _find_core_service_block(services, "db")
-    volumes = db.get("volumes") or []
+    appdb = _find_core_service_block(services, "appdb")
+    volumes = appdb.get("volumes") or []
     for v in volumes:
         assert "/service/src" not in v, v
         assert "/service/dist" not in v, v
@@ -137,22 +137,22 @@ def test_backing_service_on_web_is_routed(tmp_path: Path):
     Traefik labels too, at its per-service host."""
     root = _copy_fixture(tmp_path)
     infra_yml = root / "infra" / "infra.yml"
-    # Put the (ported) db on the web network.
+    # Put the (ported) appdb on the web network.
     infra_yml.write_text(
         infra_yml.read_text().replace("networks: [internal]", "networks: [web, internal]")
     )
     ctx = load_project_context(root)
     run_compile(ctx)
     services = _compose_services(root, "dev")
-    db = _find_core_service_block(services, "db")
-    labels = db.get("labels") or []
+    appdb = _find_core_service_block(services, "appdb")
+    labels = appdb.get("labels") or []
     assert "traefik.enable=true" in labels
     rule = next(l for l in labels if ".rule=" in l)
-    assert "Host(`db.dev.example.com`)" in rule
+    assert "Host(`appdb.dev.example.com`)" in rule
 
 
 def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: Path):
-    """api depends on db (postgres → engine table declares a healthcheck),
+    """api depends on appdb (postgres → engine table declares a healthcheck),
     so the emitted long-form depends_on must wait for service_healthy."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
@@ -162,10 +162,10 @@ def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: P
     api = _find_core_service_block(services, "api")
     deps = api.get("depends_on")
     assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
-    # The dep key must be the project-scoped global name of `db`.
-    db_key = next((k for k in deps if k.endswith("db")), None)
-    assert db_key is not None, f"db not in api.depends_on: {sorted(deps)}"
-    assert deps[db_key] == {"condition": "service_healthy"}, deps[db_key]
+    # The dep key must be the project-scoped global name of `appdb`.
+    appdb_key = next((k for k in deps if k.endswith("appdb")), None)
+    assert appdb_key is not None, f"appdb not in api.depends_on: {sorted(deps)}"
+    assert deps[appdb_key] == {"condition": "service_healthy"}, deps[appdb_key]
 
 
 def test_web_network_is_shared_external_and_others_are_project_scoped(tmp_path: Path):
@@ -216,8 +216,8 @@ def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path
     # reverse_proxy role's fixed defaults are empty, so the emitted compose
     # block has no healthcheck — the exact shape needed for this branch.
     modified = original.replace(
-        "    depends_on: [db]",
-        "    depends_on: [db, proxy]",
+        "    depends_on: [appdb]",
+        "    depends_on: [appdb, proxy]",
         1,
     ) + (
         "\n  proxy:\n"

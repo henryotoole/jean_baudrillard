@@ -38,3 +38,9 @@ A service on a non-`web` network is reachable only from other services on the sa
 
 - **Fixed:** the container joins the `{project}_{env}_{network}` docker network. Other containers on the same network reach it by container name, which equals `${global_service_name}`. Docker enforces network isolation.
 - **Elastic:** the service is attached to the `{project}_{env}_{network}` security group. That SG accepts ingress only from itself — i.e., from other services attached to the same SG.
+
+#### Egress
+
+Every project-emitted SG on the elastic foundation carries an allow-all egress rule (`0.0.0.0/0`, all ports, all protocols). This matches the AWS-side default for a freshly-created SG; Terraform's `aws_security_group` resource otherwise denies egress when no `egress` block is specified, which would prevent Fargate tasks from reaching SSM, ECR, and other AWS service endpoints they need to start.
+
+Constraining egress per network — restricting traffic to specific AWS service endpoints or to other project SGs — is deferred. See [infrastructure.md § Deferred](../infrastructure.md#deferred) rule 6.

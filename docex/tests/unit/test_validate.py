@@ -25,12 +25,12 @@ core_services:
     role: web
     networks: [web, internal]
     port: 8080
-    depends_on: [db]
+    depends_on: [appdb]
     resources:
       cpu: 1.0
       memory: 2GB
 backing_services:
-  db:
+  appdb:
     role: relational_db
     engine: postgres
     version: "15"
@@ -68,7 +68,7 @@ def test_repo_url_accepted():
 def test_rule_domain_default_must_be_web():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
-        "container_registry: registry.example.com\ndomain_default_service: db",
+        "container_registry: registry.example.com\ndomain_default_service: appdb",
     )
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_domain_default_not_web" for i in issues)
@@ -129,7 +129,7 @@ def test_rule_3_unresolved_magic_ref_unknown_part():
     # Refer to a part the engine doesn't expose.
     src = _BASE_FIXED.replace(
         "      memory: 2GB\n",
-        "      memory: 2GB\n    env:\n      X: ${backing_services.db.no_such_part}\n",
+        "      memory: 2GB\n    env:\n      X: ${backing_services.appdb.no_such_part}\n",
         1,
     )
     doc = _doc(src)
@@ -141,8 +141,8 @@ def test_rule_3_unresolved_magic_ref_unknown_part():
 def test_rule_6_depends_on_cycle():
     # Force a cycle.
     src = _BASE_FIXED.replace(
-        "    depends_on: [db]\n",
-        "    depends_on: [db]\n    # api depends on db\n",
+        "    depends_on: [appdb]\n",
+        "    depends_on: [appdb]\n    # api depends on appdb\n",
     )
     src = src.replace(
         "    schema_owned_by: api\n",
@@ -155,14 +155,14 @@ def test_rule_6_depends_on_cycle():
 
 
 def test_rule_7_magic_ref_implies_depends_on():
-    # Reference db via magic ref but remove it from depends_on.
+    # Reference appdb via magic ref but remove it from depends_on.
     src = _BASE_FIXED.replace(
-        "    depends_on: [db]\n",
+        "    depends_on: [appdb]\n",
         "    depends_on: []\n",
     )
     src = src.replace(
         "      memory: 2GB\n",
-        "      memory: 2GB\n    env:\n      X: ${backing_services.db.host}\n",
+        "      memory: 2GB\n    env:\n      X: ${backing_services.appdb.host}\n",
         1,
     )
     doc = _doc(src)
@@ -194,13 +194,9 @@ def test_rule_9_container_registry_required_on_fixed():
 def test_rule_engine_reserved_name_postgres():
     """A postgres backing service named after a reserved keyword fails
     compile, because RDS would reject the DBName at apply time."""
-    # Rename `db` → `database` (a name on postgres's reserved list).
-    src = _BASE_FIXED.replace("  db:", "  database:")
-    src = src.replace("[db]", "[database]")
-    src = src.replace("backing_services.db.", "backing_services.database.")
-    # The fixed-foundation _BASE_FIXED has no env refs to db, so the
-    # above replace is mostly a no-op — but kept for symmetry with the
-    # full elastic flow.
+    # Rename `appdb` → `database` (a name on postgres's reserved list).
+    src = _BASE_FIXED.replace("  appdb:", "  database:")
+    src = src.replace("[appdb]", "[database]")
     issues = validate_document(_doc(src), _tables())
     rules = [i.rule for i in issues]
     assert "rule_engine_reserved_name" in rules
@@ -208,8 +204,28 @@ def test_rule_engine_reserved_name_postgres():
 
 def test_rule_engine_reserved_name_case_insensitive():
     """Matching is case-insensitive — `Database` is just as reserved."""
-    src = _BASE_FIXED.replace("  db:", "  Database:")
-    src = src.replace("[db]", "[Database]")
+    src = _BASE_FIXED.replace("  appdb:", "  Database:")
+    src = src.replace("[appdb]", "[Database]")
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_engine_reserved_name" in rules
+
+
+def test_rule_engine_reserved_name_db():
+    """RDS rejects ``db`` as a postgres DBName; mod 006 added it to the
+    reserved_names list so compile catches it before tofu apply does."""
+    src = _BASE_FIXED.replace("  appdb:", "  db:")
+    src = src.replace("[appdb]", "[db]")
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_engine_reserved_name" in rules
+
+
+def test_rule_engine_reserved_name_template0():
+    """``template0`` is a postgres internal template DB; RDS rejects it as
+    the initial DBName. Mod 006 reserves it."""
+    src = _BASE_FIXED.replace("  appdb:", "  template0:")
+    src = src.replace("[appdb]", "[template0]")
     issues = validate_document(_doc(src), _tables())
     rules = [i.rule for i in issues]
     assert "rule_engine_reserved_name" in rules

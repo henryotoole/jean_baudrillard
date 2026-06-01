@@ -16,10 +16,10 @@ terraform {
     }
   }
   backend "s3" {
-    bucket         = "docex_smoke_elastic-tofu-state"
+    bucket         = "docex-smoke-elastic-tofu-state"
     key            = "project/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "docex_smoke_elastic-tofu-locks"
+    dynamodb_table = "docex_smoke_elastic_tofu_locks"
     encrypt        = true
   }
 }
@@ -247,7 +247,7 @@ resource "aws_ecr_repository" "worker" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "task_execution" {
-  name = "docex_smoke_elastic-task-execution"
+  name = "docex_smoke_elastic_task_execution"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -272,7 +272,7 @@ resource "aws_iam_role_policy_attachment" "task_execution_managed" {
 # project's SSM prefix, so containers' `secrets[]` entries resolve.
 # Scoped to `/${project}/*` so a leaked role can't read other projects.
 resource "aws_iam_role_policy" "task_execution_ssm" {
-  name = "docex_smoke_elastic-task-execution-ssm"
+  name = "docex_smoke_elastic_task_execution_ssm"
   role = aws_iam_role.task_execution.id
   policy = jsonencode({
     Version = "2012-10-17"

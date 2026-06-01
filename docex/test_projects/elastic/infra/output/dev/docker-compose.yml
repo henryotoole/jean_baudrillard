@@ -15,10 +15,10 @@ networks:
     external: true
     name: web
 services:
-  docex-smoke-elastic-dev-db:
-    container_name: docex-smoke-elastic-dev-db
+  docex-smoke-elastic-dev-appdb:
+    container_name: docex-smoke-elastic-dev-appdb
     environment:
-      POSTGRES_DB: db
+      POSTGRES_DB: appdb
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_USER: ${POSTGRES_USER}
     healthcheck:
@@ -26,7 +26,7 @@ services:
       retries: 5
       test:
       - CMD-SHELL
-      - pg_isready -U ${POSTGRES_USER} -d db
+      - pg_isready -U ${POSTGRES_USER} -d appdb
       timeout: 5s
     image: postgres:15
     logging: *default-logging
@@ -34,15 +34,15 @@ services:
     - internal
     restart: unless-stopped
     volumes:
-    - docex-smoke-elastic-dev-db_data:/var/lib/postgresql/data
-  docex-smoke-elastic-dev-web:
+    - docex-smoke-elastic-dev-appdb_data:/var/lib/postgresql/data
+  docex_smoke_elastic_dev_web:
     build:
       context: ./core/web
       dockerfile: Dockerfile
       target: dev
-    container_name: docex-smoke-elastic-dev-web
+    container_name: docex_smoke_elastic_dev_web
     depends_on:
-      docex-smoke-elastic-dev-db:
+      docex-smoke-elastic-dev-appdb:
         condition: service_healthy
     deploy:
       resources:
@@ -50,20 +50,20 @@ services:
           cpus: '0.25'
           memory: 512MB
     environment:
-      DATABASE_HOST: docex-smoke-elastic-dev-db
-      DATABASE_NAME: db
+      DATABASE_HOST: docex-smoke-elastic-dev-appdb
+      DATABASE_NAME: appdb
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_PORT: '5432'
       DATABASE_USER: ${POSTGRES_USER}
     image: docex_smoke_elastic/web:0.0.1
     labels:
     - traefik.enable=true
-    - traefik.http.routers.docex-smoke-elastic-dev-web.rule=Host(`dev.doctrine-elastic.luxrnd.tech`)
+    - traefik.http.routers.docex_smoke_elastic_dev_web.rule=Host(`dev.doctrine-elastic.luxrnd.tech`)
       || Host(`web.dev.doctrine-elastic.luxrnd.tech`)
-    - traefik.http.routers.docex-smoke-elastic-dev-web.entrypoints=websecure
-    - traefik.http.routers.docex-smoke-elastic-dev-web.tls=true
-    - traefik.http.routers.docex-smoke-elastic-dev-web.tls.certresolver=doctrine
-    - traefik.http.services.docex-smoke-elastic-dev-web.loadbalancer.server.port=8080
+    - traefik.http.routers.docex_smoke_elastic_dev_web.entrypoints=websecure
+    - traefik.http.routers.docex_smoke_elastic_dev_web.tls=true
+    - traefik.http.routers.docex_smoke_elastic_dev_web.tls.certresolver=doctrine
+    - traefik.http.services.docex_smoke_elastic_dev_web.loadbalancer.server.port=8080
     logging: *default-logging
     networks:
     - web
@@ -74,14 +74,14 @@ services:
     volumes:
     - ./core/web/src:/service/src
     - ./core/web/dist:/service/dist
-  docex-smoke-elastic-dev-worker:
+  docex_smoke_elastic_dev_worker:
     build:
       context: ./core/worker
       dockerfile: Dockerfile
       target: dev
-    container_name: docex-smoke-elastic-dev-worker
+    container_name: docex_smoke_elastic_dev_worker
     depends_on:
-      docex-smoke-elastic-dev-db:
+      docex-smoke-elastic-dev-appdb:
         condition: service_healthy
     deploy:
       resources:
@@ -89,8 +89,8 @@ services:
           cpus: '0.25'
           memory: 512MB
     environment:
-      DATABASE_HOST: docex-smoke-elastic-dev-db
-      DATABASE_NAME: db
+      DATABASE_HOST: docex-smoke-elastic-dev-appdb
+      DATABASE_NAME: appdb
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_PORT: '5432'
       DATABASE_USER: ${POSTGRES_USER}
@@ -105,5 +105,5 @@ services:
     - ./core/worker/src:/service/src
     - ./core/worker/dist:/service/dist
 volumes:
-  docex-smoke-elastic-dev-db_data:
-    name: docex-smoke-elastic-dev-db_data
+  docex-smoke-elastic-dev-appdb_data:
+    name: docex-smoke-elastic-dev-appdb_data

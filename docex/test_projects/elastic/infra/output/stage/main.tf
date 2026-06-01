@@ -12,10 +12,10 @@ terraform {
   }
   # State backend reference (provisioned by `docex bootstrap`).
   backend "s3" {
-    bucket         = "docex_smoke_elastic-tofu-state"
+    bucket         = "docex-smoke-elastic-tofu-state"
     key            = "stage/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "docex_smoke_elastic-tofu-locks"
+    dynamodb_table = "docex_smoke_elastic_tofu_locks"
     encrypt        = true
   }
 }
@@ -37,7 +37,7 @@ data "aws_caller_identity" "current" {}
 data "terraform_remote_state" "project" {
   backend = "s3"
   config = {
-    bucket = "docex_smoke_elastic-tofu-state"
+    bucket = "docex-smoke-elastic-tofu-state"
     key    = "project/terraform.tfstate"
     region = "us-east-1"
   }
@@ -126,7 +126,7 @@ resource "aws_security_group" "alb" {
 # Reverse proxy: one ALB per env
 # ---------------------------------------------------------------------------
 resource "aws_lb" "alb" {
-  name               = "docex_smoke_elastic-stage-alb"
+  name               = "docex-smoke-elastic-stage-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
@@ -172,7 +172,7 @@ resource "aws_lb_listener" "alb_http_redirect" {
 # ECS cluster
 # ---------------------------------------------------------------------------
 resource "aws_ecs_cluster" "cluster" {
-  name = "docex_smoke_elastic-stage"
+  name = "docex_smoke_elastic_stage"
   tags = {
     project    = "docex_smoke_elastic"
     env        = "stage"
@@ -183,26 +183,26 @@ resource "aws_ecs_cluster" "cluster" {
 # ---------------------------------------------------------------------------
 # Backing services
 # ---------------------------------------------------------------------------
-data "aws_ssm_parameter" "db_postgres_user" {
+data "aws_ssm_parameter" "appdb_postgres_user" {
   name            = "/docex_smoke_elastic/stage/POSTGRES_USER"
   with_decryption = true
 }
-data "aws_ssm_parameter" "db_postgres_password" {
+data "aws_ssm_parameter" "appdb_postgres_password" {
   name            = "/docex_smoke_elastic/stage/POSTGRES_PASSWORD"
   with_decryption = true
 }
 
-resource "aws_db_instance" "db" {
+resource "aws_db_instance" "appdb" {
   allocated_storage = 20
   backup_retention_period = 7
-  db_name = "db"
-  db_subnet_group_name = aws_db_subnet_group.db.name
+  db_name = "appdb"
+  db_subnet_group_name = aws_db_subnet_group.appdb.name
   deletion_protection = true
   engine = "postgres"
   engine_version = "15"
-  identifier = "docex-smoke-elastic-stage-db"
+  identifier = "docex-smoke-elastic-stage-appdb"
   instance_class = "db.t3.medium"
-  password = data.aws_ssm_parameter.db_postgres_password.value
+  password = data.aws_ssm_parameter.appdb_postgres_password.value
   publicly_accessible = false
   storage_encrypted = false
   storage_type = "gp3"
@@ -211,14 +211,14 @@ resource "aws_db_instance" "db" {
     managed_by = "doctrine"
     project = "docex_smoke_elastic"
     role = "relational_db"
-    service = "db"
+    service = "appdb"
   }
-  username = data.aws_ssm_parameter.db_postgres_user.value
+  username = data.aws_ssm_parameter.appdb_postgres_user.value
   vpc_security_group_ids = [aws_security_group.internal.id]
 }
 
-resource "aws_db_subnet_group" "db" {
-  name       = "docex-smoke-elastic-stage-db"
+resource "aws_db_subnet_group" "appdb" {
+  name       = "docex-smoke-elastic-stage-appdb"
   subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids
 }
 
@@ -228,7 +228,7 @@ resource "aws_db_subnet_group" "db" {
 # Core services (ECS task definitions, services, target groups)
 # ---------------------------------------------------------------------------
 resource "aws_ecs_task_definition" "web" {
-  family                   = "docex-smoke-elastic-stage-web"
+  family                   = "docex_smoke_elastic_stage_web"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = "256"
@@ -241,10 +241,10 @@ resource "aws_ecs_task_definition" "web" {
     {
       environment = [{
           name = "DATABASE_HOST"
-          value = "${aws_db_instance.db.endpoint}"
+          value = "${aws_db_instance.appdb.endpoint}"
         }, {
           name = "DATABASE_NAME"
-          value = "db"
+          value = "appdb"
         }, {
           name = "DATABASE_PORT"
           value = "5432"
@@ -269,7 +269,7 @@ resource "aws_ecs_task_definition" "web" {
 }
 
 resource "aws_ecs_task_definition" "web_migrate" {
-  family                   = "docex-smoke-elastic-stage-web_migrate"
+  family                   = "docex_smoke_elastic_stage_web_migrate"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = "256"
@@ -280,10 +280,10 @@ resource "aws_ecs_task_definition" "web_migrate" {
       command = ["/service/migrate.sh"]
       environment = [{
           name = "DATABASE_HOST"
-          value = "${aws_db_instance.db.endpoint}"
+          value = "${aws_db_instance.appdb.endpoint}"
         }, {
           name = "DATABASE_NAME"
-          value = "db"
+          value = "appdb"
         }, {
           name = "DATABASE_PORT"
           value = "5432"
@@ -326,7 +326,7 @@ resource "aws_lb_listener_rule" "web" {
 }
 
 resource "aws_ecs_service" "web" {
-  name            = "docex-smoke-elastic-stage-web"
+  name            = "docex_smoke_elastic_stage_web"
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.web.arn
   launch_type     = "FARGATE"
@@ -343,7 +343,7 @@ resource "aws_ecs_service" "web" {
 }
 
 resource "aws_ecs_task_definition" "worker" {
-  family                   = "docex-smoke-elastic-stage-worker"
+  family                   = "docex_smoke_elastic_stage_worker"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = "256"
@@ -356,10 +356,10 @@ resource "aws_ecs_task_definition" "worker" {
     {
       environment = [{
           name = "DATABASE_HOST"
-          value = "${aws_db_instance.db.endpoint}"
+          value = "${aws_db_instance.appdb.endpoint}"
         }, {
           name = "DATABASE_NAME"
-          value = "db"
+          value = "appdb"
         }, {
           name = "DATABASE_PORT"
           value = "5432"
@@ -380,7 +380,7 @@ resource "aws_ecs_task_definition" "worker" {
 }
 
 resource "aws_ecs_service" "worker" {
-  name            = "docex-smoke-elastic-stage-worker"
+  name            = "docex_smoke_elastic_stage_worker"
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.worker.arn
   launch_type     = "FARGATE"

@@ -103,7 +103,7 @@ def test_compile_resolves_magic_ref_in_env(tmp_path: Path):
     compose = (root / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
     # host part resolves to the project-scoped service name.
     assert "DATABASE_HOST" in compose
-    assert "sample-dev-db" in compose
+    assert "sample-dev-appdb" in compose
     # secret parts: compose runtime form uses ${VAR}, never $[VAR].
     assert "DATABASE_USER" in compose
     assert "${POSTGRES_USER}" in compose
@@ -166,9 +166,9 @@ def test_composed_secret_in_env_fails_compile(tmp_path: Path):
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
     infra_yml = root / "infra" / "infra.yml"
     text = infra_yml.read_text().replace(
-        "      DATABASE_USER: ${backing_services.db.user}",
-        "      DATABASE_USER: ${backing_services.db.user}\n"
-        "      DATABASE_URL: postgres://${backing_services.db.user}@h/db",
+        "      DATABASE_USER: ${backing_services.appdb.user}",
+        "      DATABASE_USER: ${backing_services.appdb.user}\n"
+        "      DATABASE_URL: postgres://${backing_services.appdb.user}@h/db",
     )
     infra_yml.write_text(text)
     ctx = load_project_context(root)
@@ -183,7 +183,7 @@ def test_example_env_includes_postgres_keys(tmp_path: Path):
     example = (root / "infra" / "secrets" / "example.env").read_text()
     assert "POSTGRES_USER=" in example
     assert "POSTGRES_PASSWORD=" in example
-    assert "# db" in example
+    assert "# appdb" in example
 
 
 _SECRET_INFRA = """\
@@ -240,7 +240,7 @@ def test_core_secret_becomes_ecs_secret_on_elastic(tmp_path: Path):
 
 def test_compose_depends_on_uses_global_service_keys(tmp_path: Path):
     """``depends_on`` in compose must reference compose service keys
-    (global names like ``sample-dev-db``), not the simple names
+    (global names like ``sample-dev-appdb``), not the simple names
     used in infra.yml. Docker compose rejects the file otherwise.
     """
     import yaml
@@ -283,19 +283,19 @@ core_services:
     role: web
     port: 8080
     networks: [web, internal]
-    depends_on: [db]
+    depends_on: [appdb]
     env:
-      DATABASE_HOST: ${backing_services.db.host}
-      DATABASE_PORT: ${backing_services.db.port}
-      DATABASE_NAME: ${backing_services.db.db}
-      DATABASE_USER: ${backing_services.db.user}
-      DATABASE_PASSWORD: ${backing_services.db.password}
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
     resources:
       cpu: 0.25
       memory: 512MB
       disk: 25GB
 backing_services:
-  db:
+  appdb:
     role: relational_db
     engine: postgres
     version: "15"
@@ -370,7 +370,7 @@ def test_env_tier_rds_and_ecs_service_names(tmp_path: Path):
     for env in ("stage", "prod"):
         tf = (proj / "infra" / "output" / env / "main.tf").read_text()
         # RDS instance identifier (postgres → rds policy).
-        assert f'identifier = "docex-smoke-elastic-{env}-db"' in tf
+        assert f'identifier = "docex-smoke-elastic-{env}-appdb"' in tf
         # ECS service + task family (web → ecs policy).
         assert f'name            = "docex_smoke_elastic_{env}_web"' in tf
         assert f'family                   = "docex_smoke_elastic_{env}_web"' in tf
@@ -393,6 +393,28 @@ def test_bootstrap_state_backend_matches_project_tier(tmp_path: Path):
     table = apply_policy("docex_smoke_elastic_tofu_locks", policies.get("ddb"))
     assert f'bucket         = "{bucket}"' in project_tf
     assert f'dynamodb_table = "{table}"' in project_tf
+
+
+# ---------------------------------------------------------------------------
+# Mod 006 — SG egress on elastic env main.tf.
+# ---------------------------------------------------------------------------
+
+
+def test_every_emitted_sg_has_egress(tmp_path: Path):
+    """Mod 006: every project-emitted SG in an elastic env main.tf carries
+    an egress block. Without it, Terraform's aws_security_group denies all
+    egress and Fargate can't reach SSM/ECR. The elastic fixture declares
+    two networks (web, internal); plus the ALB SG = 3 egress blocks total.
+    """
+    root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        assert tf.count("egress {") == 3, (
+            f"expected 3 egress blocks in {env}/main.tf "
+            f"(web SG, internal SG, ALB SG), got {tf.count('egress {')}"
+        )
 
 
 def test_describe_dag_and_llm(tmp_path: Path):
@@ -420,6 +442,6 @@ def test_describe_dag_and_llm(tmp_path: Path):
     assert parsed["env"] == "prod"
     assert parsed["foundation"] == "fixed"
     assert any(
-        edge["from"] == "api" and edge["to"] == "db"
+        edge["from"] == "api" and edge["to"] == "appdb"
         for edge in parsed["edges"]
     )

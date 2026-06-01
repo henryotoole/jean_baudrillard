@@ -37,7 +37,7 @@ def test_up_then_down_dev(fresh_project, docker_client):
         running = [line.strip() for line in out.splitlines() if line.strip()]
         # compose returns the project-scoped service keys (sample-dev-api).
         assert any(s.endswith("api") for s in running), running
-        assert any(s.endswith("db") for s in running), running
+        assert any(s.endswith("appdb") for s in running), running
     finally:
         run_down(ctx, docker_client, env="dev")
         # Also clean named volumes so the test is hermetic across runs.

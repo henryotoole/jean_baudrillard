@@ -4,8 +4,8 @@
 # asserts that:
 #   - ``/health`` is declared with a GET (required for any service
 #     on the ``web`` network).
-#   - ``/health/db`` is declared with a GET (required because
-#     ``api`` declares ``depends_on: [db]`` and ``db`` is
+#   - ``/health/appdb`` is declared with a GET (required because
+#     ``api`` declares ``depends_on: [appdb]`` and ``appdb`` is
 #     not on the open web — the API must surface its health by proxy).
 #
 # Phase 3 does NOT do deep schema conformance; it only checks the
@@ -25,7 +25,7 @@ paths:
       responses:
         "200":
           description: OK
-  /health/db:
+  /health/appdb:
     get:
       summary: Database dependency liveness (proxied by api)
       responses:
