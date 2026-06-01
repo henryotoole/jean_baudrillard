@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # teardown.sh — fully retire docex_smoke_elastic from AWS.
 #
-# Idempotent: safe to re-run. Runs `tofu destroy` for each env (prod →
-# stage → project tier), then boto3-driven cleanup of resources tofu
-# doesn't catch (ECR image tags, SSM parameters under the project
-# prefix). Finally deletes the tofu state backend bucket and lock table
-# since this project is being fully retired between cuts.
+# Idempotent: safe to re-run. Smoke-project teardown does in script
+# what production retirement does manually:
+#   - Disables RDS deletion_protection on every project DB before
+#     `tofu destroy` reaches them (the transfer table sets
+#     deletion_protection=true on every RDS for prod safety; smoke
+#     projects always teardown so we override at retirement time).
+#   - Purges ECR images/repos before the project-tier `tofu destroy`
+#     so it doesn't trip on RepositoryNotEmptyException.
+# Then walks `tofu destroy` per env (stage → prod → project), cleans
+# up tofu-side residue (SSM params, state backend), and sweeps any
+# local docker artifacts from `dev`/`test` envs.
 #
 # AWS_REGION pinned to us-east-1 (doctrine).
 
@@ -14,34 +20,45 @@ set -uo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_NAME="docex_smoke_elastic"
 AWS_REGION="us-east-1"
-STATE_BUCKET="${PROJECT_NAME}-tofu-state"
-STATE_LOCK_TABLE="${PROJECT_NAME}-tofu-locks"
 
-# Project name as it shows up in AWS resource names (hyphenated form).
-# docex names resources by replacing _ with - per the `web` role's
-# naming defaults; mirror that here.
+# Project name as it shows up in AWS resource names. The smoke project
+# uses snake_case (docex_smoke_elastic), but several AWS resource types
+# disallow underscores in identifiers; docex's `naming_policies` table
+# (mod 005) translates per policy:
+#   s3  → hyphen (no underscores in S3 bucket names)
+#   ddb → underscore (DynamoDB accepts both; doctrine prefers underscore)
+#   rds → hyphen (RDS identifiers disallow underscores)
+# Mirror those translations here so teardown finds what bootstrap created.
 PROJECT_AWS_PREFIX="${PROJECT_NAME//_/-}"
+STATE_BUCKET="${PROJECT_AWS_PREFIX}-tofu-state"
+STATE_LOCK_TABLE="${PROJECT_NAME}_tofu_locks"
 
 export AWS_REGION
 
 echo "==> tearing down $PROJECT_NAME in AWS region $AWS_REGION"
 
-# -- 1. tofu destroy each env, then project tier -------------------------
-for layer in prod stage project; do
-  dir="$PROJECT_ROOT/infra/output/$layer"
-  if [[ -f "$dir/main.tf" ]]; then
-    echo "-- tofu destroy: $layer"
-    (cd "$dir" && tofu init -input=false -upgrade >/dev/null 2>&1 || true)
-    (cd "$dir" && tofu destroy -auto-approve -input=false) \
-      || echo "   (warning: tofu destroy on $layer had non-zero exit; continuing)"
-  fi
+# -- 1. Disable RDS deletion_protection ---------------------------------
+# WHY: the relational_db/postgres transfer-table entry sets
+# deletion_protection=true so production RDS instances can't be deleted
+# accidentally. Smoke projects always teardown — override at retirement
+# time so the subsequent tofu destroy can proceed.
+echo "-- disabling RDS deletion_protection (smoke project)"
+for db in $(aws rds describe-db-instances \
+              --query "DBInstances[?starts_with(DBInstanceIdentifier, \`${PROJECT_AWS_PREFIX}-\`)].DBInstanceIdentifier" \
+              --output text 2>/dev/null || true); do
+  echo "   RDS: $db"
+  aws rds modify-db-instance \
+    --db-instance-identifier "$db" \
+    --no-deletion-protection \
+    --apply-immediately >/dev/null 2>&1 || true
 done
 
-# -- 2. ECR images that tofu didn't catch --------------------------------
-# WHY: aws_ecr_repository with `force_delete = false` won't destroy a
-# repo that still holds images. docex sets force_delete on the project's
-# ECR repos, but a partial destroy can leave images stranded — purge by
-# name prefix as belt-and-suspenders.
+# -- 2. ECR images + repos ----------------------------------------------
+# WHY: aws_ecr_repository emits without `force_delete = true`, so
+# `tofu destroy` at the project tier fails with
+# RepositoryNotEmptyException if any image is still in the repo. Purge
+# ahead of tofu so the project-tier destroy is clean. Tofu treats
+# already-deleted resources as removed-from-state on its next pass.
 echo "-- ECR repositories under prefix $PROJECT_NAME/"
 for repo in $(aws ecr describe-repositories \
                 --query "repositories[?starts_with(repositoryName, \`${PROJECT_NAME}/\`)].repositoryName" \
@@ -56,7 +73,18 @@ for repo in $(aws ecr describe-repositories \
   aws ecr delete-repository --repository-name "$repo" --force >/dev/null 2>&1 || true
 done
 
-# -- 3. SSM parameters under the project prefix --------------------------
+# -- 3. tofu destroy each env, then project tier ------------------------
+for layer in prod stage project; do
+  dir="$PROJECT_ROOT/infra/output/$layer"
+  if [[ -f "$dir/main.tf" ]]; then
+    echo "-- tofu destroy: $layer"
+    (cd "$dir" && tofu init -input=false -upgrade >/dev/null 2>&1 || true)
+    (cd "$dir" && tofu destroy -auto-approve -input=false) \
+      || echo "   (warning: tofu destroy on $layer had non-zero exit; continuing)"
+  fi
+done
+
+# -- 4. SSM parameters under the project prefix -------------------------
 echo "-- SSM parameters under /${PROJECT_NAME}/"
 mapfile -t params < <(aws ssm describe-parameters \
   --parameter-filters "Key=Name,Option=BeginsWith,Values=/${PROJECT_NAME}/" \
@@ -68,7 +96,7 @@ if [[ "${#params[@]}" -gt 0 ]]; then
   done
 fi
 
-# -- 4. tofu state backend (full retirement) -----------------------------
+# -- 5. tofu state backend (full retirement) ----------------------------
 echo "-- tofu state bucket + lock table"
 # Empty the bucket first (versions + delete markers); then delete it.
 aws s3api list-object-versions --bucket "$STATE_BUCKET" \
@@ -90,7 +118,7 @@ fi
 aws s3api delete-bucket --bucket "$STATE_BUCKET" >/dev/null 2>&1 || true
 aws dynamodb delete-table --table-name "$STATE_LOCK_TABLE" >/dev/null 2>&1 || true
 
-# -- 5. Compiled output --------------------------------------------------
+# -- 6. Compiled output -------------------------------------------------
 echo "-- compiled infra/output"
 rm -rf "$PROJECT_ROOT/infra/output/dev" \
        "$PROJECT_ROOT/infra/output/test" \
@@ -98,7 +126,7 @@ rm -rf "$PROJECT_ROOT/infra/output/dev" \
        "$PROJECT_ROOT/infra/output/prod" \
        "$PROJECT_ROOT/infra/output/project"
 
-# -- 6. Local docker artifacts for dev/test envs -------------------------
+# -- 7. Local docker artifacts for dev/test envs ------------------------
 # `dev`/`test` envs compile to fixed compose stacks even on elastic
 # projects; sweep up any local containers/networks/volumes too.
 for container in $(docker ps -aq --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
