@@ -41,7 +41,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 ### Elastic-Foundation
 
-**Runtime Shape** - A [registrar] is configured such that our [dns] routes requests by domain to the env's [reverse_proxy]. The [reverse_proxy] terminates TLS with [cert_manager] and forwards each request to the correct [service] within that environment based on host or path rules. In `prod`, [core_service]s can have multiple replicas; the [reverse_proxy] load-balances across them. [service]s communicate over shared environment [network]s, which on elastic are AWS security groups within the project [vpc]. [service_discovery] (ECS Service Connect) allows [service]s to find each other by name; reachability remains gated by SG rules.
+**Runtime Shape** - A [registrar] is configured such that our [dns] routes requests by domain to the env's [reverse_proxy]. The [reverse_proxy] terminates TLS with [cert_manager] and forwards each request to the correct [service] within that environment based on host or path rules. In `prod`, [core_service]s can have multiple replicas; the [reverse_proxy] load-balances across them. [service]s communicate over shared environment [network]s, which on elastic are AWS security groups within the project [vpc]. [service_discovery] allows [service]s to find each other by name; reachability remains gated by SG rules.
 
 **Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry]. The `stage` and `prod` environments reference these images in their ECS task definitions and release them by combining with [environment_config] applied via OpenTofu and [secrets] pushed to AWS SSM Parameter Store.
 

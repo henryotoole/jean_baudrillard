@@ -3,7 +3,7 @@ name: doctrine
 description: The doctrine provides one canonical way to perform all deterministic (e.g. non-design) tasks in a software project. It defines infrastructure, lays out project structure, and prescribes development processes. This skill absolutely must be used any time code is going to be written or an existing doctrine-driven project is going to be read about or worked with.
 ---
 
-This skill primarily uses the `@file` notation to load all critical doctrine files into context. After that, it provides some suggestions of specific skills that might be needed to go deeper during development. Only information needed to understand a project and iterate in a mod cycle is loaded. Deeper skills (right now involving infrastructure) are catalogued below, but not loaded into context.
+This skill primarily uses the `@file` notation to load all critical doctrine files into context. This uses a great deal of context. One day I'll split it down further into distinct skills.
 
 @../../jean_baudrillard/doctrine/overview.md
 @../../jean_baudrillard/doctrine/lexicon.md
