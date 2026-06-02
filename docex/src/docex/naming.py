@@ -20,6 +20,37 @@ from typing import Mapping
 
 from docex.errors import TransferTableError
 
+# Per transfer_tables.md § Failure-mode contract — strict allowlist of
+# the keys a naming-policy body may contain. Anything else is a hard
+# error at load time.
+_ALLOWED_POLICY_KEYS: frozenset[str] = frozenset({
+    "separator",
+    "case",
+    "max_len",
+})
+
+
+def _validate_policy_keys(
+    display_path: str, name: str, body: dict
+) -> None:
+    """Strictly validate a naming-policy body's keys. Source-attributed.
+
+    Called from transfer.py::_validate_file during the per-file pass,
+    before policies are merged across layers. The structural value
+    checks (separator/case/max_len semantics) still happen in
+    parse_policies — this function is only the unknown-key gate.
+    """
+    # WHY: lazy import — transfer.py imports naming.py at module load
+    # so a top-level import here would create a circular dependency.
+    from docex.cicl.transfer import _did_you_mean
+    for key in body:
+        if key not in _ALLOWED_POLICY_KEYS:
+            raise TransferTableError(
+                f"{display_path}: naming_policies.{name}: "
+                f"unknown key {key!r}"
+                + _did_you_mean(key, _ALLOWED_POLICY_KEYS)
+            )
+
 
 @dataclass(frozen=True)
 class NamingPolicy:

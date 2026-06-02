@@ -320,8 +320,13 @@ backing_services:
 
 
 def test_validate_emits_unknown_destination(tmp_path: Path):
-    """An engine declaring an unrecognized destination name fails with
-    EMITS_UNKNOWN_DESTINATION."""
+    """An engine declaring an unrecognized destination name is rejected
+    at transfer-table load time (mod 012). Was previously surfaced
+    downstream as a EMITS_UNKNOWN_DESTINATION validation issue; the
+    failure now happens earlier with source attribution, before any
+    `infra.yml` compilation can run."""
+    from docex.errors import TransferTableError
+
     proj = tmp_path / "proj"
     (proj / "infra" / "transfer_tables").mkdir(parents=True)
     override = {
@@ -339,13 +344,12 @@ def test_validate_emits_unknown_destination(tmp_path: Path):
     (proj / "infra" / "transfer_tables" / "override.yml").write_text(
         yaml.safe_dump(override)
     )
-    tables = load_transfer_tables(project_root=proj)
-    src = _BASE_FIXED.replace("foundation: fixed", "foundation: elastic")
-    src = src.replace("container_registry: registry.example.com\n", "")
-    doc = _doc(src)
-    issues = validate_document(doc, tables)
-    rules = [i.rule for i in issues]
-    assert "EMITS_UNKNOWN_DESTINATION" in rules
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(project_root=proj)
+    msg = str(exc.value)
+    assert "infra/transfer_tables/override.yml" in msg
+    assert "roles.relational_db.postgres.emits.elastic" in msg
+    assert "not_a_real_destination" in msg
 
 
 def test_validate_field_target_undeclared(tmp_path: Path):

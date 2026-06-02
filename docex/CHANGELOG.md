@@ -12,6 +12,27 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Changed
+
+- **Transfer-table loading is now strict and source-attributed.** Unknown
+  top-level keys, unknown engine sub-keys, unknown naming-policy
+  sub-keys, and unknown `emits:` destinations are hard errors at load
+  time. Every error names the source YAML file (relative path:
+  `tables/...` for bundled, `infra/transfer_tables/...` for
+  project-local) and the position within it (top-level key, role,
+  engine, policy name). Plausible typos within Levenshtein distance 2
+  of a known key get a "did you mean X?" suggestion; otherwise the
+  full allowed-key list is shown. Identical strictness for bundled and
+  project-local tables — a bug in a bundled table fails the same way a
+  bug in a project-local table does. Doctrine: `transfer_tables.md` §
+  Failure-mode contract, `cicl.md` § Validation Rules (rules 11 and 15
+  enforced at load time). Mod 012.
+
+- `test_validate_emits_unknown_destination` rewritten to assert against
+  the new load-time error site instead of the old downstream
+  `EMITS_UNKNOWN_DESTINATION` issue rule — the failure now surfaces
+  earlier and with source attribution.
+
 ## [0.9.0] - 2026-06-02
 
 ### Added

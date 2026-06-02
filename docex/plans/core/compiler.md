@@ -149,7 +149,11 @@ The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-ti
 
 ## Validation
 
-`cicl/validate.py` enforces the rules listed in [`cicl.md § Validation Rules`](../../../doctrine/infrastructure/cicl.md#validation-rules) and [`transfer_tables.md § Validation`](../../../doctrine/infrastructure/specifics/transfer_tables.md#validation). Among them:
+Validation lives at two layers:
+
+**Load-time** (`cicl/transfer.py::load_transfer_tables` + `naming.py::_validate_policy_keys`) — runs before any `infra.yml` is compiled. Strict schema enforcement on every transfer-table YAML file, bundled or project-local. Allowlist-based: unknown top-level keys, unknown engine sub-keys, unknown naming-policy sub-keys, and unknown emit destinations all hard-error at load with source attribution and "did you mean X?" hints for plausible typos. Per [`transfer_tables.md § Failure-mode contract`](../../../doctrine/infrastructure/specifics/transfer_tables.md#failure-mode-contract). Allowlists live as `_ALLOWED_*` constants in `transfer.py` and `naming.py` (mod 012).
+
+**Compile-time** (`cicl/validate.py`) — runs against the loaded tables + `infra.yml`. Enforces the rules listed in [`cicl.md § Validation Rules`](../../../doctrine/infrastructure/cicl.md#validation-rules). Among them:
 
 - Every magic ref resolves to a `provides:` part the referenced engine exposes.
 - Every engine is permitted on the target foundation.
@@ -157,7 +161,7 @@ The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-ti
 - Every backing-service name avoids the engine's `reserved_names` (mod 006 extended postgres's list).
 - Every magic-ref dependency between services has a matching `depends_on` declaration.
 
-A compile-time error is always preferable to a tofu/AWS-side error. When in doubt, add validation here rather than rely on AWS to reject something at apply time.
+A compile-time error is always preferable to a tofu/AWS-side error. A load-time error is preferable to a compile-time error. When in doubt, add validation at the earliest layer where the problem is detectable.
 
 ## Where to look when changing things
 
