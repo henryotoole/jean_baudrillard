@@ -142,6 +142,61 @@ def test_migration_taskdef_only_for_schema_owning_core():
     assert "_migrate" not in rendered_backing
 
 
+# ---------------------------------------------------------------------------
+# Mod 014 — ECS Service Connect per-service emission.
+# ---------------------------------------------------------------------------
+
+
+def test_ecs_service_emits_service_connect_block_enabled():
+    """Every aws_ecs_service has service_connect_configuration with enabled=true."""
+    svc = _svc()
+    rendered = render_ecs_service(svc, _ctx())
+    assert "service_connect_configuration {" in rendered
+    assert "enabled   = true" in rendered
+    assert "namespace = aws_service_discovery_http_namespace.env.arn" in rendered
+
+
+def test_ecs_service_with_port_registers_service_block():
+    """A service with a declared port gets a `service {}` block inside SC config."""
+    svc = _svc(port=80)
+    rendered = render_ecs_service(svc, _ctx())
+    assert 'port_name      = "sidecar"' in rendered
+    assert 'discovery_name = "proj_stage_sidecar"' in rendered
+    assert "client_alias {" in rendered
+    assert 'dns_name = "proj_stage_sidecar"' in rendered
+    assert "port     = 80" in rendered
+
+
+def test_ecs_service_without_port_has_no_service_block():
+    """A service without a port (e.g., a port-less worker) participates as a
+    client only — no inner `service {}` block."""
+    svc = _svc(name="worker", port=None)
+    rendered = render_ecs_service(svc, _ctx())
+    assert "service_connect_configuration {" in rendered
+    assert "enabled   = true" in rendered
+    # No inner service block — the `service {}` sub-block specifically
+    # registers the task as discoverable; worker has nothing to register.
+    assert "service {" not in rendered
+    assert "client_alias {" not in rendered
+    assert "discovery_name" not in rendered
+
+
+def test_task_definition_port_mapping_has_name_field():
+    """Port mappings carry `name = <short_service_name>` so Service Connect's
+    port_name reference resolves."""
+    svc = _svc(port=8080)
+    rendered = render_task_definition(svc, _ctx())
+    # The container_def is rendered as HCL via _hcl_value. Scope the
+    # assertion to the portMappings block to avoid colliding with the
+    # container-level `name = "sidecar"` attribute that already exists.
+    pm_start = rendered.find("portMappings")
+    assert pm_start != -1, "expected portMappings in rendered task definition"
+    pm_end = rendered.find("]", pm_start)
+    pm_block = rendered[pm_start:pm_end]
+    assert 'name = "sidecar"' in pm_block
+    assert "containerPort = 8080" in pm_block
+
+
 def test_dispatch_unknown_destination_falls_back_gracefully():
     """An unknown destination (defensive — should be impossible after Mod 012)
     emits a comment, not a crash. Mod 012's load-time validation already rejects

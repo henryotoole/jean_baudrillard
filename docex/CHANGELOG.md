@@ -12,6 +12,29 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- **ECS Service Connect over a Cloud Map HTTP namespace for intra-env
+  service discovery on elastic.** One
+  `aws_service_discovery_http_namespace` per env (named
+  `<project>_<env>`), declared at the env tier alongside the ALB and
+  ECS cluster. Every `aws_ecs_service` carries a
+  `service_connect_configuration` block with `enabled = true`; services
+  with a declared port additionally register a `service {}` sub-block
+  exposing the port as discoverable (`discovery_name` = the service's
+  global name, `client_alias.dns_name` = the same). Services without a
+  port (e.g., a port-less worker) participate as clients only — they
+  can resolve peers but aren't themselves discoverable. Container
+  `portMappings` entries gain a `name = "<short_service_name>"` field
+  so Service Connect's `port_name` reference resolves. Discovery name
+  equals the engine's `provides.host.elastic` template output
+  (`${global_service_name}`), so the same magic-ref value works on both
+  foundations — Docker network DNS on fixed, Service Connect on
+  elastic. Closes the structural gap where consumer-of-container-
+  backing magic refs (`SIDECAR_HOST: ${backing_services.sidecar.host}`)
+  evaluated to a name that didn't resolve to anything. Doctrine:
+  `shape2.md` § Elastic-Foundation table. Mod 014.
+
 ### Changed
 
 - **Elastic HCL emit is now dispatched by emit destination, not by

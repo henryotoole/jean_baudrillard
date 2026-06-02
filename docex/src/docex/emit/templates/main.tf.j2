@@ -181,6 +181,21 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 # ---------------------------------------------------------------------------
+# Service discovery — ECS Service Connect over a Cloud Map HTTP namespace.
+# Per shape2.md § Elastic-Foundation, one namespace per env. Services
+# register themselves via service_connect_configuration on aws_ecs_service.
+# ---------------------------------------------------------------------------
+resource "aws_service_discovery_http_namespace" "env" {
+  name        = "{{ project }}_{{ env }}"
+  description = "ECS Service Connect namespace for {{ project }} {{ env }}"
+  tags = {
+    project    = "{{ project }}"
+    env        = "{{ env }}"
+    managed_by = "doctrine"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Services (backing first, then core; dispatch is by engine.emits.elastic).
 # Per Mod 013, both backing and core services flow through the same
 # destination-driven renderer — what HCL gets emitted is governed by the

@@ -253,7 +253,14 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     }
     if svc.port is not None:
         container_def["portMappings"] = [
-            {"containerPort": svc.port, "protocol": "tcp"}
+            {
+                "containerPort": svc.port,
+                "protocol": "tcp",
+                # WHY: Service Connect requires a named port mapping —
+                # aws_ecs_service.service_connect_configuration.service.port_name
+                # dereferences this. Mod 014.
+                "name": svc.name,
+            }
         ]
     if env_entries:
         container_def["environment"] = env_entries
@@ -328,6 +335,10 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
 def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     """Emit one ``aws_ecs_service``. References ``aws_lb_target_group``
     if the service also emits ``target_group`` (web-network services).
+    Every service participates in the env's Service Connect namespace so
+    intra-env name resolution works — services with a declared port
+    register as discoverable; services without participate as clients
+    only. Mod 014.
     """
     nets = list(svc.networks)
     out: list[str] = []
@@ -341,6 +352,22 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append("    subnets         = data.terraform_remote_state.project.outputs.private_subnet_ids")
     sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in sorted(nets))
     out.append(f"    security_groups = [{sg_refs}]")
+    out.append("  }")
+    # Mod 014: Service Connect. Every service participates so it can
+    # resolve peers. Services with a port also register a `service {}`
+    # block so peers can resolve them.
+    out.append("  service_connect_configuration {")
+    out.append("    enabled   = true")
+    out.append("    namespace = aws_service_discovery_http_namespace.env.arn")
+    if svc.port is not None:
+        out.append("    service {")
+        out.append(f'      port_name      = "{svc.name}"')
+        out.append(f'      discovery_name = "{svc.global_name}"')
+        out.append("      client_alias {")
+        out.append(f"        port     = {svc.port}")
+        out.append(f'        dns_name = "{svc.global_name}"')
+        out.append("      }")
+        out.append("    }")
     out.append("  }")
     if "web" in nets and "target_group" in svc.emits.get("elastic", []):
         out.append("  load_balancer {")

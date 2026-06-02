@@ -387,6 +387,31 @@ def test_core_service_task_definition_environment_carries_project_version(
     assert "/prod/PROJECT_VERSION" not in tf
 
 
+# ---------------------------------------------------------------------------
+# Mod 014 — ECS Service Connect namespace per env.
+# ---------------------------------------------------------------------------
+
+
+def test_service_connect_namespace_emitted_per_env(compiled_prod_tf: str):
+    """Mod 014: one aws_service_discovery_http_namespace per env, named
+    `<project>_<env>`. The elastic fixture's project name is `sample`."""
+    tf = compiled_prod_tf
+    assert 'resource "aws_service_discovery_http_namespace" "env"' in tf
+    assert 'name        = "sample_prod"' in tf
+
+
+def test_service_connect_namespace_emitted_for_stage(tmp_path: Path):
+    """Same namespace resource appears in stage main.tf with the stage-suffixed name."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
+    assert 'resource "aws_service_discovery_http_namespace" "env"' in stage_tf
+    assert 'name        = "sample_stage"' in stage_tf
+
+
 def test_backing_service_hcl_lacks_project_version(compiled_prod_tf: str):
     """Backing services do NOT receive PROJECT_VERSION on elastic — RDS's
     aws_db_instance carries engine credentials, never the project version.
