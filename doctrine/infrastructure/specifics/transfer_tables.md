@@ -308,6 +308,22 @@ This entry shows what differs from a backing service like postgres:
 - **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject_prod_api` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
 - **`health_check_path` is a role-specific field that crosses emit targets.** The project supplies the value (e.g., `/health`) in its `infra.yml`. On fixed, the translation lands on the default `compose_service` target as a docker healthcheck block. On elastic, the translation routes via `target: target_group` to the ALB target group's `health_check` block — *not* to the ECS task definition (the default elastic target). Without the `target:` redirect, the field would silently land on the wrong resource and the ALB would fall back to checking `/`. This is the canonical example of why `emits:` and `target:` exist; before this mechanism the field was structurally undeliverable.
 
+## Failure-mode contract
+
+Errors raised while loading transfer tables — bundled or project-local — are strict and self-describing. The compiler will not silently drop unknown shapes; every malformed entry must be surfaced at load time with enough information to fix it.
+
+1. **Source attribution.** Every error names the YAML file from which the offending value was read (relative to the project root for project-local tables, relative to the docex source for bundled tables). A developer should be able to copy the path from the error and open the file immediately.
+
+2. **Position attribution.** Where the position within the file is recoverable — top-level key, role name, engine name, policy name — the message names it explicitly.
+
+3. **Suggestions on plausible typos.** Unknown keys within a short edit distance of a known key produce a "did you mean X?" hint. Where no close match exists, the full allowed-key list is included instead.
+
+4. **No silent drop.** Unknown top-level keys, unknown engine sub-keys, unknown naming-policy sub-keys, and unknown emit destinations are hard errors at load time. The transfer-table surface is strict — anything outside the schema is rejected at load time, not at use time and not silently.
+
+5. **Identical strictness across both layers.** The same rules apply to doctrine-bundled tables and project-local tables. A bug in a bundled table should fail the same way a bug in a project-local table does.
+
+The full set of allowed keys at each layer is defined in `src/docex/cicl/transfer.py` (`_ALLOWED_*` constants) and in `src/docex/naming.py` (policy keys); they are the source of truth.
+
 ## Foundation Invariants
 
 In addition to engine-specific config, the compiler applies a small set of foundation-wide invariants to every emitted resource. These are not engine-specific — they apply uniformly across every service in a compiled output.

@@ -23,6 +23,7 @@ domain: "example.com"
 domain_default_service: api  # the web service mapped to the bare <env>.<domain>
 container_registry: "registry.example.com"  # required for fixed; optional for elastic (defaults to project ECR)
 repo_url: "https://github.com/owner_account/project_name"
+observability_backend_url: "TODO"
 
 core_services:
 
@@ -169,6 +170,9 @@ The `repo_url` top-level field formally declares the project git repository's UR
 
 This field currently only serves a documentary role. The git host and repo are prerequisite infrastructure and not managed by the `docex` compiler.
 
+### Observability Backend
+TODO
+
 ### Networks
 
 The purpose of a network is to scope windows of access by service. Networks are interpreted from `infra.yml` on the basis of the `networks` field. Each service may belong to multiple networks. Every service must belong to at least one network. For example, a service declaring `networks: [web, internal]` is on both networks: reachable from the internet *and* from the internal service network.
@@ -247,7 +251,9 @@ In order to translate provider-agnostic CICL definitions into the specifics need
 
 For example, many software projects need a relational database. The transfer tables will define `object_store` as a role and list the engines that are available for each foundation e.g. 'minio' for `fixed` and 'S3' for `elastic`. Each engine-foundation combination will contain detailed instructions on how to configure that combination with the relevant tools. These instructions are what allow automatic translation from something like `versioning: true` to `aws_s3_bucket_versioning` resource configuration.
 
-These tables are formatted in plain YAML. The `doctrine` maintains transfer tables which ought to cover most cases. To provide flexibility, projects can also provide their own project-specific transfer tables which will be deep merged with the `doctrine` ones when the compiler runs. However, **care should be taken** when choosing design that calls upon this additional complexity. Most projects won't need it.
+These tables are formatted in plain YAML. The `doctrine` maintains transfer tables which ought to cover most cases. To provide flexibility, projects can also provide their own project-specific transfer tables in the `infra/transfer_tables` folder. These will be deep merged with the `doctrine` ones when the compiler runs. However, **care should be taken** when choosing design that calls upon this additional complexity. Most projects won't need it.
+
+When adding project-specific transfer tables, always load the `docex-transfer-table` skill.
 
 ### Compiler Output
 
@@ -305,3 +311,5 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 13. Every `web`-network service (other than the `reverse_proxy` role) declares a `port` — the reverse proxy routes to it.
 14. A core service's `env:` and `secrets:` do not declare the same key.
 15. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).
+
+Rules 11 and 15 are enforced at transfer-table load time, before any compilation begins, per [transfer_tables.md § Failure-mode contract](./specifics/transfer_tables.md#failure-mode-contract). Rules 1–10 and 12–14 are enforced at compile time against the loaded tables and `infra.yml`.
