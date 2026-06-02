@@ -42,16 +42,45 @@ echo "==> tearing down $PROJECT_NAME in AWS region $AWS_REGION"
 # deletion_protection=true so production RDS instances can't be deleted
 # accidentally. Smoke projects always teardown — override at retirement
 # time so the subsequent tofu destroy can proceed.
+#
+# `modify-db-instance --apply-immediately` is async — the API call
+# returns immediately but the flag flip can take 5-30s to land. If
+# tofu destroy runs before the flag is actually false in AWS, the
+# RDS deletion call is rejected and tofu skips that resource (the
+# subsequent project-tier destroy then trips on the still-attached
+# RDS ENIs). Poll until every project RDS reports DeletionProtection=false
+# before proceeding.
 echo "-- disabling RDS deletion_protection (smoke project)"
+project_dbs=()
 for db in $(aws rds describe-db-instances \
               --query "DBInstances[?starts_with(DBInstanceIdentifier, \`${PROJECT_AWS_PREFIX}-\`)].DBInstanceIdentifier" \
               --output text 2>/dev/null || true); do
   echo "   RDS: $db"
+  project_dbs+=("$db")
   aws rds modify-db-instance \
     --db-instance-identifier "$db" \
     --no-deletion-protection \
     --apply-immediately >/dev/null 2>&1 || true
 done
+
+if [[ "${#project_dbs[@]}" -gt 0 ]]; then
+  echo "   waiting for DeletionProtection=false to land in AWS..."
+  for db in "${project_dbs[@]}"; do
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+      protected=$(aws rds describe-db-instances \
+                    --db-instance-identifier "$db" \
+                    --query "DBInstances[0].DeletionProtection" \
+                    --output text 2>/dev/null || echo "true")
+      if [[ "$protected" == "False" || "$protected" == "false" ]]; then
+        break
+      fi
+      sleep 5
+    done
+    if [[ "$protected" != "False" && "$protected" != "false" ]]; then
+      echo "   (warning: $db still shows DeletionProtection=$protected after polling; tofu destroy may skip it)"
+    fi
+  done
+fi
 
 # -- 2. ECR images + repos ----------------------------------------------
 # WHY: aws_ecr_repository emits without `force_delete = true`, so

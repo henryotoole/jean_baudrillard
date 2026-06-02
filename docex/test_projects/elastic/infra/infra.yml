@@ -11,6 +11,10 @@ core_services:
     role: web
     port: 8080
     networks: [web, internal]
+    # Declared so the ALB target group (on elastic) and the container
+    # healthcheck (on fixed) point at /health rather than /. Routes
+    # via mod 010's `target: target_group` translation on elastic.
+    health_check_path: /health
     depends_on: [appdb]
     env:
       # Built from db's provided parts at startup (parts-only model).

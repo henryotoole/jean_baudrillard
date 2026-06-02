@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-06-02
+
+### Added
+
+- `health_check_path: /health` on the `web` core service in
+  `infra.yml`. Exercises mod 010's `target: target_group` routing
+  end-to-end: the elastic compile now lands a
+  `health_check { path = "/health" ... }` block on the ALB target
+  group, and ECS tasks pass the load-balancer health check (without
+  this the ALB fell back to `/`, which the backend doesn't serve,
+  and the rolling deploy cycled tasks indefinitely on 404s).
+
+### Fixed
+
+- `teardown.sh` now polls until `DeletionProtection=false` lands in
+  AWS API before running `tofu destroy`. The previous version called
+  `modify-db-instance --apply-immediately` (async — flag flip takes
+  5-30s) then immediately ran `tofu destroy`, racing with the API
+  state. When tofu lost the race it skipped RDS deletion silently
+  (the `|| echo warning` swallowed the exit), the project-tier
+  destroy then tripped on still-attached RDS ENIs, and the state
+  bucket was deleted anyway leaving orphaned RDS + VPC behind.
+
 ## [0.0.3] - 2026-06-02
 
 ### Changed
