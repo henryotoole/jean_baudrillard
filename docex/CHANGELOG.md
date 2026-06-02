@@ -12,6 +12,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-02
+
 ### Added
 
 - `PROJECT_VERSION` env var, doctrine-injected on every core service
@@ -41,6 +43,17 @@ first post-`0.4.0` overhaul.
   `EMITS_MISSING`, `EMITS_UNKNOWN_DESTINATION`, `FIELD_TARGET_UNDECLARED`,
   `FIELD_TARGET_NOT_APPLICABLE`. Mod 010.
 
+- `sslmode` provided part on `relational_db`/`postgres` — compile-time
+  constant, `"disable"` on fixed and `"require"` on elastic. Closes the
+  one fixed↔elastic difference the parts-only model wasn't hiding:
+  local postgres containers accept plaintext while AWS RDS rejects
+  non-SSL connections under its default `pg_hba.conf`. Without this
+  part, projects' `migrate.sh` and DSN-composing code had to encode
+  if/else-on-hostname logic — exactly the cross-foundation coupling
+  `provides:` exists to eliminate. The two smoke projects' `migrate.sh`
+  files are now byte-identical; both web and worker root.py modules
+  consume the new env var. Mod 009.
+
 ### Fixed
 
 - `health_check_path: /health` on a `web`-network core service now
@@ -56,24 +69,32 @@ first post-`0.4.0` overhaul.
   release tripped on this; manual patching the live target group via
   `elbv2 modify-target-group --health-check-path` was the workaround.
 
+- `tests/integration/test_stagetest_real.py` references corrected:
+  was passing `network_override=f"{project}_dev_web"` (mod 002's
+  fixed-`web` exception means the compiled network name is just
+  `web`, not project-scoped) and a hyphenated container hostname
+  (mod 005's `docker`/`ecs` naming policy is underscore-preserving).
+  Latent test failure since v0.6.0; surfaced by the campaign-end
+  integration sweep — a sweep that the now-clearer
+  `docex_process.md § Run expensive tests` makes part of every
+  future pre-cut routine.
+
 ### Changed
+
+- `docex_process.md § Run expensive tests` clarified — explicitly
+  names the design LLM agent as the responsible party for running
+  both integration tests (`pytest -m integration`) and the
+  PRE_CUT_CHECKLIST walks, replacing an ambiguous `(you)` that
+  could read as either the operator or the agent. Also tightened
+  the cost asymmetry: integration tests run unconditionally; the
+  smoke-walk step pauses for operator authorization because it
+  creates real cloud resources.
 
 - `EngineEntry.field_translation()` return type changed from
   `dict[str, Any] | None` to `tuple[str, dict[str, Any]] | None` — the
   string is the resolved target destination, the dict is the
   translation body minus the `target:` key. Internal API only; no
   callers outside docex's own source tree.
-
-- `sslmode` provided part on `relational_db`/`postgres` — compile-time
-  constant, `"disable"` on fixed and `"require"` on elastic. Closes the
-  one fixed↔elastic difference the parts-only model wasn't hiding:
-  local postgres containers accept plaintext while AWS RDS rejects
-  non-SSL connections under its default `pg_hba.conf`. Without this
-  part, projects' `migrate.sh` and DSN-composing code had to encode
-  if/else-on-hostname logic — exactly the cross-foundation coupling
-  `provides:` exists to eliminate. The two smoke projects' `migrate.sh`
-  files are now byte-identical; both web and worker root.py modules
-  consume the new env var. Mod 009.
 
 ## [0.8.3] - 2026-06-01
 
