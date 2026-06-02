@@ -41,7 +41,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 ### Elastic-Foundation
 
-**Runtime Shape** - A [registrar] is configured such that our [dns] routes requests by domain to the env's [reverse_proxy]. The [reverse_proxy] terminates TLS with [cert_manager] and forwards each request to the correct [service] within that environment based on host or path rules. In `prod`, [core_service]s can have multiple replicas; the [reverse_proxy] load-balances across them. [service]s communicate over shared environment [network]s, which on elastic are AWS security groups within the project [vpc]. [service_discovery] allows [service]s find each other by name.
+**Runtime Shape** - A [registrar] is configured such that our [dns] routes requests by domain to the env's [reverse_proxy]. The [reverse_proxy] terminates TLS with [cert_manager] and forwards each request to the correct [service] within that environment based on host or path rules. In `prod`, [core_service]s can have multiple replicas; the [reverse_proxy] load-balances across them. [service]s communicate over shared environment [network]s, which on elastic are AWS security groups within the project [vpc]. [service_discovery] (ECS Service Connect) allows [service]s to find each other by name; reachability remains gated by SG rules.
 
 **Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry]. The `stage` and `prod` environments reference these images in their ECS task definitions and release them by combining with [environment_config] applied via OpenTofu and [secrets] pushed to AWS SSM Parameter Store.
 
@@ -56,7 +56,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | container_registry | project | AWS ECR | The project's container registry, holding [build_image]s. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |
 | network | environment | AWS security group | A security group within the project [vpc], scoping access between [service]s. |
-| service_discovery | environment | AWS Cloud Map and ECS Service Connect | Provides DNS-based name resolution for [service]s within an env, so they can reach each other by name. |
+| service_discovery | environment | ECS Service Connect over a Cloud Map HTTP namespace | Each ECS task carries an injected Envoy sidecar that resolves peer services by name. The namespace is named `${project}_${env}` and lives at the env tier. Services with a declared `port` register as discoverable; services without (e.g. a port-less worker) participate as clients only. Reachability remains gated by SG rules — Service Connect provides resolution, not authorization. |
 | core_service | environment | AWS ECS Fargate task | A Fargate container running one of the project's [build_image]s from ECR. Rolled by ECS on image updates. |
 | backing_service | environment | AWS-native service (RDS, S3, ElastiCache, etc.) | A managed AWS service standing in for what would be a third-party container in `fixed`. The specific AWS resource depends on the service's role. |
 | reverse_proxy | environment | AWS ALB | One ALB per environment, in the env's public subnets. Terminates TLS via [cert_manager] and forwards to [service]s. Doubles as a load balancer for replicated [core_service]s in `prod`. |
