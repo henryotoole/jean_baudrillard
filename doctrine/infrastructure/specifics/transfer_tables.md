@@ -228,7 +228,7 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 
 - **`default_port`** (optional) — the port this engine listens on by default. When a service using the engine omits the `port:` field in `infra.yml`, the compiler uses this value for the `${port}` substitution variable (and hence the `port` provided-part). Omit it for engines with no canonical port; a magic ref to a port that is neither declared nor defaulted resolves to empty, which is a compile error.
 
-- **`emits`** (required) — per-foundation list of named destinations this engine's translations can land on. The first entry in each list is the *default target* — where `defaults:` lands and where any `fields.<f>.<foundation>` entry without an explicit `target:` lands. Subsequent entries are alternative destinations selectable via `target:`. Each destination name corresponds to a concrete emit site the compiler knows how to render (e.g., `compose_service` → the docker-compose service block; `rds_instance` → the `aws_db_instance` HCL resource; `target_group` → the `aws_lb_target_group` HCL resource). Some destinations are conditional on other state — `target_group`, for instance, only exists when the service is on the `web` network — and routing to an inapplicable destination is a compile error. The set of destination names the compiler recognizes is closed and lives in doctrine knowledge inside docex; a transfer table cannot invent new ones.
+- **`emits`** (required) — per-foundation list of named destinations this engine's translations can land on. The first entry in each list is the *default target* — where `defaults:` lands and where any `fields.<f>.<foundation>` entry without an explicit `target:` lands. Subsequent entries are alternative destinations selectable via `target:`. Each destination name corresponds to a concrete emit site the compiler knows how to render (e.g., `compose_service` → the docker-compose service block; `rds_instance` → the `aws_db_instance` HCL resource; `target_group` → the `aws_lb_target_group` HCL resource). Some destinations are conditional on other state — `target_group`, for instance, only exists when the service is on the `web` network — and routing to an inapplicable destination is a compile error. The set of destination names the compiler recognizes is closed and lives in doctrine knowledge inside docex; a transfer table cannot invent new ones. **The engine's `emits` list is the dispatcher key**: the compiler chooses the per-destination renderer by destination name, not by engine name and not by whether the service is core or backing.
 
 - **`defaults`** (required) — per-foundation blocks of YAML that get merged into the default target's emitted resource for every service using this engine. For fixed this is typically the docker-compose service skeleton (volumes, healthcheck, environment); for elastic it is the engine's primary Tofu resource block (instance class, storage settings, etc.). `defaults:` cannot route to a non-default target — that's what `fields:` translations with `target:` are for.
 
@@ -323,6 +323,16 @@ Errors raised while loading transfer tables — bundled or project-local — are
 5. **Identical strictness across both layers.** The same rules apply to doctrine-bundled tables and project-local tables. A bug in a bundled table should fail the same way a bug in a project-local table does.
 
 The full set of allowed keys at each layer is defined in `src/docex/cicl/transfer.py` (`_ALLOWED_*` constants) and in `src/docex/naming.py` (policy keys); they are the source of truth.
+
+## Container-backing services on elastic
+
+A backing service whose engine declares `emits.elastic: [task_definition, ecs_service]` is rendered as an ECS Fargate task on elastic — identical to how a core service is rendered there. The compiler dispatches by the engine's declared destinations, not by whether the service is core or backing.
+
+This is what makes containerized backing services (sidecars, OTel collectors, ClickHouse, anything that runs as a container but isn't bespoke project code) first-class on elastic. The engine declares its image and per-foundation defaults in the transfer table; the compiler routes to the same `task_definition` + `ecs_service` resources the core path uses.
+
+Container-backing engines must bake `cpu` and `memory` (Fargate units; `cpu` as an integer string of vCPU/1024, `memory` as MiB) directly into `defaults.elastic`. Backing services don't carry a `resources:` block in `infra.yml` — the engine controls sizing. Projects that need to tune sizing override the engine's defaults via a project-local transfer table entry.
+
+Stateful container-backing services (ClickHouse, persistent Redis, anything with a data directory that must survive restarts) additionally need persistent storage. EFS attachment on Fargate is covered separately — see [§ Persistent storage on Fargate](#) (added in a follow-on mod).
 
 ## Foundation Invariants
 
