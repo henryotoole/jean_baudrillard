@@ -307,6 +307,10 @@ class CompiledService:
     # full TransferTables reference. Empty list for foundations the
     # engine doesn't support. Mod 013.
     emits: dict[str, list[str]] = field(default_factory=dict)
+    # Engine-declared persistent storage spec (e.g.
+    # ``{"mount_path": "/var/lib/clickhouse"}``). None when the engine
+    # doesn't declare it. Mod 015.
+    persistent_storage: dict[str, Any] | None = None
 
 
 @dataclass
@@ -549,6 +553,11 @@ def compile_env(
             schema_owned_by_db=(is_core and name in core_owning_schema),
             target_extras=target_extras,
             emits={fnd: list(dests) for fnd, dests in (engine.emits or {}).items()},
+            persistent_storage=(
+                dict(engine.persistent_storage)
+                if engine.persistent_storage
+                else None
+            ),
         )
 
     return CompiledEnv(

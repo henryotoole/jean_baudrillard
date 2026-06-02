@@ -267,6 +267,23 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     if secret_entries:
         container_def["secrets"] = secret_entries
 
+    # Mod 015: persistent storage wiring. When the engine declares
+    # `persistent_storage`, mount the per-service EFS at the declared path
+    # inside the container. Volume name is the doctrine-fixed handle "data".
+    task_volumes: list[dict[str, Any]] = []
+    if svc.persistent_storage:
+        mount_path = svc.persistent_storage["mount_path"]
+        container_def["mountPoints"] = [{
+            "sourceVolume": "data",
+            "containerPath": mount_path,
+            "readOnly": False,
+        }]
+        task_volumes.append({
+            "name": "data",
+            "file_system_id": HCLLiteral(f"aws_efs_file_system.{svc.name}.id"),
+            "transit_encryption": "ENABLED",
+        })
+
     project_tag = svc.body.get("tags", {}).get("project", "")
     env_tag = svc.body.get("tags", {}).get("env", "")
 
@@ -284,6 +301,16 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     if ephemeral:
         out.append("  ephemeral_storage {")
         out.append(f"    size_in_gib = {ephemeral.get('size_in_gib', 21)}")
+        out.append("  }")
+    # Mod 015: EFS volume blocks for stateful container-backing services.
+    for vol in task_volumes:
+        out.append("  volume {")
+        out.append(f'    name = "{vol["name"]}"')
+        out.append("    efs_volume_configuration {")
+        # file_system_id is an HCLLiteral — emit unquoted.
+        out.append(f'      file_system_id     = {vol["file_system_id"]}')
+        out.append(f'      transit_encryption = "{vol["transit_encryption"]}"')
+        out.append("    }")
         out.append("  }")
     out.append("  container_definitions = jsonencode([")
     out.append(f"    {_hcl_value(container_def, indent=4)},")
@@ -522,6 +549,57 @@ def render_s3_bucket(svc: CompiledService, ctx: _RenderCtx) -> str:
     return "\n".join(out)
 
 
+def render_efs_file_system(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit ``aws_efs_file_system`` + per-private-subnet
+    ``aws_efs_mount_target`` for a stateful container-backing service.
+    Emits ``aws_efs_backup_policy`` only when the service's
+    ``target_extras["efs_file_system"]["enabled"]`` is truthy
+    (project-opt-in via ``backups: true`` in infra.yml). Mod 015.
+    """
+    # WHY: Mount targets attach to the service's non-`web` SGs. The
+    # `internal` SG's self-ingress rule already covers NFS port 2049
+    # for tasks on that SG. EFS never lives on the public `web` plane.
+    sg_nets = [n for n in sorted(svc.networks) if n != "web"]
+    sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in sg_nets)
+
+    project_tag = svc.body.get("tags", {}).get("project", "")
+    env_tag = svc.body.get("tags", {}).get("env", "")
+
+    out: list[str] = []
+    out.append(f'resource "aws_efs_file_system" "{svc.name}" {{')
+    out.append(f'  creation_token   = "{svc.global_name}"')
+    out.append( '  encrypted        = true')
+    out.append( '  performance_mode = "generalPurpose"')
+    out.append( '  throughput_mode  = "bursting"')
+    out.append(
+        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
+        f'service = "{svc.name}", role = "{svc.role}", '
+        f'managed_by = "doctrine" }}'
+    )
+    out.append("}")
+
+    # AWS Backup default plan — project-opt-in via the `backups` field.
+    backups_extras = svc.target_extras.get("efs_file_system", {})
+    if backups_extras.get("enabled"):
+        out.append("")
+        out.append(f'resource "aws_efs_backup_policy" "{svc.name}" {{')
+        out.append(f'  file_system_id = aws_efs_file_system.{svc.name}.id')
+        out.append("  backup_policy {")
+        out.append('    status = "ENABLED"')
+        out.append("  }")
+        out.append("}")
+
+    # One mount target per private subnet so tasks in any AZ can mount.
+    out.append("")
+    out.append(f'resource "aws_efs_mount_target" "{svc.name}" {{')
+    out.append( '  count           = length(data.terraform_remote_state.project.outputs.private_subnet_ids)')
+    out.append(f'  file_system_id  = aws_efs_file_system.{svc.name}.id')
+    out.append( '  subnet_id       = data.terraform_remote_state.project.outputs.private_subnet_ids[count.index]')
+    out.append(f'  security_groups = [{sg_refs}]')
+    out.append("}")
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -534,6 +612,7 @@ _DESTINATION_RENDERERS: dict[str, Callable[[CompiledService, _RenderCtx], str]] 
     "rds_instance": render_rds_instance,
     "elasticache_cluster": render_elasticache_cluster,
     "s3_bucket": render_s3_bucket,
+    "efs_file_system": render_efs_file_system,  # Mod 015
 }
 
 

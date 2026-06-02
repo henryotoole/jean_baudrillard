@@ -146,3 +146,81 @@ def test_well_formed_project_table_loads(tmp_path: Path) -> None:
     tables = load_transfer_tables(tmp_path)
     assert "sidecar" in tables.by_role
     assert "nginx" in tables.by_role["sidecar"]
+
+
+# ---------------------------------------------------------------------------
+# Mod 015 — persistent_storage <-> efs_file_system bidirectional validation.
+# ---------------------------------------------------------------------------
+
+
+def test_persistent_storage_without_efs_destination_fails(tmp_path: Path) -> None:
+    """Mod 015: declaring persistent_storage without efs_file_system in emits fails at load."""
+    _write_project_table(
+        tmp_path,
+        "roles:\n"
+        "  analytics_db:\n"
+        "    clickhouse:\n"
+        "      foundation: both\n"
+        "      naming: ecs\n"
+        "      emits:\n"
+        "        fixed: [compose_service]\n"
+        # missing efs_file_system in the elastic emits list:
+        "        elastic: [task_definition, ecs_service]\n"
+        "      defaults:\n"
+        "        fixed: {image: 'clickhouse/clickhouse-server:24'}\n"
+        "        elastic: {image: 'clickhouse/clickhouse-server:24', cpu: '512', memory: '2048'}\n"
+        "      persistent_storage:\n"
+        "        mount_path: /var/lib/clickhouse\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    msg = str(exc.value)
+    assert "persistent_storage" in msg
+    assert "efs_file_system" in msg
+
+
+def test_efs_destination_without_persistent_storage_fails(tmp_path: Path) -> None:
+    """Mod 015: declaring efs_file_system in emits without persistent_storage fails at load."""
+    _write_project_table(
+        tmp_path,
+        "roles:\n"
+        "  analytics_db:\n"
+        "    clickhouse:\n"
+        "      foundation: both\n"
+        "      naming: ecs\n"
+        "      emits:\n"
+        "        fixed: [compose_service]\n"
+        # has the destination but no persistent_storage field:
+        "        elastic: [task_definition, ecs_service, efs_file_system]\n"
+        "      defaults:\n"
+        "        fixed: {image: 'clickhouse/clickhouse-server:24'}\n"
+        "        elastic: {image: 'clickhouse/clickhouse-server:24', cpu: '512', memory: '2048'}\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    msg = str(exc.value)
+    assert "efs_file_system" in msg
+    assert "persistent_storage" in msg
+
+
+def test_persistent_storage_requires_mount_path(tmp_path: Path) -> None:
+    """Mod 015: persistent_storage missing mount_path fails at load."""
+    _write_project_table(
+        tmp_path,
+        "roles:\n"
+        "  analytics_db:\n"
+        "    clickhouse:\n"
+        "      foundation: both\n"
+        "      naming: ecs\n"
+        "      emits:\n"
+        "        fixed: [compose_service]\n"
+        "        elastic: [task_definition, ecs_service, efs_file_system]\n"
+        "      defaults:\n"
+        "        fixed: {image: 'foo'}\n"
+        "        elastic: {image: 'foo'}\n"
+        "      persistent_storage: {}\n",  # empty — missing mount_path
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    msg = str(exc.value)
+    assert "mount_path" in msg

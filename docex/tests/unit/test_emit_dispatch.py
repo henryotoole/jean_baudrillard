@@ -209,3 +209,102 @@ def test_dispatch_unknown_destination_falls_back_gracefully():
     # The fake destination produces a comment line (defensive); the real
     # destinations still render.
     assert "unknown destination 'fake_destination'" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Mod 015 — EFS for stateful container-backing services on Fargate.
+# ---------------------------------------------------------------------------
+
+
+def test_efs_file_system_in_emit_destinations():
+    """Mod 015: efs_file_system is a registered emit destination."""
+    from docex.cicl.transfer import EMIT_DESTINATIONS
+    assert "efs_file_system" in EMIT_DESTINATIONS["elastic"]
+    # Not on fixed — EFS is an elastic-only concept.
+    assert "efs_file_system" not in EMIT_DESTINATIONS["fixed"]
+
+
+def test_efs_destination_dispatched_to_renderer():
+    """Mod 015: render_efs_file_system is registered in the dispatch table."""
+    from docex.emit.hcl import _DESTINATION_RENDERERS, render_efs_file_system
+    assert _DESTINATION_RENDERERS["efs_file_system"] is render_efs_file_system
+
+
+def test_render_efs_emits_filesystem_and_mount_target():
+    """Mod 015: a stateful svc emits aws_efs_file_system + aws_efs_mount_target."""
+    svc = _svc(
+        name="clickdb",
+        emits={"elastic": ["task_definition", "ecs_service", "efs_file_system"]},
+    )
+    svc.persistent_storage = {"mount_path": "/var/lib/clickhouse"}
+    from docex.emit.hcl import render_efs_file_system
+    rendered = render_efs_file_system(svc, _ctx())
+    assert 'resource "aws_efs_file_system" "clickdb"' in rendered
+    assert 'creation_token   = "proj_stage_clickdb"' in rendered
+    assert 'encrypted        = true' in rendered
+    assert 'resource "aws_efs_mount_target" "clickdb"' in rendered
+    assert 'count           = length(data.terraform_remote_state.project.outputs.private_subnet_ids)' in rendered
+    # No backup policy by default — project-opt-in.
+    assert "aws_efs_backup_policy" not in rendered
+
+
+def test_render_efs_emits_backup_policy_when_enabled():
+    """Mod 015: backups: true in infra.yml emits aws_efs_backup_policy."""
+    svc = _svc(
+        name="clickdb",
+        emits={"elastic": ["task_definition", "ecs_service", "efs_file_system"]},
+    )
+    svc.persistent_storage = {"mount_path": "/var/lib/clickhouse"}
+    svc.target_extras = {"efs_file_system": {"enabled": True}}
+    from docex.emit.hcl import render_efs_file_system
+    rendered = render_efs_file_system(svc, _ctx())
+    assert 'resource "aws_efs_backup_policy" "clickdb"' in rendered
+    assert 'status = "ENABLED"' in rendered
+
+
+def test_render_efs_mount_target_attaches_to_non_web_sgs():
+    """Mod 015: EFS mount targets don't get the public web SG, only internal-class ones."""
+    svc = _svc(
+        name="clickdb",
+        networks=["internal", "web"],  # contrived — sidecar normally only on internal
+        emits={"elastic": ["task_definition", "ecs_service", "efs_file_system"]},
+    )
+    svc.persistent_storage = {"mount_path": "/var/lib/clickhouse"}
+    from docex.emit.hcl import render_efs_file_system
+    rendered = render_efs_file_system(svc, _ctx())
+    # internal SG present, web SG absent.
+    assert "aws_security_group.internal.id" in rendered
+    # The substring `aws_security_group.web.id` must NOT appear inside
+    # the mount target's security_groups list.
+    assert "aws_security_group.web.id" not in rendered
+
+
+def test_task_definition_emits_volume_and_mountpoints_when_stateful():
+    """Mod 015: render_task_definition emits volume + mountPoints when persistent_storage is set."""
+    svc = _svc(
+        name="clickdb",
+        emits={"elastic": ["task_definition", "ecs_service", "efs_file_system"]},
+    )
+    svc.persistent_storage = {"mount_path": "/var/lib/clickhouse"}
+    rendered = render_task_definition(svc, _ctx())
+    assert "volume {" in rendered
+    assert 'name = "data"' in rendered
+    assert "efs_volume_configuration {" in rendered
+    assert "file_system_id     = aws_efs_file_system.clickdb.id" in rendered
+    assert 'transit_encryption = "ENABLED"' in rendered
+    # mountPoints lives on the container_def. _hcl_value emits the
+    # container_def in HCL attribute syntax (it's later passed through
+    # jsonencode() at apply time), so we assert against the HCL form.
+    assert "mountPoints" in rendered
+    assert 'sourceVolume = "data"' in rendered
+    assert 'containerPath = "/var/lib/clickhouse"' in rendered
+    assert "readOnly = false" in rendered
+
+
+def test_task_definition_without_persistent_storage_has_no_volumes():
+    """Stateless services don't get a volume block."""
+    svc = _svc()  # no persistent_storage
+    rendered = render_task_definition(svc, _ctx())
+    assert "volume {" not in rendered
+    assert "efs_volume_configuration" not in rendered
+    assert "mountPoints" not in rendered

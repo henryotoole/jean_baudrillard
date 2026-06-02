@@ -14,6 +14,35 @@ first post-`0.4.0` overhaul.
 
 ### Added
 
+- **EFS support for stateful container-backing services on Fargate.**
+  New optional engine field `persistent_storage: { mount_path: ... }`
+  declares a container needs a durable data directory. New emit
+  destination `efs_file_system` (added to `EMIT_DESTINATIONS["elastic"]`).
+  Engines that need EFS declare both — bidirectional validation at
+  load time catches either declared alone. The compiler emits, per
+  such service: `aws_efs_file_system` (encrypted at rest using the
+  AWS-managed KMS key), `aws_efs_mount_target` per private subnet
+  (attached to the service's non-`web` SGs; NFS port 2049 covered by
+  the existing `internal` SG self-ingress), a `volume` block on the
+  `aws_ecs_task_definition` referencing the EFS by ID with
+  `transit_encryption = "ENABLED"`, and a `mountPoints` entry on the
+  container definition linking the volume to the declared
+  `mount_path`. Volume name is the doctrine-fixed handle `"data"` —
+  one EFS per stateful service, mounted at one path. Backups are
+  **project-opt-in**: an engine that emits `efs_file_system` may
+  declare a `backups` field with `target: efs_file_system` (Mod 010's
+  field-routing mechanism); the project sets `backups: true` on the
+  backing service in `infra.yml` to enable. When enabled,
+  `aws_efs_backup_policy` ties the filesystem to the AWS Backup
+  default plan. Default disabled — only the project knows whether
+  the data is replaceable cache or irreplaceable user state. EFS
+  access points, lifecycle policies, and throughput tuning are out
+  of scope for v1. On fixed, `persistent_storage` is informational
+  only — engines manage their own docker named volume via
+  `defaults.fixed.volumes`. Doctrine: `transfer_tables.md` § Persistent
+  storage on Fargate. Mod 015. This is what makes ClickHouse-on-elastic
+  structurally viable.
+
 - **ECS Service Connect over a Cloud Map HTTP namespace for intra-env
   service discovery on elastic.** One
   `aws_service_discovery_http_namespace` per env (named

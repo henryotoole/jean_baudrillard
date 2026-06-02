@@ -54,7 +54,7 @@ _RESERVED_ROLE_KEYS: frozenset[str] = frozenset({
 })
 
 # Engine-entry sub-keys. Must match `_parse_entry`'s consumed set
-# exactly. Mod 015 will add `persistent_storage` here when EFS lands.
+# exactly.
 _ALLOWED_ENGINE_KEYS: frozenset[str] = frozenset({
     "foundation",
     "default_port",
@@ -65,6 +65,7 @@ _ALLOWED_ENGINE_KEYS: frozenset[str] = frozenset({
     "env",
     "naming",
     "reserved_names",
+    "persistent_storage",  # Mod 015
 })
 
 
@@ -83,6 +84,7 @@ EMIT_DESTINATIONS: dict[str, frozenset[str]] = {
         "rds_instance",
         "elasticache_cluster",
         "s3_bucket",
+        "efs_file_system",  # Mod 015
     }),
 }
 
@@ -117,6 +119,14 @@ class EngineEntry:
     # alternative destinations selectable via `target:` on a field
     # translation. See transfer_tables.md § emits.
     emits: dict[str, list[str]] = field(default_factory=dict)
+    # Optional declaration that this engine needs a durable data directory.
+    # Shape: ``{"mount_path": "/var/lib/clickhouse"}``. When set, the engine
+    # MUST also include ``efs_file_system`` in ``emits.elastic`` (the
+    # loader enforces this bidirectional invariant). On elastic, the
+    # compiler emits the EFS plumbing; on fixed, the field is
+    # informational — engines declare their docker volume in
+    # ``defaults.fixed.volumes`` themselves. Mod 015.
+    persistent_storage: dict[str, Any] | None = None
 
     def supports(self, foundation: str) -> bool:
         return self.foundation in (foundation, "both")
@@ -492,6 +502,49 @@ def _validate_engine_entry(
                         + _did_you_mean(dest, valid_dests)
                     )
 
+    # Bidirectional invariant: persistent_storage <-> efs_file_system in
+    # emits.elastic. Either declared alone is a load-time error. Mod 015.
+    has_persistent_storage = "persistent_storage" in raw
+    elastic_emits = (raw.get("emits") or {}).get("elastic", [])
+    has_efs_destination = (
+        isinstance(elastic_emits, list) and "efs_file_system" in elastic_emits
+    )
+
+    if has_persistent_storage and not has_efs_destination:
+        raise TransferTableError(
+            f"{display_path}: roles.{role}.{engine}: declares "
+            f"`persistent_storage` but `emits.elastic` does not include "
+            f"`efs_file_system`. Stateful container-backing engines must "
+            f"declare both."
+        )
+    if has_efs_destination and not has_persistent_storage:
+        raise TransferTableError(
+            f"{display_path}: roles.{role}.{engine}: declares "
+            f"`emits.elastic: [..., efs_file_system]` but no "
+            f"`persistent_storage` field. The EFS destination needs a "
+            f"`persistent_storage.mount_path` to mount the filesystem into "
+            f"the container."
+        )
+
+    # Per-file validation of persistent_storage shape (when present).
+    if has_persistent_storage:
+        ps = raw["persistent_storage"]
+        if not isinstance(ps, dict):
+            raise TransferTableError(
+                f"{display_path}: roles.{role}.{engine}.persistent_storage: "
+                f"must be a mapping"
+            )
+        if (
+            "mount_path" not in ps
+            or not isinstance(ps["mount_path"], str)
+            or not ps["mount_path"]
+        ):
+            raise TransferTableError(
+                f"{display_path}: roles.{role}.{engine}.persistent_storage: "
+                f"requires a non-empty `mount_path` "
+                f"(got {ps.get('mount_path')!r})"
+            )
+
 
 def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
     # WHY: schema-shape and emit-destination validation ran in
@@ -535,6 +588,7 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
             for item in (raw.get("reserved_names") or [])
         ],
         emits=emits,
+        persistent_storage=raw.get("persistent_storage"),
     )
 
 
