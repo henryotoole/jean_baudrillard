@@ -371,6 +371,274 @@ The compiler emits, per such service:
 
 **On fixed**, `persistent_storage` is informational only. Engine authors declare their docker named volume in `defaults.fixed.volumes` themselves (the existing pattern, as postgres demonstrates). The fixed and elastic sides agree on `mount_path` because the engine declares both — small duplication, large clarity.
 
+## Authoring Project-Local Transfer Tables
+
+The doctrine ships canonical engines for the common roles — `relational_db/postgres`, `cache/redis`, `object_store/{minio,s3}`, `web/container`, `reverse_proxy`. When a project needs a role or engine the doctrine doesn't bundle (ClickHouse, OpenTelemetry collector, RabbitMQ, etc.), it adds a project-local transfer table. The doctrine's machinery does the rest: schema validation, foundation translation, magic-ref resolution, ECS dispatch, EFS plumbing if stateful.
+
+This section is the authoring perspective. The schema and rules live earlier in this document — this section is "how to actually write one."
+
+### File layout and discovery
+
+Project-local tables live at `<project_root>/infra/transfer_tables/`. The loader (`load_transfer_tables` in `src/docex/cicl/transfer.py`) discovers them by recursive `*.yml` / `*.yaml` glob, so either layout works:
+
+```
+infra/transfer_tables/
+├── sidecar.yml              # flat — one engine per file
+└── clickhouse.yml
+```
+
+or
+
+```
+infra/transfer_tables/
+└── roles/
+    ├── telemetry.yml
+    └── analytics.yml        # nested — match the doctrine's tables/roles/ layout
+```
+
+Bundled tables live inside the docex image at `tables/`. The loader reads bundled tables first, then project-local — project values override bundled at every leaf. See [§ Deep-merge semantics](#deep-merge-semantics) below for the exact merge rules.
+
+Every error from the loader names the source file (`tables/roles/<file>.yml` for bundled, `infra/transfer_tables/<file>.yml` for project-local) per [§ Failure-mode contract](#failure-mode-contract). Authors should expect strict, source-attributed failures — typos and schema violations fail at load time, not silently or downstream.
+
+### Deep-merge semantics
+
+The two layers — bundled and project-local — are deep-merged at compile time. The rules:
+
+- **Dicts merge key-by-key.** A project-local table can override individual leaf values without restating the whole engine entry.
+- **Scalars (strings, numbers, bools) are replaced wholesale.** Project value wins.
+- **Lists are replaced wholesale.** No append, no merge-by-element. If a project wants to "extend" a bundled list, it must restate the full list.
+- **`None` does NOT remove a key.** To zero out a leaf, supply an empty dict / string / list — don't omit it.
+
+A mini-example: the doctrine-bundled postgres engine declares `defaults.elastic.instance_class: db.t3.medium`. A project that needs a larger instance writes only the override:
+
+```yml
+# infra/transfer_tables/postgres_override.yml
+roles:
+  relational_db:
+    postgres:
+      defaults:
+        elastic:
+          instance_class: db.t3.large
+```
+
+After merge, the postgres engine has `instance_class: db.t3.large` and all other bundled fields (foundation, naming, emits, the rest of defaults, fields, provides, env) unchanged. The project did not restate them and does not need to.
+
+The same model applies to **naming policies**. The top-level `naming_policies:` block deep-merges across layers. A project can:
+
+- **Override an existing policy's parameters.** E.g., tighten `s3`'s `max_len` from 63 to 32. The project writes only the changed leaf; other policy parameters (separator, case) stay as bundled.
+- **Define a new policy.** E.g., a `kafka_topic` policy for a project-specific naming convention. The project declares the policy under `naming_policies:` and references it from an engine's `naming:` field.
+
+```yml
+# infra/transfer_tables/naming_overrides.yml
+naming_policies:
+  # Override an existing policy.
+  s3:
+    max_len: 32
+
+  # Define a new policy.
+  kafka_topic:
+    separator: hyphen
+    case: lower
+    max_len: 249
+```
+
+Both bundled-engine `naming: s3` references and project-engine `naming: kafka_topic` references resolve against the merged policy table.
+
+### Adding a new engine to an existing role
+
+When the project needs a different concrete implementation of a role the doctrine already models, declare the new engine under the role:
+
+```yml
+# infra/transfer_tables/redis_extra.yml
+roles:
+  cache:
+    valkey:
+      foundation: fixed
+      naming: docker
+      emits:
+        fixed: [compose_service]
+      defaults:
+        fixed:
+          image: valkey/valkey:8
+      # ... other fields
+```
+
+The bundled `cache/redis` engine remains available; the project's `cache/valkey` is now also available. The project's `infra.yml` chooses one by name:
+
+```yml
+backing_services:
+  appcache:
+    role: cache
+    engine: valkey  # or redis (bundled)
+    version: "8"
+```
+
+### Adding a wholly new role
+
+When the project needs a kind of service the doctrine doesn't model, declare both the role and at least one engine for it:
+
+```yml
+# infra/transfer_tables/telemetry.yml
+roles:
+  telemetry_collector:
+    description: "OpenTelemetry-style sidecar collecting traces and metrics from peer services."
+    otel:
+      foundation: both
+      naming: ecs
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service]
+      defaults:
+        fixed:
+          image: otel/opentelemetry-collector-contrib:0.115.0
+        elastic:
+          image: otel/opentelemetry-collector-contrib:0.115.0
+          cpu: "256"
+          memory: "512"
+      # ... full engine declaration
+```
+
+Engine declarations look identical regardless of whether the role is bundled or project-defined. The schema is the same; only the registration site differs.
+
+### Worked example: stateless container backing
+
+Goal: a `sidecar` role with an `nginx` engine, used by the project's `web` service to expose a downstream health endpoint. Two files: the transfer table, and the `infra.yml` snippet that consumes it.
+
+**`infra/transfer_tables/sidecar.yml`:**
+
+```yml
+roles:
+  sidecar:
+    description: "Stateless auxiliary container — sidecar, health-probe, lightweight proxy."
+    nginx:
+      foundation: both
+      default_port: 80
+      naming: ecs
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service]
+      defaults:
+        fixed:
+          image: nginx:1.27-alpine
+        elastic:
+          image: nginx:1.27-alpine
+          cpu: "256"
+          memory: "512"
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
+```
+
+**Consumer in `infra.yml`:**
+
+```yml
+backing_services:
+  probe:
+    role: sidecar
+    engine: nginx
+    networks: [internal]
+
+core_services:
+  web:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [probe, appdb]
+    env:
+      SIDECAR_HOST: ${backing_services.probe.host}
+      SIDECAR_PORT: ${backing_services.probe.port}
+      # ... other env
+```
+
+At runtime, `web` reads `SIDECAR_HOST=<project>_<env>_probe` and `SIDECAR_PORT=80`. On fixed, docker network DNS resolves the host. On elastic, ECS Service Connect resolves it through the env's namespace (Mod 014). No application code change crosses foundations.
+
+### Worked example: stateful container backing
+
+Goal: a `analytics_db` role with a `clickhouse` engine. Stateful — needs durable storage. Project opts into backups for the production data.
+
+**`infra/transfer_tables/clickhouse.yml`:**
+
+```yml
+roles:
+  analytics_db:
+    description: "OLAP analytics database. Stateful — data directory persists across task restarts via EFS on elastic, named volume on fixed."
+    clickhouse:
+      foundation: both
+      default_port: 9000
+      naming: ecs
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service, efs_file_system]
+      defaults:
+        fixed:
+          image: clickhouse/clickhouse-server:24.10
+          volumes:
+            - ${global_service_name}_data:/var/lib/clickhouse
+        elastic:
+          image: clickhouse/clickhouse-server:24.10
+          cpu: "1024"
+          memory: "4096"
+      persistent_storage:
+        mount_path: /var/lib/clickhouse
+      fields:
+        # Project opt-in for AWS Backup. Default disabled — only the
+        # project knows whether the data is replaceable cache or
+        # irreplaceable user state.
+        backups:
+          elastic:
+            target: efs_file_system
+            enabled: ${field_value}
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
+```
+
+**Consumer in `infra.yml`:**
+
+```yml
+backing_services:
+  events:
+    role: analytics_db
+    engine: clickhouse
+    networks: [internal]
+    backups: true   # opt in — this data is irreplaceable
+
+core_services:
+  web:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [events, appdb]
+    env:
+      CLICKHOUSE_HOST: ${backing_services.events.host}
+      CLICKHOUSE_PORT: ${backing_services.events.port}
+      # ... other env
+```
+
+What the compiler emits on elastic for `events`:
+
+- `aws_efs_file_system.events` (encrypted at rest).
+- `aws_efs_backup_policy.events` (because `backups: true`).
+- `aws_efs_mount_target.events` with `count = length(private_subnet_ids)`, attached to the `internal` SG.
+- `aws_ecs_task_definition.events` with a `volume { name = "data" efs_volume_configuration { ... } }` block and a container `mountPoints` entry linking `"data"` → `/var/lib/clickhouse`.
+- `aws_ecs_service.events` with `service_connect_configuration` registering the service as discoverable at `<project>_<env>_events`.
+
+On fixed, the `defaults.fixed.volumes` entry creates a docker named volume mounted at `/var/lib/clickhouse`; ClickHouse's data survives `./bin/docex down dev` / `up dev` cycles. The compose stack runs ClickHouse as a regular container on the internal network.
+
+Same `infra.yml`, same magic-ref values flowing into `web`'s env block, same application code on both foundations. The foundation-specific machinery — EFS on elastic, docker volumes on fixed — is doctrine-internal; the project just declares "stateful at /var/lib/clickhouse" and gets the right thing.
+
+If the engine declares `persistent_storage` but the project forgets `backups`, the data is durable but not backed up; if the engine omits `efs_file_system` from `emits.elastic`, the loader fails at compile time with a clear bidirectional-validation error (Mod 012's strict-failure contract).
+
 ## Foundation Invariants
 
 In addition to engine-specific config, the compiler applies a small set of foundation-wide invariants to every emitted resource. These are not engine-specific — they apply uniformly across every service in a compiled output.

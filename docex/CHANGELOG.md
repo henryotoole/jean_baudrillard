@@ -12,6 +12,22 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Documentation
+
+- **Authoring guide for project-local transfer tables.** New section in
+  `transfer_tables.md` consolidating the authoring perspective scattered
+  across Mods 012–015: file layout and discovery (flat or nested under
+  `roles/`), deep-merge semantics for both engines and naming policies
+  (project values override at every leaf; lists/scalars replaced
+  wholesale, dicts merged key-by-key), guidance on when to add a new
+  engine to an existing role vs. when to define a wholly new role, and
+  two complete worked examples — a stateless container backing
+  (sidecar/nginx) and a stateful one (analytics_db/clickhouse with
+  `persistent_storage` and the project-opt-in `backups` field). Closes
+  the campaign-goal "document deep-merge nature of naming policies"
+  item and gives project authors a single section to read when standing
+  up their first project-local engine. Mod 016.
+
 ### Added
 
 - **EFS support for stateful container-backing services on Fargate.**
