@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-06-02
+
+### Changed
+
+- Repinned to docex 0.9.0. Recompiled infra/output/* against the new
+  candidate version (mod 010's emits/target routing affects the
+  compiler internals but produces no project-side `infra.yml` change
+  here; mods 009 + 011 were already adopted at 0.0.2).
+
 ## [0.0.2] - 2026-06-01
 
 ### Fixed

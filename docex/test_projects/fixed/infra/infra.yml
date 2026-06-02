@@ -13,15 +13,15 @@ core_services:
     role: web
     port: 8080
     networks: [web, internal]
-    depends_on: [db]
+    depends_on: [appdb]
     env:
-      # Built from db's provided parts at startup (parts-only model).
-      DATABASE_HOST: ${backing_services.db.host}
-      DATABASE_PORT: ${backing_services.db.port}
-      DATABASE_NAME: ${backing_services.db.db}
-      DATABASE_USER: ${backing_services.db.user}
-      DATABASE_PASSWORD: ${backing_services.db.password}
-      DATABASE_SSLMODE: ${backing_services.db.sslmode}
+      # Built from appdb's provided parts at startup (parts-only model).
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+      DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
     resources:
       cpu: 0.25
       memory: 512MB
@@ -31,20 +31,20 @@ core_services:
     # No port — `worker` isn't on the web network, so no reverse-proxy
     # exposure (per cicl.md validation rule 13).
     networks: [internal]
-    depends_on: [db]
+    depends_on: [appdb]
     env:
-      DATABASE_HOST: ${backing_services.db.host}
-      DATABASE_PORT: ${backing_services.db.port}
-      DATABASE_NAME: ${backing_services.db.db}
-      DATABASE_USER: ${backing_services.db.user}
-      DATABASE_PASSWORD: ${backing_services.db.password}
-      DATABASE_SSLMODE: ${backing_services.db.sslmode}
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+      DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
     resources:
       cpu: 0.25
       memory: 512MB
 
 backing_services:
-  db:
+  appdb:
     role: relational_db
     engine: postgres
     version: "15"
