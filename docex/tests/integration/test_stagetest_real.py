@@ -47,10 +47,15 @@ def test_stagetest_against_local_dev(fresh_project: Path):
         rc = run_stagetest(
             ctx,
             docker,
-            # Reached by container name on the env's web docker network —
-            # no host port is published.
-            staging_url_override=f"http://{project}-dev-api:8080",
-            network_override=f"{project}_dev_web",
+            # Reached by container name on the bare external `web` docker
+            # network — fixed-foundation `web` compiles to a single bare
+            # network shared with the machine-wide reverse proxy, not
+            # `${project}_${env}_web` (per networks.md's explicit
+            # exception). Container names use the `docker` / `ecs`
+            # naming policy (underscore-preserving), so the api host is
+            # `${project}_dev_api`, not hyphenated.
+            staging_url_override=f"http://{project}_dev_api:8080",
+            network_override="web",
         )
         assert rc == 0
     finally:
