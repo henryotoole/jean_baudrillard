@@ -27,6 +27,17 @@ def test_stagetest_url_from_domain(sample_ctx, fake_docker):
     assert env_items["STAGING_URL"] == "https://stage.example.com"
 
 
+def test_stagetest_injects_project_version(sample_ctx, fake_docker):
+    """PROJECT_VERSION env var should be injected from project.yml.version
+    so stage tests can assert the deployed /health version without
+    hand-syncing an EXPECTED_VERSION literal. Mod 011."""
+    rc = run_stagetest(sample_ctx, fake_docker)
+    assert rc == 0
+    run_call = next(c for c in fake_docker.calls if c[0] == "run_one_shot")
+    env_items = dict(run_call[3])
+    assert env_items["PROJECT_VERSION"] == sample_ctx.project.version
+
+
 def test_stagetest_override_url(sample_ctx, fake_docker):
     rc = run_stagetest(sample_ctx, fake_docker, staging_url_override="http://localhost:8080")
     assert rc == 0

@@ -429,3 +429,36 @@ core_services:
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
     assert "FIELD_TARGET_NOT_APPLICABLE" not in rules
+
+
+# ---------------------------------------------------------------------------
+# Mod 011 — PROJECT_VERSION is doctrine-reserved on every core service.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_rejects_project_version_in_env():
+    """A core service declaring PROJECT_VERSION in its env: block fails
+    validation — the name is doctrine-reserved. Mod 011."""
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    env:\n      PROJECT_VERSION: \"1.2.3\"\n",
+        1,
+    )
+    doc = _doc(src)
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_project_version_reserved" in rules
+
+
+def test_validate_rejects_project_version_in_secrets():
+    """Same name in secrets: also reserved — doctrine owns the key in
+    both places. Mod 011."""
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    secrets:\n      PROJECT_VERSION: \"desc\"\n",
+        1,
+    )
+    doc = _doc(src)
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_project_version_reserved" in rules

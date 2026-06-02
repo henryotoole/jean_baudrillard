@@ -14,6 +14,19 @@ first post-`0.4.0` overhaul.
 
 ### Added
 
+- `PROJECT_VERSION` env var, doctrine-injected on every core service
+  container at compile time AND on the stage tester at
+  `./bin/docex stagetest` time. Sourced from `project.yml`'s `version:`
+  field; emitted as a compose `environment:` entry on fixed and as an
+  ECS `environment[]` entry on elastic (not an SSM secret — versions
+  are not sensitive). One canonical env var name; one source of truth;
+  no drift possible. Backing services are excluded — they run
+  third-party software with no application code that would consume
+  the var. New validation rule `rule_project_version_reserved`: a
+  project that declares `PROJECT_VERSION` under
+  `core_services.<svc>.env` or `.secrets` fails compile (doctrine
+  owns the name). Mod 011.
+
 - `emits:` + `target:` schema for cross-resource field routing. Engines
   now declare an ordered per-foundation list of emit destinations; the
   first entry is the default target (where `defaults:` and any field

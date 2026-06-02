@@ -19,13 +19,14 @@ import httpx
 
 
 STAGING_URL = os.environ["STAGING_URL"]
+PROJECT_VERSION = os.environ["PROJECT_VERSION"]
 
 
 def test_health_endpoint() -> None:
     response = httpx.get(f"{STAGING_URL}/health", timeout=10)
     assert response.status_code == 200, response.text
     body = response.json()
-    assert "version" in body
+    assert body["version"] == PROJECT_VERSION
 
 
 def test_create_ping_round_trip() -> None:

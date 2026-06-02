@@ -241,3 +241,35 @@ def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path
     proxy_block = services[proxy_key]
     assert "healthcheck" not in proxy_block, proxy_block
     assert deps[proxy_key] == {"condition": "service_started"}, deps[proxy_key]
+
+
+def test_core_service_compose_environment_carries_project_version(tmp_path: Path):
+    """Every core service's compose `environment:` block carries
+    PROJECT_VERSION sourced from project.yml.version, on every env
+    (dev/test/stage/prod). Mod 011."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    expected_version = ctx.project.version
+
+    for env in ("dev", "test", "stage", "prod"):
+        services = _compose_services(root, env)
+        api = _find_core_service_block(services, "api")
+        environment = api.get("environment") or {}
+        assert environment.get("PROJECT_VERSION") == expected_version, (
+            env, environment
+        )
+
+
+def test_backing_service_compose_environment_lacks_project_version(tmp_path: Path):
+    """Backing services do NOT receive PROJECT_VERSION — they run
+    third-party software that doesn't consume it. Mod 011."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("dev", "test", "stage", "prod"):
+        services = _compose_services(root, env)
+        appdb = _find_core_service_block(services, "appdb")
+        environment = appdb.get("environment") or {}
+        assert "PROJECT_VERSION" not in environment, (env, environment)

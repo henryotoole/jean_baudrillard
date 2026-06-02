@@ -365,3 +365,38 @@ def test_fixed_compile_skips_project_main_tf(tmp_path: Path):
     project_dir = dest / "infra" / "output" / "project"
     # Either the directory wasn't created or it's empty.
     assert not project_dir.exists() or not list(project_dir.iterdir())
+
+
+# ---------------------------------------------------------------------------
+# Mod 011 — PROJECT_VERSION injected into core service ECS task definitions.
+# ---------------------------------------------------------------------------
+
+
+def test_core_service_task_definition_environment_carries_project_version(
+    compiled_prod_tf: str,
+):
+    """Every core service's ECS task definition environment[] carries
+    PROJECT_VERSION sourced from project.yml.version, as a literal value
+    (not an SSM secret). Mod 011."""
+    tf = compiled_prod_tf
+    # PROJECT_VERSION appears as a plain ECS environment[] entry with the
+    # fixture's project.yml version "0.1.0".
+    assert 'name = "PROJECT_VERSION"' in tf
+    assert 'value = "0.1.0"' in tf
+    # It must NOT be wired as a secret (no SSM lookup for it).
+    assert "/prod/PROJECT_VERSION" not in tf
+
+
+def test_backing_service_hcl_lacks_project_version(compiled_prod_tf: str):
+    """Backing services do NOT receive PROJECT_VERSION on elastic — RDS's
+    aws_db_instance carries engine credentials, never the project version.
+    The fixture's only backing service is `appdb`; scan its block and
+    confirm the var isn't present. Mod 011."""
+    tf = compiled_prod_tf
+    rds_start = tf.find('resource "aws_db_instance" "appdb"')
+    assert rds_start != -1, "expected aws_db_instance.appdb in elastic HCL"
+    # Find the matching close brace at column 0 for the resource block.
+    rds_end = tf.find("\n}\n", rds_start)
+    assert rds_end != -1
+    rds_block = tf[rds_start:rds_end]
+    assert "PROJECT_VERSION" not in rds_block, rds_block

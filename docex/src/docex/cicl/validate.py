@@ -70,6 +70,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_env_secrets_overlap(doc))
     issues.extend(_validate_reserved_engine_names(doc, tables))
     issues.extend(_validate_emits(doc, tables))
+    issues.extend(_validate_no_project_version_conflict(doc))
     return issues
 
 
@@ -661,4 +662,35 @@ def _validate_reserved_engine_names(
                 ),
                 where=f"backing_services.{name}",
             ))
+    return issues
+
+
+def _validate_no_project_version_conflict(
+    doc: CICLDocument,
+) -> list[ValidationIssue]:
+    """The `PROJECT_VERSION` env var is doctrine-injected on every core
+    service (transfer_tables.md § Per-core-service env). A project that
+    declares it explicitly in its own env: or secrets: block is either
+    duplicating doctrine or trying to lie about its own version — both
+    are mistakes. Mod 011.
+    """
+    issues: list[ValidationIssue] = []
+    for svc_name, svc in sorted(doc.core_services.items()):
+        for key_source, block in (
+            ("env", svc.env or {}),
+            ("secrets", svc.secrets or {}),
+        ):
+            if "PROJECT_VERSION" in block:
+                issues.append(ValidationIssue(
+                    rule="rule_project_version_reserved",
+                    message=(
+                        f"core service {svc_name!r} declares "
+                        f"`PROJECT_VERSION` under `{key_source}:`. This name "
+                        f"is doctrine-reserved: docex auto-injects it on every "
+                        f"core service with the value from `project.yml.version`. "
+                        f"Remove the declaration. See transfer_tables.md § "
+                        f"Per-core-service env."
+                    ),
+                    where=f"core_services.{svc_name}.{key_source}",
+                ))
     return issues

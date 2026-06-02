@@ -96,7 +96,10 @@ def run_stagetest(
         command=["/project/infra/stage/stage_test.sh"],
         mounts=[(project_root, "/project")],
         remove=True,
-        env={"STAGING_URL": staging_url},
+        env={
+            "STAGING_URL": staging_url,
+            "PROJECT_VERSION": ctx.project.version,
+        },
         network=network_override or "host",
     )
     if rc == 0:

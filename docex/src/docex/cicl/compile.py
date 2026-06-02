@@ -517,6 +517,11 @@ def compile_env(
             # in example.env. Validation forbids a key in both env and secrets.
             for key in sorted(svc.secrets):
                 env_block[key] = f"$[{key}]"
+            # Doctrine-injected: PROJECT_VERSION on every core service.
+            # See transfer_tables.md § Per-core-service env (both foundations).
+            # Plain string from project.yml — not a magic ref, not a secret.
+            # The validator forbids the project from declaring this key itself.
+            env_block["PROJECT_VERSION"] = project_version
 
         networks_seen.update(svc.networks)
         is_core = isinstance(svc, CoreService)

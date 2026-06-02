@@ -18,7 +18,7 @@ from hex.pings.adapters.driving.cont_pings_http import ContPingsHttp
 from hex.pings.alogic.ping_service import PingService
 
 
-VERSION = os.environ.get("APP_VERSION", "0.0.1")
+VERSION = os.environ["PROJECT_VERSION"]
 
 
 def _dsn_from_env() -> str:
