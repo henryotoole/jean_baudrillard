@@ -1,10 +1,12 @@
 """Emit a per-env ``main.tf`` for elastic-foundation envs.
 
-The HCL is rendered via Jinja2 from a template. For each backing /
-core service the emitter formats its merged body (a dict possibly
-containing ``HCLLiteral`` raw expressions) into HCL key=value lines.
+The HCL is rendered via Jinja2 from a template. Per service, the
+emitter dispatches by the engine's declared elastic emit destinations
+(``engine.emits.elastic``), not by engine name and not by ``is_core``.
+Each destination has a dedicated per-destination renderer; the
+``_DESTINATION_RENDERERS`` table picks the right one. See Mod 013.
 
-Phase 4 hardened the emitter so its output passes ``tofu validate``:
+Phase 4 hardening still applies:
 
 - Block-attribute formatting (no inline-semicolon blocks in the
   Jinja template — fixed via ``main.tf.j2``).
@@ -12,28 +14,23 @@ Phase 4 hardened the emitter so its output passes ``tofu validate``:
   :mod:`docex.cicl.fargate` and the compiler's ``_resources_to_elastic``).
 - Ephemeral storage floor 21 GiB / ceiling 200 GiB (same).
 - ``$[VAR]`` → ECS ``secrets[]`` block, not literal ``environment[]``
-  entries. Implemented below in ``render_core``: a core service env
-  value that is a bare ``$[REF]`` becomes a ``secrets[]`` entry named
-  after the *consumer's* env key, whose ``valueFrom`` points at
-  ``/<project>/<env>/<REF>`` in SSM Parameter Store. Naming by the
-  consumer's key (not ``REF``) keeps the container's env-var surface
-  identical to the fixed/compose side — the parts-only symmetry
-  guarantee. Composed secrets are rejected earlier, by the compiler.
-  The account ID is referenced from
-  ``data.aws_caller_identity.current.account_id`` so compile stays
-  pure (no AWS creds needed).
+  entries. A core service env value that is a bare ``$[REF]`` becomes
+  a ``secrets[]`` entry named after the *consumer's* env key, whose
+  ``valueFrom`` points at ``/<project>/<env>/<REF>`` in SSM Parameter
+  Store. Naming by the consumer's key (not ``REF``) keeps the
+  container's env-var surface identical to the fixed/compose side.
 - RDS password / username sourced from ``data "aws_ssm_parameter"``
-  rather than emitted as the literal string ``"$[POSTGRES_PASSWORD]"``.
-  Implemented below in ``render_backing``.
-- Listener-rule ``host_header.values`` set to the env's full
-  subdomain (e.g. ``"stage.example.com"``), not just the env name.
+  rather than emitted as a literal ``"$[POSTGRES_PASSWORD]"``. Handled
+  by ``_substitute_body_ssm_refs`` and visible to every renderer.
+- Listener-rule ``host_header.values`` set to per-service hosts.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -47,7 +44,8 @@ _TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 # Match a runtime-ref token ``$[VAR]`` inside a value string. Used to
 # detect (and extract) which entries on a core service's env block must
-# move to the secrets[] block.
+# move to the secrets[] block, plus the SSM substitution in backing
+# service bodies.
 _RUNTIME_REF_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
 
 
@@ -101,19 +99,6 @@ def _hcl_block_body(body: dict[str, Any], indent: int = 2) -> str:
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Per-service renderers
-# ---------------------------------------------------------------------------
-
-
-_ENGINE_TO_RESOURCE = {
-    "postgres": "aws_db_instance",
-    "redis": "aws_elasticache_cluster",
-    "s3": "aws_s3_bucket",
-    # MinIO is fixed-only; should never appear here.
-}
-
-
 def _ssm_arn_literal(project: str, env: str, var: str) -> HCLLiteral:
     """Return an HCL literal for the SSM ARN of a per-env secret.
 
@@ -123,8 +108,7 @@ def _ssm_arn_literal(project: str, env: str, var: str) -> HCLLiteral:
     """
     # NOTE: the leading ``"`` and trailing ``"`` are part of the
     # returned literal — it's a JSON string inside an HCL ``jsonencode``,
-    # with HCL interpolation embedded via ``${...}``. The interpolation
-    # produces the account ID at apply time.
+    # with HCL interpolation embedded via ``${...}``.
     return HCLLiteral(
         f'"arn:aws:ssm:{ELASTIC_REGION}:${{data.aws_caller_identity.current.account_id}}'
         f':parameter/{project}/{env}/{var}"'
@@ -142,36 +126,48 @@ def _ssm_data_name(svc_name: str, key: str) -> str:
     return f"{safe}_{key.lower()}"
 
 
-def render_backing(svc: CompiledService, *, project: str, env: str) -> str:
-    """Render a backing service to its HCL resource block.
+# ---------------------------------------------------------------------------
+# Dispatch context
+# ---------------------------------------------------------------------------
 
-    On postgres/RDS the engine's ``env:`` block declares which
-    parameter-store keys the operator must populate before release.
-    Phase 4 emits an ``aws_ssm_parameter`` *data source* per such key
-    and points the RDS resource's ``username``/``password`` at the
-    data source values, so AWS pulls them from SSM Parameter Store
-    rather than reading them as literal strings from the HCL.
 
-    The release flow's SSM-push step guarantees these parameters
-    exist before ``tofu apply`` evaluates the data sources.
+@dataclass(frozen=True)
+class _RenderCtx:
+    """Shared state passed to every per-destination renderer.
+
+    Each renderer takes ``(svc, ctx)``; the ctx carries what the
+    bulk-emit loop has already resolved (project name, env name, ALB
+    naming policy, ALB listener priority per web service).
     """
-    rtype = _ENGINE_TO_RESOURCE.get(svc.engine)
-    if rtype is None:
-        # Unknown — emit a comment so the developer sees the issue but
-        # tofu apply doesn't choke silently on partial output.
-        return f"# unknown engine {svc.engine!r} for service {svc.name!r}; no HCL emitted"
 
-    body = dict(svc.body)
+    project: str
+    env: str
+    alb_policy: NamingPolicy
+    priorities: dict[str, int]  # service_name -> ALB listener_rule.priority
 
-    # Phase 4: identify any runtime-ref-shaped values in the body. These
-    # are values that came from the engine's defaults.elastic block
-    # carrying a ``$[VAR]`` token (e.g. ``username: $[POSTGRES_USER]``).
-    # Translate each into a data.aws_ssm_parameter reference and emit
-    # the corresponding data source above the resource.
+
+# ---------------------------------------------------------------------------
+# Body helpers
+# ---------------------------------------------------------------------------
+
+
+def _substitute_body_ssm_refs(
+    body: dict[str, Any], project: str, env: str, svc_name: str
+) -> tuple[dict[str, Any], list[str]]:
+    """Walk a service body, translating each ``$[VAR]`` token into an
+    HCL reference to a ``data "aws_ssm_parameter"`` block.
+
+    Returns the substituted body and the list of data-source HCL strings
+    to emit alongside the resource blocks. Lifted from the previous
+    ``render_backing`` so every per-destination renderer sees the same
+    substituted body — a value that is a bare ``$[VAR]`` becomes
+    ``data.aws_ssm_parameter.<svc>_<var>.value``, and a data block is
+    emitted at ``/<project>/<env>/<VAR>``.
+    """
     data_sources: list[str] = []
     seen_keys: set[str] = set()
 
-    def maybe_ssm_substitute(value: Any) -> Any:
+    def maybe_substitute(value: Any) -> Any:
         if not isinstance(value, str):
             return value
         m = _RUNTIME_REF_RE.fullmatch(value)
@@ -180,124 +176,75 @@ def render_backing(svc: CompiledService, *, project: str, env: str) -> str:
         key = m.group(1)
         if key not in seen_keys:
             seen_keys.add(key)
-            ds_name = _ssm_data_name(svc.name, key)
+            ds_name = _ssm_data_name(svc_name, key)
             data_sources.append(
                 f'data "aws_ssm_parameter" "{ds_name}" {{\n'
                 f'  name            = "/{project}/{env}/{key}"\n'
                 f'  with_decryption = true\n'
                 f'}}'
             )
-        ds_name = _ssm_data_name(svc.name, key)
+        ds_name = _ssm_data_name(svc_name, key)
         return HCLLiteral(f"data.aws_ssm_parameter.{ds_name}.value")
 
-    body = {k: maybe_ssm_substitute(v) for k, v in body.items()}
-
-    # `identifier` is doctrine's invariant name; rename to the resource-type
-    # appropriate field per transfer_tables.md § Per-resource (elastic).
-    if rtype == "aws_db_instance":
-        body["identifier"] = body.pop("identifier", svc.global_name)
-    elif rtype == "aws_elasticache_cluster":
-        body["cluster_id"] = body.pop("identifier", svc.global_name)
-    elif rtype == "aws_s3_bucket":
-        body["bucket"] = body.pop("identifier", svc.global_name)
-    # Strip keys we don't emit at this layer.
-    body.pop("logging", None)
-    body.pop("restart", None)
-    body.pop("container_name", None)
-    body.pop("depends_on", None)
-    body.pop("environment", None)
-    # Networks become security group attachments on resources that support it.
-    nets = list(svc.networks)
-    body.pop("networks", None)
-    if rtype == "aws_db_instance" and nets:
-        body["vpc_security_group_ids"] = [
-            HCLLiteral(f"aws_security_group.{n}.id") for n in sorted(nets)
-        ]
-        body["db_subnet_group_name"] = HCLLiteral(
-            f"aws_db_subnet_group.{svc.name}.name"
-        )
-    if rtype == "aws_elasticache_cluster" and nets:
-        body["security_group_ids"] = [
-            HCLLiteral(f"aws_security_group.{n}.id") for n in sorted(nets)
-        ]
-        body["subnet_group_name"] = HCLLiteral(
-            f"aws_elasticache_subnet_group.{svc.name}.name"
-        )
-
-    body_str = _hcl_block_body(body)
-    out: list[str] = []
-    out.extend(data_sources)
-    if data_sources:
-        out.append("")
-    out.append(f'resource "{rtype}" "{svc.name}" {{')
-    out.append(body_str)
-    out.append("}")
-    if rtype == "aws_db_instance" and nets:
-        out.append("")
-        out.append(f'resource "aws_db_subnet_group" "{svc.name}" {{')
-        out.append(f'  name       = "{svc.global_name}"')
-        out.append("  subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids")
-        out.append("}")
-    if rtype == "aws_elasticache_cluster" and nets:
-        out.append("")
-        out.append(f'resource "aws_elasticache_subnet_group" "{svc.name}" {{')
-        out.append(f'  name       = "{svc.global_name}"')
-        out.append("  subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids")
-        out.append("}")
-    return "\n".join(out)
+    return {k: maybe_substitute(v) for k, v in body.items()}, data_sources
 
 
-def render_core(
-    svc: CompiledService,
-    *,
-    project: str,
-    env: str,
-    priority: int,
-    alb_policy: NamingPolicy,
-) -> str:
-    """Render a core service to ECS task definition + service + (optional) target group.
+def _container_env_entries(
+    env: dict[str, Any], project: str, env_name: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition a service's env block into ``environment[]`` and
+    ``secrets[]`` entries for an ECS container definition.
 
-    Phase 4 partitions the service's env block into ``environment[]``
-    (plain strings, resolved at compile time) and ``secrets[]``
-    (entries whose value contains ``$[VAR]``, which on elastic must
-    be sourced from SSM Parameter Store).
+    Plain strings and HCLLiteral (``@``-pass-through) values become
+    ``environment[]`` entries. A value that is a bare ``$[REF]`` token
+    becomes a ``secrets[]`` entry whose ``valueFrom`` points at the
+    underlying SSM parameter (named by the *consumer's* key, keeping
+    parity with the compose side).
     """
-    body = dict(svc.body)
-    nets = list(svc.networks)
-    cpu = body.get("cpu", "256")
-    memory = body.get("memory", "512")
-    ephemeral = body.get("ephemeral_storage")
-
     env_entries: list[dict[str, Any]] = []
     secret_entries: list[dict[str, Any]] = []
-
-    for k in sorted(svc.env):
-        v = svc.env[k]
+    for k in sorted(env):
+        v = env[k]
         if isinstance(v, HCLLiteral):
             # @-pass-through (e.g. RDS endpoint). Embed as an HCL
-            # interpolation inside the JSON string. These do not
-            # contain runtime refs.
+            # interpolation inside the JSON string.
             env_entries.append({"name": k, "value": HCLLiteral(f'"${{{str(v)}}}"')})
             continue
         if isinstance(v, str):
             m = _RUNTIME_REF_RE.fullmatch(v)
             if m is not None:
-                # Secret part. By the parts-only rule (enforced in the
-                # compiler), a secret resolves to exactly one bare $[REF].
-                # Emit an ECS secret named after the *consumer's* key (k),
-                # with valueFrom pointing at the underlying secret's SSM
-                # path — keeping the container's env-var surface identical
-                # to the fixed/compose side.
                 secret_entries.append({
                     "name": k,
-                    "valueFrom": _ssm_arn_literal(project, env, m.group(1)),
+                    "valueFrom": _ssm_arn_literal(project, env_name, m.group(1)),
                 })
                 continue
-            # Plain string with no runtime refs.
             env_entries.append({"name": k, "value": v})
             continue
-        # Non-string scalar — stringify and emit as plain env.
         env_entries.append({"name": k, "value": str(v)})
+    return env_entries, secret_entries
+
+
+# ---------------------------------------------------------------------------
+# Per-destination renderers
+# ---------------------------------------------------------------------------
+
+
+def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit one ``aws_ecs_task_definition``, plus a ``_migrate`` variant
+    for schema-owning core services.
+
+    Shared between core services and container-backing services — the
+    is_core gate applies only to the migration sub-emission and the
+    fact that backing services arrive with ``svc.env == {}`` (so
+    PROJECT_VERSION and other doctrine-injected env vars naturally
+    skip them).
+    """
+    body = dict(svc.body)
+    cpu = body.get("cpu", "256")
+    memory = body.get("memory", "512")
+    ephemeral = body.get("ephemeral_storage")
+
+    env_entries, secret_entries = _container_env_entries(svc.env, ctx.project, ctx.env)
 
     container_def: dict[str, Any] = {
         "name": svc.name,
@@ -340,15 +287,13 @@ def render_core(
         f'managed_by = "doctrine" }}'
     )
     out.append("}")
-    out.append("")
 
     # Migration task definition: same image as main, but command runs
-    # /service/migrate.sh. Emitted only for services with schema
-    # ownership (i.e. those that own a relational_db). The compiler
-    # doesn't expose schema_owned_by from the *core* side, so we
-    # emit one per core service that owns a database. Practically,
-    # for Phase 4's smoke fixture this means the API service.
-    if svc.schema_owned_by_db:
+    # /service/migrate.sh. Emitted only for core services that own a
+    # backing database schema. Backing services never own schemas, so
+    # this sub-emission is implicitly skipped for them.
+    if svc.is_core and svc.schema_owned_by_db:
+        out.append("")
         mig_family = f"{svc.global_name}_migrate"
         mig_container = {
             "name": svc.name,
@@ -376,54 +321,16 @@ def render_core(
             f'managed_by = "doctrine" }}'
         )
         out.append("}")
-        out.append("")
 
-    # Target group + listener rule if on the web network.
-    if "web" in nets:
-        # ALB target-group names disallow underscores, so the name is
-        # policy-translated regardless of the engine's own naming. The
-        # service's global_name may be underscore-form (ecs policy) or
-        # already hyphen-form; apply_policy is idempotent in either case.
-        tg_name = apply_policy(f"{svc.global_name}_tg", alb_policy)
-        out.append(f'resource "aws_lb_target_group" "{svc.name}" {{')
-        out.append(f'  name        = "{tg_name}"')
-        out.append(f'  port        = {svc.port or 80}')
-        out.append( '  protocol    = "HTTP"')
-        out.append( '  target_type = "ip"')
-        out.append( '  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id')
-        tg_extras = svc.target_extras.get("target_group", {})
-        hc = tg_extras.get("health_check")
-        if hc:
-            out.append("  health_check {")
-            # Python dicts preserve insertion order, so iteration matches the
-            # field-translation declaration order from the transfer table.
-            for k, v in hc.items():
-                if isinstance(v, str):
-                    out.append(f'    {k} = "{v}"')
-                else:
-                    out.append(f'    {k} = {v}')
-            out.append("  }")
-        out.append("}")
-        out.append("")
-        out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
-        out.append( '  listener_arn = aws_lb_listener.alb_https.arn')
-        out.append(f'  priority     = {priority}')
-        out.append( '  action {')
-        out.append( '    type             = "forward"')
-        out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
-        out.append( '  }')
-        out.append( '  condition {')
-        out.append( '    host_header {')
-        # Per-service host(s): <service>.<env>.<domain>, plus the bare
-        # <env>.<domain> for the domain_default_service.
-        hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
-        out.append(f'      values = [{hosts_hcl}]')
-        out.append( '    }')
-        out.append( '  }')
-        out.append("}")
-        out.append("")
+    return "\n".join(out)
 
-    # ECS service.
+
+def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit one ``aws_ecs_service``. References ``aws_lb_target_group``
+    if the service also emits ``target_group`` (web-network services).
+    """
+    nets = list(svc.networks)
+    out: list[str] = []
     out.append(f'resource "aws_ecs_service" "{svc.name}" {{')
     out.append(f'  name            = "{svc.global_name}"')
     out.append( '  cluster         = aws_ecs_cluster.cluster.id')
@@ -435,7 +342,7 @@ def render_core(
     sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in sorted(nets))
     out.append(f"    security_groups = [{sg_refs}]")
     out.append("  }")
-    if "web" in nets:
+    if "web" in nets and "target_group" in svc.emits.get("elastic", []):
         out.append("  load_balancer {")
         out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
         out.append(f'    container_name   = "{svc.name}"')
@@ -443,6 +350,217 @@ def render_core(
         out.append("  }")
     out.append("}")
     return "\n".join(out)
+
+
+def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit ``aws_lb_target_group`` + ``aws_lb_listener_rule`` for a
+    web-network service. The dispatcher only calls this when
+    ``web in svc.networks`` (per ``_destination_applicable``).
+    """
+    # ALB target-group names disallow underscores, so the name is
+    # policy-translated regardless of the engine's own naming.
+    tg_name = apply_policy(f"{svc.global_name}_tg", ctx.alb_policy)
+    priority = ctx.priorities.get(svc.name, 100)
+
+    out: list[str] = []
+    out.append(f'resource "aws_lb_target_group" "{svc.name}" {{')
+    out.append(f'  name        = "{tg_name}"')
+    out.append(f'  port        = {svc.port or 80}')
+    out.append( '  protocol    = "HTTP"')
+    out.append( '  target_type = "ip"')
+    out.append( '  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id')
+    tg_extras = svc.target_extras.get("target_group", {})
+    hc = tg_extras.get("health_check")
+    if hc:
+        out.append("  health_check {")
+        # Python dicts preserve insertion order, so iteration matches the
+        # field-translation declaration order from the transfer table.
+        for k, v in hc.items():
+            if isinstance(v, str):
+                out.append(f'    {k} = "{v}"')
+            else:
+                out.append(f'    {k} = {v}')
+        out.append("  }")
+    out.append("}")
+    out.append("")
+    out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
+    out.append( '  listener_arn = aws_lb_listener.alb_https.arn')
+    out.append(f'  priority     = {priority}')
+    out.append( '  action {')
+    out.append( '    type             = "forward"')
+    out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
+    out.append( '  }')
+    out.append( '  condition {')
+    out.append( '    host_header {')
+    # Per-service host(s): <service>.<env>.<domain>, plus the bare
+    # <env>.<domain> for the domain_default_service.
+    hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
+    out.append(f'      values = [{hosts_hcl}]')
+    out.append( '    }')
+    out.append( '  }')
+    out.append("}")
+    return "\n".join(out)
+
+
+def render_rds_instance(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit ``aws_db_instance`` + ``aws_db_subnet_group`` for an
+    RDS-backed backing service (currently: postgres engine).
+    """
+    body = dict(svc.body)
+    # Doctrine invariant: `identifier` maps to RDS's `identifier` field.
+    body["identifier"] = body.pop("identifier", svc.global_name)
+    # Strip keys we don't emit on aws_db_instance.
+    body.pop("logging", None)
+    body.pop("restart", None)
+    body.pop("container_name", None)
+    body.pop("depends_on", None)
+    body.pop("environment", None)
+
+    nets = list(svc.networks)
+    body.pop("networks", None)
+    if nets:
+        body["vpc_security_group_ids"] = [
+            HCLLiteral(f"aws_security_group.{n}.id") for n in sorted(nets)
+        ]
+        body["db_subnet_group_name"] = HCLLiteral(
+            f"aws_db_subnet_group.{svc.name}.name"
+        )
+
+    body_str = _hcl_block_body(body)
+    out: list[str] = []
+    out.append(f'resource "aws_db_instance" "{svc.name}" {{')
+    out.append(body_str)
+    out.append("}")
+    if nets:
+        out.append("")
+        out.append(f'resource "aws_db_subnet_group" "{svc.name}" {{')
+        out.append(f'  name       = "{svc.global_name}"')
+        out.append("  subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids")
+        out.append("}")
+    return "\n".join(out)
+
+
+def render_elasticache_cluster(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit ``aws_elasticache_cluster`` + ``aws_elasticache_subnet_group``."""
+    body = dict(svc.body)
+    body["cluster_id"] = body.pop("identifier", svc.global_name)
+    body.pop("logging", None)
+    body.pop("restart", None)
+    body.pop("container_name", None)
+    body.pop("depends_on", None)
+    body.pop("environment", None)
+
+    nets = list(svc.networks)
+    body.pop("networks", None)
+    if nets:
+        body["security_group_ids"] = [
+            HCLLiteral(f"aws_security_group.{n}.id") for n in sorted(nets)
+        ]
+        body["subnet_group_name"] = HCLLiteral(
+            f"aws_elasticache_subnet_group.{svc.name}.name"
+        )
+
+    body_str = _hcl_block_body(body)
+    out: list[str] = []
+    out.append(f'resource "aws_elasticache_cluster" "{svc.name}" {{')
+    out.append(body_str)
+    out.append("}")
+    if nets:
+        out.append("")
+        out.append(f'resource "aws_elasticache_subnet_group" "{svc.name}" {{')
+        out.append(f'  name       = "{svc.global_name}"')
+        out.append("  subnet_ids = data.terraform_remote_state.project.outputs.private_subnet_ids")
+        out.append("}")
+    return "\n".join(out)
+
+
+def render_s3_bucket(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit ``aws_s3_bucket``. No subnet group / SG — S3 is a regional
+    service with its own access controls, not a VPC resource.
+    """
+    body = dict(svc.body)
+    body["bucket"] = body.pop("identifier", svc.global_name)
+    body.pop("logging", None)
+    body.pop("restart", None)
+    body.pop("container_name", None)
+    body.pop("depends_on", None)
+    body.pop("environment", None)
+    body.pop("networks", None)
+
+    body_str = _hcl_block_body(body)
+    out: list[str] = []
+    out.append(f'resource "aws_s3_bucket" "{svc.name}" {{')
+    out.append(body_str)
+    out.append("}")
+    return "\n".join(out)
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+
+_DESTINATION_RENDERERS: dict[str, Callable[[CompiledService, _RenderCtx], str]] = {
+    "task_definition": render_task_definition,
+    "ecs_service": render_ecs_service,
+    "target_group": render_target_group,
+    "rds_instance": render_rds_instance,
+    "elasticache_cluster": render_elasticache_cluster,
+    "s3_bucket": render_s3_bucket,
+}
+
+
+def _destination_applicable(dest: str, svc: CompiledService) -> bool:
+    """Check whether ``dest`` is conditionally emittable for ``svc``.
+
+    Currently only ``target_group`` has a condition — it requires the
+    service to be on the ``web`` network. The doctrine doesn't forbid
+    an engine from declaring ``target_group`` even when no actual
+    service of that engine would be web-routed; the gate just keeps
+    the emit aligned with runtime reachability.
+    """
+    if dest == "target_group":
+        return "web" in svc.networks
+    return True
+
+
+def render_service(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Render every elastic destination the service's engine declares.
+
+    Data sources (SSM substitutions) come first, then the per-destination
+    resource blocks in the order the engine declared them.
+    """
+    substituted_body, data_sources = _substitute_body_ssm_refs(
+        svc.body, ctx.project, ctx.env, svc.name
+    )
+    svc_view = replace(svc, body=substituted_body)
+
+    parts: list[str] = []
+    if data_sources:
+        parts.extend(data_sources)
+        parts.append("")  # blank line between data sources and resources
+
+    emits_elastic = svc.emits.get("elastic", [])
+    for dest in emits_elastic:
+        if not _destination_applicable(dest, svc):
+            continue
+        renderer = _DESTINATION_RENDERERS.get(dest)
+        if renderer is None:
+            # Should be impossible after Mod 012's load-time validation
+            # (unknown destinations are rejected then). Defensive.
+            parts.append(
+                f"# unknown destination {dest!r} for service {svc.name!r}; no HCL emitted"
+            )
+            continue
+        parts.append(renderer(svc_view, ctx))
+        parts.append("")
+
+    return "\n".join(parts).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Top-level emitters
+# ---------------------------------------------------------------------------
 
 
 def _hcl_id(service_name: str) -> str:
@@ -531,34 +649,39 @@ def emit_hcl(
         keep_trailing_newline=True,
     )
     tpl = env.get_template("main.tf.j2")
-    backing = [s for s in compiled.services.values() if not s.is_core]
-    core = [s for s in compiled.services.values() if s.is_core]
-    backing.sort(key=lambda s: s.name)
-    core.sort(key=lambda s: s.name)
 
-    # Wrap the per-service renderers so Jinja can call them with just
-    # `svc` while we pass the project/env/subdomain context they need.
-    def _backing(svc: CompiledService) -> str:
-        return render_backing(svc, project=compiled.project, env=compiled.env)
+    # Order: backing services first, then core services. Alphabetical
+    # within each group. Purely cosmetic (tofu builds its own DAG), but
+    # keeps the emitted main.tf readable and matches the pre-Mod-013 layout.
+    backing = sorted(
+        (s for s in compiled.services.values() if not s.is_core),
+        key=lambda s: s.name,
+    )
+    core = sorted(
+        (s for s in compiled.services.values() if s.is_core),
+        key=lambda s: s.name,
+    )
+    services_ordered = backing + core
 
-    # ALB listener rules need a unique priority per web service. Assign
-    # deterministically from the sorted web-core services (100, 101, ...).
+    # ALB listener rules need a unique priority per web-network core service.
+    # Assigned deterministically from the sorted web-core services (100, 101, ...).
     _web_core = [s for s in core if "web" in s.networks]
-    _priorities = {s.name: 100 + i for i, s in enumerate(_web_core)}
+    priorities = {s.name: 100 + i for i, s in enumerate(_web_core)}
 
     s3_p = naming_policies.get("s3")
     ddb_p = naming_policies.get("ddb")
     alb_p = naming_policies.get("alb")
     ecs_p = naming_policies.get("ecs")
 
-    def _core(svc: CompiledService) -> str:
-        return render_core(
-            svc,
-            project=compiled.project,
-            env=compiled.env,
-            priority=_priorities.get(svc.name, 100),
-            alb_policy=alb_p,
-        )
+    ctx = _RenderCtx(
+        project=compiled.project,
+        env=compiled.env,
+        alb_policy=alb_p,
+        priorities=priorities,
+    )
+
+    def _render(svc: CompiledService) -> str:
+        return render_service(svc, ctx)
 
     rendered = tpl.render(
         project=compiled.project,
@@ -568,10 +691,8 @@ def emit_hcl(
         subdomain=compiled.subdomain,
         region=ELASTIC_REGION,
         networks_sorted=sorted(compiled.networks),
-        backing_services=backing,
-        core_services=core,
-        render_backing=_backing,
-        render_core=_core,
+        services=services_ordered,
+        render_service=_render,
         state_bucket=apply_policy(
             f"{compiled.project}_tofu_state", s3_p
         ),

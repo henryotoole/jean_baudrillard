@@ -14,6 +14,30 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Elastic HCL emit is now dispatched by emit destination, not by
+  engine name or `is_core`.** The old hardcoded
+  `_ENGINE_TO_RESOURCE = {"postgres": "aws_db_instance", "redis": ..., "s3": ...}`
+  map is gone; the dispatch reads each engine's own `emits.elastic`
+  list (the existing transfer-table field) and routes to a
+  per-destination renderer. The render layer is now six independent
+  functions — `render_task_definition`, `render_ecs_service`,
+  `render_target_group`, `render_rds_instance`,
+  `render_elasticache_cluster`, `render_s3_bucket` — wired through a
+  `_DESTINATION_RENDERERS` dispatch table. `render_task_definition` is
+  shared between core services and container-backing services;
+  `is_core` is consulted only for the migration task-def sub-emission
+  on schema-owning core services. Bundled engines (postgres, redis,
+  s3, web/container) produce equivalent HCL — same resources, same
+  fields, identical SSM data sources. The new capability: a
+  project-local backing-service engine declaring
+  `emits.elastic: [task_definition, ecs_service]` (the canonical
+  pattern for a containerized backing service like ClickHouse,
+  OpenTelemetry collector, or any non-bespoke sidecar) now renders
+  as an ECS Fargate task instead of producing an
+  `# unknown engine` comment. Doctrine: `transfer_tables.md` §
+  Container-backing services on elastic, plus the clarified `emits:`
+  paragraph in § Anatomy of a Role Definition. Mod 013.
+
 - **Transfer-table loading is now strict and source-attributed.** Unknown
   top-level keys, unknown engine sub-keys, unknown naming-policy
   sub-keys, and unknown `emits:` destinations are hard errors at load

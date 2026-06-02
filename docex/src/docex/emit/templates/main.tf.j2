@@ -181,18 +181,13 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 # ---------------------------------------------------------------------------
-# Backing services
+# Services (backing first, then core; dispatch is by engine.emits.elastic).
+# Per Mod 013, both backing and core services flow through the same
+# destination-driven renderer — what HCL gets emitted is governed by the
+# engine's declared emit destinations.
 # ---------------------------------------------------------------------------
-{% for svc in backing_services -%}
-{{ render_backing(svc) }}
-
-{% endfor %}
-
-# ---------------------------------------------------------------------------
-# Core services (ECS task definitions, services, target groups)
-# ---------------------------------------------------------------------------
-{% for svc in core_services -%}
-{{ render_core(svc) }}
+{% for svc in services -%}
+{{ render_service(svc) }}
 
 {% endfor %}
 

@@ -302,6 +302,11 @@ class CompiledService:
     # resolved translation body. Empty dict when no fields routed
     # off-default. Mod 010.
     target_extras: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Per-foundation list of emit destinations from the engine's `emits:`
+    # block, propagated at compile time so the emitter doesn't need a
+    # full TransferTables reference. Empty list for foundations the
+    # engine doesn't support. Mod 013.
+    emits: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -543,6 +548,7 @@ def compile_env(
             schema_owned_by=getattr(svc, "schema_owned_by", None),
             schema_owned_by_db=(is_core and name in core_owning_schema),
             target_extras=target_extras,
+            emits={fnd: list(dests) for fnd, dests in (engine.emits or {}).items()},
         )
 
     return CompiledEnv(

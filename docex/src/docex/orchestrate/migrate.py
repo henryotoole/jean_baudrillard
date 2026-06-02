@@ -224,7 +224,7 @@ def _migrate_elastic(
 
     for svc in schema_owners:
         # Migration task definition family — matches the elastic HCL
-        # emitter (render_core: ``mig_family = svc.global_name + "_migrate"``).
+        # emitter (render_task_definition: ``mig_family = svc.global_name + "_migrate"``).
         # We re-derive the global_name here rather than threading the
         # compiled context through orchestrate/.
         family = _migration_task_family(ctx, project=project, env=env, svc=svc)
@@ -288,7 +288,7 @@ def _migration_task_family(
     """Derive the migration task definition family for a service.
 
     Must match the compiler's elastic HCL emitter
-    (`render_core`: ``mig_family = svc.global_name + "_migrate"``).
+    (`render_task_definition`: ``mig_family = svc.global_name + "_migrate"``).
     We re-resolve the engine's naming policy so this works without
     re-compiling the project context.
     """
