@@ -12,6 +12,36 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-02
+
+The container-backing campaign. Five mods (012–016) turn project-local
+transfer tables into a load-bearing extension surface: strict, source-
+attributed loader; destination-keyed elastic dispatch; ECS Service
+Connect for intra-env discovery; EFS-backed persistent storage for
+stateful container backings on Fargate; and a consolidated authoring
+guide. Containerized backing services that aren't first-party project
+code (ClickHouse, OpenTelemetry collectors, sidecars of all shapes)
+are now first-class on both foundations — same magic-ref shape across
+fixed and elastic, foundation-specific machinery hidden behind the
+existing `provides:` model.
+
+### Fixed
+
+- **`CompiledService.port` falls back to `engine.default_port` for
+  backing services that omit `port:` in `infra.yml`.** Surfaced during
+  the docex 0.10.0 elastic smoke walk: a project-local sidecar engine
+  declaring `default_port: 80` was loaded correctly and resolved the
+  `${port}` substitution variable correctly (line 379 of `compile.py`
+  has had the fallback since long ago), but `CompiledService.port`
+  itself was set to `svc.port` directly — which is None when the
+  project omits `port:`. Downstream emitters (the task definition's
+  `portMappings`, the ECS Service Connect `service {}` sub-block)
+  read `CompiledService.port` and silently skipped emission when None.
+  Bundled engines never exposed this gap because they either are core
+  services (always declare `port:` in `infra.yml`) or don't emit port
+  mappings at all (RDS, ElastiCache, S3). The fix is a one-line
+  fallback in `compile_env`'s `CompiledService(...)` construction.
+
 ### Documentation
 
 - **Authoring guide for project-local transfer tables.** New section in

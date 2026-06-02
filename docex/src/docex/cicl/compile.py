@@ -544,7 +544,19 @@ def compile_env(
             body=body,
             networks=list(svc.networks),
             depends_on=list(svc.depends_on or []),
-            port=svc.port,
+            # Fall back to engine.default_port when the project doesn't
+            # declare port: in infra.yml. The substitution context (line
+            # 379) already does this fallback for the ${port} variable
+            # used in provides templates; CompiledService.port needs to
+            # match so downstream emitters (task-def portMappings, ECS
+            # Service Connect `service` block) see the engine's port too.
+            # Surfaced by Mod 014's project-local sidecar engine — the
+            # bundled engine set never exposed this because core services
+            # always declare port: and RDS/ElastiCache/S3 don't emit
+            # portMappings.
+            port=(
+                svc.port if svc.port is not None else engine.default_port
+            ),
             env=env_block,
             web_hosts=_web_hosts(
                 name, svc.role, svc.networks, subdomain, doc.domain_default_service

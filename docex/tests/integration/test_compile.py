@@ -160,6 +160,45 @@ def test_backing_service_port_defaults_from_engine(tmp_path: Path):
     assert str(api["environment"]["DATABASE_PORT"]) == "5432"
 
 
+def test_backing_service_compiled_port_falls_back_to_engine_default(tmp_path: Path):
+    """Companion to test_backing_service_port_defaults_from_engine.
+    The above verifies the substitution context (the ${port} variable
+    used in provides templates); this verifies the CompiledService.port
+    field that downstream emitters (task-def portMappings, ECS Service
+    Connect service block) read directly.
+
+    The two paths diverged before docex 0.10.0's smoke walk surfaced the
+    gap: omitting `port:` left CompiledService.port = None, which broke
+    Service Connect's `service` block emission (no port_name to
+    reference) and the task definition's portMappings (entirely absent).
+    Fixed by falling back to engine.default_port on CompiledService.port.
+    """
+    from docex.cicl.compile import compile_env
+    from docex.cicl.transfer import load_transfer_tables
+    from docex.context import load_project_context
+
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    text = "\n".join(
+        line for line in infra_yml.read_text().splitlines()
+        if line.strip() != "port: 5432"
+    )
+    infra_yml.write_text(text)
+    ctx = load_project_context(root)
+    tables = load_transfer_tables(root)
+    env = compile_env(
+        ctx.infra, tables,
+        env="dev",
+        project_name=ctx.project.name,
+        project_version=ctx.project.version,
+    )
+    db = next(s for s in env.services.values() if not s.is_core)
+    assert db.port == 5432, (
+        f"CompiledService.port should fall back to postgres engine's "
+        f"default_port (5432) when infra.yml omits `port:`. Got {db.port}."
+    )
+
+
 def test_composed_secret_in_env_fails_compile(tmp_path: Path):
     """Embedding a secret part inside a composed env value violates the
     parts-only rule and must fail compile (on any foundation)."""
