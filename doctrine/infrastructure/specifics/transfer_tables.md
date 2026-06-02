@@ -337,6 +337,20 @@ labels:
 
 `${host_rule}` is the per-service [host rule](../cicl.md#per-service-subdomains). The literal resolver name `doctrine` is the prescribed handle for the single machine-wide cert resolver — the operator configures Traefik with a resolver of that exact name, and docex emits labels referencing it. Decoupling the *name* (a doctrine handshake) from the *implementation* (currently Let's Encrypt + DNS-01) lets the doctrine evolve the underlying mechanism without changing the handle.
 
+### Per-core-service env (both foundations)
+
+Every core service — regardless of foundation — additionally receives one doctrine-injected env var:
+
+| Variable | Value | Source |
+| -------- | ----- | ------ |
+| `PROJECT_VERSION` | The project's current version | `project.yml` `version:` field |
+
+The variable is doctrine-injected, not project-declared — a project's `infra.yml` need not list it under `env:`, and listing it explicitly is redundant. The compiler emits it on every core service's environment block (compose `environment:` on fixed; ECS `environment[]` entry on elastic — not an SSM secret, since the version is not sensitive).
+
+The name matches the env var [`./bin/docex stagetest` injects](../cicd.md#staging-tests) into the stage tester container. A service introspecting its own version (e.g. a `/health` endpoint that returns `{"version": "..."}`) reads from the same canonical handle a stage test compares against — so the assertion `body["version"] == os.environ["PROJECT_VERSION"]` is deterministic across the release boundary, not a manual sync.
+
+Backing services do not receive this env var. They run third-party software with no application-side code that would consume it; emitting it on them would be inert.
+
 ### Per-compose-file (fixed)
 
 Every emitted `docker-compose.yml` is prepended with the YAML anchor referenced above:
