@@ -13,7 +13,7 @@ core_services:
     role: web
     port: 8080
     networks: [web, internal]
-    depends_on: [appdb]
+    depends_on: [appdb, probe, events]
     env:
       # Built from appdb's provided parts at startup (parts-only model).
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -22,6 +22,12 @@ core_services:
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
+      # Project-local container backings introduced for the docex 0.10.0
+      # campaign smoke walk: nginx sidecar + ClickHouse analytics_db.
+      SIDECAR_HOST: ${backing_services.probe.host}
+      SIDECAR_PORT: ${backing_services.probe.port}
+      CLICKHOUSE_HOST: ${backing_services.events.host}
+      CLICKHOUSE_PORT: ${backing_services.events.port}
     resources:
       cpu: 0.25
       memory: 512MB
@@ -50,3 +56,21 @@ backing_services:
     version: "15"
     networks: [internal]
     schema_owned_by: web
+
+  # Project-local engines declared at infra/transfer_tables/{sidecar,clickhouse}.yml.
+  # See the doctrine's transfer_tables.md § Authoring Project-Local Transfer Tables
+  # for the schema. probe is stateless (sidecar/nginx); events is stateful
+  # (analytics_db/clickhouse) with persistent_storage and project-opt-in backups.
+  probe:
+    role: sidecar
+    engine: nginx
+    networks: [internal]
+
+  events:
+    role: analytics_db
+    engine: clickhouse
+    networks: [internal]
+    # Opt in to AWS Backup for ClickHouse data. Default disabled — only the
+    # project knows whether the data is replaceable cache or irreplaceable
+    # user state. (Mod 015's project-opt-in field-routed via target_extras.)
+    backups: true

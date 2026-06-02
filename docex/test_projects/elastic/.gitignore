@@ -4,6 +4,7 @@ core/*/dist/
 # OpenTofu local state and plan files
 # (state itself is remote per elastic_bootstrap, but the directory and lock files are local)
 infra/output/**/.terraform/
+infra/output/**/.terraform.lock.hcl
 infra/output/**/*.tfplan
 infra/output/**/*.tfstate*
 

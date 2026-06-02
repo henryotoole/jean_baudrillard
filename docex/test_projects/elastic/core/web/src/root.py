@@ -8,10 +8,13 @@ graph and starts the HTTP server.
 from __future__ import annotations
 
 import os
+import socket
 import sys
+import urllib.error
+import urllib.request
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from hex.pings.adapters.driven.repo_pings_postgres import RepoPingsPostgres
 from hex.pings.adapters.driving.cont_pings_http import ContPingsHttp
@@ -19,6 +22,14 @@ from hex.pings.alogic.ping_service import PingService
 
 
 VERSION = os.environ["PROJECT_VERSION"]
+
+# Project-local backing-service magic-ref consumers. Same env-var names
+# resolve on both foundations: docker network DNS on fixed, ECS Service
+# Connect on elastic. The campaign-end smoke walk exercises these.
+SIDECAR_HOST = os.environ.get("SIDECAR_HOST")
+SIDECAR_PORT = os.environ.get("SIDECAR_PORT")
+CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST")
+CLICKHOUSE_PORT = os.environ.get("CLICKHOUSE_PORT")
 
 
 def _dsn_from_env() -> str:
@@ -55,6 +66,35 @@ def build_app() -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"version": VERSION}
+
+    # Reachability checks for the project-local container backings.
+    # Exercises Service Connect resolution + SG reachability on elastic,
+    # docker network DNS on fixed. Not doctrine-mandated (sidecar and
+    # events are backing services, not core), but useful for the smoke
+    # test to surface infrastructure misconfiguration.
+    @app.get("/health/probe")
+    def health_probe() -> dict[str, str | int]:
+        if not SIDECAR_HOST or not SIDECAR_PORT:
+            raise HTTPException(503, "SIDECAR_HOST/PORT not set")
+        try:
+            resp = urllib.request.urlopen(
+                f"http://{SIDECAR_HOST}:{SIDECAR_PORT}/", timeout=3,
+            )
+            return {"reachable": "true", "status_code": resp.status}
+        except (urllib.error.URLError, OSError) as exc:
+            raise HTTPException(503, f"probe unreachable: {exc}")
+
+    @app.get("/health/events")
+    def health_events() -> dict[str, str | int]:
+        if not CLICKHOUSE_HOST or not CLICKHOUSE_PORT:
+            raise HTTPException(503, "CLICKHOUSE_HOST/PORT not set")
+        try:
+            with socket.create_connection(
+                (CLICKHOUSE_HOST, int(CLICKHOUSE_PORT)), timeout=3,
+            ):
+                return {"reachable": "true", "port": int(CLICKHOUSE_PORT)}
+        except OSError as exc:
+            raise HTTPException(503, f"events unreachable: {exc}")
 
     return app
 

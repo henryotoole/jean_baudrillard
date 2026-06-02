@@ -1,0 +1,41 @@
+roles:
+  analytics_db:
+    description: "OLAP analytics database. Stateful — data directory persists across task restarts via EFS on elastic, named volume on fixed."
+    clickhouse:
+      foundation: both
+      default_port: 9000
+      naming: ecs
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service, efs_file_system]
+      defaults:
+        fixed:
+          image: clickhouse/clickhouse-server:24.10
+          volumes:
+            - ${global_service_name}_data:/var/lib/clickhouse
+          # ClickHouse needs IPC_LOCK in some configs; default container
+          # works fine for the smoke test without it.
+          environment:
+            CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        elastic:
+          image: clickhouse/clickhouse-server:24.10
+          cpu: "1024"
+          memory: "4096"
+      persistent_storage:
+        mount_path: /var/lib/clickhouse
+      fields:
+        # Project opt-in for AWS Backup. Default disabled — only the
+        # project knows whether the data is replaceable cache or
+        # irreplaceable user state.
+        backups:
+          elastic:
+            target: efs_file_system
+            enabled: ${field_value}
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}

@@ -1,6 +1,6 @@
 # Pre-Cut Checklist
 
-The operator's manual procedure before cutting a `docex` minor or major version. Walks the two smoke-test projects ([`fixed/`](./fixed/) and [`elastic/`](./elastic/)) through their full release paths against real infrastructure. Surfaces bugs that unit tests can't reach.
+The agent's manual procedure before cutting a `docex` minor or major version. Walks the two smoke-test projects ([`fixed/`](./fixed/) and [`elastic/`](./elastic/)) through their full release paths against real infrastructure. Surfaces bugs that unit tests can't reach.
 
 **Skip this for patch cuts.** Patches fix unit-testable bugs; the smoke test would burn real AWS spend without proportionate value.
 
@@ -44,11 +44,11 @@ The doctrine assumes a project is its own git repository (per [`inception.md`](.
   ```
 - [ ] Same for `test_projects/elastic/`.
 
-The nested-repo state is intentional and harmless to the outer doctrine repo — files inside `test_projects/*/` remain tracked at the outer level via their original commit history; the inner `.git/` directories are simply not crossed by the outer repo's walkers. Edits inside a test project dirty both repos; the operator commits in both as needed.
+The nested-repo state is intentional and harmless to the outer doctrine repo — files inside `test_projects/*/` remain tracked at the outer level via their original commit history; the inner `.git/` directories are simply not crossed by the outer repo's walkers. Edits inside a test project dirty both repos; the agent commits in both as needed.
 
 ### A.3 DNS — fixed foundation
 
-The fixed project's domain is `doctrine-fixed.luxrnd.tech`, served from this dev machine. The operator's Route53 zone for `luxrnd.tech` must contain records pointing the env subdomains (and their per-service wildcards) at the dev machine's public IP `$DEV_IP`:
+The fixed project's domain is `doctrine-fixed.luxrnd.tech`, served from this dev machine. The agent's Route53 zone for `luxrnd.tech` must contain records pointing the env subdomains (and their per-service wildcards) at the dev machine's public IP `$DEV_IP`:
 
 - [ ] `dev.doctrine-fixed.luxrnd.tech    A → $DEV_IP`
 - [ ] `*.dev.doctrine-fixed.luxrnd.tech  A → $DEV_IP`
@@ -63,9 +63,9 @@ Verify each subdomain resolves: `dig +short <subdomain>` should return `$DEV_IP`
 
 ### A.4 DNS — elastic foundation
 
-The elastic project's domain is `doctrine-elastic.luxrnd.tech`. `docex bootstrap` creates a Route53 hosted zone for it (project-tier). Between bootstrap phase 1 and phase 2, the operator NS-delegates from the parent `luxrnd.tech` zone using the NS records that phase 1 prints.
+The elastic project's domain is `doctrine-elastic.luxrnd.tech`. `docex bootstrap` creates a Route53 hosted zone for it (project-tier). Between bootstrap phase 1 and phase 2, the agent NS-delegates from the parent `luxrnd.tech` zone using the NS records that phase 1 prints.
 
-No DNS records to pre-create — just confirm the operator has Route53 admin on the parent zone.
+No DNS records to pre-create — just confirm the agent has Route53 admin on the parent zone.
 
 ### A.5 Container registry — fixed
 
@@ -117,7 +117,7 @@ The doctrine's `infra/secrets/<env>.env` files are gitignored. They must exist w
 For each project (`fixed/`, `elastic/`), after step C.2's `docex compile` writes `example.env`:
 
 - [ ] Create `infra/secrets/dev.env`, `test.env`, `stage.env`, `prod.env` by copying `example.env` as a template.
-- [ ] Fill in every `POSTGRES_*` value (the operator chooses; these are also the prod credentials).
+- [ ] Fill in every `POSTGRES_*` value (the agent chooses; these are also the prod credentials).
 - [ ] The fixed project's `prod.env` reuses the same machine as `dev`/`test`, so be careful not to collide on ports (compose namespacing per env handles this automatically).
 
 ---
@@ -199,7 +199,7 @@ Fixed foundation: bootstrap is a no-op. Skip.
 
 ### D.1 Bootstrap (two phases)
 
-Elastic foundation: `docex bootstrap` runs in two phases separated by an operator NS-delegation step.
+Elastic foundation: `docex bootstrap` runs in two phases separated by NS-delegation step.
 
 - [ ] `./bin/docex bootstrap` — phase 1 runs: creates the tofu state backend (S3 + DynamoDB), then applies just the project Route53 zone, prints the zone's NS records, and exits.
 - [ ] Manually NS-delegate from the `luxrnd.tech` parent zone: create an NS record at `doctrine-elastic.luxrnd.tech` whose value is the four NS hostnames phase 1 printed. Wait for propagation (`dig NS doctrine-elastic.luxrnd.tech` returns the AWS nameservers from a non-local resolver).
@@ -251,8 +251,8 @@ Elastic foundation: `docex bootstrap` runs in two phases separated by an operato
 ## E. After both walks succeed
 
 - [ ] Both `verify_clean.sh` runs are green.
-- [ ] No leftover state in Route53 except the parent `luxrnd.tech` zone and any other unrelated records the operator runs.
+- [ ] No leftover state in Route53 except the parent `luxrnd.tech` zone and any other unrelated records the agent runs.
 - [ ] No registry images for `docex_smoke_fixed` or `docex_smoke_elastic` remain.
-- [ ] AWS cost report for the smoke-test window matches expectations (~$X for 1-2 hours of stage+prod elastic infra; verify against operator's running tally).
+- [ ] AWS cost report for the smoke-test window matches expectations (~$X for 1-2 hours of stage+prod elastic infra; verify against agents's running tally).
 
 The cut is now safe to perform per [`docex_process.md § Cutting a version`](../plans/core/docex_process.md#cutting-a-version).

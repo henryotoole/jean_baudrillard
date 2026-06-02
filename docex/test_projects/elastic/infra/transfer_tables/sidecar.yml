@@ -1,0 +1,25 @@
+roles:
+  sidecar:
+    description: "Stateless auxiliary container — sidecar, health-probe, lightweight proxy."
+    nginx:
+      foundation: both
+      default_port: 80
+      naming: ecs
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service]
+      defaults:
+        fixed:
+          image: nginx:1.27-alpine
+        elastic:
+          image: nginx:1.27-alpine
+          cpu: "256"
+          memory: "512"
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
