@@ -244,6 +244,8 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 
 - **`naming`** (required) — name of a policy declared in the top-level `naming_policies:` block. The compiler applies the policy's separator/case/max_len when forming `${global_service_name}` for this engine's resources, so per-engine identifier rules live in one declarative table rather than scattered through emit code. See [Naming Policies](#naming-policies) for the canonical set and the doctrine-wide separator preference.
 
+- **`persistent_storage`** (optional) — declares this engine needs a durable data directory mounted into the container. Single field: `mount_path` (the container-side path). Required for stateful container-backing services on elastic, where the doctrine emits an EFS filesystem and mounts it at `mount_path`. Engines that declare `persistent_storage` MUST also include `efs_file_system` in `emits.elastic` (bidirectional validation, enforced at load). On fixed, the field is informational — engines manage their own docker named volume via `defaults.fixed.volumes`. See [Persistent storage on Fargate](#persistent-storage-on-fargate).
+
 ### Walking example: `web` / `container`
 
 ```yml
@@ -332,7 +334,42 @@ This is what makes containerized backing services (sidecars, OTel collectors, Cl
 
 Container-backing engines must bake `cpu` and `memory` (Fargate units; `cpu` as an integer string of vCPU/1024, `memory` as MiB) directly into `defaults.elastic`. Backing services don't carry a `resources:` block in `infra.yml` — the engine controls sizing. Projects that need to tune sizing override the engine's defaults via a project-local transfer table entry.
 
-Stateful container-backing services (ClickHouse, persistent Redis, anything with a data directory that must survive restarts) additionally need persistent storage. EFS attachment on Fargate is covered separately — see [§ Persistent storage on Fargate](#) (added in a follow-on mod).
+Stateful container-backing services (ClickHouse, persistent Redis, anything with a data directory that must survive restarts) additionally need persistent storage. See [§ Persistent storage on Fargate](#persistent-storage-on-fargate) below.
+
+## Persistent storage on Fargate
+
+A container-backing service whose engine declares `persistent_storage` gets a per-service EFS filesystem mounted into the task at the declared `mount_path`. This is the doctrine's mechanism for stateful container backings on elastic — ClickHouse, persistent Redis, anything that needs a durable data directory.
+
+```yml
+roles:
+  analytics_db:
+    clickhouse:
+      emits:
+        elastic: [task_definition, ecs_service, efs_file_system]
+      persistent_storage:
+        mount_path: /var/lib/clickhouse
+      fields:
+        backups:
+          elastic:
+            target: efs_file_system
+            enabled: ${field_value}
+      ...
+```
+
+The compiler emits, per such service:
+
+- `aws_efs_file_system` — encrypted at rest using the AWS-managed KMS key.
+- `aws_efs_mount_target` per private subnet — so tasks in any AZ can mount the filesystem. Mount targets attach to the service's non-`web` security groups, leveraging the existing `internal` SG's self-ingress for NFS port 2049 — no new SG rule needed.
+- A `volume` block on the `aws_ecs_task_definition` referencing the EFS by ID, with `transit_encryption = "ENABLED"`.
+- A `mountPoints` entry on the container definition linking the volume to the declared `mount_path`. The volume name inside the task definition is the doctrine-fixed handle `"data"` (one EFS per stateful service, mounted at one path).
+
+**Backups are project-opt-in.** Engines that emit `efs_file_system` may declare a `backups` field with `target: efs_file_system` (Mod 010's field-routing mechanism); the project sets `backups: true` on the backing service in `infra.yml` to enable. When enabled, the compiler emits an `aws_efs_backup_policy` resource tying the filesystem to the AWS Backup default plan. Default disabled — only the project knows whether the data is replaceable cache or irreplaceable user state.
+
+**Bidirectional validation.** An engine declaring `persistent_storage` must also declare `efs_file_system` in `emits.elastic`, and vice-versa. Either alone is a compile-time error at load — they go together.
+
+**EFS access points and lifecycle policies are out of scope.** Engines that need them can extend via project-local transfer tables. Default behavior: mount the EFS root, keep all files in Standard storage.
+
+**On fixed**, `persistent_storage` is informational only. Engine authors declare their docker named volume in `defaults.fixed.volumes` themselves (the existing pattern, as postgres demonstrates). The fixed and elastic sides agree on `mount_path` because the engine declares both — small duplication, large clarity.
 
 ## Foundation Invariants
 
