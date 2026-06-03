@@ -31,6 +31,13 @@ first post-`0.4.0` overhaul.
   exists. Symmetric with elastic, which already embeds the config inline
   via `OTEL_CONFIG_YAML`. Surfaced by the 0.11.0 PRE_CUT_CHECKLIST
   fixed-stage release walk. Mod 021.
+- Otelcol config's `${env:...}` references in compose's `configs.content`
+  are now escaped to `$${env:...}` so docker compose passes them through
+  verbatim — without this, compose interprets them as its own variable
+  references and aborts with "invalid interpolation format". Elastic
+  delivery (via the `OTEL_CONFIG_YAML` env var on the sidecar) is
+  unaffected. Surfaced by the 0.11.0 PRE_CUT_CHECKLIST fixed-stage
+  release walk after mod 021. Mod 022.
 
 ### Added
 

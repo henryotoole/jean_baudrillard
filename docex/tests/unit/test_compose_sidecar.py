@@ -117,6 +117,27 @@ def test_compose_has_top_level_configs_block(tmp_path: Path):
     assert not sidecar_yaml.exists()
 
 
+def test_compose_configs_content_escapes_dollar_for_stage(tmp_path: Path):
+    """Stage/prod otelcol config embeds `${env:...}` references. Compose
+    interpolates ${VAR} inside `configs.content` too, so `$` must be
+    doubled to `$$` in the emitted compose YAML — compose then passes
+    a single literal `$` to the sidecar at parse time. Mod 022."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    doc = _compose_doc(root, "stage")
+    content = doc["configs"]["otelcol_config"]["content"]
+    # The compose file has the doubled form; the test reads the in-memory
+    # dict which preserves `$$` (PyYAML round-trips literal scalars).
+    assert "$${env:OBSERVABILITY_BACKEND_URL}" in content
+    assert "$${env:TELEMETRY_API_KEY}" in content
+    # No naked `${env:...}` references remain (stripping `$$` from the
+    # content and looking for `${env:` should find nothing).
+    assert "${env:OBSERVABILITY_BACKEND_URL}" not in content.replace("$$", "")
+    assert "${env:TELEMETRY_API_KEY}" not in content.replace("$$", "")
+
+
 def test_sidecar_environment_uses_default_form(tmp_path: Path):
     """`OBSERVABILITY_BACKEND_URL` / `TELEMETRY_API_KEY` arrive via
     compose's `${VAR:-}` empty-default form so dev/test compose

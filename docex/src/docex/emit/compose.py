@@ -361,11 +361,16 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     # the compose file to the deploy host, no separate file needed. This
     # also makes fixed symmetric with elastic, where the config is
     # already embedded as a literal in the OTEL_CONFIG_YAML env var.
+    # Mod 022: compose interpolates ${VAR} inside `configs.content` too.
+    # The otelcol config carries `${env:OBSERVABILITY_BACKEND_URL}` and
+    # `${env:TELEMETRY_API_KEY}` references that otelcol must see
+    # verbatim; doubling `$` → `$$` makes compose pass through a single
+    # literal `$` to the sidecar. Elastic is unaffected (ECS does not
+    # interpolate `$`).
     if any(s.is_core for s in compiled.services.values()):
+        content = render_otelcol_config(compiled.env).replace("$", "$$")
         body_doc["configs"] = {
-            "otelcol_config": {
-                "content": render_otelcol_config(compiled.env),
-            },
+            "otelcol_config": {"content": content},
         }
 
     header = (
