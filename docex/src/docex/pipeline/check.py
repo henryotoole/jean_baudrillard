@@ -25,8 +25,11 @@ non-zero if any failed.
 from __future__ import annotations
 
 import shutil
+import socket
 import sys
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -479,6 +482,56 @@ def _is_executable(path: Path) -> bool:
     return os.access(path, os.X_OK)
 
 
+def _gate_observability_backend_url_reachable(
+    ctx: ProjectContext,
+    report: CheckReport,
+) -> None:
+    """HTTP GET against ``observability_backend_url``. Any 2xx/3xx/4xx
+    response passes — the check verifies the host resolves and the TLS
+    handshake completes. DNS resolution failure, TLS handshake failure,
+    connection refusal, or timeout fails the gate.
+
+    See doctrine/infrastructure/specifics/telemetry_infra.md § Validation
+    Rules and cicd.md § Check Step.
+    """
+    infra = ctx.infra
+    if infra is None:
+        report.add(
+            "observability_backend_reachable",
+            True,
+            "no infra.yml — skipped",
+        )
+        return
+
+    url = infra.observability_backend_url
+    try:
+        # 10 s timeout: enough for slow ACME-backed TLS handshakes but
+        # short enough that an unreachable host fails the gate quickly.
+        with urllib.request.urlopen(url, timeout=10):  # nosec B310
+            pass
+    except urllib.error.HTTPError as exc:
+        # Server responded with non-2xx — host is up. 401/404 are common
+        # for OTLP-only endpoints lacking a generic GET handler; either
+        # confirms reachability sufficient to catch DNS/cert typos.
+        report.add(
+            "observability_backend_reachable",
+            True,
+            f"{url} responded HTTP {exc.code}",
+        )
+    except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
+        report.add(
+            "observability_backend_reachable",
+            False,
+            f"{url} unreachable: {exc}",
+        )
+    else:
+        report.add(
+            "observability_backend_reachable",
+            True,
+            f"{url} reachable",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Worktree management.
 # ---------------------------------------------------------------------------
@@ -631,6 +684,7 @@ def run_check(
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
         _gate_health_endpoints(worktree, worktree_ctx, contracts, report)
         _gate_service_scripts(worktree, worktree_ctx, report)
+        _gate_observability_backend_url_reachable(worktree_ctx, report)
 
         # If any gate failed, surface aggregated report and stop.
         if not report.all_passed:

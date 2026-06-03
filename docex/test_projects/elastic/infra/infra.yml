@@ -5,6 +5,10 @@ domain_default_service: web
 # container_registry omitted on elastic — defaults to the project ECR
 # provisioned by `docex bootstrap`. See cicl.md § Container Registry.
 repo_url: "https://github.com/luxedo/jean_baudrillard"
+# Project-wide observability backend (self-hosted HyperDX). Sidecars in
+# stage/prod export OTLP signals here. See doctrine/infrastructure/
+# specifics/telemetry_infra.md.
+observability_backend_url: "https://hyperdx.luxrnd.tech"
 
 core_services:
   web:

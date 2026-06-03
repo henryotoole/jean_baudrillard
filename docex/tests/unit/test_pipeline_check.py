@@ -40,6 +40,19 @@ def stub_test_and_compile(monkeypatch):
     monkeypatch.setattr(orch_test, "run_test", lambda *a, **kw: 0)
     monkeypatch.setattr(cicl_compile, "run_compile", lambda *a, **kw: 0)
 
+    # Mod 019's reachability probe would otherwise hit the real network.
+    # Return a fake context-manager response so the gate passes without
+    # any DNS / TLS dependency.
+    from unittest.mock import MagicMock
+
+    fake_response = MagicMock()
+    fake_response.__enter__ = MagicMock(return_value=fake_response)
+    fake_response.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "docex.pipeline.check.urllib.request.urlopen",
+        lambda *_a, **_kw: fake_response,
+    )
+
 
 @pytest.fixture
 def worktree_setup(sample_ctx, fake_git, monkeypatch):

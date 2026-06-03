@@ -7,6 +7,10 @@ domain_default_service: web
 # this host, reachable from the dev machine and from itself in `prod`).
 container_registry: "registry.luxrnd.tech"
 repo_url: "https://github.com/luxedo/jean_baudrillard"
+# Project-wide observability backend (self-hosted HyperDX). Sidecars in
+# stage/prod export OTLP signals here. See doctrine/infrastructure/
+# specifics/telemetry_infra.md.
+observability_backend_url: "https://hyperdx.luxrnd.tech"
 
 core_services:
   web:

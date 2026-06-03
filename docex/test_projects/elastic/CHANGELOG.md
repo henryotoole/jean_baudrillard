@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-06-03
+
+### Added
+
+- Declare `observability_backend_url: "https://hyperdx.luxrnd.tech"` in
+  `infra/infra.yml`. Required as of docex 0.11.0 (added by mod 017).
+  Sidecars in stage/prod export telemetry to this backend; the API key
+  goes in `infra/secrets/{stage,prod}.env` as `TELEMETRY_API_KEY=`.
+
 ## [0.0.4] - 2026-06-02
 
 ### Added

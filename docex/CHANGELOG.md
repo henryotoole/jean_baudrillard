@@ -34,6 +34,10 @@ first post-`0.4.0` overhaul.
   overhead, tier-rounded; compiler prints a one-line notice when the
   overhead bumps a service into a higher tier than its declared resources
   alone would. Mod 018.
+- `docex check` now probes `observability_backend_url` for reachability
+  before allowing a merge. Any HTTP response (including 4xx) confirms the
+  host is up and TLS works; DNS failure, TLS failure, connection refusal,
+  or timeout fails the gate. Mod 019.
 
 ### Changed
 
