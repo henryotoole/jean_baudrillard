@@ -34,9 +34,10 @@ from typing import Any, Callable
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from docex import ELASTIC_REGION
+from docex import ELASTIC_REGION, OTEL_COLLECTOR_IMAGE
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
+from docex.emit.otelcol import render_otelcol_config
 from docex.naming import NamingPolicies, NamingPolicy, apply_policy
 
 
@@ -137,13 +138,18 @@ class _RenderCtx:
 
     Each renderer takes ``(svc, ctx)``; the ctx carries what the
     bulk-emit loop has already resolved (project name, env name, ALB
-    naming policy, ALB listener priority per web service).
+    naming policy, ALB listener priority per web service,
+    observability backend URL for the paired OTel sidecar).
     """
 
     project: str
     env: str
     alb_policy: NamingPolicy
     priorities: dict[str, int]  # service_name -> ALB listener_rule.priority
+    # Mod 018: sidecar exporter target. Defaults to empty for unit tests
+    # constructing a ctx by hand; real compiles thread it through from
+    # `compiled.observability_backend_url`.
+    observability_backend_url: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +290,50 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
             "transit_encryption": "ENABLED",
         })
 
+    # Mod 018: paired OTel Collector sidecar for every core service. Shares
+    # the task netns (ECS task containers always do), config embedded as a
+    # literal YAML in OTEL_CONFIG_YAML so no file mount is needed, API key
+    # delivered via ECS secrets[] from SSM. The core container's dependsOn
+    # gates startup on the sidecar's HEALTHY status so the app's OTel SDK
+    # has a receiver from t=0. Backing services (and the migration task
+    # below) don't get sidecars — they emit no application-origin signals.
+    sidecar_def: dict[str, Any] | None = None
+    if svc.is_core:
+        container_def["dependsOn"] = [
+            {"containerName": f"{svc.name}_otelcol", "condition": "HEALTHY"},
+        ]
+        sidecar_def = {
+            "name": f"{svc.name}_otelcol",
+            "image": OTEL_COLLECTOR_IMAGE,
+            "essential": False,
+            "command": ["--config=env:OTEL_CONFIG_YAML"],
+            "cpu": 102,        # 0.1 vCPU in Fargate units
+            "memory": 128,
+            "environment": [
+                {"name": "OTEL_CONFIG_YAML",
+                 "value": render_otelcol_config(ctx.env)},
+                {"name": "OBSERVABILITY_BACKEND_URL",
+                 "value": ctx.observability_backend_url},
+            ],
+            "secrets": [
+                {"name": "TELEMETRY_API_KEY",
+                 "valueFrom": _ssm_arn_literal(
+                     ctx.project, ctx.env, "TELEMETRY_API_KEY")},
+            ],
+            "healthCheck": {
+                "command": [
+                    "CMD",
+                    "wget",
+                    "--spider",
+                    "-q",
+                    "http://localhost:13133",
+                ],
+                "interval": 10,
+                "timeout": 5,
+                "retries": 3,
+            },
+        }
+
     project_tag = svc.body.get("tags", {}).get("project", "")
     env_tag = svc.body.get("tags", {}).get("env", "")
 
@@ -314,6 +364,8 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append("  }")
     out.append("  container_definitions = jsonencode([")
     out.append(f"    {_hcl_value(container_def, indent=4)},")
+    if sidecar_def is not None:
+        out.append(f"    {_hcl_value(sidecar_def, indent=4)},")
     out.append("  ])")
     out.append(
         f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
@@ -325,7 +377,9 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # Migration task definition: same image as main, but command runs
     # /service/migrate.sh. Emitted only for core services that own a
     # backing database schema. Backing services never own schemas, so
-    # this sub-emission is implicitly skipped for them.
+    # this sub-emission is implicitly skipped for them. No sidecar is
+    # paired here: migration is one-shot, emits no application-origin
+    # telemetry signals (Mod 018).
     if svc.is_core and svc.schema_owned_by_db:
         out.append("")
         mig_family = f"{svc.global_name}_migrate"
@@ -784,6 +838,7 @@ def emit_hcl(
         env=compiled.env,
         alb_policy=alb_p,
         priorities=priorities,
+        observability_backend_url=compiled.observability_backend_url,
     )
 
     def _render(svc: CompiledService) -> str:

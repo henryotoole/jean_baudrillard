@@ -178,5 +178,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What project-tier HCL looks like | `src/docex/emit/hcl.py::emit_hcl_project` + `templates/project.tf.j2` |
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
 | What `example.env` looks like | `src/docex/emit/secrets.py` |
+| What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
+| How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
 
 For a new doctrine-prescribed AWS resource that isn't owned by any `infra.yml` service (a new structural emit): pick a policy from `naming_policies.yml` (or add one), call `apply_policy` from the emit site (mirror `bootstrap.py`'s pattern), and add a validation rule if the resource has its own constraints. If the structural set keeps growing, that's the signal to lift `structural_resources:` into the transfer tables (see mod 005 overview for the deferred design).

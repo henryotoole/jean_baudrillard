@@ -21,6 +21,19 @@ first post-`0.4.0` overhaul.
   `TELEMETRY_API_KEY` documented as a doctrine-injected required secret in
   `infra/secrets/example.env`. Mod 017. Sidecar emit and reachability probe
   follow in mods 018/019.
+- OTel Collector sidecar emitted alongside every core service on both
+  foundations. Fixed: paired `<svc>_otelcol` compose service via
+  `network_mode: service:<core>`, config rendered to
+  `infra/output/<env>/otelcol-config.yaml` and mounted via compose
+  `configs:`. Elastic: second container in the same ECS task definition,
+  config embedded in `OTEL_CONFIG_YAML` env var, `TELEMETRY_API_KEY`
+  delivered via ECS `secrets[]`, core container `dependsOn HEALTHY`.
+  Exporter is `debug` on dev/test (stdout), `otlphttp` on stage/prod.
+  Mod 018.
+- Elastic Fargate task totals now include the sidecar's 0.1 vCPU / 128 MiB
+  overhead, tier-rounded; compiler prints a one-line notice when the
+  overhead bumps a service into a higher tier than its declared resources
+  alone would. Mod 018.
 
 ### Changed
 

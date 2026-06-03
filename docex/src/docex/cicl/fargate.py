@@ -73,6 +73,39 @@ def _round_cpu_to_fargate(cpu_units: int) -> int:
     return _FARGATE_CPUS[-1]
 
 
+def fargate_pair_from_units(
+    cpu_units: int, memory_mib: int, *, service_name: str
+) -> tuple[int, int]:
+    """Translate already-computed ``(cpu_units, memory_mib)`` to a valid
+    Fargate pair, rounding both up.
+
+    Same shape as :func:`fargate_pair` but skips the string parsing —
+    useful when the caller has already added per-task overhead (e.g. the
+    sidecar's 0.1 vCPU / 128 MiB) and wants the rounding logic directly.
+    Mod 018.
+    """
+    cpu_choice = _round_cpu_to_fargate(cpu_units)
+    for cpu_attempt in [cpu_choice] + [
+        c for c in _FARGATE_CPUS if c > cpu_choice
+    ]:
+        allowed = _allowed_memory_mib(cpu_attempt)
+        for mib in allowed:
+            if mib >= memory_mib:
+                return (cpu_attempt, mib)
+    max_cpu = _FARGATE_CPUS[-1]
+    max_mib = _allowed_memory_mib(max_cpu)[-1]
+    raise ValidationError([ValidationIssue(
+        rule="rule_fargate_pair_invalid",
+        message=(
+            f"Fargate cannot satisfy cpu={cpu_units} units + memory={memory_mib} MiB: "
+            f"exceeds Fargate maximum {max_cpu} units / {max_mib} MiB. "
+            f"Reduce resources or split the service. Valid CPU buckets: "
+            f"{list(_FARGATE_CPUS)}."
+        ),
+        where=f"core_services.{service_name}.resources",
+    )])
+
+
 def fargate_pair(cpu: float, memory: str, *, service_name: str) -> tuple[int, int]:
     """Translate a CICL ``(cpu, memory)`` to a valid Fargate pair.
 

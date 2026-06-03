@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from docex import ELASTIC_REGION
-from docex.cicl.fargate import fargate_pair
+from docex.cicl.fargate import fargate_pair, fargate_pair_from_units
 from docex.cicl.magic_refs import MagicRefResolver
 from docex.cicl.model import (
     BackingService,
@@ -140,7 +140,9 @@ _FARGATE_DISK_MIN_GIB = 21  # AWS Fargate floor; below this is invalid.
 _FARGATE_DISK_MAX_GIB = 200  # AWS Fargate ceiling.
 
 
-def _resources_to_elastic(res: Resources, *, service_name: str) -> dict[str, Any]:
+def _resources_to_elastic(
+    res: Resources, *, service_name: str, is_core: bool = False
+) -> dict[str, Any]:
     """Translate a Resources block into Fargate task-definition HCL fields.
 
     Phase 4 enforces Fargate's hard constraints at compile time:
@@ -150,10 +152,51 @@ def _resources_to_elastic(res: Resources, *, service_name: str) -> dict[str, Any
         below 21 fails loudly here. ``disk:`` may be omitted, in which
         case ``ephemeral_storage`` is also omitted and Fargate uses its
         default 21 GiB allotment.
+
+    Mod 018: when ``is_core`` is True, the task-level totals include the
+    paired OTel Collector sidecar's 0.1 vCPU / 128 MiB overhead before
+    Fargate-tier rounding. The core container still receives the
+    requested resources at runtime — only the task-level totals carry
+    the overhead. A one-line notice is printed to stdout when the
+    overhead bumps the request into a higher Fargate tier than the
+    bare-core request alone would have.
     """
-    cpu_units, memory_mib = fargate_pair(
-        res.cpu, res.memory, service_name=service_name
+    # Sidecar overhead: every core service runs a paired otelcol sidecar at
+    # 0.1 vCPU / 128 MiB. The task-level totals must accommodate both
+    # containers; the core container still receives the requested resources
+    # at runtime. See doctrine/infrastructure/specifics/telemetry_infra.md
+    # § Task-Level Resource Allocation.
+    sidecar_cpu = 0.1 if is_core else 0.0
+    sidecar_mem_mib = 128 if is_core else 0
+
+    # Compute base + overhead in raw units, then round to Fargate tier.
+    req_cpu_units = max(1, int(round((res.cpu + sidecar_cpu) * 1024)))
+    req_mem_mib = _memory_to_mib(res.memory) + sidecar_mem_mib
+
+    cpu_units, memory_mib = fargate_pair_from_units(
+        req_cpu_units, req_mem_mib, service_name=service_name,
     )
+
+    # Surface a one-line notice when the sidecar overhead pushed the task
+    # into a higher Fargate tier than the bare-core request alone would
+    # have. Per doctrine/infrastructure/specifics/telemetry_infra.md
+    # § Fargate tier rounding.
+    if is_core:
+        bare_cpu_units = max(1, int(round(res.cpu * 1024)))
+        bare_mem_mib = _memory_to_mib(res.memory)
+        bare_cpu_tier, bare_mem_tier = fargate_pair_from_units(
+            bare_cpu_units, bare_mem_mib, service_name=service_name,
+        )
+        if cpu_units > bare_cpu_tier or memory_mib > bare_mem_tier:
+            print(
+                f"note: core service {service_name!r}: sidecar overhead "
+                f"pushed task to next Fargate tier "
+                f"({bare_cpu_tier} -> {cpu_units} vCPU units, "
+                f"{bare_mem_tier} -> {memory_mib} MiB). The core container "
+                f"still receives the requested {res.cpu} vCPU / {res.memory}; "
+                f"the task-level totals carry the overhead."
+            )
+
     out: dict[str, Any] = {
         "cpu": str(cpu_units),
         "memory": str(memory_mib),
@@ -326,6 +369,10 @@ class CompiledEnv:
     container_registry: str | None
     services: dict[str, CompiledService]
     networks: set[str]  # short names, e.g. {"web", "internal"}
+    # Mod 018: propagated from the source CICLDocument so the elastic HCL
+    # emitter can wire each core service's paired OTel Collector sidecar
+    # to forward signals to the project's observability backend.
+    observability_backend_url: str = ""
 
 
 def compile_env(
@@ -482,7 +529,9 @@ def compile_env(
                     doc.container_registry, project_name, name, project_version,
                     env=env, foundation=foundation,
                 )
-                body = _deep_merge(body, _resources_to_elastic(svc.resources, service_name=name))
+                body = _deep_merge(body, _resources_to_elastic(
+                    svc.resources, service_name=name, is_core=True
+                ))
                 if svc.command is not None:
                     body["command"] = svc.command
 
@@ -594,6 +643,7 @@ def compile_env(
         container_registry=doc.container_registry,
         services=compiled_services,
         networks=networks_seen,
+        observability_backend_url=doc.observability_backend_url,
     )
 
 
@@ -682,6 +732,7 @@ def run_compile(ctx: Any) -> int:
     from docex.emit.compose import emit_compose
     from docex.emit.hcl import emit_hcl, emit_hcl_project
     from docex.emit.ansible import emit_ansible
+    from docex.emit.otelcol import render_otelcol_config
     from docex.emit.secrets import emit_example_env
     from docex.errors import InfraFileError
 
@@ -718,6 +769,12 @@ def run_compile(ctx: Any) -> int:
         if compiled.foundation == "fixed":
             compose_path = env_dir / "docker-compose.yml"
             emit_compose(compiled, compose_path)
+            files_written += 1
+            # Sidecar config (one per env; all sidecars share it). Mod 018.
+            # Elastic envs embed the YAML directly into HCL instead.
+            (env_dir / "otelcol-config.yaml").write_text(
+                render_otelcol_config(env)
+            )
             files_written += 1
             if env in ("stage", "prod"):
                 emit_ansible(compiled, env_dir)
