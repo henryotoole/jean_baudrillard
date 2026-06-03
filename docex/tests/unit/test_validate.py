@@ -21,6 +21,7 @@ _BASE_FIXED = """
 cicl_version: "1"
 foundation: fixed
 domain: example.com
+observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
@@ -299,6 +300,7 @@ def test_validate_emits_missing_for_supported_foundation(tmp_path: Path):
 cicl_version: "1"
 foundation: elastic
 domain: example.com
+observability_backend_url: "https://obs.example.com"
 core_services:
   api:
     role: web
@@ -397,6 +399,7 @@ def test_validate_field_target_not_applicable_when_service_off_web():
 cicl_version: "1"
 foundation: elastic
 domain: example.com
+observability_backend_url: "https://obs.example.com"
 core_services:
   api:
     role: web
@@ -419,6 +422,7 @@ def test_validate_field_target_applicable_when_on_web():
 cicl_version: "1"
 foundation: elastic
 domain: example.com
+observability_backend_url: "https://obs.example.com"
 core_services:
   api:
     role: web
@@ -451,7 +455,7 @@ def test_validate_rejects_project_version_in_env():
     doc = _doc(src)
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
-    assert "rule_project_version_reserved" in rules
+    assert "rule_reserved_env_key" in rules
 
 
 def test_validate_rejects_project_version_in_secrets():
@@ -465,4 +469,4 @@ def test_validate_rejects_project_version_in_secrets():
     doc = _doc(src)
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
-    assert "rule_project_version_reserved" in rules
+    assert "rule_reserved_env_key" in rules

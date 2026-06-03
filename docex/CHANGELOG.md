@@ -12,6 +12,23 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- Compile-time telemetry foundations: `observability_backend_url` toplevel
+  field in `infra.yml` (required; https-only, validated); `OTEL_SERVICE_NAME`,
+  `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and
+  `OTEL_RESOURCE_ATTRIBUTES` injected on every core service's env block;
+  `TELEMETRY_API_KEY` documented as a doctrine-injected required secret in
+  `infra/secrets/example.env`. Mod 017. Sidecar emit and reachability probe
+  follow in mods 018/019.
+
+### Changed
+
+- `_validate_no_project_version_conflict` generalized to
+  `_validate_reserved_env_keys` covering PROJECT_VERSION + the four
+  doctrine-injected OTEL_* keys. Failure rule code renamed from
+  `rule_project_version_reserved` to `rule_reserved_env_key`.
+
 ## [0.10.0] - 2026-06-02
 
 The container-backing campaign. Five mods (012–016) turn project-local

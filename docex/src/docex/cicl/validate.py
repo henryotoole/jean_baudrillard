@@ -48,6 +48,19 @@ _STANDARD_BACKING_FIELDS = {
     "schema_owned_by",
 }
 
+# Doctrine-injected env vars on every core service. A project may not
+# declare these in its own env: or secrets: blocks — docex sets them
+# at compile time. See transfer_tables.md § Per-core-service env
+# (both foundations). Mods 011 (PROJECT_VERSION) + 017 (the OTEL_*
+# quartet).
+_RESERVED_CORE_ENV_KEYS = frozenset({
+    "PROJECT_VERSION",
+    "OTEL_SERVICE_NAME",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_RESOURCE_ATTRIBUTES",
+})
+
 
 def validate_document(doc: CICLDocument, tables: TransferTables) -> list[ValidationIssue]:
     """Run every cross-document rule. Returns aggregated issues.
@@ -70,7 +83,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_env_secrets_overlap(doc))
     issues.extend(_validate_reserved_engine_names(doc, tables))
     issues.extend(_validate_emits(doc, tables))
-    issues.extend(_validate_no_project_version_conflict(doc))
+    issues.extend(_validate_reserved_env_keys(doc))
     return issues
 
 
@@ -665,32 +678,31 @@ def _validate_reserved_engine_names(
     return issues
 
 
-def _validate_no_project_version_conflict(
+def _validate_reserved_env_keys(
     doc: CICLDocument,
 ) -> list[ValidationIssue]:
-    """The `PROJECT_VERSION` env var is doctrine-injected on every core
-    service (transfer_tables.md § Per-core-service env). A project that
-    declares it explicitly in its own env: or secrets: block is either
-    duplicating doctrine or trying to lie about its own version — both
-    are mistakes. Mod 011.
+    """Doctrine-reserved env keys on core services. A project that
+    declares one of these in its own env: or secrets: block is either
+    duplicating doctrine or trying to lie about its identity — both
+    are mistakes. Mods 011 + 017.
     """
     issues: list[ValidationIssue] = []
     for svc_name, svc in sorted(doc.core_services.items()):
-        for key_source, block in (
+        for source, block in (
             ("env", svc.env or {}),
             ("secrets", svc.secrets or {}),
         ):
-            if "PROJECT_VERSION" in block:
+            for key in sorted(set(block) & _RESERVED_CORE_ENV_KEYS):
                 issues.append(ValidationIssue(
-                    rule="rule_project_version_reserved",
+                    rule="rule_reserved_env_key",
                     message=(
                         f"core service {svc_name!r} declares "
-                        f"`PROJECT_VERSION` under `{key_source}:`. This name "
-                        f"is doctrine-reserved: docex auto-injects it on every "
-                        f"core service with the value from `project.yml.version`. "
-                        f"Remove the declaration. See transfer_tables.md § "
+                        f"{key!r} under `{source}:`. This name is "
+                        f"doctrine-reserved: docex auto-injects it "
+                        f"on every core service. Remove the "
+                        f"declaration. See transfer_tables.md § "
                         f"Per-core-service env."
                     ),
-                    where=f"core_services.{svc_name}.{key_source}",
+                    where=f"core_services.{svc_name}.{source}",
                 ))
     return issues

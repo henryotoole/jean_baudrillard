@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -120,6 +121,12 @@ class CICLDocument(BaseModel):
     # web services live at <service>.<env>.<domain>. Optional; if unset,
     # nothing occupies the bare subdomain. See cicl.md § Domain.
     domain_default_service: str | None = None
+    # The HTTPS URL of the project's observability backend (HyperDX).
+    # Sidecars in stage/prod export OTLP signals here. Required on every
+    # project — dev/test sidecars don't consume the URL but the field is
+    # validated up-front so misconfigurations surface before stage release.
+    # See doctrine/infrastructure/cicl.md § Observability Backend.
+    observability_backend_url: str
     core_services: dict[str, CoreService] = Field(default_factory=dict)
     backing_services: dict[str, BackingService] = Field(default_factory=dict)
 
@@ -142,6 +149,30 @@ class CICLDocument(BaseModel):
             raise ValueError(
                 f"service name(s) appear in both core_services and "
                 f"backing_services: {sorted(overlap)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_observability_backend_url(self) -> "CICLDocument":
+        try:
+            parsed = urlparse(self.observability_backend_url)
+        except Exception as exc:
+            raise ValueError(
+                f"observability_backend_url is not a parseable URL: "
+                f"{self.observability_backend_url!r} ({exc})"
+            )
+        if parsed.scheme != "https":
+            raise ValueError(
+                f"observability_backend_url must use the https:// scheme; "
+                f"got {self.observability_backend_url!r}. http:// is rejected "
+                f"at compile time per doctrine/infrastructure/telemetry.md "
+                f"§ Authentication — the API key flows in plaintext over "
+                f"HTTPS, never in the clear."
+            )
+        if not parsed.netloc:
+            raise ValueError(
+                f"observability_backend_url has no host: "
+                f"{self.observability_backend_url!r}"
             )
         return self
 

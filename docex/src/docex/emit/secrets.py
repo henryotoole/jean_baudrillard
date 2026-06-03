@@ -26,6 +26,17 @@ def emit_example_env(
         "",
     ]
     any_emitted = False
+    # Doctrine-injected secrets surface first — they're required on every
+    # project regardless of which services it declares. Mod 017.
+    lines.extend([
+        "# Doctrine-injected secrets",
+        "# The OTel collector sidecar's authentication key against",
+        "# observability_backend_url. Required in stage/prod; sidecars in",
+        "# dev/test use the `debug` exporter (stdout) and ignore this key.",
+        "TELEMETRY_API_KEY=",
+        "",
+    ])
+    any_emitted = True
     # Core-service bespoke secrets first (the app's own keys/tokens).
     for name in sorted(doc.core_services):
         secrets = doc.core_services[name].secrets or {}

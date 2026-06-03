@@ -229,6 +229,7 @@ _SECRET_INFRA = """\
 cicl_version: "1"
 foundation: __FND__
 domain: example.com
+observability_backend_url: "https://obs.example.com"
 container_registry: reg.example.com
 domain_default_service: api
 core_services:
@@ -316,6 +317,7 @@ _NAMING_INFRA = """\
 cicl_version: "1"
 foundation: elastic
 domain: example.com
+observability_backend_url: "https://obs.example.com"
 domain_default_service: web
 core_services:
   web:

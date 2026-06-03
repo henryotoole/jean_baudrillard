@@ -171,6 +171,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | How a name is formatted | `tables/naming_policies.yml` (data) + the engine's `naming: <policy>` ref |
 | How the compiler walks services | `src/docex/cicl/compile.py` |
 | How magic refs are resolved | `src/docex/cicl/magic_refs.py` + `cicl/substitute.py` |
+| How doctrine env vars are injected on core services | `src/docex/cicl/compile.py` — the `env_block[...]` assignments after the resolved-magic-ref loop |
 | What compose YAML looks like | `src/docex/emit/compose.py` |
 | What env-tier HCL looks like | `src/docex/emit/hcl.py` + `templates/main.tf.j2` |
 | How a specific AWS resource type is rendered | `src/docex/emit/hcl.py` — the matching `render_<destination>` function (one per entry in `EMIT_DESTINATIONS["elastic"]`). Dispatch is keyed off the engine's `emits.elastic` list via `_DESTINATION_RENDERERS`. Mod 013. |

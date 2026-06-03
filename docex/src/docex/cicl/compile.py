@@ -531,6 +531,18 @@ def compile_env(
             # Plain string from project.yml — not a magic ref, not a secret.
             # The validator forbids the project from declaring this key itself.
             env_block["PROJECT_VERSION"] = project_version
+            # Doctrine-injected OTel env vars on every core service. See
+            # transfer_tables.md § Per-core-service env (both foundations). Same on
+            # fixed and elastic — the paired sidecar shares the core service's
+            # network namespace on both, so localhost:4318 is universal.
+            env_block["OTEL_SERVICE_NAME"] = name
+            env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
+            env_block["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
+            env_block["OTEL_RESOURCE_ATTRIBUTES"] = (
+                f"service.namespace={project_name},"
+                f"service.version={project_version},"
+                f"deployment.environment.name={env}"
+            )
 
         networks_seen.update(svc.networks)
         is_core = isinstance(svc, CoreService)

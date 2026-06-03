@@ -47,6 +47,7 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
         cicl_version="1",
         foundation=foundation,
         domain="example.com",
+        observability_backend_url="https://obs.example.com",
         container_registry="reg.example.com",
         core_services={
             "api": CoreService(
