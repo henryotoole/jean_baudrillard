@@ -216,20 +216,24 @@ def test_backing_service_task_def_has_no_sidecar(tmp_path: Path):
     assert "appdb_otelcol" not in hcl
 
 
-def test_elastic_otel_config_yaml_uses_single_dollar(tmp_path: Path):
-    """The OTEL_CONFIG_YAML env var on the elastic sidecar must carry
-    `${env:...}` with a single `$`. ECS does not interpolate `$`, and
-    otelcol's env-config-source provider does its own substitution at
-    sidecar startup. Doubling here (as we do for the compose-side
-    delivery, mod 022) would deliver a literal `$$` to otelcol, which
-    would fail to substitute."""
+def test_elastic_otel_config_yaml_escapes_dollar_in_hcl_source(tmp_path: Path):
+    """HCL source carries `$${env:...}` (doubled `$`) — HCL parses
+    `$${expr}` back to a literal `${expr}` in the string value, which
+    is what otelcol's env: config provider expects in the
+    OTEL_CONFIG_YAML payload at sidecar startup.
+
+    Without this escape, HCL would treat `${env:...}` as its own
+    template interpolation and reject the colon. Mod 026."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
 
     hcl = _stage_hcl(root)
-    # The OTEL_CONFIG_YAML env entry carries the single-`$` form.
-    assert "${env:OBSERVABILITY_BACKEND_URL}" in hcl
-    assert "${env:TELEMETRY_API_KEY}" in hcl
-    # No accidental double-escape.
-    assert "$${env:" not in hcl
+    # HCL source has the doubled form.
+    assert "$${env:OBSERVABILITY_BACKEND_URL}" in hcl
+    assert "$${env:TELEMETRY_API_KEY}" in hcl
+    # No naked single-`$` interpolation that would conflict with HCL
+    # syntax. (HCLLiteral-wrapped values like
+    # `${aws_db_instance.appdb.address}` use legitimate HCL refs —
+    # check that the escape didn't accidentally hit them.)
+    assert "${env:" not in hcl.replace("$${env:", "")

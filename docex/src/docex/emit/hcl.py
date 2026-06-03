@@ -67,15 +67,24 @@ def _hcl_value(value: Any, indent: int = 2) -> str:
     if value is None:
         return "null"
     if isinstance(value, str):
-        # Escape backslashes, double-quotes, and control whitespace.
-        # HCL's quoted-string grammar rejects literal newlines in
-        # "..."; we emit them as \n escapes instead, which HCL parses
-        # back to actual newlines and jsonencode then re-escapes for
-        # JSON. Mod 025. Backslash-replace MUST go first so subsequent
-        # replacements don't double-escape their own backslashes.
+        # Escape backslashes, double-quotes, HCL interpolation `$`,
+        # and control whitespace. Order matters:
+        #   1. Backslash-replace MUST go first so subsequent
+        #      replacements don't double-escape their own backslashes.
+        #   2. `$$` doubling (mod 026) escapes HCL's own template-
+        #      interpolation syntax. HCL parses `$${...}` back to a
+        #      literal `${...}` in the string value, which is what
+        #      otelcol's env: config provider expects in the
+        #      OTEL_CONFIG_YAML payload. HCLLiteral-wrapped values
+        #      bypass this branch entirely so legitimate HCL
+        #      expressions stay un-escaped.
+        #   3. Newline / CR / tab escape (mod 025) — HCL's quoted-
+        #      string grammar rejects literal whitespace control
+        #      chars; emitted as `\n` etc.
         esc = (
             value.replace("\\", "\\\\")
                  .replace('"', '\\"')
+                 .replace("$", "$$")
                  .replace("\n", "\\n")
                  .replace("\r", "\\r")
                  .replace("\t", "\\t")

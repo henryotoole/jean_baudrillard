@@ -56,6 +56,19 @@ first post-`0.4.0` overhaul.
   018, no emit path produced a multi-line string so the gap stayed
   invisible. Surfaced by the 0.11.0 PRE_CUT_CHECKLIST elastic-stage
   release walk. Mod 025.
+- `_hcl_value` now also escapes `$` to `$$` when emitting strings.
+  HCL parses `${expr}` as its own template interpolation inside string
+  literals (including inside `jsonencode(...)`); the OTEL_CONFIG_YAML
+  value carries otelcol's `${env:OBSERVABILITY_BACKEND_URL}` and
+  `${env:TELEMETRY_API_KEY}`, which HCL choked on with "Extra
+  characters after interpolation expression" because of the embedded
+  colon. HCL converts `$${expr}` back to a literal `${expr}` in the
+  string value at apply time, so otelcol sees exactly what it expects.
+  `HCLLiteral`-wrapped values (legitimate HCL refs like
+  `${aws_db_instance.appdb.address}`) bypass this branch and remain
+  un-escaped. Symmetric with mod 022's compose-side escape.
+  Surfaced by the 0.11.0 PRE_CUT_CHECKLIST elastic-stage release walk
+  after mod 025. Mod 026.
 - Sidecar healthcheck dropped on both foundations. The
   `otel/opentelemetry-collector` image is built `FROM scratch` and
   carries no `wget`/`curl`/shell — the doctrine-prescribed
