@@ -12,6 +12,22 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-03
+
+The telemetry campaign. Three core mods (017–019) turn the doctrine's
+application-telemetry flow from prose into working infrastructure: every
+core service gets a paired OTel Collector sidecar exporting to the
+project's observability backend, with compile-time validation and a
+reachability gate in `docex check` to catch backend misconfigurations
+before merge. Mods 020–027 are post-walk hotfixes surfaced during the
+0.11.0 PRE_CUT_CHECKLIST walk: otelcol config delivery (file → inline
+content with proper `$` escaping), config-vs-secret separation of
+`OBSERVABILITY_BACKEND_URL`/`TELEMETRY_API_KEY` on fixed, dropping the
+unrealizable wget-based healthcheck (the collector image carries no
+probe tool), two `_hcl_value` escape fixes that the multi-line
+OTEL_CONFIG_YAML revealed, and a `describe_tasks` eventual-consistency
+retry that surfaced during the elastic prod walk.
+
 ### Fixed
 
 - Compose `configs.otelcol_config.file` now points at
