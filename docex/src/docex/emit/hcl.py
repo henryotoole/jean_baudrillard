@@ -67,8 +67,19 @@ def _hcl_value(value: Any, indent: int = 2) -> str:
     if value is None:
         return "null"
     if isinstance(value, str):
-        # Escape backslashes and double-quotes.
-        esc = value.replace("\\", "\\\\").replace('"', '\\"')
+        # Escape backslashes, double-quotes, and control whitespace.
+        # HCL's quoted-string grammar rejects literal newlines in
+        # "..."; we emit them as \n escapes instead, which HCL parses
+        # back to actual newlines and jsonencode then re-escapes for
+        # JSON. Mod 025. Backslash-replace MUST go first so subsequent
+        # replacements don't double-escape their own backslashes.
+        esc = (
+            value.replace("\\", "\\\\")
+                 .replace('"', '\\"')
+                 .replace("\n", "\\n")
+                 .replace("\r", "\\r")
+                 .replace("\t", "\\t")
+        )
         return f'"{esc}"'
     if isinstance(value, list):
         parts = [_hcl_value(v, indent + 2) for v in value]

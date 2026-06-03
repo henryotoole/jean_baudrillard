@@ -121,6 +121,20 @@ def test_sidecar_has_OTEL_CONFIG_YAML_env(tmp_path: Path):
     # The literal YAML config is embedded as the value.
     assert "receivers:" in api_td
     assert "127.0.0.1:4318" in api_td
+    # Mod 025: newlines must be \\n-escaped (HCL quoted strings can't
+    # span lines). The emitted HCL is one line per env var entry; if
+    # we see a literal newline inside the OTEL_CONFIG_YAML value the
+    # HCL parser would reject the file. Assert the escape is in place.
+    assert "\\n" in api_td
+    # And the value itself sits on a single line (no real newlines
+    # between the surrounding quotes).
+    yaml_line = next(
+        line for line in api_td.splitlines()
+        if "OTEL_CONFIG_YAML" in line and "value" in line
+        or (line.lstrip().startswith("value") and "receivers:" in line)
+    )
+    # Sanity: the yaml_line carries the receivers block on a single line.
+    assert "receivers:" in yaml_line
 
 
 def test_sidecar_has_observability_backend_url_env(tmp_path: Path):

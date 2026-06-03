@@ -48,6 +48,14 @@ first post-`0.4.0` overhaul.
   the sidecar's ECS `environment[]`. `TELEMETRY_API_KEY` continues to
   flow through compose's `.env` (it IS a secret). Surfaced by the
   0.11.0 PRE_CUT_CHECKLIST fixed-stage release walk. Mod 023.
+- `_hcl_value` now escapes `\n`, `\r`, `\t` (in addition to `\\` and
+  `"`) when emitting strings. HCL's quoted-string grammar rejects
+  literal newlines; the OTEL_CONFIG_YAML value (a multi-line YAML
+  literal embedded as an HCL string, added in mod 018) tripped this
+  with `Error: Invalid multi-line string` on `tofu init`. Until mod
+  018, no emit path produced a multi-line string so the gap stayed
+  invisible. Surfaced by the 0.11.0 PRE_CUT_CHECKLIST elastic-stage
+  release walk. Mod 025.
 - Sidecar healthcheck dropped on both foundations. The
   `otel/opentelemetry-collector` image is built `FROM scratch` and
   carries no `wget`/`curl`/shell — the doctrine-prescribed
