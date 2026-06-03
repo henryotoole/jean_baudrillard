@@ -38,6 +38,16 @@ first post-`0.4.0` overhaul.
   delivery (via the `OTEL_CONFIG_YAML` env var on the sidecar) is
   unaffected. Surfaced by the 0.11.0 PRE_CUT_CHECKLIST fixed-stage
   release walk after mod 021. Mod 022.
+- Fixed sidecar's `OBSERVABILITY_BACKEND_URL` env var is now emitted as
+  a literal value from `infra.yml`'s top-level field, not as a
+  `${OBSERVABILITY_BACKEND_URL:-}` reference. The previous form looked
+  the var up in compose's `.env`, but that file only carries secrets;
+  the URL was always empty at runtime, and otelcol crashed at startup
+  with "exporters::otlphttp: at least one endpoint must be specified".
+  Symmetric with elastic, which already embedded the literal URL on
+  the sidecar's ECS `environment[]`. `TELEMETRY_API_KEY` continues to
+  flow through compose's `.env` (it IS a secret). Surfaced by the
+  0.11.0 PRE_CUT_CHECKLIST fixed-stage release walk. Mod 023.
 
 ### Added
 

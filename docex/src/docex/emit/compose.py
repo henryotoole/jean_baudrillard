@@ -141,16 +141,27 @@ class _LoggingAnchor:
     """Sentinel for the doctrinal ``*default-logging`` YAML alias."""
 
 
-def _sidecar_block(svc: CompiledService, project: str, env: str) -> dict[str, Any]:
+def _sidecar_block(
+    svc: CompiledService, project: str, env: str,
+    observability_backend_url: str,
+) -> dict[str, Any]:
     """Render the paired OTel Collector sidecar block for a core service.
 
     The sidecar shares the core service's network namespace via
     ``network_mode: service:<core>`` (mutually exclusive with a
-    ``networks:`` list per docker-compose), reads its config from a
-    file mounted via compose's top-level ``configs:``, and gets the
-    observability backend URL + API key directly from compose's
-    ``.env`` via the ``${VAR:-}`` empty-default form so dev/test
-    compose succeeds without the keys defined. Mod 018.
+    ``networks:`` list per docker-compose), reads its config from
+    compose's top-level ``configs:`` block, and gets:
+
+    - ``OBSERVABILITY_BACKEND_URL`` as a literal value from
+      ``infra.yml``'s top-level field (it's config, not a secret —
+      mirrors the elastic side's behavior, mod 023).
+    - ``TELEMETRY_API_KEY`` via compose's ``${TELEMETRY_API_KEY:-}``
+      interpolation from ``.env`` (it IS a secret; lives in
+      ``<env>.env`` on the operator's machine).
+
+    The ``:-`` empty default on the API key keeps dev/test compose
+    succeeding without the operator setting it — the dev/test sidecars
+    use the ``debug`` exporter and don't consume the key. Mod 018 + 023.
     """
     sidecar_name = f"{project}_{env}_{svc.name}_otelcol"
     return {
@@ -162,9 +173,7 @@ def _sidecar_block(svc: CompiledService, project: str, env: str) -> dict[str, An
             {"source": "otelcol_config", "target": "/etc/otelcol/config.yaml"},
         ],
         "environment": {
-            # Empty default ({:-}) lets dev/test compose succeed without
-            # the keys in .env — the debug exporter doesn't read them.
-            "OBSERVABILITY_BACKEND_URL": "${OBSERVABILITY_BACKEND_URL:-}",
+            "OBSERVABILITY_BACKEND_URL": observability_backend_url,
             "TELEMETRY_API_KEY": "${TELEMETRY_API_KEY:-}",
         },
         "healthcheck": {
@@ -315,7 +324,8 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             continue
         sidecar_name = f"{compiled.project}_{compiled.env}_{svc.name}_otelcol"
         services[sidecar_name] = _sidecar_block(
-            svc, compiled.project, compiled.env
+            svc, compiled.project, compiled.env,
+            compiled.observability_backend_url,
         )
 
     # Second pass: rewrite each service's depends_on from compose short-form

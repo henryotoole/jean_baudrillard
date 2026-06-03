@@ -139,9 +139,11 @@ def test_compose_configs_content_escapes_dollar_for_stage(tmp_path: Path):
 
 
 def test_sidecar_environment_uses_default_form(tmp_path: Path):
-    """`OBSERVABILITY_BACKEND_URL` / `TELEMETRY_API_KEY` arrive via
-    compose's `${VAR:-}` empty-default form so dev/test compose
-    succeeds even when those vars are missing from .env."""
+    """`OBSERVABILITY_BACKEND_URL` is emitted as a literal from
+    `infra.yml`'s top-level field (it's config, not a secret). Mod 023.
+    `TELEMETRY_API_KEY` stays as `${TELEMETRY_API_KEY:-}` so compose
+    interpolates it from `.env` (it IS a secret); the `:-` keeps
+    dev/test compose green without the operator-supplied key."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -150,7 +152,7 @@ def test_sidecar_environment_uses_default_form(tmp_path: Path):
     services = doc["services"]
     sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
     env = sidecar["environment"]
-    assert env["OBSERVABILITY_BACKEND_URL"] == "${OBSERVABILITY_BACKEND_URL:-}"
+    assert env["OBSERVABILITY_BACKEND_URL"] == "https://hyperdx.example.com"
     assert env["TELEMETRY_API_KEY"] == "${TELEMETRY_API_KEY:-}"
 
 
