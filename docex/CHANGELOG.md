@@ -12,6 +12,16 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Fixed
+
+- Compose `configs.otelcol_config.file` now points at
+  `./infra/output/<env>/otelcol-config.yaml` instead of
+  `./otelcol-config.yaml`. The latter resolved against compose's
+  `--project-directory` (= project root) rather than the compose file's
+  directory, so docker tried to bind-mount a non-existent file at the
+  project root and `docex test` failed at sidecar startup. Surfaced by
+  the 0.11.0 PRE_CUT_CHECKLIST walk. Mod 020.
+
 ### Added
 
 - Compile-time telemetry foundations: `observability_backend_url` toplevel

@@ -94,7 +94,9 @@ def test_sidecar_uses_pinned_image_constant(tmp_path: Path):
 
 def test_compose_has_top_level_configs_block(tmp_path: Path):
     """A top-level `configs:` map declares `otelcol_config` pointing
-    at `./otelcol-config.yaml`, the file sitting beside the compose."""
+    at `./infra/output/<env>/otelcol-config.yaml`. The path is project-
+    root-relative because compose resolves `file:` against
+    `--project-directory`, which docex sets to the project root (mod 020)."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -103,8 +105,8 @@ def test_compose_has_top_level_configs_block(tmp_path: Path):
     assert "configs" in doc
     cfg = doc["configs"]
     assert "otelcol_config" in cfg
-    assert cfg["otelcol_config"]["file"] == "./otelcol-config.yaml"
-    # And the file actually exists beside the compose.
+    assert cfg["otelcol_config"]["file"] == "./infra/output/dev/otelcol-config.yaml"
+    # And the file actually exists at that path.
     sidecar_yaml = root / "infra" / "output" / "dev" / "otelcol-config.yaml"
     assert sidecar_yaml.exists()
 

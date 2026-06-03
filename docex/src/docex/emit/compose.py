@@ -358,9 +358,15 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     # file lives beside docker-compose.yml in infra/output/<env>/, written
     # by run_compile via render_otelcol_config(env). Each sidecar mounts
     # it via its own `configs:` reference.
+    # Mod 020: the `file:` path is resolved by compose against
+    # `--project-directory`, which docex sets to the project root — not
+    # the compose file's directory. Emit a project-root-relative path so
+    # the bind-mount source resolves to the real file.
     if any(s.is_core for s in compiled.services.values()):
         body_doc["configs"] = {
-            "otelcol_config": {"file": "./otelcol-config.yaml"},
+            "otelcol_config": {
+                "file": f"./infra/output/{compiled.env}/otelcol-config.yaml",
+            },
         }
 
     header = (
