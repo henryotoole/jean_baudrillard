@@ -21,6 +21,16 @@ first post-`0.4.0` overhaul.
   directory, so docker tried to bind-mount a non-existent file at the
   project root and `docex test` failed at sidecar startup. Surfaced by
   the 0.11.0 PRE_CUT_CHECKLIST walk. Mod 020.
+- Compose `configs.otelcol_config` now uses inline `content:` instead of
+  a file mount, so the compose file is self-contained and the otelcol
+  config arrives on the deploy host alongside everything else compose
+  needs. The previous mod-020 file-mount path resolved correctly under
+  local `--project-directory` (= project root) but failed on the
+  ansible-rendered deploy host where `--project-directory` is the
+  compose file's parent directory and no `infra/output/<env>/` tree
+  exists. Symmetric with elastic, which already embeds the config inline
+  via `OTEL_CONFIG_YAML`. Surfaced by the 0.11.0 PRE_CUT_CHECKLIST
+  fixed-stage release walk. Mod 021.
 
 ### Added
 

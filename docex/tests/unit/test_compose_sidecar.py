@@ -93,10 +93,11 @@ def test_sidecar_uses_pinned_image_constant(tmp_path: Path):
 
 
 def test_compose_has_top_level_configs_block(tmp_path: Path):
-    """A top-level `configs:` map declares `otelcol_config` pointing
-    at `./infra/output/<env>/otelcol-config.yaml`. The path is project-
-    root-relative because compose resolves `file:` against
-    `--project-directory`, which docex sets to the project root (mod 020)."""
+    """A top-level `configs:` map declares `otelcol_config` with the
+    rendered otelcol YAML embedded inline via `content:`. Mod 021 moved
+    from file-mount to inline content so the compose file is self-
+    contained and the otelcol config arrives on the deploy host with
+    everything else compose needs."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -105,10 +106,15 @@ def test_compose_has_top_level_configs_block(tmp_path: Path):
     assert "configs" in doc
     cfg = doc["configs"]
     assert "otelcol_config" in cfg
-    assert cfg["otelcol_config"]["file"] == "./infra/output/dev/otelcol-config.yaml"
-    # And the file actually exists at that path.
+    content = cfg["otelcol_config"]["content"]
+    # The dev config carries the OTLP receiver block and the debug exporter
+    # (dev/test use `debug`; stage/prod use `otlphttp`).
+    assert "receivers:" in content
+    assert "127.0.0.1:4318" in content
+    assert "debug:" in content
+    # No separate otelcol-config.yaml file is written anymore (mod 021).
     sidecar_yaml = root / "infra" / "output" / "dev" / "otelcol-config.yaml"
-    assert sidecar_yaml.exists()
+    assert not sidecar_yaml.exists()
 
 
 def test_sidecar_environment_uses_default_form(tmp_path: Path):

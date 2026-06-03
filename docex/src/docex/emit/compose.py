@@ -23,6 +23,7 @@ import yaml
 from docex import OTEL_COLLECTOR_IMAGE
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
+from docex.emit.otelcol import render_otelcol_config
 
 
 # Runtime-ref pattern matches $[VAR_NAME].
@@ -354,18 +355,16 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     volumes = _named_volumes(compiled)
     if volumes:
         body_doc["volumes"] = {v: {"name": v} for v in volumes}
-    # Mod 018: top-level `configs:` carrying the otelcol config file. The
-    # file lives beside docker-compose.yml in infra/output/<env>/, written
-    # by run_compile via render_otelcol_config(env). Each sidecar mounts
-    # it via its own `configs:` reference.
-    # Mod 020: the `file:` path is resolved by compose against
-    # `--project-directory`, which docex sets to the project root — not
-    # the compose file's directory. Emit a project-root-relative path so
-    # the bind-mount source resolves to the real file.
+    # Mod 018 introduced the top-level `configs:` block. Mod 020 patched
+    # the file-mount path. Mod 021 switches to inline `content:` so the
+    # compose file is self-contained — the otelcol config travels with
+    # the compose file to the deploy host, no separate file needed. This
+    # also makes fixed symmetric with elastic, where the config is
+    # already embedded as a literal in the OTEL_CONFIG_YAML env var.
     if any(s.is_core for s in compiled.services.values()):
         body_doc["configs"] = {
             "otelcol_config": {
-                "file": f"./infra/output/{compiled.env}/otelcol-config.yaml",
+                "content": render_otelcol_config(compiled.env),
             },
         }
 

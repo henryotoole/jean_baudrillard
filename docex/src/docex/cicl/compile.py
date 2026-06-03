@@ -732,7 +732,6 @@ def run_compile(ctx: Any) -> int:
     from docex.emit.compose import emit_compose
     from docex.emit.hcl import emit_hcl, emit_hcl_project
     from docex.emit.ansible import emit_ansible
-    from docex.emit.otelcol import render_otelcol_config
     from docex.emit.secrets import emit_example_env
     from docex.errors import InfraFileError
 
@@ -770,12 +769,9 @@ def run_compile(ctx: Any) -> int:
             compose_path = env_dir / "docker-compose.yml"
             emit_compose(compiled, compose_path)
             files_written += 1
-            # Sidecar config (one per env; all sidecars share it). Mod 018.
-            # Elastic envs embed the YAML directly into HCL instead.
-            (env_dir / "otelcol-config.yaml").write_text(
-                render_otelcol_config(env)
-            )
-            files_written += 1
+            # Mod 021: the sidecar config is now embedded inline in the
+            # compose file's `configs.otelcol_config.content`, so there's
+            # no separate otelcol-config.yaml to write.
             if env in ("stage", "prod"):
                 emit_ansible(compiled, env_dir)
                 files_written += 3  # playbook.yml, inventory.yml, ansible.cfg
