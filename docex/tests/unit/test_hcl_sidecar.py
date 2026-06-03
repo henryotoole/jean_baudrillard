@@ -60,9 +60,12 @@ def test_task_def_has_paired_sidecar_container(tmp_path: Path):
     assert 'name = "api_otelcol"' in api_td
 
 
-def test_core_container_dependsOn_sidecar_healthy(tmp_path: Path):
-    """Core container's `dependsOn` waits for the sidecar's HEALTHY
-    status — so the app's OTel SDK has a receiver from t=0."""
+def test_core_container_dependsOn_sidecar_start(tmp_path: Path):
+    """Mod 024: core container's `dependsOn` uses condition START
+    rather than HEALTHY because the otel/opentelemetry-collector
+    image has no probe tool — a HEALTHY condition would block startup
+    indefinitely. The OTel SDK's batch queue absorbs the brief window
+    between sidecar start and OTLP-listening."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -70,7 +73,8 @@ def test_core_container_dependsOn_sidecar_healthy(tmp_path: Path):
     hcl = _stage_hcl(root)
     api_td = _slice_task_def(hcl, "api")
     assert 'containerName = "api_otelcol"' in api_td
-    assert 'condition = "HEALTHY"' in api_td
+    assert 'condition = "START"' in api_td
+    assert 'condition = "HEALTHY"' not in api_td
 
 
 def test_sidecar_is_not_essential(tmp_path: Path):
@@ -160,16 +164,27 @@ def test_migration_task_def_has_no_sidecar(tmp_path: Path):
     assert 'name = "api_otelcol"' not in mig_td
 
 
-def test_sidecar_healthcheck_on_13133(tmp_path: Path):
-    """Sidecar's healthCheck.command targets the otelcol health_check
-    extension on localhost:13133."""
+def test_sidecar_has_no_healthcheck(tmp_path: Path):
+    """Mod 024: same image-level constraint as on fixed. The
+    otel/opentelemetry-collector image has no probe tool, so the
+    sidecar container has no `healthCheck` entry. The core container's
+    `dependsOn` uses START (asserted separately) to gate startup
+    without waiting on an unhealable health check."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
 
     hcl = _stage_hcl(root)
     api_td = _slice_task_def(hcl, "api")
-    assert "http://localhost:13133" in api_td
+    # No healthCheck key anywhere in the api task definition.
+    assert "healthCheck" not in api_td
+    # No `http://localhost:13133` either — it only appeared inside the
+    # healthcheck command before mod 024. (The otelcol config's own
+    # `endpoint: 127.0.0.1:13133` is encoded inside the OTEL_CONFIG_YAML
+    # value, but that value uses literal double-quotes around its newline
+    # payload, so the substring `"127.0.0.1:13133"` shows up there.
+    # Search for the healthCheck-specific form instead.)
+    assert "wget" not in api_td
 
 
 def test_backing_service_task_def_has_no_sidecar(tmp_path: Path):

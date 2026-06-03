@@ -48,6 +48,16 @@ first post-`0.4.0` overhaul.
   the sidecar's ECS `environment[]`. `TELEMETRY_API_KEY` continues to
   flow through compose's `.env` (it IS a secret). Surfaced by the
   0.11.0 PRE_CUT_CHECKLIST fixed-stage release walk. Mod 023.
+- Sidecar healthcheck dropped on both foundations. The
+  `otel/opentelemetry-collector` image is built `FROM scratch` and
+  carries no `wget`/`curl`/shell — the doctrine-prescribed
+  `wget --spider http://localhost:13133` could never succeed. On
+  fixed the failing healthcheck was cosmetic (sidecar stayed
+  `health: starting` forever but functioned correctly); on elastic
+  the core container's `dependsOn HEALTHY` would have blocked startup
+  indefinitely. Elastic `dependsOn` now uses `START` instead. Otelcol's
+  `health_check` extension still listens on 127.0.0.1:13133 inside the
+  shared netns for in-band probes. Mod 024.
 
 ### Added
 

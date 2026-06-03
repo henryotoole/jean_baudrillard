@@ -293,14 +293,19 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # Mod 018: paired OTel Collector sidecar for every core service. Shares
     # the task netns (ECS task containers always do), config embedded as a
     # literal YAML in OTEL_CONFIG_YAML so no file mount is needed, API key
-    # delivered via ECS secrets[] from SSM. The core container's dependsOn
-    # gates startup on the sidecar's HEALTHY status so the app's OTel SDK
-    # has a receiver from t=0. Backing services (and the migration task
-    # below) don't get sidecars — they emit no application-origin signals.
+    # delivered via ECS secrets[] from SSM. Backing services (and the
+    # migration task below) don't get sidecars — they emit no
+    # application-origin signals.
+    # Mod 024: dependsOn condition is START rather than HEALTHY because
+    # the otel/opentelemetry-collector image is built FROM scratch and
+    # has no probe tool (wget/curl/shell absent). A HEALTHY condition
+    # would block the core container indefinitely. The OTel SDK's
+    # default batch queue (2048 spans, 5 s flush) absorbs anything
+    # emitted in the brief sidecar-start → OTLP-listening window.
     sidecar_def: dict[str, Any] | None = None
     if svc.is_core:
         container_def["dependsOn"] = [
-            {"containerName": f"{svc.name}_otelcol", "condition": "HEALTHY"},
+            {"containerName": f"{svc.name}_otelcol", "condition": "START"},
         ]
         sidecar_def = {
             "name": f"{svc.name}_otelcol",
@@ -320,18 +325,6 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
                  "valueFrom": _ssm_arn_literal(
                      ctx.project, ctx.env, "TELEMETRY_API_KEY")},
             ],
-            "healthCheck": {
-                "command": [
-                    "CMD",
-                    "wget",
-                    "--spider",
-                    "-q",
-                    "http://localhost:13133",
-                ],
-                "interval": 10,
-                "timeout": 5,
-                "retries": 3,
-            },
         }
 
     project_tag = svc.body.get("tags", {}).get("project", "")

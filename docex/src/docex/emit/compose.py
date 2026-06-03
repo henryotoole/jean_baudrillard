@@ -162,6 +162,15 @@ def _sidecar_block(
     The ``:-`` empty default on the API key keeps dev/test compose
     succeeding without the operator setting it — the dev/test sidecars
     use the ``debug`` exporter and don't consume the key. Mod 018 + 023.
+
+    No ``healthcheck:`` block: the otel/opentelemetry-collector image
+    is built FROM scratch and carries no probe tool (wget/curl/shell
+    all absent). The doctrine-prescribed wget-based healthcheck could
+    never succeed; emitting it left compose reporting the sidecar as
+    ``health: starting`` forever while the container actually worked
+    fine. Mod 024 dropped it; otelcol's ``health_check`` extension on
+    127.0.0.1:13133 stays available for in-band diagnostics from
+    inside the shared netns.
     """
     sidecar_name = f"{project}_{env}_{svc.name}_otelcol"
     return {
@@ -175,18 +184,6 @@ def _sidecar_block(
         "environment": {
             "OBSERVABILITY_BACKEND_URL": observability_backend_url,
             "TELEMETRY_API_KEY": "${TELEMETRY_API_KEY:-}",
-        },
-        "healthcheck": {
-            "test": [
-                "CMD",
-                "wget",
-                "--spider",
-                "-q",
-                "http://localhost:13133",
-            ],
-            "interval": "10s",
-            "timeout": "5s",
-            "retries": 3,
         },
         "deploy": {
             "resources": {"limits": {"cpus": "0.1", "memory": "128M"}}

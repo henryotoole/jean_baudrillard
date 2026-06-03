@@ -156,9 +156,13 @@ def test_sidecar_environment_uses_default_form(tmp_path: Path):
     assert env["TELEMETRY_API_KEY"] == "${TELEMETRY_API_KEY:-}"
 
 
-def test_sidecar_healthcheck_on_13133(tmp_path: Path):
-    """Sidecar's healthcheck probes the otelcol health_check extension
-    on localhost:13133."""
+def test_sidecar_has_no_healthcheck(tmp_path: Path):
+    """Mod 024: the otel/opentelemetry-collector image is built FROM
+    scratch and carries no probe tool. The doctrine-prescribed
+    `wget --spider ...` could never succeed. The sidecar emit block
+    drops the healthcheck entirely; otelcol's `health_check` extension
+    on 127.0.0.1:13133 remains available for in-band probes from
+    inside the shared netns."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -166,8 +170,7 @@ def test_sidecar_healthcheck_on_13133(tmp_path: Path):
     doc = _compose_doc(root, "dev")
     services = doc["services"]
     sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
-    test_cmd = sidecar["healthcheck"]["test"]
-    assert "http://localhost:13133" in test_cmd
+    assert "healthcheck" not in sidecar
 
 
 def test_sidecar_resource_limits(tmp_path: Path):
