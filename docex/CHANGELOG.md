@@ -69,6 +69,16 @@ first post-`0.4.0` overhaul.
   un-escaped. Symmetric with mod 022's compose-side escape.
   Surfaced by the 0.11.0 PRE_CUT_CHECKLIST elastic-stage release walk
   after mod 025. Mod 026.
+- `ecs_wait_for_task` tolerates a brief eventual-consistency window
+  after `RunTask`. The poll previously raised `ECSTaskFailed` on the
+  very first empty `describe_tasks` response, but ECS sometimes takes
+  a second or two to make a fresh task visible. The wait now retries
+  for up to 30 s of polling before raising; once the task has been
+  observed at least once, an empty response is sharp again (signals
+  a vanished task). Surfaced by the 0.11.0 PRE_CUT_CHECKLIST
+  elastic-prod release walk: the migration task ran to completion
+  (exit 0) but docex bailed on the very first poll before it was
+  visible. Mod 027.
 - Sidecar healthcheck dropped on both foundations. The
   `otel/opentelemetry-collector` image is built `FROM scratch` and
   carries no `wget`/`curl`/shell — the doctrine-prescribed

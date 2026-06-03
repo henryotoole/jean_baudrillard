@@ -242,13 +242,25 @@ class Boto3AWSClient:
         ecs = self._client("ecs")
         deadline = time.monotonic() + timeout_s
         poll_interval = 5
+        # Mod 027: after RunTask returns a task ARN, the immediately-
+        # following describe_tasks call can briefly return tasks: []
+        # due to ECS API eventual consistency. Tolerate empty
+        # responses for up to 30 s of polling before raising; once
+        # the task has been observed at least once, an empty response
+        # in subsequent polls retains its sharp meaning ("vanished").
+        seen_once = False
+        consistency_deadline = time.monotonic() + 30
         while True:
             resp = ecs.describe_tasks(cluster=cluster, tasks=[task_arn])
             tasks = resp.get("tasks", [])
             if not tasks:
-                raise ECSTaskFailed(
-                    f"describe_tasks returned no record for {task_arn!r}"
-                )
+                if seen_once or time.monotonic() > consistency_deadline:
+                    raise ECSTaskFailed(
+                        f"describe_tasks returned no record for {task_arn!r}"
+                    )
+                time.sleep(poll_interval)
+                continue
+            seen_once = True
             task = tasks[0]
             last_status = task.get("lastStatus", "")
             if last_status == "STOPPED":
