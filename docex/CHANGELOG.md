@@ -12,6 +12,30 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-04
+
+The rollback campaign. Mod 029 ships the `docex rollback` command per
+the doctrine's [`cicd.md § Rollback`](../doctrine/infrastructure/cicd.md#rollback)
+narrow-window thesis — emergency-only, code-only (no reverse migrations),
+at most one minor version behind, explicit target version. The command
+is a thin shell over existing release machinery: an ephemeral worktree
+at the target tag, recompile with the current `docex`, mirror the
+gitignored credential and secret paths into the worktree, then dispatch
+to `_release_fixed` / `_release_elastic` with the new `skip_migrations`
+toggle. `--dry-run` previews the apply on both foundations.
+Image-presence probes (`docker manifest inspect` for fixed,
+`describe_images` for elastic) front-load the precondition gauntlet so
+the operator sees the full list of missing images in one shot before
+any state is touched.
+
+The mirror step is a post-mod fix surfaced by the 0.12.0 PRE_CUT_CHECKLIST
+fixed walk: `git worktree add` does not carry gitignored files, so the
+release functions' reads of `infra/deploy_creds/<env>` and
+`infra/secrets/<env>.env` would otherwise fail every doctrine-compliant
+rollback. Two small fixture fixes also landed during the cut prep — the
+sample test fixture's `observability_backend_url` (was `example.com`,
+unreachable), and the CHANGELOG-only changes that document the new shape.
+
 ### Added
 
 - `./bin/docex rollback <env> <target_version>` — emergency reversion to
@@ -38,6 +62,20 @@ first post-`0.4.0` overhaul.
   `parse_version` from `pipeline/check.py` into a new
   `pipeline/_worktree.py` so `pipeline/rollback.py` can share them.
   Call sites in `check.py` updated; no behavioural change for `check`.
+
+### Fixed
+
+- `docex rollback` now mirrors `infra/deploy_creds/<env>` and
+  `infra/secrets/<env>.env` from the operator's project tree into the
+  ephemeral worktree before dispatching to `_release_fixed` /
+  `_release_elastic`. `git worktree add` does not carry gitignored
+  files, and both paths are gitignored by doctrine bootstrap defaults,
+  so without this the release functions would always fail on a fresh
+  rollback. Caught by the 0.12.0 PRE_CUT_CHECKLIST fixed walk.
+- Sample test fixture's `observability_backend_url` updated from
+  `hyperdx.example.com` (unreachable) to `hyperdx.luxrnd.tech`,
+  fixing `test_check_real_happy_path` which had been broken since
+  mod 019 added the reachability gate.
 
 ## [0.11.0] - 2026-06-03
 
