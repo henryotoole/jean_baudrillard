@@ -315,6 +315,66 @@ def test_rollback_elastic_skips_runtask_and_pre_apply(
     assert fake_ansible.calls == []
 
 
+def test_rollback_mirrors_gitignored_creds_into_worktree(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
+):
+    """Doctrine bootstrap gitignores ``infra/deploy_creds/<env>`` and
+    ``infra/secrets/<env>.env`` — ``git worktree add`` does not carry
+    them into the worktree, but the release functions read them via
+    ``worktree_ctx.project_root``. ``run_rollback`` must copy them in
+    before dispatching.
+
+    Regression: the 0.12.0 PRE_CUT_CHECKLIST fixed walk caught
+    ``_release_fixed`` aborting with 'expected SSH deploy key at ...'
+    because the worktree lacked the gitignored key.
+    """
+    fake_git.clean = True
+    fake_git.branch = "main"
+    fake_git.tags = ["v0.0.5"]
+
+    skip_relpaths = {
+        Path("infra/deploy_creds") / "prod",
+        Path("infra/secrets") / "prod.env",
+    }
+    original_worktree_add = fake_git.worktree_add
+
+    def populating_worktree_add(cwd, path, *, branch=None, ref="HEAD"):
+        rc = original_worktree_add(cwd, path, branch=branch, ref=ref)
+        if rc != 0:
+            return rc
+        # Mirror sample fixture into worktree, but skip the entries that
+        # would be gitignored in a real worktree.
+        src_root = sample_ctx.project_root
+        for src_path in src_root.rglob("*"):
+            if src_path.is_dir():
+                continue
+            rel = src_path.relative_to(src_root)
+            if rel.parts[0] == ".docex":
+                continue
+            if rel in skip_relpaths:
+                continue
+            dst = Path(path) / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, dst)
+        return rc
+
+    fake_git.worktree_add = populating_worktree_add  # type: ignore[method-assign]
+
+    rc = _invoke(
+        sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+        fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+    )
+    # rc == 0 proves _release_fixed found both the SSH key AND the
+    # secrets file — which only happens if rollback's mirror step
+    # copied them from project_root into the worktree.
+    assert rc == 0, (
+        "rollback failed when worktree lacked gitignored creds/secrets — "
+        "the mirror step in run_rollback regressed"
+    )
+    assert len(fake_ansible.calls) == 1
+
+
 def test_rollback_elastic_still_pushes_ssm(
     elastic_worktree_populator, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,

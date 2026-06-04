@@ -19,6 +19,7 @@ The shape is:
 
 from __future__ import annotations
 
+import shutil
 import sys
 from typing import Callable
 
@@ -146,6 +147,19 @@ def run_rollback(
                 file=sys.stderr,
             )
             return rc
+
+        # WHY: the release functions read env-scoped credentials and
+        # secrets via worktree_ctx.project_root. Those files
+        # (infra/deploy_creds/<env>, infra/secrets/<env>.env) are
+        # gitignored per doctrine bootstrap defaults, so they don't
+        # follow `git worktree add` — they live only in the operator's
+        # main project tree. Mirror them in before dispatching.
+        for src_rel in (f"infra/deploy_creds/{env}", f"infra/secrets/{env}.env"):
+            src = project_root / src_rel
+            if src.is_file():
+                dst = worktree / src_rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
 
         # ---- Apply via release machinery, migrations skipped ----------
         if infra.foundation == "elastic":
