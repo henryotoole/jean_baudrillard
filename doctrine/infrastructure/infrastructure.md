@@ -7,7 +7,7 @@ Infrastructure includes:
 2. Networking - Load balancers, DNS, etc.
 3. Data Storage - Databases, object stores, caches, etc.
 4. CI/CD - Build, release, test pipeline
-5. Observability - Logging, metrics, errors, alerts. (WARNING: Not covered in this version of doctrine.)
+5. Observability - Viewing and storing telemetry (logging, traces, and metrics) 
 6. Environments - development, staging, production.
 7. Credentials e.g. secrets
 
@@ -236,6 +236,14 @@ The `infra` folder holds our infrastructure concerns - driving config, compile c
 **stage** - Contains necessary files to perform [stage tests](./tests.md#staging-tests).
 **contracts** - Contains contracts which describe the boundaries between core services.
 
+## Observability
+
+This spans the creation of telemetry signals (logs, metrics, traces), their movement through the infrastructure, and the means by which we actually query and view those signals.
+
+Put succinctly, *what gets reported* is a design concern and *how it moves across infrastructure* is a deterministic `docex` concern. It is the project developer's responsibility to follow good [logging practices](../practices/logging.md) within core service code. The infrastructure side is almost entirely deterministic.
+
+See [telemetry](./telemetry.md) for more details.
+
 ## Credentials
 
 A credential is any piece of information that *certainly* can not be made public.
@@ -252,6 +260,4 @@ Some things must be deferred for now:
 1. Multi-machine `fixed` foundation. We will one day support multiple machines, but this will involve docker-swarm and some other complexities. We assume only one machine for now, hosting all environments.
 2. Automated CI/CD flow (in the sense that a pull request kicks off the process). All CI/CD can be achieved with `docex` commands; this can be done manually by a developer with strict discipline. These commands could be worked into github, GitLab, or some other service. That's beyond the scope of this version.
 3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. health check all services, check DNS) which run alongside project-defined stage tests.
-4. Observability. This is top of my list for a furture improvement - right now this doctrine produces "blind" systems without log servers or error tracking. This is very bad, and will be added in ASAP.
-5. Rollback feature - we need a `./bin/docex rollback` to pull production back in case of a failure.
-6. Real defense-in-depth with networks, permissions, and validation cross-service.
+4. Real defense-in-depth with networks, permissions, and validation cross-service.

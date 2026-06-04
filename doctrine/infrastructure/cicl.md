@@ -23,7 +23,7 @@ domain: "example.com"
 domain_default_service: api  # the web service mapped to the bare <env>.<domain>
 container_registry: "registry.example.com"  # required for fixed; optional for elastic (defaults to project ECR)
 repo_url: "https://github.com/owner_account/project_name"
-observability_backend_url: "TODO"
+observability_backend_url: "hyperdx.example.com"
 
 core_services:
 
@@ -171,7 +171,10 @@ The `repo_url` top-level field formally declares the project git repository's UR
 This field currently only serves a documentary role. The git host and repo are prerequisite infrastructure and not managed by the `docex` compiler.
 
 ### Observability Backend
-TODO
+
+The `observability_backend_url` top-level field declares the URL at which the project's observability backend is reachable. This is the destination that the OTel collector sidecars (paired with each core service) forward signals to in `stage` and `prod`. See [telemetry.md](./telemetry.md) for the full telemetry model. The URL propagates directly into each sidecar's environment as `OBSERVABILITY_BACKEND_URL`.
+
+The URL must be HTTPS-scheme and well-formed. The compiler rejects `http://` and unparseable values at compile time. The compiler does not probe the URL for reachability; that is verified in the [check step](./cicd.md#check-step) e.g. `./bin/docex check`.
 
 ### Networks
 

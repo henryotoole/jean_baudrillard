@@ -222,3 +222,32 @@ The developer also maintains `$pr/infra/stage/stage_test.sh`. It is a shim that 
 
 #### `docex`
 `./bin/docex stagetest`
+
+### Rollback
+
+The rollback feature is designed for emergency situations where a serious problem has been released into production. It is intended for reflexive use within an hour or two after release. If issues appear later - perhaps a few days after release - then the problem should be fixed via a new release rather than a rollback.
+
+This "narrow window" rollback philosophy dodges many of the numerous problems associated with rollbacks. Rolling back rolls infrastructure definitions back, which could delete newly-added services with persistent memory. If it's only been a few minutes since release, little to no data will have time to accrue in a new database.
+
+Rollbacks are only intended to go back one minor version. They effect code and infrastructure definitions, but not database schemas. We can pull this trick because database migrations are supposed to be [backwards compatible](./specifics/release_mechanism.md#backward-compatibility-requirement).
+
+#### Process
+
+Rollback reuses the standard [release](#release-step) machinery; what differs is which version's compiled output gets applied, and that the [migrate step](#migrate-step) is skipped. The operator's working tree, `project.yml`, and `main` are left untouched.
+
+1. Verify preconditions. If any fail, abort before touching the environment:
+	1. Current branch is `main` with a clean working tree.
+	2. `v<target_version>` git tag exists in the repo.
+	3. `<target_version>` is no more than one minor version behind `project.yml`'s current version (e.g. if current is `1.5.2`, target must satisfy `>= 1.4.0`).
+	4. Container images at `<target_version>` exist in the registry for every core service.
+2. Create an ephemeral worktree at the `v<target_version>` tag.
+3. Recompile `infra/output/<env>/` from the worktree's `infra.yml` using the current `docex`. The recompiled output lives only in the worktree.
+4. Apply the recompiled output to `<env>` using the standard [release process](#release-step) for the project's foundation, with migrations skipped:
+	+ Fixed: invoke the emitted ansible playbook against the host with `--skip-tags migrate`. Ansible pulls the older image, renders the older compose, and `docker compose up -d` converges the stack.
+	+ Elastic: push secrets from `$pr/infra/secrets/${env}.env` to SSM, then `tofu apply` directly against the recompiled HCL. No migration `RegisterTaskDefinition` / `RunTask` step.
+5. Discard the ephemeral worktree.
+
+After rollback, the operator's next step is a normal fix-forward release: bump `project.yml` past the broken version on `main`, ship a corrected build through the standard pipeline. The recompile and release at the new version naturally re-converges the env to a healthy state.
+
+#### `docex`
+`./bin/docex rollback <env> <target_version>` rolls `<env>` (`stage` or `prod`) back to the specified version.

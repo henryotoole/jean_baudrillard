@@ -116,6 +116,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per core service, tag, push to registry |
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
 | `stagetest` | both | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL | ephemeral stage-tester container, exit code |
+| `rollback <env> <target_version>` | both, branches internally | `v<target_version>` git tag, target version's `infra.yml` (via ephemeral worktree), `infra/secrets/<env>.env` | recompiled output (in worktree), foundation-specific apply with migrations skipped |
 
 Each command's authoritative behavior lives in [docex.md](../../../doctrine/infrastructure/docex.md) and the cross-referenced specifics; this table is a navigation aid, not a re-spec.
 
@@ -255,20 +256,6 @@ jean_baudrillard/docex/
 
 `docex` is written entirely in Python 3.12+. Single-codebase coherence beats a polyglot split between "compiler" and "orchestration". Where docex needs to invoke a CLI (docker, tofu, ansible, aws, git), it does so as a subprocess from Python — never by shelling into bash scripts that themselves shell into other CLIs.
 
-## Implementation Order
-
-The full surface above is *design-complete* — every command's contract and foundation behavior is settled. What's left is to build it in an order that lets the doctrine become usable as early as possible. Each phase produces a docex that is end-to-end useful for a real project at the stated scope.
-
-**Phase 1 — Static analysis & compile.** `compile`, `describe`, `why`. Implements the CICL compiler, transfer table loading + project-local merging, and the descriptive surface. After this phase, a project can author `infra.yml` and inspect what it would produce.
-
-**Phase 2 — Fixed dev loop.** `up`, `down`, `build`, `test`, `migrate`. After this phase, a developer can iterate locally end-to-end on a fixed foundation: bring up a stack, edit code, rebuild artifacts, run tests, apply migrations. This is the minimum useful surface for active development.
-
-**Phase 3 — Fixed CI/CD.** `check`, `merge`, `containerize`, `release` (fixed branch only), `stagetest`. After this phase, a project with a fixed foundation can be released end-to-end.
-
-**Phase 4 — Elastic.** `bootstrap`, `release` (elastic branch). After this phase, elastic-foundation projects are fully supported.
-
-Phasing exists to sequence implementation, not to defer design. The image's command dispatcher should reject not-yet-implemented commands with `"<command> is part of <phase>; not yet implemented in this docex version"`, never with a generic "unknown command" error. This makes the version compatibility surface visible to users on day one.
-
 ## Maintenance & Long-Term Risk
 
 ### Edge cases in projects
@@ -299,9 +286,7 @@ These align with the [Deferred section of infrastructure.md](../../../doctrine/i
 1. **Multi-machine fixed foundation.** Single host per env for now; multi-host (docker swarm or otherwise) waits on a future doctrine extension.
 2. **Automated CI/CD triggers.** `docex` is invoked manually or by a thin CI runner that just shells out to it. PR-triggered pipelines, GitHub Actions wrappers, etc. are out of scope.
 3. **Fundamental stage tests.** Stage test content is entirely the developer's responsibility. Doctrine-provided baseline stage tests (DNS, TLS, per-service health) are a future addition.
-4. **Observability.** Logging servers, metrics, error tracking. Highest-priority future addition but not in this version.
-5. **Rollback.** `docex rollback` is anticipated but not yet specified.
-6. **Public image hosting.** `docex` images are built locally and consumed from the local Docker store. Hosting on a public registry — and the per-provider auth that implies — is deferred until multi-machine teams need it.
-7. **Externally-rotated secrets.** All secrets are project-controlled and clobbered on each release; AWS-managed RDS rotation and friends are deferred per [release_mechanism.md § Caveats](../../../doctrine/infrastructure/specifics/release_mechanism.md#caveats).
-8. **The full CICL spec.** Covered in [cicl.md](../../../doctrine/infrastructure/cicl.md) and [transfer_tables.md](../../../doctrine/infrastructure/specifics/transfer_tables.md); not duplicated here.
-9. **Hexagonal architecture concerns.** Separate doctrine track; orthogonal to `docex`.
+4. **Public image hosting.** `docex` images are built locally and consumed from the local Docker store. Hosting on a public registry — and the per-provider auth that implies — is deferred until multi-machine teams need it.
+5. **Externally-rotated secrets.** All secrets are project-controlled and clobbered on each release; AWS-managed RDS rotation and friends are deferred per [release_mechanism.md § Caveats](../../../doctrine/infrastructure/specifics/release_mechanism.md#caveats).
+6. **The full CICL spec.** Covered in [cicl.md](../../../doctrine/infrastructure/cicl.md) and [transfer_tables.md](../../../doctrine/infrastructure/specifics/transfer_tables.md); not duplicated here.
+7. **Hexagonal architecture concerns.** Separate doctrine track; orthogonal to `docex`.

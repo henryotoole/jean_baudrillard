@@ -44,6 +44,7 @@ Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perfo
 | `containerize` | Build and push core service prod images to the container registry. |
 | `release <env>` | Deploy the containerized build to `<env>` (`stage` or `prod`). |
 | `stagetest` | Run staging tests against the deployed staging environment. |
+| `rollback <env> <target_version>` | Roll a deployed environment back to a prior version. |
 
 ### `compile`
 `./bin/docex compile`
@@ -120,3 +121,7 @@ Releases the previously-containerized build to `<env>` (typically `stage` or `pr
 ### `stagetest`
 `./bin/docex stagetest`
 Runs the project's staging tests against the deployed staging environment via HTTPS, from outside the env. Spawns an ephemeral container from the project's `$pr/infra/stage/Dockerfile` definition, bind-mounts the project root, injects `STAGING_URL`, and invokes `/project/infra/stage/stage_test.sh`. Tests cover deployment-shape concerns (DNS, TLS, network reachability), per-service liveness, and critical-path smoke flows. Inter-service interaction concerns are intentionally not covered here — those are caught at build-test time via contract tests. See [cicd.md](./cicd.md#staging-tests).
+
+### `rollback`
+`./bin/docex rollback <env> <target_version>`
+Rolls `<env>` (`stage` or `prod`) back to a prior `<target_version>` in emergency situations where a recent release has surfaced a serious problem. Resolves the `v<target_version>` git tag in an ephemeral worktree, recompiles that version's `infra.yml` using the current `docex`, and applies the recompiled output via the standard release machinery with the migrate step skipped. Code-only by design — the database schema is not reversed; the rolled-back code is expected to be backward-compatible with the current schema per the [backward-compatibility requirement](./specifics/release_mechanism.md#backward-compatibility-requirement). Rejects targets more than one minor version behind `project.yml`'s current version and targets whose images are missing from the registry. The operator's working tree, `project.yml`, and `main` are untouched; the natural recovery path is a fix-forward release through the normal pipeline. See [cicd.md](./cicd.md#rollback).
