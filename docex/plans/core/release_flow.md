@@ -127,3 +127,113 @@ A general rule of thumb: any error that surfaces inside an ECS task container is
 For a new doctrine-prescribed step in the release flow (e.g. a pre-migrate validation, a post-migrate verification), the entry point is `_release_elastic` or `_release_fixed`. Mirror the existing helper pattern (`_do_apply`, `_do_migrate`, `_push_secrets`) — small, single-responsibility functions that the foundation branch composes.
 
 For a new failure mode worth catching before it reaches AWS: add the check at compile time in `cicl/validate.py` rather than at release time. A compile error is always preferable to a tofu-side or AWS-side error.
+
+## Rollback flow
+
+How `docex rollback` drives an emergency reversion. The doctrine specifies the *what* in [`cicd.md § Rollback`](../../../doctrine/infrastructure/cicd.md#rollback); this section covers the *how*: precondition order, the worktree-at-tag mechanism, the skip-migrations parameterization on the existing release path, and dry-run semantics.
+
+Rollback is intentionally a thin shell on top of release machinery rather than a parallel pipeline. The doctrine commits rollback to a narrow window (emergency-only, code-only, at most one minor version back), which means it can compose the existing release functions with a toggle rather than duplicate them.
+
+### Scope
+
+`run_rollback` takes:
+
+- The current `ProjectContext` (on `main`, clean tree).
+- `env` — `stage` or `prod`; other values raise `EnvNotSupported`.
+- `target_version` — a SemVer string. Must resolve to a `v<target_version>` git tag and have core-service images present in the registry. Validated by preconditions before any state is touched.
+- The same injected runners as `release` (ansible, tofu_init, tofu_apply), plus a `tofu_plan` runner for dry-run, plus `DockerClient` / `GitClient` / `AWSClient`.
+- `dry_run: bool` — the only flag on the CLI surface.
+
+and converges `<env>` to whatever the rolled-back version's `infra.yml` declares, with migrations not run. The operator's working tree, `project.yml`, and `main` are untouched on every exit path.
+
+### Code shape
+
+```
+docex rollback <env> <target_version>
+└─ run_rollback (pipeline/rollback.py)
+    1. Preconditions (cheap fail-fast, then fail-aggregated image probe)
+    2. git worktree add  v<target_version>  →  .docex/worktrees/rollback-<version>/
+    3. run_compile(worktree_ctx)  using *current* docex
+    4. Dispatch on infra.foundation:
+         fixed   → _release_fixed(worktree_ctx, skip_migrations=True, dry_run=...)
+         elastic → _release_elastic(worktree_ctx, skip_migrations=True, dry_run=..., tofu_plan=...)
+    5. cleanup_worktree(...) in a finally block
+```
+
+`_release_fixed` and `_release_elastic` were extended (mod 029) with `skip_migrations` and `dry_run` kwargs — defaults `False`, so `release`'s call sites are unchanged.
+
+### Preconditions
+
+Order matters: cheap fail-fast first, fail-aggregated registry probe last.
+
+| Order | Check | Failure type |
+| ----- | ----- | ------------ |
+| 1 | `env in {"stage", "prod"}` | `EnvNotSupported` |
+| 2 | `infra/infra.yml` present | exit 1 |
+| 3 | On `main` branch | `RollbackPreconditionFailed` |
+| 4 | Working tree clean | `WorkingTreeDirty` |
+| 5 | `v<target_version>` tag exists locally | `RollbackPreconditionFailed` |
+| 6 | `validate_one_minor_back(current, target)` passes | `RollbackPreconditionFailed` |
+| 7 | All core-service images at `<target_version>` present in registry | `RollbackPreconditionFailed` (full list) |
+
+Step 7 is the only fail-aggregated check. `_missing_images` probes every core service, accumulates misses, and the caller raises with the complete list — under emergency pressure the operator benefits from one diagnostic showing the full gap, not a fail-fast first-match.
+
+### Worktree mechanism
+
+The worktree helpers live in `src/docex/pipeline/_worktree.py`, extracted from `check.py` in mod 029 — both commands share them:
+
+- `worktree_path_for(project_root, slug)` → `.docex/worktrees/<slug>`. Caller composes the slug (`check-<sha>` or `rollback-<version>`).
+- `make_temp_branch(prefix, ref_name)` → `docex-<prefix>/<safe_ref>-<timestamp>`. Timestamp suffix prevents collision when concurrent invocations target the same ref.
+- `cleanup_worktree(...)` — best-effort teardown: force-remove, fall back to `shutil.rmtree`, prune the worktree list, delete the temp branch. Never raises.
+
+Rollback's recipe differs from check's: no rebase, just a checkout at `v<target_version>`. The shared helpers cover the mechanical bits; the recipe lives in `run_rollback`.
+
+### The skip-migrations toggle
+
+The doctrine commits rollback to code-only behavior — migrations are not reversed; the rolled-back code runs against the existing (newer) schema. This works because forward migrations are already required to be backward-compatible (see [`release_mechanism.md § Backward-compatibility requirement`](../../../doctrine/infrastructure/specifics/release_mechanism.md#backward-compatibility-requirement)).
+
+In code:
+
+- **Fixed** with `skip_migrations=True`: `_release_fixed` passes `skip_tags=["migrate"]` to `run_playbook`. Works against the existing playbook because the per-task `tags: [migrate]` declaration was already there for `docex migrate stage/prod`; no template changes were needed.
+- **Elastic** with `skip_migrations=True`: `_release_elastic` skips the first-release detector, the pre-migrate targeted `tofu apply` (mod 008), and the `_do_migrate` step. SSM push happens; a single unrestricted `tofu apply` against the recompiled HCL converges the env.
+
+### Dry-run
+
+`--dry-run` is symmetric across foundations: the precondition + worktree + recompile chain runs unchanged; the apply step is replaced (not augmented) with a preview; the worktree is cleaned up either way.
+
+- **Fixed**: `ansible-playbook --check` via the new `check_mode=` kwarg on `run_playbook`. Reports would-change tasks without mutating the env.
+- **Elastic**: `tofu plan` via the existing `tofu_plan` runner. **Side-effect free** — SSM is NOT pushed in dry-run mode, so the plan reflects current SSM values, not what would be pushed. Rationale: dry-run should be reversibly idempotent; SSM is a side-effect the operator may not want to commit.
+
+### Image probes
+
+Mod 029 added:
+
+- `DockerClient.manifest_inspect(ref) -> bool` (fixed) — runs `docker manifest inspect <ref>`, returns True iff exit code is 0.
+- `AWSClient.ecr_image_exists(repository, tag) -> bool` (elastic) — calls `ecr.describe_images(repositoryName=..., imageIds=[{"imageTag": tag}])`; returns True on success, False on `ImageNotFoundException` / `RepositoryNotFoundException`, propagates other exceptions.
+
+Both return clean booleans so the precondition aggregator (`_missing_images` in `rollback.py`) builds the diagnostic list without exception ceremony.
+
+### Common failure modes
+
+| What you'd see | Probable cause | Where to look |
+| -------------- | -------------- | ------------- |
+| `target version 'X' is more than one minor version behind ...` | Operator tried to go further back than doctrine permits | by design — recover via fix-forward |
+| `rollback aborted — image(s) missing in registry: ...` | Target version was never containerized, or registry retention dropped the tag | check containerize history; rebuild from the target tag if needed |
+| `tofu apply` destroys an RDS / stateful backing service during rollback | Target version's `infra.yml` lacked that backing service; doctrine's narrow-window destroy risk | `deletion_protection: true` on stateful engines should gate; if not, the rollback was outside the narrow window — fix-forward instead |
+| Dry-run on elastic shows an unexpectedly empty diff | Plan ran against current SSM (rollback doesn't push in dry-run), and other resources didn't drift either | confirm target version is actually older than current via `/health` on the deployed env |
+| Fixed rollback hangs at `docker pull` of the older image | Image present in registry but unreachable from host (network or auth) | target host's `~/.docker/config.json`; same diagnostic as a regular release pull failure |
+
+### Where to look when changing things
+
+| To change... | Touch... |
+| ------------ | -------- |
+| Rollback preconditions | `src/docex/pipeline/rollback.py:run_rollback` (early portion) |
+| Image-probe surface (per foundation) | `src/docex/pipeline/rollback.py:_missing_images` |
+| Skip-migrations behavior on fixed | `src/docex/pipeline/release.py:_release_fixed` (the `skip_tags` branch) |
+| Skip-migrations behavior on elastic | `src/docex/pipeline/release.py:_release_elastic` (the `skip_migrations` branch) |
+| Dry-run behavior on elastic | `src/docex/pipeline/release.py:_release_elastic` (the `dry_run` branch) |
+| Dry-run behavior on fixed | `run_playbook`'s `check_mode=` kwarg in `src/docex/ansible/subprocess_runner.py` |
+| One-minor-back rule | `src/docex/pipeline/_worktree.py:validate_one_minor_back` |
+| Worktree path / branch naming convention | `src/docex/pipeline/_worktree.py` |
+
+For a new doctrine-prescribed step in rollback specifically (not in release): the seam is `run_rollback`. For a new property of "what a rollback does to the env" (e.g. a new flag on the release functions): add the parameter on `_release_fixed` / `_release_elastic` with a `False` default so the existing `release` path stays unchanged, then set it from `run_rollback`.
