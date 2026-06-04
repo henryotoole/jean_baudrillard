@@ -154,11 +154,16 @@ docex rollback <env> <target_version>
     1. Preconditions (cheap fail-fast, then fail-aggregated image probe)
     2. git worktree add  v<target_version>  →  .docex/worktrees/rollback-<version>/
     3. run_compile(worktree_ctx)  using *current* docex
-    4. Dispatch on infra.foundation:
+    4. Mirror gitignored creds + secrets from project_root into worktree:
+         infra/deploy_creds/<env>     (SSH key for fixed)
+         infra/secrets/<env>.env      (per-env secrets, both foundations)
+    5. Dispatch on infra.foundation:
          fixed   → _release_fixed(worktree_ctx, skip_migrations=True, dry_run=...)
          elastic → _release_elastic(worktree_ctx, skip_migrations=True, dry_run=..., tofu_plan=...)
-    5. cleanup_worktree(...) in a finally block
+    6. cleanup_worktree(...) in a finally block
 ```
+
+The mirror step (4) exists because the release functions read those two paths via `worktree_ctx.project_root`, but `git worktree add` does not carry gitignored files. Both paths are gitignored by doctrine bootstrap defaults. The mirror step is the complete fix; all other release inputs (compiled output, contracts, transfer tables, core service files) are tracked and follow the worktree normally.
 
 `_release_fixed` and `_release_elastic` were extended (mod 029) with `skip_migrations` and `dry_run` kwargs — defaults `False`, so `release`'s call sites are unchanged.
 
