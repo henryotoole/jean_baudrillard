@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-06-04
+
+### Fixed
+
+- `teardown.sh` now direct-deletes RDS instances via the AWS API with
+  `--skip-final-snapshot` before running `tofu destroy`. The doctrine's
+  postgres engine on elastic leaves `skip_final_snapshot` at the prod-
+  safe terraform-aws-provider default (false), which silently blocked
+  RDS destruction even after the existing `deletion_protection` flip.
+  Without this fix, `tofu destroy` for each env returned 0 with the
+  RDS still alive, and the subsequent project-tier destroy tripped on
+  the still-attached RDS-managed ENIs. Surfaced by the 0.11.0
+  PRE_CUT_CHECKLIST elastic walk's teardown step. Mod 028 (docex repo).
+
 ## [0.0.6] - 2026-06-03
 
 ### Added

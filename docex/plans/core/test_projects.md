@@ -78,6 +78,18 @@ The elastic project provisions real AWS resources. Tag discipline matters for cl
 - [`verify_clean.sh`](#) in each project queries for any lingering resource by that prefix and exits non-zero if anything remains.
 - A future doctrine improvement: first-class `managed_by` tagging on every emitted resource — would let `verify_clean.sh` filter by tag and not rely on naming. Tracked as a follow-up; not blocking.
 
+## Smoke-project safety overrides
+
+The doctrine's transfer-table defaults for stateful resources (RDS `deletion_protection: true`, the terraform-aws-provider default `skip_final_snapshot: false`, etc.) are correct for real projects — they prevent accidental destruction of production data. Smoke projects always retire, so those same defaults block teardown unless something overrides them at retirement time.
+
+The override lives in `test_projects/<foundation>/teardown.sh`, not in the transfer table. Concretely on elastic:
+
+1. `aws rds modify-db-instance --no-deletion-protection` per project RDS, polled until the flag actually lands.
+2. `aws rds delete-db-instance --skip-final-snapshot --delete-automated-backups` per project RDS, polled until each instance is fully gone. This bypasses tofu entirely for the RDS — tofu destroy then reconciles state on its next pass.
+3. Tofu destroy runs against each env-tier + project-tier HCL with the RDS already absent, so no `skip_final_snapshot` battle and no ENI-detach race.
+
+This script-side override pattern keeps the safety nets intact for prod projects while letting smoke walks retire cleanly. Mod 028 added the direct-delete step after the 0.11.0 walk demonstrated that disabling `deletion_protection` alone wasn't sufficient.
+
 ## Lifecycle
 
 | Cut type | Run the smoke test? |
