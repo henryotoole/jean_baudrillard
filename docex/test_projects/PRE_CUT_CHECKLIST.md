@@ -186,7 +186,18 @@ Fixed foundation: bootstrap is a no-op. Skip.
 - [ ] POST a ping to `https://www.doctrine-fixed.luxrnd.tech/pings` — returns 201.
 - [ ] After ~5s, query the postgres prod database directly: the ping row exists and has a non-NULL `processed_at` (worker picked it up).
 
-### C.10 Teardown
+### C.10 Rollback walk
+
+Exercises `docex rollback` against the real fixed-foundation prod env. The current version was just deployed (C.9); to roll back, we need a *prior* version in the registry. Bump the test project once and re-deploy so two versions coexist, then roll back to the older one.
+
+- [ ] Bump the test project's `project.yml` version (e.g. 0.0.X → 0.0.X+1). Inner-repo commit per `test_projects.md § Commit cadence`; force-move (or re-create) the `v<version>` tag at the new HEAD.
+- [ ] `./bin/docex containerize` — pushes `v0.0.X+1` to the registry alongside `v0.0.X`.
+- [ ] `./bin/docex release prod` — deploys v0.0.X+1; `https://www.doctrine-fixed.luxrnd.tech/health` reports v0.0.X+1.
+- [ ] `./bin/docex rollback prod 0.0.X` — recompiles v0.0.X in an ephemeral worktree, ansible re-renders the older compose with `--skip-tags migrate`, prod converges on v0.0.X.
+- [ ] `https://www.doctrine-fixed.luxrnd.tech/health` reports v0.0.X. The prior ping row still has its `processed_at` populated (schema unchanged across this micro-version step — the doctrine commits to backward-compatible migrations).
+- [ ] `./bin/docex rollback prod 0.0.X --dry-run` (against the now-rolled-back env) — exits 0 and prints `release: prod dry-run completed (ansible --check).` with no state mutation. Optional sanity check; skip if pressed for time.
+
+### C.11 Teardown
 
 - [ ] `bash teardown.sh` — succeeds. Removes all four envs' containers + named volumes; deletes registry images for this project.
 - [ ] `bash verify_clean.sh` — exits 0. No lingering containers, networks, volumes, or registry images carry the project's name prefix.
@@ -241,7 +252,18 @@ Elastic foundation: `docex bootstrap` runs in two phases separated by NS-delegat
 - [ ] `./bin/docex release prod` — first-time-release path again for prod env. Provisions a separate prod ALB + ECS cluster + RDS. `https://www.doctrine-elastic.luxrnd.tech/health` returns 200.
 - [ ] POST a ping to `https://www.doctrine-elastic.luxrnd.tech/pings` — returns 201; after ~5s the prod RDS shows the row with non-NULL `processed_at`.
 
-### D.10 Teardown
+### D.10 Rollback walk
+
+Same intent as C.10 but against elastic prod. The rollback path pushes SSM and runs an unrestricted `tofu apply` against the recompiled v0.0.X HCL — no migration RunTask, no pre-migrate targeted apply.
+
+- [ ] Bump the test project's `project.yml` version (e.g. 0.0.X → 0.0.X+1). Inner-repo commit + tag move.
+- [ ] `./bin/docex containerize` — pushes `v0.0.X+1` to ECR alongside `v0.0.X`.
+- [ ] `./bin/docex release prod` — deploys v0.0.X+1 (steady-state path now that prod exists); `https://www.doctrine-elastic.luxrnd.tech/health` reports v0.0.X+1.
+- [ ] `./bin/docex rollback prod 0.0.X` — recompiles v0.0.X in an ephemeral worktree, pushes SSM, runs `tofu apply` (no targets), ECS rolls v0.0.X out.
+- [ ] `https://www.doctrine-elastic.luxrnd.tech/health` reports v0.0.X. RDS data preserved (the doctrine commits to backward-compatible migrations).
+- [ ] `./bin/docex rollback prod 0.0.X --dry-run` (against the now-rolled-back env) — exits 0; `tofu plan` runs, SSM push and `tofu apply` do NOT. Optional.
+
+### D.11 Teardown
 
 - [ ] `bash teardown.sh` — runs `tofu destroy` for `prod`, then `stage`, then the project tier; then boto3-driven cleanup of ECR image tags + SSM parameters; then deletes the tofu state bucket + DynamoDB lock table (full retirement).
 - [ ] `bash verify_clean.sh` — exits 0. AWS API queries for every doctrine-emitted resource type filtered by project-name prefix return empty.

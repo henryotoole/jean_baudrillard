@@ -98,6 +98,15 @@ class WorkingTreeDirty(DocexError):
     """``check``/``merge``/``containerize`` invoked with uncommitted changes."""
 
 
+class RollbackPreconditionFailed(DocexError):
+    """A precondition for ``docex rollback`` failed; no env state was touched.
+
+    Covers branch / tag / version-range / image-existence preconditions.
+    The doctrine commits to a narrow-window rollback — if any of these
+    fail, the operator is expected to fix forward, not rollback further.
+    """
+
+
 class BranchNotRebaseable(DocexError):
     """Rebase onto origin/main failed (merge conflicts most likely)."""
 

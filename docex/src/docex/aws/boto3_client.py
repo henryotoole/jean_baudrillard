@@ -303,6 +303,24 @@ class Boto3AWSClient:
         username, _, password = token.partition(":")
         return username, password
 
+    def ecr_image_exists(self, repository: str, tag: str) -> bool:
+        ecr = self._client("ecr")
+        try:
+            ecr.describe_images(
+                repositoryName=repository,
+                imageIds=[{"imageTag": tag}],
+            )
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            # RepositoryNotFoundException is also treated as "absent":
+            # if the repo itself is missing, the image obviously is too,
+            # and the caller wants a clean "image missing" diagnostic
+            # rather than a raised exception.
+            if code in ("ImageNotFoundException", "RepositoryNotFoundException"):
+                return False
+            raise
+        return True
+
     # ------------------------------------------------------------------
     # EC2 / ECS lookups
     # ------------------------------------------------------------------

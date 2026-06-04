@@ -35,6 +35,7 @@ RunPlaybook = Callable[..., int]
 # Type alias for the injected tofu runners (Phase 4, elastic branch).
 TofuInit = Callable[..., int]
 TofuApply = Callable[..., int]
+TofuPlan = Callable[..., int]
 
 
 def run_release(
@@ -96,8 +97,18 @@ def run_release(
 
 
 def _release_fixed(
-    ctx: ProjectContext, *, env: str, ansible_runner: RunPlaybook
+    ctx: ProjectContext,
+    *,
+    env: str,
+    ansible_runner: RunPlaybook,
+    skip_migrations: bool = False,
+    dry_run: bool = False,
 ) -> int:
+    """Apply a fixed-foundation release. ``release`` calls this with the
+    flag defaults (False/False); ``rollback`` passes True for both flags
+    when reverting a prod env in check-mode dry-run, or just
+    ``skip_migrations=True`` for a real reversion.
+    """
     project_root = ctx.project_root
 
     private_key = project_root / "infra" / "deploy_creds" / env
@@ -139,13 +150,19 @@ def _release_fixed(
         inventory,
         config=config if config.is_file() else None,
         private_key=private_key,
+        skip_tags=["migrate"] if skip_migrations else None,
+        check_mode=dry_run,
     )
     if rc != 0:
         raise AnsibleRunFailed(
             f"ansible-playbook for env {env!r} exited {rc}. "
             "See playbook output above for the failing task."
         )
-    print(f"release: {env} deployed successfully.")
+    if dry_run:
+        print(f"release: {env} dry-run completed (ansible --check).")
+    else:
+        suffix = " (migrations skipped)" if skip_migrations else ""
+        print(f"release: {env} deployed successfully{suffix}.")
     return 0
 
 
@@ -156,6 +173,9 @@ def _release_elastic(
     aws: AWSClient,
     tofu_init: TofuInit,
     tofu_apply: TofuApply,
+    tofu_plan: TofuPlan | None = None,
+    skip_migrations: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Elastic release flow.
 
@@ -201,9 +221,57 @@ def _release_elastic(
         )
         return 1
 
+    if dry_run:
+        # WHY: dry-run is side-effect-free. Skip SSM push (operator can't
+        # un-push) and apply; just init the workdir and emit a plan so
+        # the operator can read what would change.
+        if tofu_plan is None:
+            print(
+                "error: elastic dry-run requires a tofu_plan runner. "
+                "(Internal dispatch bug.)",
+                file=sys.stderr,
+            )
+            return 1
+        rc_init = tofu_init(out_dir)
+        if rc_init != 0:
+            raise TofuApplyFailed(
+                f"'tofu init' for env {env!r} exited {rc_init}"
+            )
+        rc_plan = tofu_plan(out_dir)
+        if rc_plan != 0:
+            raise TofuApplyFailed(
+                f"'tofu plan' for env {env!r} exited {rc_plan}"
+            )
+        print(
+            f"release: dry-run completed for {env!r}; review the 'tofu plan' "
+            f"output above to see what would change."
+        )
+        return 0
+
     # 1. Push secrets to SSM.
     pushed = _push_secrets(aws, env_file, project=project_name, env=env)
     print(f"release: pushed {pushed} secret(s) to SSM under /{project_name}/{env}/")
+
+    if skip_migrations:
+        # Rollback path: no first-release detection (rollback only
+        # targets a populated env), no migration task-def bump, no
+        # RunTask. A single unrestricted apply converges the env to the
+        # recompiled (older) HCL.
+        rc_init = tofu_init(out_dir)
+        if rc_init != 0:
+            raise TofuApplyFailed(
+                f"'tofu init' for env {env!r} exited {rc_init}"
+            )
+        rc_apply = tofu_apply(out_dir, auto_approve=True)
+        if rc_apply != 0:
+            raise TofuApplyFailed(
+                f"'tofu apply' for env {env!r} exited {rc_apply}"
+            )
+        print(
+            f"release: {env} deployed successfully via OpenTofu "
+            f"(migrations skipped)."
+        )
+        return 0
 
     # First-time-release detection: the env's ECS cluster (named per
     # the ``ecs`` naming policy on the project/env pair) is created by

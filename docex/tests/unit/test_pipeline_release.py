@@ -23,6 +23,10 @@ def test_release_stage_fixed_calls_ansible(sample_ctx, fake_ansible):
     assert "infra/deploy_creds/stage" in str(call["private_key"])
     # release does not pass tags — the whole playbook should run.
     assert call.get("tags") in (None, [])
+    # Mod 029: release's default invocation must not skip migrations or
+    # use check-mode — those are rollback-only behaviours.
+    assert call.get("skip_tags") in (None, [])
+    assert call.get("check_mode") is False
 
 
 def test_release_prod_fixed_calls_ansible(sample_ctx, fake_ansible):

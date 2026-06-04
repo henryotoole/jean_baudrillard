@@ -24,10 +24,8 @@ non-zero if any failed.
 
 from __future__ import annotations
 
-import shutil
 import socket
 import sys
-import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -41,6 +39,12 @@ from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
 from docex.orchestrate._common import core_services, services_with_schema
+from docex.pipeline._worktree import (
+    cleanup_worktree,
+    make_temp_branch,
+    parse_version,
+    worktree_path_for,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -93,28 +97,6 @@ def _aggregate_check_report(report: CheckReport) -> str:
             f"{report.failure_count}/{len(report.results)} gate(s) failed."
         )
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# Version-comparison helper (semver-ish, sufficient for project.yml).
-# ---------------------------------------------------------------------------
-
-
-def _parse_version(v: str) -> tuple[int, ...]:
-    """Parse a dotted version into a tuple of ints for comparison.
-
-    Non-numeric segments fall back to 0 — we don't need a full
-    PEP 440 / semver parser, only enough to order ``0.1.0`` < ``0.1.1``.
-    """
-    parts: list[int] = []
-    for seg in v.split("."):
-        try:
-            parts.append(int(seg))
-        except ValueError:
-            # Strip any pre-release suffix (e.g. "1-rc1") — best effort.
-            digits = "".join(ch for ch in seg if ch.isdigit())
-            parts.append(int(digits) if digits else 0)
-    return tuple(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +224,7 @@ def _gate_version_bumped(
             "main's project.yml is malformed YAML",
         )
         return
-    cmp_ok = _parse_version(new_version) > _parse_version(main_version)
+    cmp_ok = parse_version(new_version) > parse_version(main_version)
     report.add(
         "version_bumped",
         cmp_ok,
@@ -533,54 +515,6 @@ def _gate_observability_backend_url_reachable(
 
 
 # ---------------------------------------------------------------------------
-# Worktree management.
-# ---------------------------------------------------------------------------
-
-
-def _make_temp_branch(feature: str) -> str:
-    """Encode the feature branch + a timestamp so concurrent ``check``
-    invocations on the same feature don't collide.
-    """
-    safe = feature.replace("/", "-").replace(":", "-")
-    return f"docex-check/{safe}-{int(time.time())}"
-
-
-def _worktree_path_for(project_root: Path, short_sha: str) -> Path:
-    return project_root / ".docex" / "worktrees" / f"check-{short_sha}"
-
-
-def _cleanup_worktree(
-    project_root: Path,
-    worktree: Path,
-    temp_branch: str,
-    git: GitClient,
-) -> None:
-    """Remove the worktree and delete the temp branch, swallowing
-    errors so cleanup never masks the underlying check failure.
-
-    Build steps leave behind untracked files inside the worktree
-    (`.terraform/`, `dist/`, etc.) that ``git worktree remove`` refuses
-    by default. We go straight to ``--force``; it skips git's
-    "modified or untracked" check. If git still can't remove the
-    worktree (some other edge case), fall back to ``shutil.rmtree`` —
-    cleanup is best-effort.
-    """
-    if not worktree.exists():
-        # Nothing to remove.
-        return
-    rc = git.worktree_remove(project_root, worktree, force=True)
-    if rc != 0 and worktree.exists():
-        shutil.rmtree(worktree, ignore_errors=True)
-        # Tell git to forget the worktree entry even though we removed
-        # the directory under its feet — otherwise `git worktree list`
-        # leaves a stale entry pointing at a missing path.
-        git.worktree_prune(project_root)
-    # Best-effort temp-branch delete; if the worktree already moved
-    # off it, this can fail harmlessly.
-    git.delete_branch(project_root, temp_branch, remote=False)
-
-
-# ---------------------------------------------------------------------------
 # Public entry point.
 # ---------------------------------------------------------------------------
 
@@ -620,9 +554,9 @@ def run_check(
 
     # 3. Worktree creation ---------------------------------------------
     short_sha = git.head_sha(project_root, short=True)
-    worktree = _worktree_path_for(project_root, short_sha)
+    worktree = worktree_path_for(project_root, f"check-{short_sha}")
     worktree.parent.mkdir(parents=True, exist_ok=True)
-    temp_branch = _make_temp_branch(feature)
+    temp_branch = make_temp_branch("check", feature)
 
     rc = git.worktree_add(
         project_root,
@@ -746,7 +680,7 @@ def run_check(
         return 0
     finally:
         # 8. Cleanup, always ----------------------------------------------
-        _cleanup_worktree(project_root, worktree, temp_branch, git)
+        cleanup_worktree(project_root, worktree, temp_branch, git)
 
 
 def _compose_build(

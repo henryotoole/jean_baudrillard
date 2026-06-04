@@ -202,3 +202,14 @@ class DockerClient(Protocol):
         exact image landed in the registry.
         """
         ...
+
+    def manifest_inspect(self, ref: str) -> bool:
+        """Probe whether ``ref`` (a full ``<registry>/<repo>:<tag>``) is
+        resolvable in the registry via ``docker manifest inspect``.
+
+        Returns True iff the manifest is reachable (image exists in the
+        registry). Returns False on any non-zero exit, including network
+        errors — the caller (``rollback``) treats that as "not present"
+        and surfaces it via the precondition check.
+        """
+        ...

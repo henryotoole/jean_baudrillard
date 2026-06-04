@@ -20,6 +20,8 @@ def run_playbook(
     *,
     extra_vars: dict[str, Any] | None = None,
     tags: list[str] | None = None,
+    skip_tags: list[str] | None = None,
+    check_mode: bool = False,
     config: Path | None = None,
     private_key: Path | None = None,
 ) -> int:
@@ -31,6 +33,11 @@ def run_playbook(
       - ``extra_vars`` becomes one ``--extra-vars 'k=v'`` per item.
       - ``tags`` becomes ``--tags <comma-sep>`` so callers can run just
         a subset of tasks (used by ``migrate stage/prod``).
+      - ``skip_tags`` becomes ``--skip-tags <comma-sep>`` so callers can
+        exclude tagged tasks (used by ``rollback`` to skip the migrate
+        step on the fixed playbook).
+      - ``check_mode`` adds ``--check`` for ansible's dry-run (used by
+        ``rollback --dry-run``).
       - ``config`` is exported as ``ANSIBLE_CONFIG`` for the child.
       - ``private_key`` becomes ``--private-key <path>`` so ansible
         SSHes to the env's host using the project-local deploy key.
@@ -41,6 +48,10 @@ def run_playbook(
     cmd: list[str] = ["ansible-playbook", "-i", str(inventory)]
     if tags:
         cmd.extend(["--tags", ",".join(tags)])
+    if skip_tags:
+        cmd.extend(["--skip-tags", ",".join(skip_tags)])
+    if check_mode:
+        cmd.append("--check")
     if private_key is not None:
         cmd.extend(["--private-key", str(private_key)])
     for key, val in (extra_vars or {}).items():

@@ -38,12 +38,15 @@ class FakeDockerClient:
       that overrides the default exit code of 0. Useful for scripting
       "the second migrate.sh fails" scenarios.
     - ``default_exit`` is the fallback exit code (0 unless overridden).
+    - ``manifest_inspect_results`` maps full image refs to bool; default
+      True (image present) when a ref isn't in the dict.
     """
 
     available: bool = True
     ps_services: list[str] = field(default_factory=list)
     exit_codes: dict[tuple, int] = field(default_factory=dict)
     default_exit: int = 0
+    manifest_inspect_results: dict[str, bool] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
 
     # -- protocol ------------------------------------------------------
@@ -156,6 +159,10 @@ class FakeDockerClient:
     def inspect_image_digest(self, tag: str) -> str:
         self.calls.append(("inspect_image_digest", tag))
         return f"sha256:fakedigest-for-{tag}"
+
+    def manifest_inspect(self, ref: str) -> bool:
+        self.calls.append(("manifest_inspect", ref))
+        return self.manifest_inspect_results.get(ref, True)
 
     # -- internals -----------------------------------------------------
 
@@ -413,6 +420,10 @@ class FakeAWSClient:
     cluster_exists: bool = True
     ecs_exit_codes: dict[str, int] = field(default_factory=dict)
     raise_on: dict[str, Exception] = field(default_factory=dict)
+    # Mod 029: probe results for ``ecr_image_exists``. Maps
+    # ``(repository, tag) -> bool``. Defaults to True (image present)
+    # when a key isn't in the dict.
+    ecr_image_exists_results: dict[tuple[str, str], bool] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
     _task_counter: int = 0
 
@@ -509,6 +520,10 @@ class FakeAWSClient:
         self._record("ecr_authorization_token")
         return ("AWS", "fake-ecr-token")
 
+    def ecr_image_exists(self, repository: str, tag: str) -> bool:
+        self._record("ecr_image_exists", repository, tag)
+        return self.ecr_image_exists_results.get((repository, tag), True)
+
     # -- Lookups -------------------------------------------------------
 
     def lookup_project_vpc(self, *, project: str) -> str:
@@ -570,3 +585,8 @@ def fake_tofu_init() -> RecordingTofuRunner:
 @pytest.fixture
 def fake_tofu_apply() -> RecordingTofuRunner:
     return RecordingTofuRunner(name="tofu_apply")
+
+
+@pytest.fixture
+def fake_tofu_plan() -> RecordingTofuRunner:
+    return RecordingTofuRunner(name="tofu_plan")

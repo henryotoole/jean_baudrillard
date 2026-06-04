@@ -257,6 +257,22 @@ class SubprocessDockerClient:
             return ""
         return res.stdout.strip()
 
+    def manifest_inspect(self, ref: str) -> bool:
+        # WHY: capture_output (not inherited stdio) so a missing image
+        # doesn't spam the operator's terminal with docker's error output
+        # — this is a probe, not a user-facing command.
+        cmd = [self._docker, "manifest", "inspect", ref]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return False
+        return res.returncode == 0
+
     def compose_ps(
         self,
         compose_file: Path,

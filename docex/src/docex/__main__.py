@@ -36,6 +36,8 @@ _PHASE3_COMMANDS = ("check", "merge", "containerize", "release", "stagetest")
 
 _PHASE4_COMMANDS = ("bootstrap",)
 
+_PHASE5_COMMANDS = ("rollback",)
+
 # Reference commands (not phase-gated): the role / parts catalog.
 _REFERENCE_COMMANDS = ("roles", "role")
 
@@ -54,6 +56,7 @@ _HELP_TEXT: dict[str, str] = {
     "release": "Deploy the containerized build to stage or prod.",
     "stagetest": "Run staging tests against the deployed stage env.",
     "bootstrap": "Idempotent one-shot setup for elastic projects.",
+    "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
     "roles": "List the available service roles (with descriptions).",
     "role": "Describe a role: engines, provided parts, env vars, fields.",
 }
@@ -68,6 +71,8 @@ def _phase_of(cmd: str) -> int | None:
         return 3
     if cmd in _PHASE4_COMMANDS:
         return 4
+    if cmd in _PHASE5_COMMANDS:
+        return 5
     return None
 
 
@@ -95,6 +100,7 @@ def _format_usage() -> str:
     _group("Phase 2 (implemented)", _PHASE2_COMMANDS)
     _group("Phase 3 (implemented)", _PHASE3_COMMANDS)
     _group("Phase 4 (implemented)", _PHASE4_COMMANDS)
+    _group("Phase 5 (implemented)", _PHASE5_COMMANDS)
     _group("Reference", _REFERENCE_COMMANDS)
     lines.append("")
     lines.append("global options:")
@@ -392,6 +398,47 @@ def _cmd_bootstrap(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 handlers
+# ---------------------------------------------------------------------------
+
+
+def _cmd_rollback(args: list[str]) -> int:
+    """``docex rollback <env> <target_version> [--dry-run]`` — emergency
+    reversion to a prior version. Code-only, at most one minor back."""
+    parser = argparse.ArgumentParser(prog="docex rollback", add_help=True)
+    parser.add_argument("env", choices=["stage", "prod"],
+                        help="environment to roll back (stage or prod)")
+    parser.add_argument("target_version",
+                        help="version to roll back to (without the 'v' prefix)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="report what would change without applying")
+    ns = parser.parse_args(args)
+
+    from docex.ansible import run_playbook
+    from docex.context import load_project_context
+    from docex.opentofu import tofu_apply, tofu_init, tofu_plan
+    from docex.pipeline.rollback import run_rollback
+
+    ctx = load_project_context(Path(os.getcwd()))
+    docker = _require_docker()
+    git = _require_git()
+    aws = _make_aws_client()
+    return run_rollback(
+        ctx,
+        env=ns.env,
+        target_version=ns.target_version,
+        docker=docker,
+        git=git,
+        aws=aws,
+        ansible_runner=run_playbook,
+        tofu_init=tofu_init,
+        tofu_apply=tofu_apply,
+        tofu_plan=tofu_plan,
+        dry_run=ns.dry_run,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Reference handlers (roles / role)
 # ---------------------------------------------------------------------------
 
@@ -462,6 +509,8 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         "stagetest": _cmd_stagetest,
         # Phase 4
         "bootstrap": _cmd_bootstrap,
+        # Phase 5
+        "rollback": _cmd_rollback,
         # Reference
         "roles": _cmd_roles,
         "role": _cmd_role,

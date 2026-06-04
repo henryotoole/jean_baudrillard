@@ -12,6 +12,33 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- `./bin/docex rollback <env> <target_version>` — emergency reversion to
+  a prior version, code-only, at most one minor back. Per doctrine
+  [`cicd.md § Rollback`](../doctrine/infrastructure/cicd.md#rollback).
+  Resolves the `v<target_version>` tag in an ephemeral worktree,
+  recompiles that version's `infra.yml` with the current `docex`, and
+  applies via the standard release machinery with the migrate step
+  skipped. Rejects targets more than one minor behind or whose images
+  are missing from the registry. `--dry-run` previews the apply on both
+  foundations (`ansible --check` on fixed, `tofu plan` on elastic;
+  elastic dry-run also skips the SSM push).
+- `DockerClient.manifest_inspect(ref)` for registry image-existence
+  probes (fixed foundation).
+- `AWSClient.ecr_image_exists(repository, tag)` for ECR image probes
+  (elastic foundation).
+- `run_playbook` learns `skip_tags=` and `check_mode=` so rollback can
+  reuse the existing fixed-foundation playbook without template changes.
+
+### Changed
+
+- Extracted ephemeral-worktree helpers (`worktree_path_for`,
+  `make_temp_branch`, `cleanup_worktree`) and the SemVer-ish
+  `parse_version` from `pipeline/check.py` into a new
+  `pipeline/_worktree.py` so `pipeline/rollback.py` can share them.
+  Call sites in `check.py` updated; no behavioural change for `check`.
+
 ## [0.11.0] - 2026-06-03
 
 The telemetry campaign. Three core mods (017–019) turn the doctrine's

@@ -157,6 +157,18 @@ class AWSClient(Protocol):
         """
         ...
 
+    def ecr_image_exists(self, repository: str, tag: str) -> bool:
+        """Return True iff the ECR repository ``repository`` contains an
+        image with the given ``tag``.
+
+        Used by ``rollback`` to confirm every core service has an image
+        at the target version before any infra is touched. Maps to ECR
+        ``describe_images`` with ``imageTag=<tag>``;
+        ``ImageNotFoundException`` and ``RepositoryNotFoundException``
+        return False, other exceptions propagate.
+        """
+        ...
+
     # ------------------------------------------------------------------
     # Lookups (release-time HCL prerequisites)
     # ------------------------------------------------------------------
