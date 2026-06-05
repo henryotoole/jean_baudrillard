@@ -164,6 +164,43 @@ def test_rollback_rejects_dirty_tree(
         )
 
 
+def test_rollback_tolerates_dirt_under_infra_output(
+    worktree_populator, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
+):
+    """``docex release`` rewrites ``infra/output/`` via its implicit
+    compile step, so an emergency operator who just released will have
+    legitimate dirt there. Rollback must not refuse on that alone."""
+    ctx, fake_git = worktree_populator
+    fake_git.clean = True
+    fake_git.dirty_paths = {
+        "infra/output/prod/docker-compose.yml",
+        "infra/output/stage/main.tf",
+    }
+    rc = _invoke(
+        ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+        fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+    )
+    assert rc == 0
+
+
+def test_rollback_rejects_dirt_outside_infra_output(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """Dirt anywhere other than ``infra/output/`` is still a refusal —
+    that signals source work in flight that could confuse rollback."""
+    fake_git.branch = "main"
+    fake_git.clean = True
+    fake_git.dirty_paths = {"core/web/src/app.py"}
+    fake_git.tags = ["v0.0.5"]
+    with pytest.raises(WorkingTreeDirty):
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+
+
 def test_rollback_rejects_missing_tag(
     sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan,

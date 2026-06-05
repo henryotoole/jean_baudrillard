@@ -244,6 +244,10 @@ class FakeGitClient:
     """
 
     clean: bool = True
+    # When non-empty, ``is_clean_excluding`` consults these paths instead of
+    # the coarse ``clean`` flag. Lets a test simulate "only infra/output/ is
+    # dirty" without breaking other tests that just toggle ``clean``.
+    dirty_paths: set[str] = field(default_factory=set)
     branch: str = "feature/x"
     head: str = "abc1234"
     tags: list[str] = field(default_factory=list)
@@ -262,6 +266,18 @@ class FakeGitClient:
 
     def is_clean(self, cwd):
         self.calls.append(("is_clean", str(cwd)))
+        return self.clean
+
+    def is_clean_excluding(self, cwd, excludes):
+        self.calls.append(("is_clean_excluding", str(cwd), tuple(excludes)))
+        # When tests have explicitly populated ``dirty_paths``, evaluate
+        # path-by-path. Otherwise fall back to the coarse ``clean`` flag
+        # so existing tests keep working without modification.
+        if self.dirty_paths:
+            return all(
+                any(p.startswith(ex) for ex in excludes)
+                for p in self.dirty_paths
+            )
         return self.clean
 
     def current_branch(self, cwd):

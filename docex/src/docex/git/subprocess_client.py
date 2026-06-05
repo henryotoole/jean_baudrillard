@@ -32,6 +32,24 @@ class SubprocessGitClient:
             return False
         return res.strip() == ""
 
+    def is_clean_excluding(self, cwd: Path, excludes: list[str]) -> bool:
+        res = self._capture(["status", "--porcelain"], cwd=cwd)
+        if res is None:
+            return False
+        for line in res.splitlines():
+            if not line.strip():
+                continue
+            # Porcelain format: "XY path" where XY is two status chars.
+            # Renames render as "RM path1 -> path2"; the destination is
+            # what matters for "is this dirt".
+            path = line[3:]
+            if " -> " in path:
+                path = path.split(" -> ", 1)[1]
+            path = path.strip()
+            if not any(path.startswith(ex) for ex in excludes):
+                return False
+        return True
+
     def current_branch(self, cwd: Path) -> str:
         res = self._capture(["rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd)
         if res is None:

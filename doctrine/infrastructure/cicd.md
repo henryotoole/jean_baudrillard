@@ -236,7 +236,7 @@ Rollbacks are only intended to go back one minor version. They effect code and i
 Rollback reuses the standard [release](#release-step) machinery; what differs is which version's compiled output gets applied, and that the [migrate step](#migrate-step) is skipped. The operator's working tree, `project.yml`, and `main` are left untouched.
 
 1. Verify preconditions. If any fail, abort before touching the environment:
-	1. Current branch is `main` with a clean working tree.
+	1. Current branch is `main`; working tree has no uncommitted changes outside `infra/output/`. Dirt under `infra/output/` is tolerated because [`docex release`](#release-step) rewrites it implicitly via its compile step — an emergency operator who just released will legitimately have output drift and shouldn't be forced to commit it before rolling back.
 	2. `v<target_version>` git tag exists in the repo.
 	3. `<target_version>` is no more than one minor version behind `project.yml`'s current version (e.g. if current is `1.5.2`, target must satisfy `>= 1.4.0`).
 	4. Container images at `<target_version>` exist in the registry for every core service.

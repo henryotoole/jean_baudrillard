@@ -88,10 +88,19 @@ def run_rollback(
         raise RollbackPreconditionFailed(
             "rollback must run from 'main'. Check out main and try again."
         )
-    if not git.is_clean(project_root):
+    # WHY: tolerate dirt under ``infra/output/`` because ``docex release``
+    # rewrites that directory implicitly via its compile step — an
+    # emergency operator who just released will legitimately have those
+    # files modified vs HEAD and shouldn't be forced to commit them
+    # before rolling back. Source dirt (under ``core/``, contracts,
+    # secrets, etc.) is still refused, since that signals work in flight
+    # that could confuse rollback semantics.
+    if not git.is_clean_excluding(project_root, ["infra/output/"]):
         raise WorkingTreeDirty(
-            "rollback refuses to run with a dirty working tree. "
-            "Commit or stash first."
+            "rollback refuses to run with uncommitted source changes. "
+            "Commit or stash them first. (Dirt under 'infra/output/' "
+            "is tolerated — that's the compile-output the release path "
+            "rewrites implicitly.)"
         )
 
     tag_name = f"v{target_version}"

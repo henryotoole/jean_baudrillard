@@ -28,6 +28,23 @@ class GitClient(Protocol):
         """
         ...
 
+    def is_clean_excluding(self, cwd: Path, excludes: list[str]) -> bool:
+        """Return True iff every uncommitted change's path falls under
+        one of the ``excludes`` prefixes.
+
+        Used by ``rollback`` to tolerate dirt under ``infra/output/``,
+        which ``docex release`` rewrites implicitly via its compile step
+        — an emergency operator who has just released is likely to have
+        legitimate output drift and shouldn't be forced to commit it
+        before rolling back. Source dirt (under ``core/``, ``infra/``
+        non-output paths, etc.) is still refused.
+
+        Paths are matched literally against the porcelain output, so an
+        exclude like ``"infra/output/"`` (trailing slash) matches every
+        file under that directory.
+        """
+        ...
+
     def current_branch(self, cwd: Path) -> str:
         """Return the symbolic name of HEAD (e.g. ``feature/x``).
 

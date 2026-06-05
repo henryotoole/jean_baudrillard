@@ -12,6 +12,17 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Fixed
+
+- `docex rollback` now tolerates uncommitted changes under `infra/output/`
+  in the operator's working tree. `docex release` rewrites that directory
+  implicitly via its compile step, so an emergency operator who just
+  released will legitimately have output drift versus HEAD; forcing them
+  to commit it before rolling back was friction caught in both the
+  fixed and elastic 0.12.0 PRE_CUT walks. Source dirt elsewhere
+  (`core/`, contracts, etc.) is still refused. New
+  `GitClient.is_clean_excluding(cwd, excludes)` helper backs the check.
+
 ## [0.12.0] - 2026-06-04
 
 The rollback campaign. Mod 029 ships the `docex rollback` command per

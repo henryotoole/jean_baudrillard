@@ -176,7 +176,7 @@ Order matters: cheap fail-fast first, fail-aggregated registry probe last.
 | 1 | `env in {"stage", "prod"}` | `EnvNotSupported` |
 | 2 | `infra/infra.yml` present | exit 1 |
 | 3 | On `main` branch | `RollbackPreconditionFailed` |
-| 4 | Working tree clean | `WorkingTreeDirty` |
+| 4 | No uncommitted changes outside `infra/output/` | `WorkingTreeDirty` |
 | 5 | `v<target_version>` tag exists locally | `RollbackPreconditionFailed` |
 | 6 | `validate_one_minor_back(current, target)` passes | `RollbackPreconditionFailed` |
 | 7 | All core-service images at `<target_version>` present in registry | `RollbackPreconditionFailed` (full list) |
