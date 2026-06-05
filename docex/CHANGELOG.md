@@ -12,6 +12,10 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-06-04
+
+Single-fix patch following the 0.12.0 PRE_CUT walks.
+
 ### Fixed
 
 - `docex rollback` now tolerates uncommitted changes under `infra/output/`
@@ -22,6 +26,8 @@ first post-`0.4.0` overhaul.
   fixed and elastic 0.12.0 PRE_CUT walks. Source dirt elsewhere
   (`core/`, contracts, etc.) is still refused. New
   `GitClient.is_clean_excluding(cwd, excludes)` helper backs the check.
+- Stale URL assertion in `test_compose_sidecar` (residual from the
+  0.12.0 fixture URL update).
 
 ## [0.12.0] - 2026-06-04
 
