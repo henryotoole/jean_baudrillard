@@ -152,7 +152,7 @@ def test_sidecar_environment_uses_default_form(tmp_path: Path):
     services = doc["services"]
     sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
     env = sidecar["environment"]
-    assert env["OBSERVABILITY_BACKEND_URL"] == "https://hyperdx.example.com"
+    assert env["OBSERVABILITY_BACKEND_URL"] == "https://hyperdx.luxrnd.tech"
     assert env["TELEMETRY_API_KEY"] == "${TELEMETRY_API_KEY:-}"
 
 
