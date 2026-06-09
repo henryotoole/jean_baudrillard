@@ -10,7 +10,8 @@ usable. It covers:
 2. **Project-tier infrastructure** — the VPC, Route53 hosted zone, ACM
    certificate, public/private subnets, and ECR repositories shared by
    every elastic environment. Created via ``tofu apply`` against
-   ``infra/output/project/main.tf`` (emitted by ``docex compile``).
+   ``infra/output/project/production/main.tf`` (emitted by ``docex
+   compile``; per mod 035, project-tier output is split by side).
 
 The project-tier apply is split into two phases because ACM DNS
 validation requires the project's Route53 zone to be reachable via the
@@ -108,7 +109,9 @@ def _apply_project_tier(ctx: ProjectContext) -> int:
     sense — the operator just has work to do before re-running.
     """
     project = ctx.project.name
-    project_dir = ctx.project_root / "infra" / "output" / "project"
+    # Mod 035: project-tier output is split by side; the elastic HCL
+    # lives under the production/ side.
+    project_dir = ctx.project_root / "infra" / "output" / "project" / "production"
     main_tf = project_dir / "main.tf"
 
     if not main_tf.is_file():

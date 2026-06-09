@@ -32,8 +32,8 @@ data "aws_caller_identity" "current" {}
 
 # ---------------------------------------------------------------------------
 # Project-tier outputs (VPC, subnets, Route53 zone, ACM cert, ECR repos).
-# Provisioned once by `docex bootstrap` against ../project/main.tf; the
-# env-tier apply just composes them.
+# Provisioned once by `docex bootstrap` against ../project/production/main.tf;
+# the env-tier apply just composes them.
 # ---------------------------------------------------------------------------
 data "terraform_remote_state" "project" {
   backend = "s3"

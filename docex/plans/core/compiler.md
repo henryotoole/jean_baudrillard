@@ -130,8 +130,12 @@ Same input on fixed-foundation `dev`: postgres `provides.host.fixed` is `${globa
 
 ```
 infra/output/
-├── project/                       elastic only — emitted by emit/hcl.py::emit_hcl_project
-│   └── main.tf                    state backend ref, VPC, Route53 zone, ACM cert, ECR repos, IAM
+├── project/                       project-tier output, split by side (mod 035)
+│   ├── development/
+│   │   └── docker-compose.yml     emit/compose.py::emit_project_compose — always emitted; declares the four ${project}-${env}-web networks + docex-ingress
+│   └── production/
+│       ├── docker-compose.yml     fixed-foundation only — same shape as development side
+│       └── main.tf                elastic-foundation only — emit/hcl.py::emit_hcl_project; state backend ref, VPC, Route53 zone, ACM cert, ECR repos, IAM
 ├── dev/
 │   └── docker-compose.yml         emit/compose.py (dev is always fixed)
 ├── test/
@@ -144,6 +148,13 @@ infra/output/
 │   └── main.tf                    emit/hcl.py::emit_hcl — elastic stage
 └── prod/                          same shape as stage
 ```
+
+The project-tier development and production sides are both applied by
+``docex projinfra <direction> <side>``. Mod 035 emits the project-tier
+compose files with networks only — the per-project traefik joins these
+networks in mod 036. Ansible artifacts (``playbook.yml``,
+``inventory.yml``, ``ansible.cfg``) at project tier are deferred to mod
+036's "fixed + remote prod host" path.
 
 `infra/secrets/example.env` is also a compile output (`emit/secrets.py`), derived from every backing-service engine's `env:` block plus every core-service `secrets:` block.
 

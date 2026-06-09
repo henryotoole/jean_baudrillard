@@ -34,8 +34,9 @@ def _names(calls: list[tuple]) -> list[str]:
 def elastic_ctx_compiled(elastic_ctx):
     """Like ``elastic_ctx`` but with the project-tier HCL already on disk.
 
-    bootstrap requires ``infra/output/project/main.tf`` to exist (the
-    fixture intentionally clears infra/output, so we re-run compile).
+    bootstrap requires ``infra/output/project/production/main.tf`` to
+    exist (the fixture intentionally clears infra/output, so we re-run
+    compile).
     """
     rc = run_compile(elastic_ctx)
     assert rc == 0

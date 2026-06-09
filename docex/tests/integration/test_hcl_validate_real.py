@@ -114,7 +114,7 @@ def test_tofu_validate_passes_on_project_main_tf(tmp_path: Path):
     ctx = load_project_context(dest)
     rc = run_compile(ctx)
     assert rc == 0
-    project_dir = dest / "infra" / "output" / "project"
+    project_dir = dest / "infra" / "output" / "project" / "production"
 
     init = _run(
         ["tofu", "init", "-backend=false", "-input=false"],

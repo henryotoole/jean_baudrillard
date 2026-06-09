@@ -787,7 +787,7 @@ def _deep_merge(base: Any, override: Any) -> Any:
 
 def run_compile(ctx: Any) -> int:
     """Compile every env and emit outputs. Returns process exit code."""
-    from docex.emit.compose import emit_compose
+    from docex.emit.compose import emit_compose, emit_project_compose
     from docex.emit.hcl import emit_hcl, emit_hcl_project
     from docex.emit.ansible import emit_ansible
     from docex.emit.secrets import emit_example_env
@@ -842,19 +842,39 @@ def run_compile(ctx: Any) -> int:
             )
             files_written += 1
 
-    # Project-tier HCL — only for elastic-foundation projects. The env-tier
-    # HCL reads its outputs via terraform_remote_state, so this must exist
-    # before any env-tier apply (docex bootstrap takes care of that).
-    if ctx.infra.foundation == "elastic":
-        project_dir = output_root / "project"
-        project_dir.mkdir(parents=True, exist_ok=True)
+    # Mod 035: project-tier output is split by side. Both sides emit on
+    # every project. The development side is always fixed-style (compose);
+    # the production side switches by foundation (compose for fixed, HCL
+    # for elastic). Mod 035 emits networks only; the per-project traefik
+    # and ansible artifacts land in mod 036.
+    dev_project_dir = output_root / "project" / "development"
+    dev_project_dir.mkdir(parents=True, exist_ok=True)
+    emit_project_compose(
+        project=ctx.project.name,
+        out_path=dev_project_dir / "docker-compose.yml",
+    )
+    files_written += 1
+
+    prod_project_dir = output_root / "project" / "production"
+    prod_project_dir.mkdir(parents=True, exist_ok=True)
+    if ctx.infra.foundation == "fixed":
+        emit_project_compose(
+            project=ctx.project.name,
+            out_path=prod_project_dir / "docker-compose.yml",
+        )
+        files_written += 1
+    else:  # elastic
+        # Project-tier HCL — backs every elastic env-tier main.tf via
+        # `data "terraform_remote_state" "project"`; docex bootstrap (now
+        # projinfra up production per mod 034) applies it before any
+        # env-tier apply.
         emit_hcl_project(
             project=ctx.project.name,
             project_version=ctx.project.version,
             apex_domain=ctx.infra.apex_domain,
             core_service_names=list(ctx.infra.core_services.keys()),
             naming_policies=ctx.transfer_tables.naming_policies,
-            out_path=project_dir / "main.tf",
+            out_path=prod_project_dir / "main.tf",
         )
         files_written += 1
 

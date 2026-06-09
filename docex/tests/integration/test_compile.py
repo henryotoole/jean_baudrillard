@@ -72,6 +72,91 @@ def test_compile_elastic_produces_main_tf(tmp_path: Path):
     assert not (output / "prod" / "docker-compose.yml").is_file()
 
 
+# ---------------------------------------------------------------------------
+# Mod 035 — project-tier output split by side.
+# ---------------------------------------------------------------------------
+
+
+def test_project_tier_development_compose_emitted_for_every_project(tmp_path: Path):
+    """Mod 035: every project (fixed and elastic) emits a development-side
+    project-tier compose file. The development side is always fixed-style."""
+    for fixture in (_FIXTURE_FIXED, _FIXTURE_ELASTIC):
+        root = _copy_fixture(fixture, tmp_path / fixture.name)
+        ctx = load_project_context(root)
+        rc = run_compile(ctx)
+        assert rc == 0
+        assert (
+            root
+            / "infra" / "output" / "project" / "development" / "docker-compose.yml"
+        ).is_file(), f"missing development-side compose for {fixture.name}"
+
+
+def test_project_tier_production_compose_emitted_for_fixed_only(tmp_path: Path):
+    """Mod 035: fixed-foundation projects emit a production-side compose;
+    elastic-foundation projects do not (they emit main.tf instead)."""
+    fixed_root = _copy_fixture(_FIXTURE_FIXED, tmp_path / "fixed")
+    rc = run_compile(load_project_context(fixed_root))
+    assert rc == 0
+    assert (
+        fixed_root
+        / "infra" / "output" / "project" / "production" / "docker-compose.yml"
+    ).is_file()
+
+    elastic_root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path / "elastic")
+    rc = run_compile(load_project_context(elastic_root))
+    assert rc == 0
+    assert not (
+        elastic_root
+        / "infra" / "output" / "project" / "production" / "docker-compose.yml"
+    ).exists()
+
+
+def test_project_tier_production_main_tf_emitted_for_elastic_only(tmp_path: Path):
+    """Mod 035: elastic-foundation projects emit a production-side
+    main.tf at the new path; fixed-foundation projects do not."""
+    elastic_root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path / "elastic")
+    rc = run_compile(load_project_context(elastic_root))
+    assert rc == 0
+    assert (
+        elastic_root
+        / "infra" / "output" / "project" / "production" / "main.tf"
+    ).is_file()
+
+    fixed_root = _copy_fixture(_FIXTURE_FIXED, tmp_path / "fixed")
+    rc = run_compile(load_project_context(fixed_root))
+    assert rc == 0
+    assert not (
+        fixed_root
+        / "infra" / "output" / "project" / "production" / "main.tf"
+    ).exists()
+
+
+def test_project_tier_compose_declares_four_web_networks(tmp_path: Path):
+    """Mod 035: the project-tier compose file declares the four
+    ${project}-${env}-web networks plus the docex-ingress external
+    reference, with no `services:` key. Networks-only because the
+    per-project traefik lands in mod 036."""
+    import yaml
+
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    rc = run_compile(load_project_context(root))
+    assert rc == 0
+
+    compose_path = (
+        root / "infra" / "output" / "project" / "development" / "docker-compose.yml"
+    )
+    data = yaml.safe_load(compose_path.read_text())
+    networks = data.get("networks", {})
+    project = "sample"
+    for env in ("dev", "test", "stage", "prod"):
+        key = f"{project}-{env}-web"
+        assert key in networks, f"missing network {key!r}"
+        assert networks[key].get("name") == key
+    assert networks.get("docex-ingress") == {"external": True}
+    # No services in mod 035 — per-project traefik is mod 036's work.
+    assert "services" not in data
+
+
 def test_compile_is_deterministic(tmp_path: Path):
     """Compiling twice produces byte-identical output."""
     root1 = _copy_fixture(_FIXTURE_FIXED, tmp_path / "first")
@@ -366,7 +451,9 @@ def test_project_tier_state_backend_names_translated(tmp_path: Path):
     (the `ddb` policy)."""
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
-    project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
+    project_tf = (
+        proj / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
     assert 'bucket         = "docex-smoke-elastic-tofu-state"' in project_tf
     assert 'dynamodb_table = "docex_smoke_elastic_tofu_locks"' in project_tf
     # Hyphenated underscored form must NOT appear (would be the legacy bug).
@@ -376,7 +463,9 @@ def test_project_tier_state_backend_names_translated(tmp_path: Path):
 def test_project_tier_ecr_and_iam_names_use_correct_policies(tmp_path: Path):
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
-    project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
+    project_tf = (
+        proj / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
     # ECR repos: structural emit `${project}/${service}` — each segment
     # verbatim, `/` as joiner. No policy applied (transfer_tables.md
     # carve-out).
@@ -431,7 +520,9 @@ def test_bootstrap_state_backend_matches_project_tier(tmp_path: Path):
     ctx = load_project_context(proj)
     run_compile(ctx)
 
-    project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
+    project_tf = (
+        proj / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
     policies = ctx.transfer_tables.naming_policies
     from docex.naming import apply_policy
     bucket = apply_policy("docex_smoke_elastic_tofu_state", policies.get("s3"))

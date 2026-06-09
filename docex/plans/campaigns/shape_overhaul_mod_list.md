@@ -47,7 +47,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 032 — Telemetry alignment ([mod folder](../modifications/032_telemetry_alignment/))
 - [x] 033 — Fargate tier rounding formalized ([mod folder](../modifications/033_fargate_tier_rounding/))
 - [x] 034 — Command surface refresh ([mod folder](../modifications/034_command_surface_refresh/))
-- [ ] 035 — Compiler output split + always-on four `-web` networks
+- [x] 035 — Compiler output split + always-on four `-web` networks ([mod folder](../modifications/035_compiler_output_split/))
 - [ ] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed
 - [ ] 037 — Elastic projinfra: Route53 zone + ACM certs + two-phase apply
 - [ ] 038 — Elastic projinfra: ALB (default variant) + project-tier outputs

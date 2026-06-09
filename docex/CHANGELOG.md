@@ -14,6 +14,20 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Compiler output split by side (BREAKING).** Project-tier output is
+  now organized under `infra/output/project/{development,production}/`
+  instead of a single `infra/output/project/`. Both sides emit on every
+  project: development side always emits a compose file declaring the
+  four `${project}-${env}-web` external networks plus the
+  `docex-ingress` preinfra reference; production side switches by
+  foundation — compose for fixed projects, `main.tf` for elastic
+  projects (relocated from `infra/output/project/main.tf` to
+  `infra/output/project/production/main.tf`). `pipeline/bootstrap.py`
+  reads from the new path. Env-tier compose is unchanged in this mod;
+  the `external: true` flip and per-project traefik addition land in
+  mod 036. Pure structural/path mod with no runtime behavior change.
+  Mod 035 of the shape-and-tier campaign.
+
 - **Command surface refreshed (BREAKING).** Per the doctrine's
   [`docex.md`](../doctrine/infrastructure/docex.md) command table:
   `bootstrap` is removed; `up` and `down` are collapsed into

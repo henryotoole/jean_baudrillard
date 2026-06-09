@@ -251,12 +251,12 @@ def compiled_elastic_project(tmp_path: Path) -> Path:
 
 def test_project_main_tf_written(compiled_elastic_project: Path):
     """Elastic compile writes a project-tier main.tf."""
-    project_tf = compiled_elastic_project / "infra" / "output" / "project" / "main.tf"
+    project_tf = compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf"
     assert project_tf.is_file()
 
 
 def test_project_main_tf_has_zone_vpc_cert_ecr(compiled_elastic_project: Path):
-    tf = (compiled_elastic_project / "infra" / "output" / "project" / "main.tf").read_text()
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     assert 'resource "aws_route53_zone" "project"' in tf
     assert 'resource "aws_vpc" "project"' in tf
     assert 'resource "aws_acm_certificate" "project"' in tf
@@ -266,13 +266,13 @@ def test_project_main_tf_has_zone_vpc_cert_ecr(compiled_elastic_project: Path):
 
 
 def test_project_main_tf_uses_project_state_key(compiled_elastic_project: Path):
-    tf = (compiled_elastic_project / "infra" / "output" / "project" / "main.tf").read_text()
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     # Distinct state key so env-tier and project-tier states don't collide.
     assert 'key            = "project/terraform.tfstate"' in tf
 
 
 def test_project_main_tf_emits_outputs(compiled_elastic_project: Path):
-    tf = (compiled_elastic_project / "infra" / "output" / "project" / "main.tf").read_text()
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     for out_name in (
         "vpc_id",
         "public_subnet_ids",
@@ -362,7 +362,8 @@ def test_aws_lb_target_group_omits_health_check_when_no_field(tmp_path: Path):
 
 
 def test_fixed_compile_skips_project_main_tf(tmp_path: Path):
-    """Fixed-foundation projects don't need project-tier HCL."""
+    """Fixed-foundation projects don't emit a project-tier main.tf — the
+    production-side output is a compose file, not HCL (mod 035)."""
     fixed_fixture = (
         Path(__file__).resolve().parent.parent / "fixtures" / "sample_project"
     )
@@ -373,9 +374,11 @@ def test_fixed_compile_skips_project_main_tf(tmp_path: Path):
     ctx = load_project_context(dest)
     rc = run_compile(ctx)
     assert rc == 0
-    project_dir = dest / "infra" / "output" / "project"
-    # Either the directory wasn't created or it's empty.
-    assert not project_dir.exists() or not list(project_dir.iterdir())
+    # No production-side main.tf on fixed; the production side gets a
+    # docker-compose.yml instead (verified by other tests).
+    assert not (
+        dest / "infra" / "output" / "project" / "production" / "main.tf"
+    ).exists()
 
 
 # ---------------------------------------------------------------------------
