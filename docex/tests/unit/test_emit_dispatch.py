@@ -153,7 +153,7 @@ def test_ecs_service_emits_service_connect_block_enabled():
     rendered = render_ecs_service(svc, _ctx())
     assert "service_connect_configuration {" in rendered
     assert "enabled   = true" in rendered
-    assert "namespace = aws_service_discovery_http_namespace.env.arn" in rendered
+    assert "namespace = aws_service_discovery_private_dns_namespace.env.arn" in rendered
 
 
 def test_ecs_service_with_port_registers_service_block():

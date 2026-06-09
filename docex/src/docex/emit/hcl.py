@@ -457,7 +457,7 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     # block so peers can resolve them.
     out.append("  service_connect_configuration {")
     out.append("    enabled   = true")
-    out.append("    namespace = aws_service_discovery_http_namespace.env.arn")
+    out.append("    namespace = aws_service_discovery_private_dns_namespace.env.arn")
     if svc.port is not None:
         out.append("    service {")
         out.append(f'      port_name      = "{svc.name}"')

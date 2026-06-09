@@ -55,7 +55,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 040 — Env-tier SG name hyphen fix ([mod folder](../modifications/040_env_tier_sg_name_hyphen/)) — most of original scope absorbed into mods 037-039
 - [x] 041 — Elastic master VPC as preinfra ([mod folder](../modifications/041_elastic_master_vpc_preinfra/))
 - [x] 042 — `preinfra <side>` implementations ([mod folder](../modifications/042_preinfra_implementations/))
-- [ ] 043 — Service Connect: private DNS + hyphenated namespace
+- [x] 043 — Service Connect: private DNS + hyphenated namespace ([mod folder](../modifications/043_service_connect_private_dns/))
 - [ ] 044 — EC2-traefik reverse-proxy variant (EIP + PIP)
 - [ ] 045 — Test projects update + smoke walk
 

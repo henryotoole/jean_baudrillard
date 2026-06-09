@@ -14,6 +14,21 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Service Connect namespace switched to private DNS (BREAKING).**
+  Per [`shape2.md § Elastic-Foundation`](../doctrine/infrastructure/shape2.md#elastic-foundation),
+  ECS Service Connect now registers against an
+  `aws_service_discovery_private_dns_namespace.env` instead of the
+  prior HTTP namespace. The private DNS namespace auto-creates a
+  Route53 private hosted zone associated with the master VPC,
+  making service names resolvable VPC-wide. ECS tasks inside the
+  namespace continue to resolve by `discoveryName` alone via the
+  Envoy sidecar; consumers outside the namespace (mod 044's
+  EC2-traefik instance) can resolve `<discoveryName>.<namespace>`
+  via VPC DNS. The new `vpc` field on the namespace references the
+  master VPC via `data.terraform_remote_state.project.outputs.vpc_id`.
+  `provides.host.elastic` unchanged. Mod 043 of the shape-and-tier
+  campaign; foundational for mod 044.
+
 - **`docex preinfra <side>` now does real checks.** Replaces mod 034's
   stub with per-(foundation, side) verification:
   - Any project, development side: `docex-ingress` docker bridge

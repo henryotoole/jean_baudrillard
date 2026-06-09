@@ -532,24 +532,28 @@ def test_core_service_task_definition_environment_carries_project_version(
 
 
 def test_service_connect_namespace_emitted_per_env(compiled_prod_tf: str):
-    """Mod 014: one aws_service_discovery_http_namespace per env, named
-    `<project>-<env>` (mod 030: data-plane resolvable name, hyphen).
+    """Mod 043: one aws_service_discovery_private_dns_namespace per env,
+    named `<project>-<env>` (mod 030: data-plane resolvable name, hyphen),
+    associated with the master VPC via the project-tier remote-state output.
     The elastic fixture's project name is `sample`."""
     tf = compiled_prod_tf
-    assert 'resource "aws_service_discovery_http_namespace" "env"' in tf
+    assert 'resource "aws_service_discovery_private_dns_namespace" "env"' in tf
     assert 'name        = "sample-prod"' in tf
+    assert "vpc         = data.terraform_remote_state.project.outputs.vpc_id" in tf
 
 
 def test_service_connect_namespace_emitted_for_stage(tmp_path: Path):
-    """Same namespace resource appears in stage main.tf with the stage-suffixed name."""
+    """Same namespace resource appears in stage main.tf with the stage-suffixed
+    name and the master VPC association."""
     dest = tmp_path / "project"
     shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
     ctx = load_project_context(dest)
     rc = run_compile(ctx)
     assert rc == 0
     stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
-    assert 'resource "aws_service_discovery_http_namespace" "env"' in stage_tf
+    assert 'resource "aws_service_discovery_private_dns_namespace" "env"' in stage_tf
     assert 'name        = "sample-stage"' in stage_tf
+    assert "vpc         = data.terraform_remote_state.project.outputs.vpc_id" in stage_tf
 
 
 def test_backing_service_hcl_lacks_project_version(compiled_prod_tf: str):

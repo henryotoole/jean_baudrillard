@@ -107,12 +107,17 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 # ---------------------------------------------------------------------------
-# Service discovery — ECS Service Connect over a Cloud Map HTTP namespace.
-# Per shape2.md § Elastic-Foundation, one namespace per env. Services
-# register themselves via service_connect_configuration on aws_ecs_service.
+# Service discovery — ECS Service Connect over a Cloud Map PRIVATE DNS
+# namespace. Per shape2.md § Elastic-Foundation, one namespace per env,
+# associated with the master VPC. Auto-creates a Route53 private hosted
+# zone resolvable VPC-wide so EC2-traefik (mod 044) and other non-ECS
+# consumers can reach services by name. ECS tasks inside the namespace
+# resolve by discoveryName alone via the Envoy sidecar; consumers
+# outside the namespace use the FQDN form <discoveryName>.<namespace>.
 # ---------------------------------------------------------------------------
-resource "aws_service_discovery_http_namespace" "env" {
+resource "aws_service_discovery_private_dns_namespace" "env" {
   name        = "{{ project }}-{{ env }}"
+  vpc         = data.terraform_remote_state.project.outputs.vpc_id
   description = "ECS Service Connect namespace for {{ project }} {{ env }}"
   tags = {
     project    = "{{ project }}"
