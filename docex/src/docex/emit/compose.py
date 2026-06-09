@@ -93,7 +93,9 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     return out
 
 
-def _traefik_labels(svc: CompiledService) -> list[str]:
+def _traefik_labels(
+    svc: CompiledService, project_dns_label: str, env: str,
+) -> list[str]:
     """Traefik discovery labels for a web-network service.
 
     The router rule ORs together every host the service answers at — a
@@ -113,11 +115,23 @@ def _traefik_labels(svc: CompiledService) -> list[str]:
     v3 does not propagate an entrypoint-level default ``tls.certResolver``
     into a router whose ``tls={}`` is set from labels, so emitting
     ``tls=true`` without naming the resolver suppresses ACME entirely.
+
+    Mod 047 — `traefik.docker.network` is also mandatory. A `web`-network
+    service is on at least two docker networks (the project `-web` net
+    that traefik shares + a private `-internal` net that it does not).
+    Without an explicit network label, traefik 3.x picks one of the
+    container's networks non-deterministically when forming the backend
+    URL — often the `-internal` one, which traefik can't reach, so every
+    forward times out with a 504. The doctrine network is always the
+    project's per-env `-web` net (`<project_dns_label>-<env>-web`); name
+    it explicitly so traefik picks it deterministically.
     """
     gname = svc.global_name
     rule = " || ".join(f"Host(`{h}`)" for h in svc.web_hosts)
+    web_net = f"{project_dns_label}-{env}-web"
     return [
         "traefik.enable=true",
+        f"traefik.docker.network={web_net}",
         f"traefik.http.routers.{gname}.rule={rule}",
         f"traefik.http.routers.{gname}.entrypoints=websecure",
         f"traefik.http.routers.{gname}.tls=true",
@@ -311,7 +325,9 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # host(s). The machine-wide Traefik routes those subdomains to the
         # container over the docker network — no host port is published.
         if svc.web_hosts:
-            block["labels"] = _traefik_labels(svc)
+            block["labels"] = _traefik_labels(
+                svc, compiled.project_dns_label, compiled.env,
+            )
 
         services[svc.global_name] = block
 

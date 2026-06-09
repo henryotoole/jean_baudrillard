@@ -12,6 +12,72 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-06-09
+
+Patch cut bundling four runtime bugs surfaced during the post-1.0.1
+fixed-foundation smoke walk on the test project. None were caught by
+unit tests; they only appeared once the projinfra → envinfra → release
+pipeline ran against a real host. The mod docs at
+[`docex/plans/modifications/047_smoke_walk_polish/`](plans/modifications/047_smoke_walk_polish/)
+carry the full narrative.
+
+### Fixed
+
+- **Traefik 3.3 docker-provider docker-API mismatch (mod 047).**
+  `TRAEFIK_IMAGE` was pinned to `traefik:v3.3`, whose docker provider
+  negotiates with the host daemon at Docker API v1.24 — a version
+  modern (24+) Docker daemons no longer accept. The per-project traefik
+  came up but never picked up env-tier service labels; the entire
+  doctrine fixed-foundation routing path was unreachable on any host
+  running a recent daemon. Bumped to `traefik:v3.6` (digest pinned).
+- **`traefik.docker.network` label missing (mod 047).** The
+  `_traefik_labels` emit in `src/docex/emit/compose.py` did not include
+  `traefik.docker.network=<web-net>`, so traefik 3.x picked the
+  container's network non-deterministically when forming the backend
+  URL — often the `-internal` network that traefik isn't on, producing
+  504 Gateway Timeout on every routed request. Label is now emitted on
+  every web-network service. `_traefik_labels` signature grew
+  `project_dns_label` and `env` parameters; the single call site at
+  `emit_compose` passes them from `compiled`.
+- **`docex check` `health_endpoints` gate over-strict (mod 047).** The
+  gate required `/health/<dep>` on the provider's contract for *every*
+  non-web downstream dep, including backing services. Doctrine
+  [`contracts.md § Health Checks`](../doctrine/infrastructure/contracts.md#health-checks)
+  is explicit: only CORE-service downstream deps need the endpoint.
+  Narrowed `_gate_health_endpoints` to look up `infra.core_services`
+  only. Backings don't trip the gate; projects that voluntarily add
+  `/health/<backing>` endpoints (mirroring the doctrine pattern for
+  reachability they care about) remain free to.
+
+### Known gaps surfaced (not fixed in this cut)
+
+- **Project traefik doesn't get DNS-provider creds.** docex emits
+  `--certificatesresolvers.doctrine.acme.dnschallenge.provider=
+  ${TRAEFIK_DNS_PROVIDER:-}` on the per-project traefik command line,
+  but the emitted compose has no `environment:` block — so AWS_*
+  (Route53) or any other provider's creds set on the operator's shell
+  never reach the traefik process. ACME fails, traefik serves with its
+  self-signed default cert, and downstream stage tests reject the cert.
+  The proper fix involves design decisions (which providers' env vars
+  to thread through? secret-mounting strategy?) that warrant their
+  own mod. Smoke projects work around with
+  `httpx.Client(verify=False)` in stage tests.
+- **Per-project traefik not constrained to its project.** The traefik
+  watches every container with `traefik.enable=true` on `docex-ingress`,
+  including other projects' preinfra traefiks (HyperDX, container
+  registry). Wrong; should use `--providers.docker.constraints` with a
+  per-project label. Future mod.
+- **`docex merge` requires `origin`.** Test projects deliberately don't
+  carry git remotes; `docex merge` exits non-zero on `git fetch
+  origin`. Smoke walker did the rebase + tag by hand. Future mod should
+  add a no-origin fallback.
+- **Empty-`dist/` chicken-and-egg.** First `docex envinfra up dev`
+  against a fresh project tree crash-loops the web container with
+  `python: can't open file '/service/dist/root.py'` because the host
+  `dist/` bind-mount overlays the in-image artifact, and `docex build`
+  refuses to populate while the dev container is crash-looping. Worked
+  around by running `build.sh` host-side once. Future mod.
+
 ## [1.0.1] - 2026-06-09
 
 Patch mod closing the residual data-plane naming-policy leak sites the

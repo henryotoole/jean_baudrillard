@@ -389,14 +389,21 @@ def _gate_health_endpoints(
                     f"{path.name}: missing 'GET /health' (required for web-network services)"
                 )
 
-        # For each downstream dependency NOT on the web network, require
-        # /health/<dep> to be declared by THIS provider's contract.
+        # For each downstream CORE service dependency NOT on the web
+        # network, require /health/<dep> to be declared by THIS provider's
+        # contract. Per `contracts.md § Health Checks`, only CORE-service
+        # downstream deps need a probe endpoint — backing services
+        # (postgres, redis, etc.) are excluded. Mod 047 narrowed this
+        # from "all non-web" to "core-only" to match the doctrine prose;
+        # projects that voluntarily add /health/<backing> endpoints
+        # (mirroring the doctrine pattern for backings they care about)
+        # remain free to do so.
         for dep in (svc_decl.depends_on or []):
-            dep_decl = (
-                infra.core_services.get(dep)
-                or infra.backing_services.get(dep)
-            )
+            dep_decl = infra.core_services.get(dep)
             if dep_decl is None:
+                # Either not a known service, or a backing — backing
+                # services are not required to have a /health/<dep>
+                # endpoint on the provider's contract.
                 continue
             if "web" in (dep_decl.networks or []):
                 continue
@@ -405,7 +412,7 @@ def _gate_health_endpoints(
             if not (isinstance(hop, dict) and "get" in {k.lower() for k in hop}):
                 problems.append(
                     f"{path.name}: missing 'GET {key}' "
-                    f"(required because {svc!r} depends on non-web {dep!r})"
+                    f"(required because {svc!r} depends on non-web core {dep!r})"
                 )
 
     if problems:

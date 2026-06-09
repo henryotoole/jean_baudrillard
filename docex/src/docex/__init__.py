@@ -1,6 +1,6 @@
 """docex — the executor of the doctrine."""
 
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 
 # The single region the elastic foundation supports (CICL simplification).
 # Shared by the compiler, the containerize ECR path, and the boto3 client so
@@ -19,10 +19,17 @@ OTEL_COLLECTOR_IMAGE = (
 # Traefik image for the per-project reverse proxy. Pinned by digest for
 # the same reason as OTEL_COLLECTOR_IMAGE — projects pinned to a given
 # docex_version see an immutable base. Resolve a new digest with:
-#     docker pull traefik:v3.3 && \
-#     docker inspect --format '{{index .RepoDigests 0}}' traefik:v3.3
+#     docker pull traefik:v3.6 && \
+#     docker inspect --format '{{index .RepoDigests 0}}' traefik:v3.6
 # See doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md.
+#
+# Mod 047: bumped from v3.3 to v3.6 — traefik 3.3's docker provider
+# defaults to Docker API v1.24, which modern Docker daemons (24+) no
+# longer accept. The 3.3 traefik comes up but its provider loop emits
+# `client version 1.24 is too old. Minimum supported API version is
+# 1.40` and never picks up env-tier service labels, so no routing
+# happens. v3.6 negotiates the API version correctly.
 TRAEFIK_IMAGE = (
-    "traefik:v3.3"
-    "@sha256:2cd5cc75530c8d07ae0587c743d23eb30cae2436d07017a5ff78498b1a43d09f"
+    "traefik:v3.6"
+    "@sha256:cc1799c50550f730f686df9b368e690f9199542787db8d1dd328a7c3779f6eea"
 )

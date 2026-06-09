@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "docex"
-version = "1.0.1"
+version = "1.0.2"
 description = "The executor of the doctrine."
 readme = "plans/core/masterplan.md"
 requires-python = ">=3.12"
