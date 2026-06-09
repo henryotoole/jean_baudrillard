@@ -109,6 +109,7 @@ services:
     image: docex_smoke_elastic/web:0.0.1
     labels:
     - traefik.enable=true
+    - traefik.docker.network=docex-smoke-elastic-dev-web
     - traefik.http.routers.docex-smoke-elastic-dev-web.rule=Host(`web.dev.docex-smoke-elastic.luxrnd.tech`)
       || Host(`dev.docex-smoke-elastic.luxrnd.tech`)
     - traefik.http.routers.docex-smoke-elastic-dev-web.entrypoints=websecure

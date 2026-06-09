@@ -3,6 +3,17 @@
 
 FROM python:3.12-slim AS base
 WORKDIR /service
+# curl: needed by the doctrine-emitted docker healthcheck (the
+# `health_check_path: /health` field translation in transfer table
+# `web/container` emits `CMD curl -f http://localhost:${port}${path}`).
+# python:3.12-slim does not include curl; without it the container is
+# perpetually marked unhealthy, and traefik 3.x's docker provider
+# filters out unhealthy containers from its router config — so the
+# service is unreachable. Doctrine improvement TODO: switch the
+# emit to a tool-free probe (traefik HTTP healthcheck via service
+# labels) so the container's package list doesn't matter.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \
         fastapi==0.115.5 \
         uvicorn==0.32.1 \

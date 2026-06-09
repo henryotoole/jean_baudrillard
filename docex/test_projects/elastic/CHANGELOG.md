@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-06-09
+
+### Changed
+
+- Repinned to docex 1.0.2 (mod 047) so this project picks up the bug
+  fixes from the fixed-foundation walk. Specifically: per-project
+  traefik on dev-side uses v3.6, emits
+  `traefik.docker.network`, and `docex check` no longer requires
+  `/health/<backing>` entries. None of these directly affect elastic
+  production-side resources (which use the ALB, not per-project
+  traefik), but they all matter for the dev-side compose stack.
+  Walk against 1.0.2 is gated on operator-side master-VPC stand-up
+  (currently blocked by us-east-1 VPC quota cap).
+
 ## [0.0.1] - 2026-06-09
 
 ### Added

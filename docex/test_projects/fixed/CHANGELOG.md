@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-06-09
+
+### Changed
+
+- Repinned to docex 1.0.2 (mod 047) after the fixed-foundation smoke
+  walk surfaced four bugs in 1.0.1. The fix bundle is in docex
+  1.0.2's CHANGELOG; for this project the practical effects are:
+  per-project traefik now uses v3.6 (working docker provider),
+  emits `traefik.docker.network` so multi-network web services route
+  correctly, and the `docex check` health-endpoints gate no longer
+  demands `/health/<backing>` entries. Recompiled output reflects all
+  three. Inner-repo state is `main` at v0.0.4, walked clean through
+  C.1–C.11 against docex 1.0.2 (the 0.0.3 walk produced the bug
+  reports that drove 1.0.2).
+
+## [0.0.3] - 2026-06-09
+
+### Fixed
+
+- Stage tests use `httpx.Client(verify=False)` until docex emits AWS
+  creds for the project traefik (needed for ACME DNS-01 via Route53).
+  Until then, traefik serves its self-signed default cert and httpx
+  rejects with CERTIFICATE_VERIFY_FAILED. Tracked as a docex gap in mod
+  047.
+
+## [0.0.2] - 2026-06-09
+
+### Fixed
+
+- `core/web/Dockerfile` now installs `curl`. The doctrine-emitted docker
+  healthcheck for the `web` core service (from the `health_check_path`
+  field translation in transfer table `web/container`) runs
+  `CMD curl -f http://localhost:8080/health`. `python:3.12-slim` doesn't
+  carry curl, so the container stayed perpetually `unhealthy` and
+  traefik 3.x's docker provider filtered it out of its router config —
+  rendering the service unreachable. Adding curl is project-side; the
+  long-term doctrine fix (likely switching to traefik HTTP healthcheck
+  via service labels) is tracked in docex mod 047 / 1.0.2.
+
 ## [0.0.1] - 2026-06-09
 
 ### Added
