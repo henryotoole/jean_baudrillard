@@ -14,6 +14,23 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Task-execution IAM policy tightened to project-scoped (BREAKING).**
+  Per
+  [`projinfra/elastic_iam.md`](../doctrine/infrastructure/specifics/projinfra/elastic_iam.md),
+  the project task-execution role no longer attaches the broad
+  AWS-managed `AmazonECSTaskExecutionRolePolicy`. Replaced with a
+  single inline `aws_iam_role_policy.task_execution` containing five
+  explicit statements: `ecr:GetAuthorizationToken` on `*`; per-repo
+  ECR pull permissions scoped to the project's ECR repo ARNs (gated
+  on `core_service_names` so empty-project compiles work);
+  `ssm:GetParameters` split into two statements for
+  `/<project>/stage/*` and `/<project>/prod/*`; CloudWatch
+  `CreateLogStream`/`PutLogEvents` scoped to `/<project>/{stage,prod}/*`
+  log group ARNs. `kms:Decrypt` removed — the AWS-managed `aws/ssm`
+  key requires no explicit grant. ECR repos and the role resource
+  itself were already project-tier in earlier work; only the policy
+  shape changes. Mod 039 of the shape-and-tier campaign.
+
 - **ALB moved to project-tier with SNI (BREAKING).** Per
   [`projinfra/elastic_alb.md`](../doctrine/infrastructure/specifics/projinfra/elastic_alb.md),
   the project ALB is now project-tier — one ALB per project, serving

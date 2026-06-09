@@ -808,8 +808,8 @@ def emit_hcl_project(
         task_execution_role_name=apply_policy(
             f"{project}_task_execution", iam_p
         ),
-        task_execution_ssm_policy_name=apply_policy(
-            f"{project}_task_execution_ssm", iam_p
+        task_execution_policy_name=apply_policy(
+            f"{project}_task_execution", iam_p
         ),
         ecr_repo_names=ecr_repo_names,
         ssm_path_project=apply_policy(project, ssm_p),

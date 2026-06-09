@@ -51,7 +51,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed ([mod folder](../modifications/036_fixed_projinfra/))
 - [x] 037 — Elastic projinfra: Route53 zone + ACM certs + two-phase apply ([mod folder](../modifications/037_elastic_projinfra_route53_acm/))
 - [x] 038 — Elastic projinfra: ALB (default variant) + project-tier outputs ([mod folder](../modifications/038_elastic_projinfra_alb/))
-- [ ] 039 — ECR + IAM move to project-tier
+- [x] 039 — ECR + IAM move to project-tier ([mod folder](../modifications/039_ecr_iam_project_tier/))
 - [ ] 040 — Env-tier HCL refactor: remote state + per-web listener rules
 - [ ] 041 — Elastic master VPC as preinfra
 - [ ] 042 — `preinfra <side>` implementations

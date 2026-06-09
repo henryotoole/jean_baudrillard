@@ -382,30 +382,57 @@ resource "aws_iam_role" "task_execution" {
   }
 }
 
-# AWS-managed policy: covers ECR pulls + CloudWatch Logs writes.
-resource "aws_iam_role_policy_attachment" "task_execution_managed" {
-  role       = aws_iam_role.task_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-# Inline policy: lets Fargate decrypt SecureString parameters from this
-# project's SSM prefix, so containers' `secrets[]` entries resolve.
-# Scoped to `/${project}/*` so a leaked role can't read other projects.
-resource "aws_iam_role_policy" "task_execution_ssm" {
-  name = "{{ task_execution_ssm_policy_name }}"
+# Inline policy scoped to project resources only. Replaces the
+# AWS-managed AmazonECSTaskExecutionRolePolicy with explicit grants so
+# cross-project isolation is enforced at the IAM layer
+# (projinfra/elastic_iam.md). KMS Decrypt is intentionally absent —
+# AWS-managed `aws/ssm` key decryption requires no explicit grant.
+resource "aws_iam_role_policy" "task_execution" {
+  name = "{{ task_execution_policy_name }}"
   role = aws_iam_role.task_execution.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      },
+      {%- if core_service_names %}
+      {
         Effect = "Allow"
-        Action = ["ssm:GetParameters", "ssm:GetParameter", "ssm:GetParametersByPath"]
-        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ ssm_path_project }}/*"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+        ]
+        Resource = [
+          {%- for svc in core_service_names %}
+          aws_ecr_repository.{{ svc.hcl_id }}.arn,
+          {%- endfor %}
+        ]
+      },
+      {%- endif %}
+      {
+        Effect   = "Allow"
+        Action   = "ssm:GetParameters"
+        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ ssm_path_project }}/stage/*"
       },
       {
         Effect   = "Allow"
-        Action   = ["kms:Decrypt"]
-        Resource = "*"
+        Action   = "ssm:GetParameters"
+        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ ssm_path_project }}/prod/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+        ]
+        Resource = [
+          "arn:aws:logs:{{ region }}:${data.aws_caller_identity.current.account_id}:log-group:/{{ ssm_path_project }}/stage/*",
+          "arn:aws:logs:{{ region }}:${data.aws_caller_identity.current.account_id}:log-group:/{{ ssm_path_project }}/prod/*",
+        ]
       },
     ]
   })

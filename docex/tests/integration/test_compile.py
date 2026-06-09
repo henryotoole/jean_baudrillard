@@ -590,11 +590,124 @@ def test_project_tier_ecr_and_iam_names_use_correct_policies(tmp_path: Path):
     # verbatim, `/` as joiner. No policy applied (transfer_tables.md
     # carve-out).
     assert 'name                 = "docex_smoke_elastic/web"' in project_tf
-    # IAM role + inline SSM policy names: underscores preserved.
+    # IAM role + inline policy names: underscores preserved. Mod 039
+    # collapsed the previous role+attachment+ssm-policy trio into a
+    # single combined inline policy that shares the role's name.
     assert 'name = "docex_smoke_elastic_task_execution"' in project_tf
-    assert 'name = "docex_smoke_elastic_task_execution_ssm"' in project_tf
-    # SSM resource ARN: same underscore-preserving form.
-    assert "/docex_smoke_elastic/*" in project_tf
+    # SSM resource ARNs: same underscore-preserving form, now scoped
+    # per-env (stage + prod) per the doctrine.
+    assert "/docex_smoke_elastic/stage/*" in project_tf
+    assert "/docex_smoke_elastic/prod/*" in project_tf
+
+
+def test_project_tier_task_execution_policy_is_project_scoped(tmp_path: Path):
+    """Mod 039: the AWS-managed AmazonECSTaskExecutionRolePolicy attachment
+    is replaced by a single explicit inline policy scoped to project
+    resources only. The five statements (ECR auth, per-repo ECR pull,
+    stage SSM, prod SSM, CloudWatch logs) all appear; `kms:Decrypt` does
+    not (AWS-managed `aws/ssm` key needs no explicit grant)."""
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    project_tf = (
+        proj / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+
+    # --- Absences (old shape gone) ---
+    # The AWS-managed-policy attachment is no longer attached (the
+    # explanatory comment block in the template references the policy by
+    # name to explain *why* it is gone, so we assert on the resource/
+    # attachment form rather than the bare name).
+    assert (
+        "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        not in project_tf
+    )
+    assert (
+        'resource "aws_iam_role_policy_attachment" "task_execution_managed"'
+        not in project_tf
+    )
+    assert 'resource "aws_iam_role_policy" "task_execution_ssm"' not in project_tf
+    assert "kms:Decrypt" not in project_tf
+
+    # --- Presence: single combined policy resource ---
+    assert 'resource "aws_iam_role_policy" "task_execution" {' in project_tf
+
+    # --- Statement 1: ECR auth token on * ---
+    assert 'Action   = "ecr:GetAuthorizationToken"' in project_tf
+    # Auth token must be on * — the `Resource = "*"` line lives in this
+    # statement; check it co-occurs.
+    auth_idx = project_tf.index('"ecr:GetAuthorizationToken"')
+    assert 'Resource = "*"' in project_tf[auth_idx : auth_idx + 200]
+
+    # --- Statement 2: per-repo ECR pull, gated on core_service_names ---
+    assert '"ecr:BatchCheckLayerAvailability"' in project_tf
+    assert '"ecr:BatchGetImage"' in project_tf
+    assert '"ecr:GetDownloadUrlForLayer"' in project_tf
+    # Naming-fixture project has a single `web` core service.
+    assert "aws_ecr_repository.web.arn" in project_tf
+
+    # --- Statements 3 & 4: SSM, two separate statements ---
+    assert (
+        'Resource = "arn:aws:ssm:us-east-1:${data.aws_caller_identity'
+        ".current.account_id}:parameter/docex_smoke_elastic/stage/*\""
+        in project_tf
+    )
+    assert (
+        'Resource = "arn:aws:ssm:us-east-1:${data.aws_caller_identity'
+        ".current.account_id}:parameter/docex_smoke_elastic/prod/*\""
+        in project_tf
+    )
+
+    # --- Statement 5: CloudWatch logs, both env log-group ARNs ---
+    assert '"logs:CreateLogStream"' in project_tf
+    assert '"logs:PutLogEvents"' in project_tf
+    assert "log-group:/docex_smoke_elastic/stage/*" in project_tf
+    assert "log-group:/docex_smoke_elastic/prod/*" in project_tf
+
+
+def test_project_tier_task_execution_policy_empty_core_services(tmp_path: Path):
+    """When a project compiles with zero core services, the per-repo ECR
+    pull statement must be omitted entirely — AWS rejects policy
+    statements with `Resource = []`. The auth-token statement, SSM
+    statements, and CloudWatch logs statement still emit."""
+    from docex.context import load_project_context as _load
+    from docex.emit.hcl import emit_hcl_project
+
+    proj = tmp_path / "p"
+    (proj / "infra").mkdir(parents=True)
+    (proj / "project.yml").write_text(
+        'name: empty_proj\nversion: "0.0.1"\ndocex_version: "0.7.0"\n'
+    )
+    # Minimal valid CICL with no core services. backing_services likewise
+    # omitted — empty-project edge case for the policy's per-repo gate.
+    (proj / "infra" / "infra.yml").write_text(
+        "cicl_version: \"1\"\n"
+        "foundation: elastic\n"
+        "apex_domain: example.com\n"
+        "observability_backend_url: \"https://obs.example.com\"\n"
+        "core_services: {}\n"
+        "backing_services: {}\n"
+    )
+    ctx = _load(proj)
+    out = tmp_path / "project.tf"
+    emit_hcl_project(
+        project="empty_proj",
+        project_version="0.0.1",
+        apex_domain="example.com",
+        core_service_names=[],
+        naming_policies=ctx.transfer_tables.naming_policies,
+        out_path=out,
+    )
+    rendered = out.read_text()
+    # Auth-token statement still present.
+    assert 'Action   = "ecr:GetAuthorizationToken"' in rendered
+    # Per-repo statement is omitted entirely — no actions, no empty list.
+    assert '"ecr:BatchGetImage"' not in rendered
+    assert '"ecr:BatchCheckLayerAvailability"' not in rendered
+    assert "aws_ecr_repository." not in rendered  # no repo refs anywhere
+    # SSM and logs statements remain.
+    assert "/empty_proj/stage/*" in rendered
+    assert "/empty_proj/prod/*" in rendered
+    assert '"logs:PutLogEvents"' in rendered
 
 
 def test_env_tier_state_backend_ecs_cluster_names(tmp_path: Path):
