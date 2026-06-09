@@ -45,7 +45,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 030 — Naming policy unification ([mod folder](../modifications/030_naming_policy_unification/))
 - [x] 031 — CICL surface refresh ([mod folder](../modifications/031_cicl_surface_refresh/))
 - [x] 032 — Telemetry alignment ([mod folder](../modifications/032_telemetry_alignment/))
-- [ ] 033 — Fargate tier rounding formalized
+- [x] 033 — Fargate tier rounding formalized ([mod folder](../modifications/033_fargate_tier_rounding/))
 - [ ] 034 — Command surface refresh
 - [ ] 035 — Compiler output split + always-on four `-web` networks
 - [ ] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed

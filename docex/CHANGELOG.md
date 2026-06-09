@@ -14,6 +14,17 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Fargate tier rounding made visible.** Per the doctrine's now-formal
+  "rounding is uniform across all core services" rule
+  ([cicl.md § Resources](../doctrine/infrastructure/cicl.md#resources)),
+  `_resources_to_elastic` surfaces a one-line notice whenever a core
+  service's request rounds to a Fargate tier — not only when the
+  sidecar overhead specifically pushed the bump. The notice names the
+  cause: project values not landing on a tier, sidecar overhead, or
+  both. Pre-existing overflow handling and the 0.1 vCPU + 128 MiB
+  sidecar overhead math are unchanged. Mod 033 of the shape-and-tier
+  campaign.
+
 - **Telemetry sidecar rename (BREAKING).** All container/service names
   for the OTel sidecar flip from `<svc>_otelcol` to `<svc>-otelcol` per
   the doctrine's data-plane naming unification. Compose form on fixed:

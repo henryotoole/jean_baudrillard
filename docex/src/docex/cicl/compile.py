@@ -169,17 +169,43 @@ def _resources_to_elastic(
         req_cpu_units, req_mem_mib, service_name=service_name,
     )
 
-    # Surface a one-line notice when the sidecar overhead pushed the task
-    # into a higher Fargate tier than the bare-core request alone would
-    # have. Per doctrine/infrastructure/specifics/telemetry_infra.md
-    # § Fargate tier rounding.
+    # Surface a one-line notice whenever Fargate-tier rounding occurs.
+    # Doctrine (cicl.md § Resources, transfer_tables.md § Resources
+    # Translation) makes rounding visibility uniform: both non-tier-
+    # aligned project resources and the sidecar overhead can trigger
+    # rounding, and each gets a message that names the cause. When both
+    # contribute, a single combined message is emitted.
     if is_core:
         bare_cpu_units = max(1, int(round(res.cpu * 1024)))
         bare_mem_mib = _memory_to_mib(res.memory)
         bare_cpu_tier, bare_mem_tier = fargate_pair_from_units(
             bare_cpu_units, bare_mem_mib, service_name=service_name,
         )
-        if cpu_units > bare_cpu_tier or memory_mib > bare_mem_tier:
+        # No observable rounding: the sidecar-inclusive request landed
+        # exactly on a Fargate tier on both dimensions. Stay silent.
+        has_rounding = (
+            cpu_units != req_cpu_units or memory_mib != req_mem_mib
+        )
+        # Bare-core itself rounds when the operator's request doesn't
+        # land exactly on a Fargate tier.
+        project_caused_rounding = (
+            bare_cpu_units != bare_cpu_tier or bare_mem_mib != bare_mem_tier
+        )
+        # The sidecar overhead pushed the task past the tier bare-core
+        # alone would have landed at.
+        sidecar_caused_bump = (
+            cpu_units > bare_cpu_tier or memory_mib > bare_mem_tier
+        )
+        if has_rounding and project_caused_rounding and sidecar_caused_bump:
+            print(
+                f"note: core service {service_name!r}: resources rounded "
+                f"to Fargate tier (request {req_cpu_units} -> {cpu_units} "
+                f"vCPU units, {req_mem_mib} -> {memory_mib} MiB). "
+                f"Non-tier-aligned project resources AND sidecar overhead "
+                f"each contributed to the bump; bare-core would have "
+                f"tiered to ({bare_cpu_tier}, {bare_mem_tier})."
+            )
+        elif has_rounding and sidecar_caused_bump:
             print(
                 f"note: core service {service_name!r}: sidecar overhead "
                 f"pushed task to next Fargate tier "
@@ -187,6 +213,14 @@ def _resources_to_elastic(
                 f"{bare_mem_tier} -> {memory_mib} MiB). The core container "
                 f"still receives the requested {res.cpu} vCPU / {res.memory}; "
                 f"the task-level totals carry the overhead."
+            )
+        elif has_rounding and project_caused_rounding:
+            print(
+                f"note: core service {service_name!r}: resources rounded "
+                f"to Fargate tier ({req_cpu_units} -> {cpu_units} vCPU "
+                f"units, {req_mem_mib} -> {memory_mib} MiB). Fargate "
+                f"accepts only discrete (vCPU, memory) pairs; requested "
+                f"values don't match a tier exactly."
             )
 
     out: dict[str, Any] = {

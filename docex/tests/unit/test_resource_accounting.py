@@ -82,37 +82,86 @@ def test_backing_service_resources_no_sidecar_overhead():
 def test_rounding_notice_printed_when_tier_bumps(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
-    """When sidecar overhead bumps the request into a higher Fargate
-    tier than the bare-core request alone would, ``docex compile``
-    prints a one-line notice to stdout naming the service. The sample
-    elastic fixture's `api` service has cpu=1.0 / mem=2GB which is a
-    classic tier-bump case.
+    """When both the operator's non-tier-aligned resources AND the
+    sidecar overhead contribute to rounding, ``docex compile`` prints a
+    one-line combined notice naming the service. The sample elastic
+    fixture's `api` is cpu=1.0 / mem=2GB: bare-core would tier to
+    (1024, 2048) because 2GB→1907 MiB rounds up to 2048 MiB, and the
+    sidecar then pushes the task to (2048, 4096). Both causes apply.
     """
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     captured = capsys.readouterr().out
     assert "note: core service 'api'" in captured
-    assert "sidecar overhead pushed task to next Fargate tier" in captured
+    assert (
+        "Non-tier-aligned project resources AND sidecar overhead "
+        "each contributed to the bump"
+    ) in captured
 
 
-def test_rounding_notice_not_printed_when_no_bump(
+def test_rounding_notice_not_printed_when_no_rounding(
     capsys: pytest.CaptureFixture[str],
 ):
-    """A core service whose bare resources already have headroom for
-    the sidecar's overhead — both CPU and memory stay in the same
-    Fargate tier — does NOT trigger the notice.
+    """A core service whose request (including sidecar overhead) lands
+    exactly on a Fargate tier triggers no notice.
 
-    cpu=0.15 → 154 units (tier 256); with sidecar +102 = 256 units
-    (still tier 256). memory=350MB → 334 MiB (tier 512); with sidecar
-    +128 = 462 MiB (still tier 512). Both unchanged → no notice.
+    cpu=0.15 → 154 units; with sidecar +102 = 256 units (exact tier
+    256). memory=0.403GB → 384 MiB; with sidecar +128 = 512 MiB (exact
+    smallest tier for cpu=256). No rounding on either dimension → no
+    notice.
     """
     capsys.readouterr()  # clear prior stdout
-    res = Resources(cpu=0.15, memory="350MB")
+    res = Resources(cpu=0.15, memory="0.403GB")
     _ = _resources_to_elastic(res, service_name="tinyapi", is_core=True)
     captured = capsys.readouterr().out
     assert "tinyapi" not in captured
-    assert "sidecar overhead pushed task to next Fargate tier" not in captured
+
+
+def test_rounding_notice_project_only_when_non_aligned_request(
+    capsys: pytest.CaptureFixture[str],
+):
+    """When the operator's request itself doesn't land on a Fargate
+    tier but the sidecar overhead doesn't push it any further, the
+    notice attributes rounding to the request, not the sidecar.
+
+    cpu=1.5 / mem=3GB: bare-core (1536, 2861) rounds to (2048, 4096).
+    Sidecar-inclusive (1638, 2989) also rounds to (2048, 4096) —
+    sidecar absorbed in the same tier, no further bump.
+    """
+    capsys.readouterr()
+    res = Resources(cpu=1.5, memory="3GB")
+    _ = _resources_to_elastic(res, service_name="projapi", is_core=True)
+    captured = capsys.readouterr().out
+    assert "note: core service 'projapi'" in captured
+    assert (
+        "Fargate accepts only discrete (vCPU, memory) pairs; "
+        "requested values don't match a tier exactly"
+    ) in captured
+    # Combined-message phrase must not appear.
+    assert "AND sidecar overhead" not in captured
+
+
+def test_rounding_notice_sidecar_pushed_when_only_overhead_bumps(
+    capsys: pytest.CaptureFixture[str],
+):
+    """When bare-core lands cleanly on a Fargate tier and the sidecar
+    overhead alone pushes it to the next tier, the notice attributes
+    rounding to the sidecar.
+
+    cpu=2.0 / mem=4.295GB: bare-core (2048, 4096) is an exact tier.
+    Sidecar adds (+102 vCPU, +128 MiB) → req (2150, 4224). cpu 2150
+    rounds to 4096; memory 4224 in cpu=4096's allowed band [8192..]
+    rounds to 8192. Bare-tier (2048, 4096) → final (4096, 8192) is a
+    pure sidecar-pushed bump.
+    """
+    capsys.readouterr()
+    res = Resources(cpu=2.0, memory="4.295GB")
+    _ = _resources_to_elastic(res, service_name="sideapi", is_core=True)
+    captured = capsys.readouterr().out
+    assert "note: core service 'sideapi'" in captured
+    assert "sidecar overhead pushed task to next Fargate tier" in captured
+    assert "AND sidecar overhead" not in captured
 
 
 # ---------------------------------------------------------------------------
