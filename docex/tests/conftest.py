@@ -571,10 +571,13 @@ class FakeAWSClient:
 
     # -- Lookups -------------------------------------------------------
 
-    def lookup_project_vpc(self, *, project: str) -> str:
-        """Optional helper used by ``orchestrate.migrate._lookup_project_vpc``
-        when present on the fake. Avoids drilling into the boto3 client."""
-        self._record("lookup_project_vpc", project=project)
+    def lookup_master_vpc(self) -> str:
+        """Optional helper used by ``orchestrate.migrate._lookup_master_vpc``
+        when present on the fake. Avoids drilling into the boto3 client.
+        Mod 047 renamed from ``lookup_project_vpc`` (which assumed a
+        per-project VPC pre-mod-041) to ``lookup_master_vpc`` (post-
+        mod-041: shared master VPC across all projects)."""
+        self._record("lookup_master_vpc")
         return self.vpc_id
 
     def get_default_subnets(self, *, vpc_id: str, tier: str) -> list[str]:

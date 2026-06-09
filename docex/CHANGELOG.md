@@ -12,6 +12,67 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-06-09
+
+Patch cut bundling three runtime bugs surfaced during the post-1.0.2
+elastic-foundation smoke walk on the test project. Full narrative in
+[`plans/modifications/048_elastic_walk_polish/`](plans/modifications/048_elastic_walk_polish/).
+Combined with mod 047's fixed-side bug bundle, both smoke walks now
+run clean against this cut from D.1/C.1 through D.13/C.11.
+
+### Fixed
+
+- **`projinfra up development` stubbed on elastic projects (mod 048,
+  bug 5).** Dispatcher's `(foundation=elastic, side=development)`
+  branch printed `(stub): real behavior lands in mods 037-039` and
+  exited 0 without standing up the project-tier compose. The
+  development side of an elastic project is mechanically identical to
+  a fixed dev side (same emit shape — same four `-web` networks + per-
+  project traefik); routing the case to the existing
+  `run_projinfra_fixed_{up,down}` runners closes the gap. `down
+  development` follows. `down production` on elastic still informs the
+  operator to run `teardown.sh` manually (no automated path yet).
+- **`migrate.py` lookups used pre-mod-041/040 forms (mod 048, bug 6).**
+  `_lookup_project_vpc` filtered `describe_vpcs` by `tag:project=<n>`
+  (pre-mod-041 per-project-VPC scheme) — renamed to
+  `_lookup_master_vpc` and re-filtered against the master VPC tags
+  (`Name=docex-master-vpc, managed_by=docex-preinfra`). The env-tier
+  SG-name lookup also used the underscored `<project>_<env>_internal`
+  form (pre-mod-040); now uses the hyphenated form
+  `<project_dns>-<env>-internal` matching what `main.tf.j2` emits.
+  Without these fixes, the migration RunTask on the first elastic
+  release failed with `no VPC tagged project='<n>'`.
+- **Bare-project A-record missing on prod env-tier ALB emit (mod 048,
+  bug 7).** The doctrine ([`elastic_route53_zone.md`](../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md))
+  commits to five A-records on prod — including
+  `<project>.<apex_domain>` (bare-project) for `domain_default_service`
+  ergonomics. `main.tf.j2`'s env-tier ALB block emitted only the env
+  subdomain + wildcard (4 of 5); the bare-project record never landed.
+  ALB listener rules already include the bare-project host in their
+  `host_header.values` — the gap was purely DNS-side. Template now
+  emits a third `aws_route53_record` resource gated on
+  `reverse_proxy == "alb" && env == "prod"`; HCL render context picks
+  up `bare_project_subdomain` from the compiled env.
+
+### Tests
+
+- `tests/unit/test_dispatcher.py::test_projinfra_elastic_dev_side_routes_fixed_style`
+  replaces the old "stubs on elastic dev/down" test. Parametrized over
+  `(up, development)`, `(down, development)`, `(down, production)` —
+  the first two assert the fixed-style code path is reached, the third
+  asserts the "no automated path yet" fall-through message.
+- `tests/conftest.py::FakeAWSClient.lookup_master_vpc` replaces the
+  prior `.lookup_project_vpc` shim (mirrors the production code's
+  function rename).
+
+### Known gaps still open
+
+- **Project traefik AWS-cred propagation** for ACME DNS-01. Open from
+  mod 047; smoke project still works around with `verify=False` on
+  fixed-side stage tests (elastic side uses real ACM certs, unaffected).
+- **ECS task-def `logConfiguration`.** Open from
+  `release_flow.md § Common failure modes`. Future mod.
+
 ## [1.0.2] - 2026-06-09
 
 Patch cut bundling four runtime bugs surfaced during the post-1.0.1

@@ -177,4 +177,26 @@ resource "aws_route53_record" "env_wildcard" {
     evaluate_target_health = false
   }
 }
+
+{% if env == "prod" %}
+# Bare-project A-record: <project>.<apex_domain> -> project ALB. Per
+# `cicl.md § Domain`, the bare-project host routes to prod's
+# `domain_default_service` for user-URL ergonomics (replacing the old
+# `www.<apex>` convention). Only emitted on prod since the bare-project
+# resolves to prod's default service regardless. Mod 048 added this
+# alongside the env subdomain + wildcard records; the listener rules
+# already include the bare-project host in their `host_header` values
+# (the compiler's `_web_hosts` does that on prod), so the ALB routes
+# correctly the moment the A-record exists.
+resource "aws_route53_record" "bare_project" {
+  zone_id = data.terraform_remote_state.project.outputs.zone_id
+  name    = "{{ bare_project_subdomain }}"
+  type    = "A"
+  alias {
+    name                   = data.terraform_remote_state.project.outputs.alb_dns_name
+    zone_id                = data.terraform_remote_state.project.outputs.alb_zone_id
+    evaluate_target_health = false
+  }
+}
+{% endif %}
 {% endif %}

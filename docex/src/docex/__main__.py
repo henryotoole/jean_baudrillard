@@ -248,7 +248,20 @@ def _cmd_projinfra(args: list[str]) -> int:
     # against the local daemon. On single-machine fixed projects the
     # two sides converge — same daemon, same network/service set, the
     # second `up` is a docker-compose no-op.
-    if ctx.infra is not None and ctx.infra.foundation == "fixed":
+    #
+    # Mod 048: an elastic project's DEVELOPMENT side is mechanically
+    # identical to a fixed development side (same emit shape per
+    # `projinfra/overview.md § Why all four web networks live on every
+    # side`); route both through the same fixed-style code path. Only
+    # the production side of an elastic project diverges (real AWS
+    # state-backend + Route53 + ACM + ALB / EC2-traefik).
+    fixed_style = (
+        ctx.infra is not None and (
+            ctx.infra.foundation == "fixed"
+            or (ctx.infra.foundation == "elastic" and ns.side == "development")
+        )
+    )
+    if fixed_style:
         from docex.pipeline.projinfra import (
             run_projinfra_fixed_down,
             run_projinfra_fixed_up,
@@ -288,8 +301,15 @@ def _cmd_projinfra(args: list[str]) -> int:
             return rc
         return run_bootstrap(ctx, aws)
 
-    print(f"projinfra {ns.direction} {ns.side} (stub): "
-          f"real behavior lands in mods 037-039 (elastic). Returning success.")
+    # Remaining case: elastic + down + production. Tearing down the
+    # production side of an elastic project still routes through the
+    # existing bootstrap-down path, which is the operator's manual
+    # `tofu destroy` per teardown.sh. No automated docex path yet.
+    print(
+        f"projinfra {ns.direction} {ns.side} on elastic foundation: "
+        f"no automated path yet for production-side down. Run "
+        f"`teardown.sh` manually to destroy elastic prod resources."
+    )
     return 0
 
 

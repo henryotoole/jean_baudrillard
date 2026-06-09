@@ -953,6 +953,9 @@ def emit_hcl(
         env=compiled.env,
         apex_domain=compiled.apex_domain,
         subdomain=compiled.subdomain,
+        # Mod 048: bare-project host used by prod's `domain_default_service`
+        # A-record. Template gates on `env == "prod"`.
+        bare_project_subdomain=compiled.bare_project_subdomain,
         region=ELASTIC_REGION,
         networks_sorted=sorted(compiled.networks),
         services=services_ordered,

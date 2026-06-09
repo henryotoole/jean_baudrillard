@@ -426,34 +426,79 @@ def test_projinfra_elastic_up_production_refuses_when_preinfra_fails(
 
 
 @pytest.mark.parametrize(
-    "direction,side",
+    "direction,side,routes_to_fixed",
     [
-        ("up", "development"),
-        ("down", "development"),
-        ("down", "production"),
+        # Mod 048: elastic's DEVELOPMENT side (up + down) is mechanically
+        # identical to fixed dev-side projinfra (same emit shape per
+        # `projinfra/overview.md § Why all four web networks live on
+        # every side`). Both directions route to the fixed-style code
+        # path now — no longer stubs.
+        ("up", "development", True),
+        ("down", "development", True),
+        # `down production` on elastic remains operator-driven (run
+        # teardown.sh) — dispatcher prints a "no automated path yet"
+        # message and exits 0.
+        ("down", "production", False),
     ],
 )
-def test_projinfra_elastic_other_invocations_are_stubs(
-    monkeypatch, capsys, elastic_ctx, direction, side,
+def test_projinfra_elastic_dev_side_routes_fixed_style(
+    monkeypatch, capsys, elastic_ctx, direction, side, routes_to_fixed,
 ):
+    """Mod 048: elastic dev-side projinfra now dispatches to the
+    fixed-style runner. Production-side down still informs and exits."""
     monkeypatch.chdir(elastic_ctx.project_root)
 
-    called = {"run_bootstrap": False}
+    called = {
+        "run_bootstrap": False,
+        "run_projinfra_fixed_up": False,
+        "run_projinfra_fixed_down": False,
+        "run_preinfra": False,
+    }
 
     def fake_run_bootstrap(ctx, aws):
         called["run_bootstrap"] = True
         return 0
 
+    def fake_run_projinfra_fixed_up(ctx, docker, *, side):
+        called["run_projinfra_fixed_up"] = True
+        return 0
+
+    def fake_run_projinfra_fixed_down(ctx, docker, *, side):
+        called["run_projinfra_fixed_down"] = True
+        return 0
+
+    def fake_run_preinfra(ctx, docker, aws, *, side):
+        called["run_preinfra"] = True
+        return 0
+
     monkeypatch.setattr("docex.pipeline.bootstrap.run_bootstrap",
                         fake_run_bootstrap)
+    monkeypatch.setattr(
+        "docex.pipeline.projinfra.run_projinfra_fixed_up",
+        fake_run_projinfra_fixed_up,
+    )
+    monkeypatch.setattr(
+        "docex.pipeline.projinfra.run_projinfra_fixed_down",
+        fake_run_projinfra_fixed_down,
+    )
+    monkeypatch.setattr("docex.pipeline.preinfra.run_preinfra",
+                        fake_run_preinfra)
 
     rc = _cmd_projinfra([direction, side])
     assert rc == 0
     assert called["run_bootstrap"] is False
-    out = capsys.readouterr().out
-    assert "(stub)" in out
-    assert direction in out
-    assert side in out
+    if routes_to_fixed:
+        # Up runs preinfra gate then fixed-style up; down runs only fixed-style down.
+        if direction == "up":
+            assert called["run_preinfra"] is True
+            assert called["run_projinfra_fixed_up"] is True
+        else:
+            assert called["run_projinfra_fixed_down"] is True
+    else:
+        # Elastic + down + production: fall-through message.
+        out = capsys.readouterr().out
+        assert "no automated path yet" in out
+        assert direction in out and side in out
 
 
 @pytest.mark.parametrize(

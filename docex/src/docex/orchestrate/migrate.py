@@ -205,20 +205,29 @@ def _migrate_elastic(
     project = ctx.project.name
     # Resource naming follows the compiler's naming policies:
     #   ECS cluster: ``ecs`` policy → ``<project>-<env>`` (hyphen, mod 030)
-    #   security group: ``<project>_<env>_internal`` (literal underscores in main.tf.j2)
+    #   security group: ``<project>-<env>-internal`` (mod 040 hyphenated
+    #     env-tier SG names — main.tf.j2 emits via the same Jinja replace
+    #     filter the doctrine prescribes for data-plane identifiers).
     tables = ctx.transfer_tables
     ecs_policy = tables.naming_policies.get("ecs")
     cluster_name = apply_policy(f"{project}_{env}", ecs_policy)
-    sg_name = f"{project}_{env}_internal"
+    # Mod 040 + mod 046: env-tier SG names hyphenate the project segment,
+    # not just the joiners. Run the project name through `_dns_label`
+    # (same translation `http_host` / `docker` policies apply) so the
+    # underscored project (`docex_smoke_elastic`) renders as
+    # `docex-smoke-elastic-stage-internal` — matching the actual SG.
+    project_dns = project.replace("_", "-").lower()
+    sg_name = f"{project_dns}-{env}-internal"
 
     # Look up cluster + subnets + SG once for the whole batch.
     cluster_arn = aws.get_ecs_cluster_arn(cluster_name)
-    vpc_id = _lookup_project_vpc(aws, project=project)
+    vpc_id = _lookup_master_vpc(aws)
     subnets = aws.get_default_subnets(vpc_id=vpc_id, tier="private")
     if not subnets:
         raise ECSTaskFailed(
-            f"no private subnets found for project {project!r}; ensure "
-            f"the project VPC + subnets are tagged correctly."
+            f"no private subnets tagged tier=private found in the master "
+            f"VPC; ensure the preinfra master VPC + subnets are tagged "
+            f"per `elastic_master_network.md`."
         )
     sg_id = aws.get_security_group_id(vpc_id=vpc_id, name=sg_name)
 
@@ -253,31 +262,49 @@ def _migrate_elastic(
     return 0
 
 
-def _lookup_project_vpc(aws: AWSClient, *, project: str) -> str:
-    """Resolve the project VPC's ID.
+def _lookup_master_vpc(aws: AWSClient) -> str:
+    """Resolve the shared master VPC's ID.
 
-    The compiler's emitted HCL uses ``data.aws_vpc.project`` with a
-    ``tags = { project = <name> }`` filter. We mirror that lookup here
-    via a small detour — Phase 4 doesn't expose a ``describe_vpcs`` on
-    the AWSClient Protocol because only this one call needs it; if a
-    second use-case appears, promote it. For now we hit boto3 through
-    the shared client's internal cache directly.
+    Per mod 041, every elastic project lives in a shared master VPC
+    tagged ``Name=docex-master-vpc`` + ``managed_by=docex-preinfra``.
+    The migration RunTask needs that VPC ID to launch the task into the
+    project's private subnets — same VPC the compiled HCL data-sources
+    via ``data.aws_vpc.master``.
+
+    Mod 047: this function replaces the pre-mod-041
+    ``_lookup_project_vpc`` (which filtered by ``tag:project=<name>``
+    when projects had their own VPCs). The function shape stays
+    parallel; the test fakes are updated to expose ``lookup_master_vpc``.
     """
-    # Lazy access to the underlying client. Tests using FakeAWSClient
-    # should override this via ``_lookup_project_vpc`` on the fake (see
-    # tests/conftest.py).
-    if hasattr(aws, "lookup_project_vpc"):
-        return aws.lookup_project_vpc(project=project)  # type: ignore[attr-defined]
+    if hasattr(aws, "lookup_master_vpc"):
+        return aws.lookup_master_vpc()  # type: ignore[attr-defined]
     # Production path — Boto3AWSClient exposes a cached ec2 client.
+    # If a future doctrine change exposes find_vpc_by_tags publicly on
+    # the AWSClient protocol, this method can switch to that uniformly.
+    if hasattr(aws, "find_vpc_by_tags"):
+        vpc_id = aws.find_vpc_by_tags(  # type: ignore[attr-defined]
+            {"Name": "docex-master-vpc", "managed_by": "docex-preinfra"}
+        )
+        if vpc_id is None:
+            raise ECSTaskFailed(
+                "no master VPC found in account (expected tags "
+                "Name=docex-master-vpc, managed_by=docex-preinfra). "
+                "Stand it up per `elastic_master_network.md`."
+            )
+        return vpc_id
     ec2 = aws._client("ec2")  # type: ignore[attr-defined]
     resp = ec2.describe_vpcs(
-        Filters=[{"Name": "tag:project", "Values": [project]}]
+        Filters=[
+            {"Name": "tag:Name", "Values": ["docex-master-vpc"]},
+            {"Name": "tag:managed_by", "Values": ["docex-preinfra"]},
+        ]
     )
     vpcs = resp.get("Vpcs", [])
     if not vpcs:
         raise ECSTaskFailed(
-            f"no VPC tagged project={project!r}; was the project-tier "
-            f"VPC provisioned?"
+            "no master VPC found in account (expected tags "
+            "Name=docex-master-vpc, managed_by=docex-preinfra). "
+            "Stand it up per `elastic_master_network.md`."
         )
     return str(vpcs[0]["VpcId"])
 
