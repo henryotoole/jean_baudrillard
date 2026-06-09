@@ -184,24 +184,31 @@ def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: P
     assert deps[appdb_key] == {"condition": "service_healthy"}, deps[appdb_key]
 
 
-def test_web_network_is_shared_external_and_others_are_project_scoped(tmp_path: Path):
-    """Per doctrine/infrastructure/specifics/networks.md § Network
-    Definition Name vs. Compiled Name, fixed-foundation `web` compiles to
-    the bare external network `web`; every other network keeps
-    ${project}-${env}-${name} scoping."""
+def test_web_network_is_project_env_external_and_others_are_project_scoped(tmp_path: Path):
+    """Mod 036 flip: env compose's ``web`` short-name now references the
+    project-tier ``${project}-${env}-web`` network with ``external: true``;
+    every other network keeps ``${project}-${env}-${name}`` scoping with
+    ``internal: true``. The per-project traefik (owned by projinfra)
+    spans all four ``-web`` networks."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
 
-    path = root / "infra" / "output" / "dev" / "docker-compose.yml"
-    doc = yaml.safe_load(path.read_text())
-    networks = doc["networks"]
+    for env in ("dev", "test", "stage", "prod"):
+        path = root / "infra" / "output" / env / "docker-compose.yml"
+        doc = yaml.safe_load(path.read_text())
+        networks = doc["networks"]
 
-    assert networks["web"] == {"name": "web", "external": True}, networks["web"]
-    # `internal` (or any other CICL-defined network) stays project-scoped.
-    internal = networks["internal"]
-    assert internal["name"].endswith("-dev-internal"), internal
-    assert internal.get("internal") is True, internal
+        # The project's name in the sample fixture is "sample".
+        assert networks["web"] == {
+            "name": f"sample-{env}-web",
+            "external": True,
+        }, (env, networks["web"])
+        # `internal` (or any other CICL-defined network) stays
+        # project-scoped and internal.
+        internal = networks["internal"]
+        assert internal["name"] == f"sample-{env}-internal", internal
+        assert internal.get("internal") is True, internal
 
 
 def test_web_router_emits_certresolver_doctrine(tmp_path: Path):

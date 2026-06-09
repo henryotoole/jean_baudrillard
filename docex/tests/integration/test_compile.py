@@ -132,10 +132,9 @@ def test_project_tier_production_main_tf_emitted_for_elastic_only(tmp_path: Path
 
 
 def test_project_tier_compose_declares_four_web_networks(tmp_path: Path):
-    """Mod 035: the project-tier compose file declares the four
-    ${project}-${env}-web networks plus the docex-ingress external
-    reference, with no `services:` key. Networks-only because the
-    per-project traefik lands in mod 036."""
+    """Mod 035 + 036: the project-tier compose file declares the four
+    ``${project}-${env}-web`` networks plus the ``docex-ingress``
+    external reference."""
     import yaml
 
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
@@ -153,8 +152,129 @@ def test_project_tier_compose_declares_four_web_networks(tmp_path: Path):
         assert key in networks, f"missing network {key!r}"
         assert networks[key].get("name") == key
     assert networks.get("docex-ingress") == {"external": True}
-    # No services in mod 035 — per-project traefik is mod 036's work.
-    assert "services" not in data
+
+
+def test_project_tier_compose_declares_traefik_service(tmp_path: Path):
+    """Mod 036: the project-tier compose emits a ``${project}-traefik``
+    service joined to the four ``-web`` networks plus ``docex-ingress``,
+    with the doctrine cert resolver name, the acme volume, and the
+    operator-supplied DNS-01 env vars wired via compose runtime
+    substitution."""
+    import yaml
+
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    rc = run_compile(load_project_context(root))
+    assert rc == 0
+
+    project = "sample"
+    compose_path = (
+        root / "infra" / "output" / "project" / "development" / "docker-compose.yml"
+    )
+    data = yaml.safe_load(compose_path.read_text())
+
+    services = data.get("services", {})
+    traefik_key = f"{project}-traefik"
+    assert traefik_key in services, sorted(services)
+    svc = services[traefik_key]
+
+    # Container is named explicitly (doctrine requires this exact name).
+    assert svc.get("container_name") == traefik_key
+    assert svc.get("restart") == "unless-stopped"
+    # Image is pinned by digest (mod 036).
+    image = svc.get("image", "")
+    assert image.startswith("traefik:") and "@sha256:" in image, image
+
+    # Network attachments: all four -web networks + docex-ingress.
+    expected_networks = {
+        f"{project}-dev-web",
+        f"{project}-test-web",
+        f"{project}-stage-web",
+        f"{project}-prod-web",
+        "docex-ingress",
+    }
+    assert set(svc.get("networks", [])) == expected_networks, svc["networks"]
+
+    # Volumes: docker socket (ro) + acme named volume.
+    volumes = svc.get("volumes", [])
+    assert "/var/run/docker.sock:/var/run/docker.sock:ro" in volumes
+    acme_volume = f"{project}-traefik-acme"
+    assert f"{acme_volume}:/letsencrypt" in volumes
+
+    # Command flags: cert resolver name 'doctrine', DNS-01 enabled,
+    # operator-supplied substitutions present.
+    command = svc.get("command", [])
+    assert "--providers.docker=true" in command
+    assert "--providers.docker.exposedbydefault=false" in command
+    assert "--entrypoints.web.address=:80" in command
+    assert "--entrypoints.websecure.address=:443" in command
+    assert any(
+        "certificatesresolvers.doctrine.acme.dnschallenge=true" in c
+        for c in command
+    ), command
+    assert any(
+        "${TRAEFIK_ACME_EMAIL:-}" in c for c in command
+    ), command
+    assert any(
+        "${TRAEFIK_DNS_PROVIDER:-}" in c for c in command
+    ), command
+
+    # Top-level acme volume declared.
+    assert acme_volume in data.get("volumes", {}), data.get("volumes")
+
+
+def test_project_tier_compose_identical_on_both_sides_for_fixed(tmp_path: Path):
+    """Mod 036 single-machine convergence: a fixed project's
+    development-side and production-side compose bodies emit the same
+    networks/services/volumes content. When ``projinfra up production``
+    runs after ``up development`` on the same daemon, docker compose
+    observes no diff and leaves the existing resources alone."""
+    import yaml
+
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    rc = run_compile(load_project_context(root))
+    assert rc == 0
+
+    dev = yaml.safe_load(
+        (
+            root / "infra" / "output" / "project" / "development"
+            / "docker-compose.yml"
+        ).read_text()
+    )
+    prod = yaml.safe_load(
+        (
+            root / "infra" / "output" / "project" / "production"
+            / "docker-compose.yml"
+        ).read_text()
+    )
+    # The body content (networks/services/volumes) is what compose
+    # diffs against running state — equal content means a no-op second
+    # invocation.
+    for key in ("networks", "services", "volumes"):
+        assert dev.get(key) == prod.get(key), (
+            f"project-tier {key!r} differs between sides:\n"
+            f"  dev:  {dev.get(key)!r}\n"
+            f"  prod: {prod.get(key)!r}"
+        )
+
+
+def test_env_compose_web_network_references_project_tier_external(tmp_path: Path):
+    """Mod 036: env-tier compose's ``web`` short-name now references the
+    project-tier ``${project}-${env}-web`` network with ``external: true``
+    — projinfra owns the network lifecycle; env compose merely attaches."""
+    import yaml
+
+    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
+    rc = run_compile(load_project_context(root))
+    assert rc == 0
+
+    for env in ("dev", "test", "stage", "prod"):
+        path = root / "infra" / "output" / env / "docker-compose.yml"
+        doc = yaml.safe_load(path.read_text())
+        web = doc["networks"]["web"]
+        assert web == {
+            "name": f"sample-{env}-web",
+            "external": True,
+        }, (env, web)
 
 
 def test_compile_is_deterministic(tmp_path: Path):

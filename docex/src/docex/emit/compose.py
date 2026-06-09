@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from docex import OTEL_COLLECTOR_IMAGE
+from docex import OTEL_COLLECTOR_IMAGE, TRAEFIK_IMAGE
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
@@ -71,20 +71,22 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     Per mod 030's naming unification, docker network names — being
     data-plane resolvable identifiers — use hyphens.
 
-    The ``web`` network is special-cased: it compiles to a bare external
-    docker network named ``web`` that the machine-wide Traefik is also
-    attached to. This is the shared public-routing plane, per
-    ``doctrine/infrastructure/specifics/networks.md § Network Definition
-    Name vs. Compiled Name``.
+    The ``web`` network is special-cased per mod 036: it references the
+    project-tier ``${project}-${env}-web`` network owned by projinfra,
+    declared ``external: true`` so env compose merely attaches without
+    ownership ambiguity. The per-project traefik (also projinfra) spans
+    all four ``-web`` networks and the host-wide ``docex-ingress``
+    bridge; coexistence on :443 isn't an issue because the HAProxy web
+    demux fronts every project. See ``doctrine/infrastructure/specifics/
+    projinfra/fixed_reverse_proxy.md``.
     """
     out: dict[str, Any] = {}
     for short in sorted(compiled.networks):
         if short == "web":
-            # WHY: project-scoping `web` would force per-project Traefik
-            # instances, which can't coexist on :443. The bare external
-            # `web` network is the single host-wide public-routing plane
-            # the machine-wide Traefik attaches to.
-            out[short] = {"name": "web", "external": True}
+            out[short] = {
+                "name": f"{compiled.project}-{compiled.env}-web",
+                "external": True,
+            }
             continue
         full = f"{compiled.project}-{compiled.env}-{short}"
         out[short] = {"name": full, "internal": True}
@@ -423,16 +425,29 @@ def _dump_compose(doc: dict[str, Any]) -> str:
 
 
 def emit_project_compose(*, project: str, out_path: Path) -> None:
-    """Emit a project-tier compose file that declares the four
+    """Emit a project-tier compose file declaring the four
     ``${project}-${env}-web`` external networks plus the ``docex-ingress``
-    preinfra network reference.
+    preinfra network reference, AND the per-project traefik container
+    that joins all five networks and terminates TLS for the project.
 
-    No services in mod 035 — the per-project traefik joins these networks
-    in mod 036. Both the development and production sides emit this same
-    shape; the only side-specific differences live elsewhere (HCL on
-    elastic production, ansible artifacts when fixed prod is remote —
-    mod 036).
+    Per ``doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy
+    .md``, the traefik container is named ``${project}-traefik``, uses the
+    cert resolver handle ``doctrine`` (referenced by env-tier service
+    labels), mounts the docker socket read-only for service-discovery, and
+    persists ACME state to the named volume ``${project}-traefik-acme``
+    so certs survive container restarts and ``projinfra down/up`` cycles.
+
+    Both the development and production sides emit this same body shape
+    (single-machine fixed projects converge on the same docker daemon).
+    Side-specific differences live elsewhere: HCL on elastic production,
+    ansible artifacts when fixed prod is remote (deferred per mod 036).
+
+    The DNS-01 LE provider and operator email arrive via compose runtime
+    substitution from operator-supplied env vars; out-of-box LE issuance
+    fails until the operator wires them, which is accepted (the container
+    still starts and routing still works without certs).
     """
+    acme_volume = f"{project}-traefik-acme"
     data: dict[str, Any] = {
         "networks": {
             f"{project}-dev-web": {"name": f"{project}-dev-web"},
@@ -440,11 +455,43 @@ def emit_project_compose(*, project: str, out_path: Path) -> None:
             f"{project}-stage-web": {"name": f"{project}-stage-web"},
             f"{project}-prod-web": {"name": f"{project}-prod-web"},
             "docex-ingress": {"external": True},
-        }
+        },
+        "services": {
+            f"{project}-traefik": {
+                "image": TRAEFIK_IMAGE,
+                "container_name": f"{project}-traefik",
+                "restart": "unless-stopped",
+                "networks": [
+                    f"{project}-dev-web",
+                    f"{project}-test-web",
+                    f"{project}-stage-web",
+                    f"{project}-prod-web",
+                    "docex-ingress",
+                ],
+                "volumes": [
+                    "/var/run/docker.sock:/var/run/docker.sock:ro",
+                    f"{acme_volume}:/letsencrypt",
+                ],
+                "command": [
+                    "--providers.docker=true",
+                    "--providers.docker.exposedbydefault=false",
+                    "--entrypoints.web.address=:80",
+                    "--entrypoints.websecure.address=:443",
+                    "--certificatesresolvers.doctrine.acme.email="
+                    "${TRAEFIK_ACME_EMAIL:-}",
+                    "--certificatesresolvers.doctrine.acme.storage="
+                    "/letsencrypt/acme.json",
+                    "--certificatesresolvers.doctrine.acme.dnschallenge=true",
+                    "--certificatesresolvers.doctrine.acme.dnschallenge"
+                    ".provider=${TRAEFIK_DNS_PROVIDER:-}",
+                ],
+            },
+        },
+        "volumes": {acme_volume: {}},
     }
     header = (
         "# Generated by `docex compile`. Do not edit by hand.\n"
         f"# project: {project}\n"
-        "# tier: project (mod 035: networks only; mod 036 adds traefik)\n"
+        "# tier: project (mod 036: 4 -web networks + per-project traefik)\n"
     )
     out_path.write_text(header + _dump_compose(data))

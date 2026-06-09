@@ -231,27 +231,55 @@ def test_projinfra_elastic_other_invocations_are_stubs(
         ("down", "production"),
     ],
 )
-def test_projinfra_fixed_all_invocations_are_stubs(
+def test_projinfra_fixed_all_invocations_dispatch_to_real_runners(
     monkeypatch, capsys, sample_ctx, direction, side,
 ):
-    """Fixed-foundation projects never run ``run_bootstrap`` from
-    ``projinfra`` — every direction/side combination is a stub."""
+    """Mod 036: every fixed-foundation projinfra invocation dispatches
+    to the real ``run_projinfra_fixed_*`` runner — none is a stub, and
+    ``run_bootstrap`` (elastic only) is never touched."""
     monkeypatch.chdir(sample_ctx.project_root)
 
-    called = {"run_bootstrap": False}
+    docker_sentinel = _patch_docker_ok(monkeypatch)
+
+    called = {"run_bootstrap": False, "up": None, "down": None}
 
     def fake_run_bootstrap(ctx, aws):
         called["run_bootstrap"] = True
         return 0
 
+    def fake_up(ctx, docker, *, side):
+        called["up"] = (ctx, docker, side)
+        return 0
+
+    def fake_down(ctx, docker, *, side):
+        called["down"] = (ctx, docker, side)
+        return 0
+
     monkeypatch.setattr("docex.pipeline.bootstrap.run_bootstrap",
                         fake_run_bootstrap)
+    monkeypatch.setattr(
+        "docex.pipeline.projinfra.run_projinfra_fixed_up", fake_up,
+    )
+    monkeypatch.setattr(
+        "docex.pipeline.projinfra.run_projinfra_fixed_down", fake_down,
+    )
 
     rc = _cmd_projinfra([direction, side])
     assert rc == 0
     assert called["run_bootstrap"] is False
     out = capsys.readouterr().out
-    assert "(stub)" in out
+    assert "(stub)" not in out
+
+    if direction == "up":
+        assert called["up"] is not None
+        assert called["down"] is None
+        assert called["up"][1] is docker_sentinel
+        assert called["up"][2] == side
+    else:
+        assert called["down"] is not None
+        assert called["up"] is None
+        assert called["down"][1] is docker_sentinel
+        assert called["down"][2] == side
 
 
 def test_projinfra_rejects_unknown_direction():

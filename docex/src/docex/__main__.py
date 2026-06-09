@@ -198,11 +198,14 @@ def _cmd_preinfra(args: list[str]) -> int:
 
 def _cmd_projinfra(args: list[str]) -> int:
     """``docex projinfra <direction> <side>`` — bring up or tear down
-    project-tier infrastructure for a side. Mostly STUB in mod 034.
-    The only real behavior is `projinfra up production` on elastic
-    projects, which runs the existing state-backend setup (formerly
-    the `bootstrap` command). Mods 036 (fixed) and 037-039 (elastic)
-    flesh out the rest."""
+    project-tier infrastructure for a side.
+
+    Mod 036 wires the fixed branch end-to-end: ``up`` runs the project-
+    tier compose stack (four ``-web`` networks + per-project traefik);
+    ``down`` tears it down (refusing if any env-tier compose stack for
+    this project is still up). Elastic ``up production`` continues to
+    run the existing state-backend setup (formerly ``bootstrap``); the
+    rest of elastic projinfra is stubbed until mods 037-039."""
     parser = argparse.ArgumentParser(prog="docex projinfra", add_help=True)
     parser.add_argument("direction", choices=["up", "down"],
                         help="up | down")
@@ -214,8 +217,23 @@ def _cmd_projinfra(args: list[str]) -> int:
 
     ctx = load_project_context(Path(os.getcwd()))
 
+    # Fixed-foundation branch: both sides run a docker compose stack
+    # against the local daemon. On single-machine fixed projects the
+    # two sides converge — same daemon, same network/service set, the
+    # second `up` is a docker-compose no-op.
+    if ctx.infra is not None and ctx.infra.foundation == "fixed":
+        from docex.pipeline.projinfra import (
+            run_projinfra_fixed_down,
+            run_projinfra_fixed_up,
+        )
+        docker = _require_docker()
+        if ns.direction == "up":
+            return run_projinfra_fixed_up(ctx, docker, side=ns.side)
+        return run_projinfra_fixed_down(ctx, docker, side=ns.side)
+
     # Elastic + up + production: run the existing state-backend setup.
-    if (ctx.infra.foundation == "elastic"
+    if (ctx.infra is not None
+            and ctx.infra.foundation == "elastic"
             and ns.direction == "up"
             and ns.side == "production"):
         from docex.pipeline.bootstrap import run_bootstrap
@@ -223,8 +241,7 @@ def _cmd_projinfra(args: list[str]) -> int:
         return run_bootstrap(ctx, aws)
 
     print(f"projinfra {ns.direction} {ns.side} (stub): "
-          f"real behavior lands in mod 036 (fixed) or mods 037-039 "
-          f"(elastic). Returning success.")
+          f"real behavior lands in mods 037-039 (elastic). Returning success.")
     return 0
 
 

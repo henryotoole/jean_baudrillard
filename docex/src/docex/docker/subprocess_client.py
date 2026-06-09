@@ -295,6 +295,44 @@ class SubprocessDockerClient:
         return [line.strip() for line in res.stdout.splitlines() if line.strip()]
 
     # ------------------------------------------------------------------
+    # Mod 036: env-tier still-up detection used by ``projinfra down``.
+    # ------------------------------------------------------------------
+
+    def any_env_compose_up(self, project_name: str) -> bool:
+        # WHY: --all surfaces both fully-running and partially-up stacks
+        # (some containers exited, others up). Either case means projinfra
+        # down would orphan something; we want to refuse on both.
+        import json
+        cmd = [
+            self._docker, "compose", "ls",
+            "--format", "json",
+            "--all",
+        ]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return False
+        if res.returncode != 0:
+            return False
+        try:
+            entries = json.loads(res.stdout or "[]")
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(entries, list):
+            return False
+        targets = {
+            f"{project_name}-{env}" for env in ("dev", "test", "stage", "prod")
+        }
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("Name") in targets:
+                return True
+        return False
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 

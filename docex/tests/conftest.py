@@ -47,6 +47,9 @@ class FakeDockerClient:
     exit_codes: dict[tuple, int] = field(default_factory=dict)
     default_exit: int = 0
     manifest_inspect_results: dict[str, bool] = field(default_factory=dict)
+    # Mod 036: scripted return for ``any_env_compose_up``. Maps project
+    # name -> bool; default False (no env stacks up) when unset.
+    any_env_compose_up_results: dict[str, bool] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
 
     # -- protocol ------------------------------------------------------
@@ -163,6 +166,12 @@ class FakeDockerClient:
     def manifest_inspect(self, ref: str) -> bool:
         self.calls.append(("manifest_inspect", ref))
         return self.manifest_inspect_results.get(ref, True)
+
+    # ------- Mod 036: env-tier still-up detection for projinfra ------
+
+    def any_env_compose_up(self, project_name: str) -> bool:
+        self.calls.append(("any_env_compose_up", project_name))
+        return self.any_env_compose_up_results.get(project_name, False)
 
     # -- internals -----------------------------------------------------
 

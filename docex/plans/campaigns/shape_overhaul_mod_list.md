@@ -48,7 +48,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 033 — Fargate tier rounding formalized ([mod folder](../modifications/033_fargate_tier_rounding/))
 - [x] 034 — Command surface refresh ([mod folder](../modifications/034_command_surface_refresh/))
 - [x] 035 — Compiler output split + always-on four `-web` networks ([mod folder](../modifications/035_compiler_output_split/))
-- [ ] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed
+- [x] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed ([mod folder](../modifications/036_fixed_projinfra/))
 - [ ] 037 — Elastic projinfra: Route53 zone + ACM certs + two-phase apply
 - [ ] 038 — Elastic projinfra: ALB (default variant) + project-tier outputs
 - [ ] 039 — ECR + IAM move to project-tier

@@ -213,3 +213,18 @@ class DockerClient(Protocol):
         and surfaces it via the precondition check.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Mod 036: env-tier still-up detection used by ``projinfra down``.
+    # ------------------------------------------------------------------
+
+    def any_env_compose_up(self, project_name: str) -> bool:
+        """True iff any env-tier compose stack for ``project_name`` is
+        currently up on the local docker daemon.
+
+        Env compose project names are ``${project}-${env}`` for env in
+        ``(dev, test, stage, prod)``. Implemented via
+        ``docker compose ls --format json --all`` and a name-match
+        filter. ``projinfra down`` refuses when this returns True.
+        """
+        ...

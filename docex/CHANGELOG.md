@@ -14,6 +14,32 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Per-project traefik on per-project `-web` networks (BREAKING).**
+  Replaces the obsolete machine-wide-traefik model with the doctrine's
+  per-project traefik (per
+  [`projinfra/fixed_reverse_proxy.md`](../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md)).
+  `emit_project_compose` now emits a `${project}-traefik` container
+  joined to all four `${project}-${env}-web` networks plus
+  `docex-ingress`, with the doctrine cert resolver named `doctrine`,
+  DNS-01 challenge config sourcing `${TRAEFIK_ACME_EMAIL:-}` and
+  `${TRAEFIK_DNS_PROVIDER:-}` from the operator's env, and a
+  project-named acme named volume for cert persistence. Traefik image
+  pinned by digest via new `TRAEFIK_IMAGE` constant
+  (`traefik:v3.3@sha256:2cd5cc7...`). Env-tier compose now references
+  the project-tier `${project}-${env}-web` network as `external: true`
+  (was the bare host-wide `web` external network).
+  `docex projinfra <up|down> <side>` for fixed projects now runs real
+  docker-compose against `infra/output/project/<side>/docker-compose.yml`
+  via a new `pipeline/projinfra.py` module — single-machine
+  convergence means the two sides emit identical content and the
+  second `up` is a docker-compose no-op. `down` refuses when any
+  env-tier compose stack for the project is still up; the acme volume
+  survives `down`. `DockerClient` gains `compose_up`, `compose_down`,
+  `any_env_compose_up`. Multi-machine fixed (ansible-at-project-tier)
+  stays deferred; mod 042 adds real preinfra preconditions; mod 044
+  adds the EC2-traefik elastic alternative. Mod 036 of the
+  shape-and-tier campaign.
+
 - **Compiler output split by side (BREAKING).** Project-tier output is
   now organized under `infra/output/project/{development,production}/`
   instead of a single `infra/output/project/`. Both sides emit on every
