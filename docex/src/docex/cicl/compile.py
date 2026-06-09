@@ -418,6 +418,12 @@ class CompiledEnv:
     subdomain: str
     bare_project_subdomain: str
     project: str
+    # Mod 046: DNS-label form of `project` (underscores → hyphens, lowercased).
+    # Every data-plane-resolvable name (docker networks, ECS Service Connect,
+    # OTel sidecar container names, traefik project containers, etc.) must
+    # derive its project segment from this field rather than the raw `project`,
+    # per transfer_tables.md § Naming Policies.
+    project_dns_label: str
     project_version: str
     container_registry: str | None
     services: dict[str, CompiledService]
@@ -447,6 +453,12 @@ def compile_env(
     foundation = _env_foundation(doc.foundation, env)
     subdomain = _env_subdomain(doc.apex_domain, project_name, env)
     bare_project = _bare_project_subdomain(doc.apex_domain, project_name)
+    # Mod 046: DNS-labeled form of the project name. Used by emit sites that
+    # interpolate the project segment directly into a data-plane resolvable
+    # name (docker networks, OTel sidecar container names, Service Connect
+    # namespace, etc.). The raw `project_name` may contain underscores; the
+    # data plane requires hyphens.
+    project_dns_label = _dns_label(project_name)
 
     # Resolve engines per service first; magic refs need them.
     engines_by_service: dict[str, EngineEntry] = {}
@@ -704,6 +716,7 @@ def compile_env(
         subdomain=subdomain,
         bare_project_subdomain=bare_project,
         project=project_name,
+        project_dns_label=project_dns_label,
         project_version=project_version,
         container_registry=doc.container_registry,
         services=compiled_services,
@@ -855,10 +868,16 @@ def run_compile(ctx: Any) -> int:
     # the production side switches by foundation (compose for fixed, HCL
     # for elastic). Mod 035 emits networks only; the per-project traefik
     # and ansible artifacts land in mod 036.
+    # Mod 046: project-tier compose names (the four `-web` networks, the
+    # `<project>-traefik` container, the ACME volume) are all data-plane
+    # docker identifiers and must derive their project segment from the
+    # DNS-labeled form rather than the raw project name.
+    project_dns_label = _dns_label(ctx.project.name)
+
     dev_project_dir = output_root / "project" / "development"
     dev_project_dir.mkdir(parents=True, exist_ok=True)
     emit_project_compose(
-        project=ctx.project.name,
+        project_dns_label=project_dns_label,
         out_path=dev_project_dir / "docker-compose.yml",
     )
     files_written += 1
@@ -867,7 +886,7 @@ def run_compile(ctx: Any) -> int:
     prod_project_dir.mkdir(parents=True, exist_ok=True)
     if ctx.infra.foundation == "fixed":
         emit_project_compose(
-            project=ctx.project.name,
+            project_dns_label=project_dns_label,
             out_path=prod_project_dir / "docker-compose.yml",
         )
         files_written += 1

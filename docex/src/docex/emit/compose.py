@@ -84,11 +84,11 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     for short in sorted(compiled.networks):
         if short == "web":
             out[short] = {
-                "name": f"{compiled.project}-{compiled.env}-web",
+                "name": f"{compiled.project_dns_label}-{compiled.env}-web",
                 "external": True,
             }
             continue
-        full = f"{compiled.project}-{compiled.env}-{short}"
+        full = f"{compiled.project_dns_label}-{compiled.env}-{short}"
         out[short] = {"name": full, "internal": True}
     return out
 
@@ -148,7 +148,7 @@ class _LoggingAnchor:
 
 
 def _sidecar_block(
-    svc: CompiledService, project: str, env: str,
+    svc: CompiledService, project_dns_label: str, env: str,
     observability_backend_url: str,
 ) -> dict[str, Any]:
     """Render the paired OTel Collector sidecar block for a core service.
@@ -178,7 +178,7 @@ def _sidecar_block(
     127.0.0.1:13133 stays available for in-band diagnostics from
     inside the shared netns.
     """
-    sidecar_name = f"{project}-{env}-{svc.name}-otelcol"
+    sidecar_name = f"{project_dns_label}-{env}-{svc.name}-otelcol"
     return {
         "image": OTEL_COLLECTOR_IMAGE,
         "container_name": sidecar_name,
@@ -328,9 +328,13 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # WHY: project/env/svc joiners and the `-otelcol` suffix all use
         # hyphens per the unified data-plane naming rule (mod 030 flipped
         # joiners; mod 032 flipped the suffix). Docker container names.
-        sidecar_name = f"{compiled.project}-{compiled.env}-{svc.name}-otelcol"
+        # The project segment is the DNS-labeled form so underscored project
+        # names (e.g. `docex_smoke_elastic`) render hyphenated here (mod 046).
+        sidecar_name = (
+            f"{compiled.project_dns_label}-{compiled.env}-{svc.name}-otelcol"
+        )
         services[sidecar_name] = _sidecar_block(
-            svc, compiled.project, compiled.env,
+            svc, compiled.project_dns_label, compiled.env,
             compiled.observability_backend_url,
         )
 
@@ -424,18 +428,29 @@ def _dump_compose(doc: dict[str, Any]) -> str:
     )
 
 
-def emit_project_compose(*, project: str, out_path: Path) -> None:
+def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
     """Emit a project-tier compose file declaring the four
-    ``${project}-${env}-web`` external networks plus the ``docex-ingress``
-    preinfra network reference, AND the per-project traefik container
-    that joins all five networks and terminates TLS for the project.
+    ``${project_dns_label}-${env}-web`` external networks plus the
+    ``docex-ingress`` preinfra network reference, AND the per-project
+    traefik container that joins all five networks and terminates TLS
+    for the project.
 
     Per ``doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy
-    .md``, the traefik container is named ``${project}-traefik``, uses the
-    cert resolver handle ``doctrine`` (referenced by env-tier service
-    labels), mounts the docker socket read-only for service-discovery, and
-    persists ACME state to the named volume ``${project}-traefik-acme``
-    so certs survive container restarts and ``projinfra down/up`` cycles.
+    .md``, the traefik container is named ``${project_dns_label}-traefik``,
+    uses the cert resolver handle ``doctrine`` (referenced by env-tier
+    service labels), mounts the docker socket read-only for service-
+    discovery, and persists ACME state to the named volume
+    ``${project_dns_label}-traefik-acme`` so certs survive container
+    restarts and ``projinfra down/up`` cycles.
+
+    The ``project_dns_label`` argument is the DNS-labeled form of the
+    project name (underscores → hyphens, lowercased). Every name emitted
+    here is a docker container/network/volume identifier and therefore a
+    data-plane resolvable name; underscored project names (e.g.
+    ``docex_smoke_elastic``) must hyphenate here. The HAProxy web demux
+    reconstructs the project traefik's container name from the request
+    domain via ``domain.split('.')[-2]``, which produces the DNS-labeled
+    form — so the traefik container's name must match. Mod 046.
 
     Both the development and production sides emit this same body shape
     (single-machine fixed projects converge on the same docker daemon).
@@ -447,25 +462,33 @@ def emit_project_compose(*, project: str, out_path: Path) -> None:
     fails until the operator wires them, which is accepted (the container
     still starts and routing still works without certs).
     """
-    acme_volume = f"{project}-traefik-acme"
+    acme_volume = f"{project_dns_label}-traefik-acme"
     data: dict[str, Any] = {
         "networks": {
-            f"{project}-dev-web": {"name": f"{project}-dev-web"},
-            f"{project}-test-web": {"name": f"{project}-test-web"},
-            f"{project}-stage-web": {"name": f"{project}-stage-web"},
-            f"{project}-prod-web": {"name": f"{project}-prod-web"},
+            f"{project_dns_label}-dev-web": {
+                "name": f"{project_dns_label}-dev-web"
+            },
+            f"{project_dns_label}-test-web": {
+                "name": f"{project_dns_label}-test-web"
+            },
+            f"{project_dns_label}-stage-web": {
+                "name": f"{project_dns_label}-stage-web"
+            },
+            f"{project_dns_label}-prod-web": {
+                "name": f"{project_dns_label}-prod-web"
+            },
             "docex-ingress": {"external": True},
         },
         "services": {
-            f"{project}-traefik": {
+            f"{project_dns_label}-traefik": {
                 "image": TRAEFIK_IMAGE,
-                "container_name": f"{project}-traefik",
+                "container_name": f"{project_dns_label}-traefik",
                 "restart": "unless-stopped",
                 "networks": [
-                    f"{project}-dev-web",
-                    f"{project}-test-web",
-                    f"{project}-stage-web",
-                    f"{project}-prod-web",
+                    f"{project_dns_label}-dev-web",
+                    f"{project_dns_label}-test-web",
+                    f"{project_dns_label}-stage-web",
+                    f"{project_dns_label}-prod-web",
                     "docex-ingress",
                 ],
                 "volumes": [
@@ -491,7 +514,7 @@ def emit_project_compose(*, project: str, out_path: Path) -> None:
     }
     header = (
         "# Generated by `docex compile`. Do not edit by hand.\n"
-        f"# project: {project}\n"
+        f"# project: {project_dns_label}\n"
         "# tier: project (mod 036: 4 -web networks + per-project traefik)\n"
     )
     out_path.write_text(header + _dump_compose(data))

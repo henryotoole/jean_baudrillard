@@ -826,6 +826,13 @@ def emit_hcl_project(
     iam_p = naming_policies.get("iam")
     ssm_p = naming_policies.get("ssm_path")
     alb_p = naming_policies.get("alb")
+    # Mod 046: the project subdomain (Route53 zone, ACM cert domain_name + SANs)
+    # is a DNS hostname — its project segment must be DNS-labeled. AWS rejects
+    # underscores in zone names and ACM cert domain names; an underscored
+    # project name (e.g. `docex_smoke_elastic`) must render as
+    # `docex-smoke-elastic.<apex_domain>` here.
+    http_host_p = naming_policies.get("http_host")
+    project_subdomain = f"{apply_policy(project, http_host_p)}.{apex_domain}"
 
     # WHY: ECR repo names are structural — `${project}/${service}` with each
     # segment verbatim and `/` as joiner. The single-separator policy
@@ -856,6 +863,7 @@ def emit_hcl_project(
         ud_tpl = env.get_template("ec2_traefik_user_data.sh.j2")
         traefik_user_data = ud_tpl.render(
             project=project,
+            project_subdomain=project_subdomain,
             apex_domain=apex_domain,
             reverse_proxy=rp,
             traefik_acme_email=acme_email,
@@ -863,6 +871,7 @@ def emit_hcl_project(
 
     rendered = tpl.render(
         project=project,
+        project_subdomain=project_subdomain,
         project_version=project_version,
         apex_domain=apex_domain,
         region=ELASTIC_REGION,

@@ -159,7 +159,27 @@ Tests must pass. If any existing test fails because a snapshot now contains hyph
 
 ## Side effects observed
 
-(Fill in during implementation.)
+- **`ec2_traefik_user_data.sh.j2` swept along.** Not in the original
+  patch-site list but the same class of bug: the PIP-variant user_data
+  embeds a Route53 `list-hosted-zones-by-name --dns-name` lookup using
+  `{{ project }}.{{ apex_domain }}`, plus five record-set entries by
+  the same form. AWS hosted-zone lookup would fail on any underscored
+  project name. Migrated the file to use the new `project_subdomain`
+  variable passed from `emit_hcl_project`. Doctrine principle stated in
+  overview.md applies cleanly: "any name that ends up on a data-plane
+  resolvable identifier must derive its project segment from
+  `_dns_label(project)`."
+- **No pre-existing tests asserted the buggy form.** The 439 prior
+  unit tests and 52 integration tests pass unchanged; existing fixtures
+  use `name: sample` (no underscores), so the leak was invisible to
+  them. The new `tests/unit/test_naming_policy_leak.py` (6 tests)
+  surfaces the regression surface explicitly using an underscored
+  project name (`my_test_proj`).
+- **`emit_project_compose` signature change.** Dropped the `project:`
+  parameter in favor of `project_dns_label:` per the implementation
+  plan (option B). Every interior use of the raw name was data-plane
+  resolvable; nothing wanted the raw form. `run_compile` updated to
+  pass the DNS-labeled form to both project-tier compose call sites.
 
 ## Out of scope reminder
 

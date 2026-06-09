@@ -12,6 +12,67 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-06-09
+
+Patch mod closing the residual data-plane naming-policy leak sites the
+1.0.0 cut shipped. Surfaced by the post-1.0.0 test-project re-inception:
+several emit paths interpolated `${project_name}` directly without
+passing the project segment through the appropriate naming policy, so an
+underscored project name (e.g. `docex_smoke_elastic`) leaked into
+Docker container/network names, OTel sidecar names, the project traefik
+container, the Route53 zone name, the ACM cert SANs, the EC2-traefik
+boot DNS-update script, and the Service Connect namespace. The Route53
+and ACM forms produced RFC-invalid DNS names — AWS would reject them at
+`projinfra up production` — so no underscored elastic project could be
+shipped on 1.0.0. The patch closes every leak site without changing any
+joiner or policy semantics; emit code that already produced hyphenated
+output is unchanged. (Mod 046.)
+
+### Fixed
+
+- **Naming policy leak across compose + HCL emit (mod 046).** Project
+  segment now derives from the DNS-labeled form
+  (`project.replace('_', '-').lower()`, equivalent to
+  `apply_policy(project, http_host)`) at every data-plane emit site:
+  - **Compose env-tier** (`emit_compose`): docker network names
+    (`docex-smoke-elastic-dev-{web,internal}` instead of
+    `docex_smoke_elastic-dev-{web,internal}`), OTel sidecar container
+    names (`docex-smoke-elastic-dev-web-otelcol`).
+  - **Compose project-tier** (`emit_project_compose`): four
+    `${project_dns_label}-${env}-web` networks, project traefik
+    container_name + network attachments, ACME volume name.
+  - **HCL project-tier** (`emit_hcl_project` + `project.tf.j2`):
+    Route53 zone `name`, both ACM cert `domain_name`s + SANs, all five
+    EC2-traefik Route53 A-records.
+  - **HCL EC2-traefik user_data** (`ec2_traefik_user_data.sh.j2`): the
+    boot DNS-update script's hosted-zone lookup + record-set FQDNs.
+  - **HCL env-tier** (`main.tf.j2`): Service Connect namespace `name`
+    (Cloud Map private DNS namespaces resolve via Route53; the name
+    must be a valid DNS hostname).
+- **`CompiledEnv.project_dns_label`** — new field (mod 046) carrying
+  the DNS-labeled project segment. Every data-plane emit site that
+  previously interpolated `compiled.project` now interpolates
+  `compiled.project_dns_label`. Inert AWS record-key identifiers
+  (IAM, SSM, DDB) are unaffected — they retain their existing
+  underscore-preserving policy.
+
+### Tests
+
+- `tests/unit/test_naming_policy_leak.py` (mod 046): six regression
+  tests that construct emits against a project named `my_test_proj`
+  and assert every data-plane name renders hyphenated. Closes a
+  test-coverage gap that existed because the bundled fixtures use
+  `name: sample` (no underscores to leak), making the bug invisible to
+  the pre-1.0.0 test suite.
+
+### Out of scope
+
+- Joiner separator changes (settled by mod 030).
+- ECR repo name emission (structural per mod 030 — segments
+  underscore-preserved by design).
+- Inert AWS record-key identifiers (IAM, SSM, DDB) — underscore-
+  preserving policies are correct.
+
 ## [1.0.0] - 2026-06-09
 
 The **shape-and-tier campaign** cut. Sixteen mods (030–045) bring

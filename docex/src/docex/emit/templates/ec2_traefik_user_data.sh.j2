@@ -172,11 +172,11 @@ cat > /usr/local/bin/docex-traefik-dns-update <<EOF
 set -euo pipefail
 IP=\$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4)
 ZONE_ID="\$(aws route53 list-hosted-zones-by-name \\
-    --dns-name "{{ project }}.{{ apex_domain }}." \\
-    --query 'HostedZones[?Name==\`{{ project }}.{{ apex_domain }}.\`].Id | [0]' \\
+    --dns-name "{{ project_subdomain }}." \\
+    --query 'HostedZones[?Name==\`{{ project_subdomain }}.\`].Id | [0]' \\
     --output text | sed 's,^/hostedzone/,,')"
 if [[ -z "\$ZONE_ID" || "\$ZONE_ID" == "None" ]]; then
-    echo "FATAL: cannot resolve hosted zone for {{ project }}.{{ apex_domain }}" >&2
+    echo "FATAL: cannot resolve hosted zone for {{ project_subdomain }}" >&2
     exit 1
 fi
 
@@ -186,11 +186,11 @@ BATCH=\$(jq -nc --arg ip "\$IP" '
   {
     "Comment": "docex-traefik PIP boot update",
     "Changes": [
-      "{{ project }}.{{ apex_domain }}",
-      "prod.{{ project }}.{{ apex_domain }}",
-      "*.prod.{{ project }}.{{ apex_domain }}",
-      "stage.{{ project }}.{{ apex_domain }}",
-      "*.stage.{{ project }}.{{ apex_domain }}"
+      "{{ project_subdomain }}",
+      "prod.{{ project_subdomain }}",
+      "*.prod.{{ project_subdomain }}",
+      "stage.{{ project_subdomain }}",
+      "*.stage.{{ project_subdomain }}"
     ] | map({
       "Action": "UPSERT",
       "ResourceRecordSet": {

@@ -44,7 +44,7 @@ provider "aws" {
 # delegation before proceeding to the certs.
 # ---------------------------------------------------------------------------
 resource "aws_route53_zone" "project" {
-  name = "{{ project }}.{{ apex_domain }}"
+  name = "{{ project_subdomain }}"
   tags = {
     project    = "{{ project }}"
     managed_by = "doctrine"
@@ -113,9 +113,9 @@ data "aws_subnet" "primary_private" {
 # client (DNS-01 via Route53) instead — see projinfra/ec2_traefik.md.
 # ---------------------------------------------------------------------------
 resource "aws_acm_certificate" "stage" {
-  domain_name = "*.stage.{{ project }}.{{ apex_domain }}"
+  domain_name = "*.stage.{{ project_subdomain }}"
   subject_alternative_names = [
-    "stage.{{ project }}.{{ apex_domain }}",
+    "stage.{{ project_subdomain }}",
   ]
   validation_method = "DNS"
   lifecycle {
@@ -129,10 +129,10 @@ resource "aws_acm_certificate" "stage" {
 }
 
 resource "aws_acm_certificate" "prod" {
-  domain_name = "*.prod.{{ project }}.{{ apex_domain }}"
+  domain_name = "*.prod.{{ project_subdomain }}"
   subject_alternative_names = [
-    "prod.{{ project }}.{{ apex_domain }}",
-    "{{ project }}.{{ apex_domain }}",
+    "prod.{{ project_subdomain }}",
+    "{{ project_subdomain }}",
   ]
   validation_method = "DNS"
   lifecycle {
@@ -541,11 +541,11 @@ resource "aws_eip_association" "project_traefik" {
 # applies to EIP for consistency.
 {% set traefik_target = "aws_eip.project_traefik.public_ip" if reverse_proxy == "ec2_traefik_eip" else "aws_instance.project_traefik.public_ip" %}
 {% set traefik_records = [
-  ("bare_project",   project ~ "." ~ apex_domain),
-  ("prod_wildcard",  "*.prod." ~ project ~ "." ~ apex_domain),
-  ("prod_bare",      "prod." ~ project ~ "." ~ apex_domain),
-  ("stage_wildcard", "*.stage." ~ project ~ "." ~ apex_domain),
-  ("stage_bare",     "stage." ~ project ~ "." ~ apex_domain),
+  ("bare_project",   project_subdomain),
+  ("prod_wildcard",  "*.prod." ~ project_subdomain),
+  ("prod_bare",      "prod." ~ project_subdomain),
+  ("stage_wildcard", "*.stage." ~ project_subdomain),
+  ("stage_bare",     "stage." ~ project_subdomain),
 ] %}
 {% for key, fqdn in traefik_records %}
 resource "aws_route53_record" "traefik_{{ key }}" {

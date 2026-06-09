@@ -119,9 +119,14 @@ resource "aws_ecs_cluster" "cluster" {
 # outside the namespace use the FQDN form <discoveryName>.<namespace>.
 # ---------------------------------------------------------------------------
 resource "aws_service_discovery_private_dns_namespace" "env" {
-  name        = "{{ project }}-{{ env }}"
+  # Mod 046: Cloud Map private DNS namespaces resolve via Route53; the name
+  # must be a valid DNS hostname, so the project segment is DNS-labeled
+  # (underscores → hyphens, lowercased) — the joiner is already a hyphen
+  # per mod 040, but underscores inside an underscored project name would
+  # survive without this filter and AWS would reject the resource.
+  name        = "{{ project | replace('_', '-') | lower }}-{{ env }}"
   vpc         = data.terraform_remote_state.project.outputs.vpc_id
-  description = "ECS Service Connect namespace for {{ project }} {{ env }}"
+  description = "ECS Service Connect namespace for {{ project | replace('_', '-') | lower }} {{ env }}"
   tags = {
     project    = "{{ project }}"
     env        = "{{ env }}"
