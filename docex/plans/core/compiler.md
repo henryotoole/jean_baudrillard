@@ -81,10 +81,10 @@ The compiler always joins parts with `_` internally; the policy decides what rea
 
 1. Internal form: `docex_smoke_elastic_stage_web`.
 2. Engine `container` (role `web`) declares `naming: ecs`.
-3. Policy lookup → `ecs = {separator: underscore, case: any, max_len: 255}`.
-4. `apply_policy(...)` preserves underscores → `docex_smoke_elastic_stage_web` (unchanged).
+3. Policy lookup → `ecs = {separator: hyphen, case: any, max_len: 255}` (mod 030: data-plane resolvable, hyphen).
+4. `apply_policy(...)` translates underscores → `docex-smoke-elastic-stage-web`.
 
-The same internal form passed through the `rds` policy (postgres engine) would become `docex-smoke-elastic-stage-web` (hyphenated, lowercased). This decouples docex's internal join convention from AWS's per-resource-type identifier constraints — without this layer, an engine's choice of `_` vs `-` would leak across every emit site.
+The same internal form passed through the `iam` policy (a doctrine record-key identifier) would stay `docex_smoke_elastic_stage_web` (underscores preserved). This decouples docex's internal join convention from each AWS resource type's identifier convention — without this layer, a policy's choice of `_` vs `-` would leak across every emit site.
 
 ## Structural vs engine emit
 
@@ -92,6 +92,8 @@ Two distinct kinds of identifiers get formed:
 
 - **Engine-owned** — the ECS service for `web`, the RDS instance for `appdb`, the ALB target group for any `web`-network service. An engine declares `naming: <policy>` in the transfer table; the compiler applies it via `_global_service_name`. The result lands on `svc.global_name`. Subsequent emit sites read `svc.global_name`.
 - **Structural** — the OpenTofu state-backend S3 bucket, project ECR repos, project IAM exec role, SSM path prefix, ALB and ECS cluster names. These are emitted at the project tier (`emit_hcl_project`) or in foundation-specific code (`pipeline/bootstrap.py`) and aren't owned by any `infra.yml` service. The choice of policy lives in docex source — e.g. `bootstrap.py` calls `apply_policy(f"{project}_tofu_state", policies.get("s3"))`. The policy body still lives in `naming_policies.yml` so it remains reloadable, but the *choice* of which policy applies is doctrine knowledge embedded in docex.
+
+  Two structural sites bypass the policy table entirely (per `doctrine/infrastructure/specifics/transfer_tables.md § How structural emitters reference a policy`): ECR repo names are emitted as the literal `f"{project}/{name}"` with each segment verbatim (single-separator policies cannot express the `/`-joined two-segment shape), and the dev/test local image tag built in `cicl/compile.py` follows the same pattern.
 
 If the structural set grows substantially, the next refactor is a `structural_resources:` section in transfer tables that declares the structural emit set declaratively. The current closed set (state bucket, lock table, project ECR repos × N, IAM role + inline policy, SSM prefix, ALB, ECS cluster) was small enough that hardcoding the policy choice was the better trade in mod 005.
 

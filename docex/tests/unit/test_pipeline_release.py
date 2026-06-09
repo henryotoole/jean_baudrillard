@@ -226,10 +226,10 @@ def test_release_elastic_probes_cluster_via_ecs_naming_policy(
     ]
     assert probes, "expected ecs_cluster_exists to be probed once"
     # The fixture's project name is "sample"; the ecs policy joins on
-    # underscore. The pre-mod-007 literal would have been "sample-stage".
+    # hyphen (mod 030: data-plane resolvable name).
     name_arg = probes[0][1][0]
-    assert name_arg == "sample_stage", (
-        f"cluster probe used {name_arg!r}; expected 'sample_stage' "
+    assert name_arg == "sample-stage", (
+        f"cluster probe used {name_arg!r}; expected 'sample-stage' "
         f"per the ecs naming policy"
     )
 

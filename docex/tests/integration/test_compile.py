@@ -347,8 +347,10 @@ backing_services:
 
 def _write_underscore_project(tmp_path: Path) -> Path:
     """A project whose name carries underscores — surfaces every policy
-    site where the doctrine must hyphen-translate for AWS validators
-    (S3, RDS, ALB) and where it preserves underscores (DDB, ECS, IAM)."""
+    site where the doctrine hyphen-translates for data-plane resolvable
+    identifiers (S3, RDS, ALB, ECS, Docker, http_host) and where it
+    preserves underscores for inert AWS record-key identifiers (DDB,
+    IAM, SSM path)."""
     proj = tmp_path / "p"
     (proj / "infra").mkdir(parents=True)
     (proj / "project.yml").write_text(
@@ -375,7 +377,9 @@ def test_project_tier_ecr_and_iam_names_use_correct_policies(tmp_path: Path):
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
     project_tf = (proj / "infra" / "output" / "project" / "main.tf").read_text()
-    # ECR repos: lowercase + underscore (project string preserved), `/svc` joiner.
+    # ECR repos: structural emit `${project}/${service}` — each segment
+    # verbatim, `/` as joiner. No policy applied (transfer_tables.md
+    # carve-out).
     assert 'name                 = "docex_smoke_elastic/web"' in project_tf
     # IAM role + inline SSM policy names: underscores preserved.
     assert 'name = "docex_smoke_elastic_task_execution"' in project_tf
@@ -387,7 +391,7 @@ def test_project_tier_ecr_and_iam_names_use_correct_policies(tmp_path: Path):
 def test_env_tier_state_backend_alb_ecs_cluster_names(tmp_path: Path):
     """Stage/prod main.tf state backend + ALB + ECS cluster names follow
     the matching policies (S3 = hyphen, DDB = underscore, ALB = hyphen,
-    ECS = underscore)."""
+    ECS = hyphen)."""
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
     for env in ("stage", "prod"):
@@ -399,24 +403,24 @@ def test_env_tier_state_backend_alb_ecs_cluster_names(tmp_path: Path):
         # ALB: hyphen + lower not enforced (case=any); the project string still
         # hyphenates because the alb policy uses `separator: hyphen`.
         assert f'name               = "docex-smoke-elastic-{env}-alb"' in tf
-        # ECS cluster: underscores preserved (ecs policy).
-        assert f'name = "docex_smoke_elastic_{env}"' in tf
+        # ECS cluster: hyphen (ecs policy is data-plane resolvable).
+        assert f'name = "docex-smoke-elastic-{env}"' in tf
 
 
 def test_env_tier_rds_and_ecs_service_names(tmp_path: Path):
     """RDS identifier uses the `rds` policy (hyphen + lower); ECS service
-    name follows the web role's `ecs` policy (underscore preserved)."""
+    name follows the web role's `ecs` policy (hyphen)."""
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
     for env in ("stage", "prod"):
         tf = (proj / "infra" / "output" / env / "main.tf").read_text()
         # RDS instance identifier (postgres → rds policy).
         assert f'identifier = "docex-smoke-elastic-{env}-appdb"' in tf
-        # ECS service + task family (web → ecs policy).
-        assert f'name            = "docex_smoke_elastic_{env}_web"' in tf
-        assert f'family                   = "docex_smoke_elastic_{env}_web"' in tf
+        # ECS service + task family (web → ecs policy, hyphen).
+        assert f'name            = "docex-smoke-elastic-{env}-web"' in tf
+        assert f'family                   = "docex-smoke-elastic-{env}-web"' in tf
         # Migration task family.
-        assert f'family                   = "docex_smoke_elastic_{env}_web_migrate"' in tf
+        assert f'family                   = "docex-smoke-elastic-{env}-web-migrate"' in tf
 
 
 def test_bootstrap_state_backend_matches_project_tier(tmp_path: Path):

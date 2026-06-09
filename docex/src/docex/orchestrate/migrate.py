@@ -204,7 +204,7 @@ def _migrate_elastic(
 
     project = ctx.project.name
     # Resource naming follows the compiler's naming policies:
-    #   ECS cluster: ``ecs`` policy → ``<project>_<env>`` (underscore)
+    #   ECS cluster: ``ecs`` policy → ``<project>-<env>`` (hyphen, mod 030)
     #   security group: ``<project>_<env>_internal`` (literal underscores in main.tf.j2)
     tables = ctx.transfer_tables
     ecs_policy = tables.naming_policies.get("ecs")
@@ -288,15 +288,15 @@ def _migration_task_family(
     """Derive the migration task definition family for a service.
 
     Must match the compiler's elastic HCL emitter
-    (`render_task_definition`: ``mig_family = svc.global_name + "_migrate"``).
+    (`render_task_definition`: ``mig_family = svc.global_name + "-migrate"``).
     We re-resolve the engine's naming policy so this works without
     re-compiling the project context.
     """
     tables = ctx.transfer_tables
     core = ctx.infra.core_services.get(svc) if ctx.infra else None
     if core is None:
-        # Fallback: best-effort underscore form.
-        return f"{project}_{env}_{svc}_migrate"
+        # Fallback: best-effort hyphen form (mod 030 data-plane naming).
+        return f"{project}-{env}-{svc}-migrate"
     engines = tables.role(core.role)
     engine_entry = None
     for eng_name in sorted(engines):
@@ -305,7 +305,7 @@ def _migration_task_family(
             engine_entry = entry
             break
     if engine_entry is None:
-        return f"{project}_{env}_{svc}_migrate"
+        return f"{project}-{env}-{svc}-migrate"
     policy = tables.naming_policies.get(engine_entry.naming)
     raw = f"{project}_{env}_{svc}"
-    return f"{apply_policy(raw, policy)}_migrate"
+    return f"{apply_policy(raw, policy)}-migrate"

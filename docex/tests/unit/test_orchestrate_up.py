@@ -30,7 +30,7 @@ def test_up_calls_compose_up_then_migrate(sample_ctx, fake_docker):
 
     # Migration exec is the migrate.sh for the api service (it owns the
     # appdb schema). The compose key is the project-scoped global
-    # name (sample_dev_api), not the simple name (api).
+    # name (sample-dev-api), not the simple name (api).
     migrate_calls = [
         c for c in fake_docker.calls
         if c[0] == "compose_exec" and "migrate.sh" in " ".join(c[3])
@@ -43,7 +43,7 @@ def test_up_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     # Script the api migrate.sh exec to fail. The compose service key
     # is the project-scoped global name, not the simple name.
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample_dev_api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample-dev-api", ("./migrate.sh",))
     ] = 17
 
     rc = run_up(sample_ctx, fake_docker, env="dev")

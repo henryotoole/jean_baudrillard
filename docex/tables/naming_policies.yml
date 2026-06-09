@@ -11,9 +11,12 @@
 #   max_len:   <int>                -- optional ceiling; compile errors if
 #                                      the rendered name is longer.
 #
-# Default policy: where AWS allows both separators, the doctrine prefers
-# underscore (matching the project-name form). Hyphen is used only where
-# AWS rejects underscores.
+# Default rule: anything name-resolvable on the data plane uses hyphens
+# (Docker containers/networks/volumes, ECS cluster/service/task-def/
+# Service Connect, ALB/target groups, RDS, S3, hostnames). Underscores
+# are preserved only for inert AWS record-key identifiers that
+# applications never name in DNS or compose: IAM roles, SSM path
+# segments, DynamoDB tables.
 
 naming_policies:
   # S3 bucket names: lowercase, hyphens only.
@@ -28,7 +31,7 @@ naming_policies:
     case: lower
     max_len: 63
 
-  # DynamoDB tables accept both. Preserve underscores (decision 3).
+  # DynamoDB tables — inert record-key identifier; preserve underscores.
   ddb:
     separator: underscore
     case: any
@@ -40,35 +43,31 @@ naming_policies:
     case: any
     max_len: 32
 
-  # ECS cluster / service / task-definition family: both accepted; prefer
-  # underscore for consistency with project-name form.
+  # ECS cluster / service / task-definition family / Service Connect:
+  # data-plane resolvable, hyphens.
   ecs:
-    separator: underscore
+    separator: hyphen
     case: any
     max_len: 255
 
-  # ECR repo names: lowercase, both separators allowed; prefer underscore.
-  ecr_repo:
-    separator: underscore
-    case: lower
-    max_len: 256
-
-  # IAM role / policy names: both accepted; prefer underscore.
+  # IAM role / policy names — inert AWS record-key identifier; preserve
+  # underscores.
   iam:
     separator: underscore
     case: any
     max_len: 64
 
-  # SSM parameter path segments: both accepted; prefer underscore (matches
-  # the `.env` key naming).
+  # SSM parameter path segments — inert AWS record-key identifier;
+  # preserve underscores (matches the `.env` key naming).
   ssm_path:
     separator: underscore
     case: any
     max_len: 1024
 
-  # Docker network/container/volume names: both accepted; prefer underscore.
+  # Docker network/container/volume names: data-plane resolvable,
+  # hyphens.
   docker:
-    separator: underscore
+    separator: hyphen
     case: any
 
   # DNS labels (hostnames): hyphens only, lowercase.

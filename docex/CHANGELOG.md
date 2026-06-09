@@ -12,6 +12,26 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Changed
+
+- **Naming policy unification (BREAKING).** The `docker` and `ecs` policies
+  flip from `separator: underscore` to `separator: hyphen` per the doctrine's
+  new default rule: anything name-resolvable on the data plane uses hyphens;
+  underscores survive only for inert AWS record-key identifiers (`iam`,
+  `ssm_path`, `ddb`). Every Docker container/network/volume name and every
+  ECS cluster/service/task-def family/Service Connect identifier flips from
+  `${project}_${env}_${svc}` to `${project}-${env}-${svc}`. ECR repo names
+  are the same string today (`${project}/${svc}`) but the *mechanism* changes:
+  the `ecr_repo` policy is deleted and ECR joins the small set of structural
+  emit sites whose names bypass the policy table — required because the
+  single-separator policy machinery cannot express the `/`-joined
+  two-segment shape with per-segment underscores preserved. Mod 030 of the
+  shape-and-tier campaign tracked at
+  `docex/plans/campaigns/shape_overhaul_mod_list.md`. Consumer projects
+  pinned to a prior `docex_version` keep their existing names; the next
+  pinned upgrade after the campaign-completing cut will require a recompile
+  and redeploy with new identifier forms.
+
 ## [0.12.1] - 2026-06-04
 
 Single-fix patch following the 0.12.0 PRE_CUT walks.

@@ -67,7 +67,9 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     """Top-level ``networks:`` block.
 
     Every non-``web`` network compiles to a project-scoped docker network
-    named ``${project}_${env}_${shortname}`` with ``internal: true``.
+    named ``${project}-${env}-${shortname}`` with ``internal: true``.
+    Per mod 030's naming unification, docker network names — being
+    data-plane resolvable identifiers — use hyphens.
 
     The ``web`` network is special-cased: it compiles to a bare external
     docker network named ``web`` that the machine-wide Traefik is also
@@ -84,7 +86,7 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
             # the machine-wide Traefik attaches to.
             out[short] = {"name": "web", "external": True}
             continue
-        full = f"{compiled.project}_{compiled.env}_{short}"
+        full = f"{compiled.project}-{compiled.env}-{short}"
         out[short] = {"name": full, "internal": True}
     return out
 
@@ -319,7 +321,10 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         svc = compiled.services[name]
         if not svc.is_core:
             continue
-        sidecar_name = f"{compiled.project}_{compiled.env}_{svc.name}_otelcol"
+        # WHY: project/env/svc joiners use hyphens per mod 030's data-plane
+        # naming rule (docker container names). The `_otelcol` suffix is
+        # tracked separately for mod 032.
+        sidecar_name = f"{compiled.project}-{compiled.env}-{svc.name}_otelcol"
         services[sidecar_name] = _sidecar_block(
             svc, compiled.project, compiled.env,
             compiled.observability_backend_url,

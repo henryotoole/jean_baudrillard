@@ -172,7 +172,7 @@ def test_web_network_is_shared_external_and_others_are_project_scoped(tmp_path: 
     """Per doctrine/infrastructure/specifics/networks.md § Network
     Definition Name vs. Compiled Name, fixed-foundation `web` compiles to
     the bare external network `web`; every other network keeps
-    ${project}_${env}_${name} scoping."""
+    ${project}-${env}-${name} scoping."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -184,7 +184,7 @@ def test_web_network_is_shared_external_and_others_are_project_scoped(tmp_path: 
     assert networks["web"] == {"name": "web", "external": True}, networks["web"]
     # `internal` (or any other CICL-defined network) stays project-scoped.
     internal = networks["internal"]
-    assert internal["name"].endswith("_dev_internal"), internal
+    assert internal["name"].endswith("-dev-internal"), internal
     assert internal.get("internal") is True, internal
 
 

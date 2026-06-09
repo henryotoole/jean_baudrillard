@@ -186,7 +186,7 @@ resource "aws_ecs_cluster" "cluster" {
 # register themselves via service_connect_configuration on aws_ecs_service.
 # ---------------------------------------------------------------------------
 resource "aws_service_discovery_http_namespace" "env" {
-  name        = "{{ project }}_{{ env }}"
+  name        = "{{ project }}-{{ env }}"
   description = "ECS Service Connect namespace for {{ project }} {{ env }}"
   tags = {
     project    = "{{ project }}"

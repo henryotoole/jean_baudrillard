@@ -37,7 +37,7 @@ def test_ecs_wait_tolerates_brief_consistency_miss(monkeypatch):
     # Patch time.sleep so the test doesn't actually wait poll_interval.
     with patch("docex.aws.boto3_client.time.sleep", lambda _s: None):
         rc = client.ecs_wait_for_task(
-            cluster="docex_smoke_elastic_prod",
+            cluster="docex-smoke-elastic-prod",
             task_arn="arn:aws:ecs:us-east-1:1:task/p/abc",
             timeout_s=60,
         )

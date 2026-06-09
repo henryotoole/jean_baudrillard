@@ -42,7 +42,7 @@ Persistent breakdown of the 16-mod campaign driven by [`../modifications/_campai
 
 When a mod's design pass starts, link its folder here.
 
-- [ ] 030 — Naming policy unification
+- [x] 030 — Naming policy unification ([mod folder](../modifications/030_naming_policy_unification/))
 - [ ] 031 — CICL surface refresh
 - [ ] 032 — Telemetry alignment
 - [ ] 033 — Fargate tier rounding formalized

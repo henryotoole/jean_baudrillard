@@ -23,12 +23,16 @@ def test_apply_policy_hyphen_translates_underscores():
 
 
 def test_apply_policy_underscore_translates_hyphens_back():
-    policy = NamingPolicy(name="ecs", separator="underscore", case="any", max_len=None)
+    # Synthetic underscore policy — exercises apply_policy's hyphen→underscore
+    # translation, decoupled from any doctrine policy.
+    policy = NamingPolicy(name="iam", separator="underscore", case="any", max_len=None)
     assert apply_policy("foo-bar-baz", policy) == "foo_bar_baz"
 
 
 def test_apply_policy_case_lower():
-    policy = NamingPolicy(name="ecr_repo", separator="underscore", case="lower", max_len=None)
+    # Synthetic lowercasing policy — `s3` happens to be lowercasing in
+    # doctrine; using it here is fine as we're testing apply_policy mechanics.
+    policy = NamingPolicy(name="s3", separator="underscore", case="lower", max_len=None)
     assert apply_policy("Project_Name", policy) == "project_name"
 
 
@@ -55,7 +59,7 @@ def test_apply_policy_no_max_len_allows_long_names():
 def test_parse_policies_happy_path():
     raw = {
         "s3": {"separator": "hyphen", "case": "lower", "max_len": 63},
-        "ecs": {"separator": "underscore", "case": "any"},
+        "ecs": {"separator": "hyphen", "case": "any"},
     }
     policies = parse_policies(raw)
     s3 = policies.get("s3")
@@ -63,7 +67,7 @@ def test_parse_policies_happy_path():
     assert s3.case == "lower"
     assert s3.max_len == 63
     ecs = policies.get("ecs")
-    assert ecs.separator == "underscore"
+    assert ecs.separator == "hyphen"
     assert ecs.case == "any"
     assert ecs.max_len is None
 

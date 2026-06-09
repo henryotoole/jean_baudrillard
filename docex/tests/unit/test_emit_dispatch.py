@@ -45,7 +45,7 @@ def _svc(
         engine=engine,
         foundation="elastic",
         is_core=is_core,
-        global_name=f"proj_stage_{name}",
+        global_name=f"proj-stage-{name}",
         body=body or {
             "image": "nginx:1.27-alpine",
             "cpu": "256",
@@ -161,9 +161,9 @@ def test_ecs_service_with_port_registers_service_block():
     svc = _svc(port=80)
     rendered = render_ecs_service(svc, _ctx())
     assert 'port_name      = "sidecar"' in rendered
-    assert 'discovery_name = "proj_stage_sidecar"' in rendered
+    assert 'discovery_name = "proj-stage-sidecar"' in rendered
     assert "client_alias {" in rendered
-    assert 'dns_name = "proj_stage_sidecar"' in rendered
+    assert 'dns_name = "proj-stage-sidecar"' in rendered
     assert "port     = 80" in rendered
 
 
@@ -240,7 +240,7 @@ def test_render_efs_emits_filesystem_and_mount_target():
     from docex.emit.hcl import render_efs_file_system
     rendered = render_efs_file_system(svc, _ctx())
     assert 'resource "aws_efs_file_system" "clickdb"' in rendered
-    assert 'creation_token   = "proj_stage_clickdb"' in rendered
+    assert 'creation_token   = "proj-stage-clickdb"' in rendered
     assert 'encrypted        = true' in rendered
     assert 'resource "aws_efs_mount_target" "clickdb"' in rendered
     assert 'count           = length(data.terraform_remote_state.project.outputs.private_subnet_ids)' in rendered

@@ -395,7 +395,9 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # telemetry signals (Mod 018).
     if svc.is_core and svc.schema_owned_by_db:
         out.append("")
-        mig_family = f"{svc.global_name}_migrate"
+        # WHY: `-migrate` suffix (mod 030) — task family is a data-plane
+        # resolvable ECS identifier, so the joiner uses the unified hyphen.
+        mig_family = f"{svc.global_name}-migrate"
         mig_container = {
             "name": svc.name,
             "image": body.get("image", ""),
@@ -781,13 +783,15 @@ def emit_hcl_project(
     s3_p = naming_policies.get("s3")
     ddb_p = naming_policies.get("ddb")
     iam_p = naming_policies.get("iam")
-    ecr_p = naming_policies.get("ecr_repo")
     ssm_p = naming_policies.get("ssm_path")
 
+    # WHY: ECR repo names are structural — `${project}/${service}` with each
+    # segment verbatim and `/` as joiner. The single-separator policy
+    # machinery cannot express this shape; per transfer_tables.md
+    # "How structural emitters reference a policy", ECR joins the small set
+    # of structural emit sites that bypass the policy table.
     ecr_repo_names = {
-        name: (
-            apply_policy(project, ecr_p) + "/" + apply_policy(name, ecr_p)
-        )
+        name: f"{project}/{name}"
         for name in core_service_names
     }
     rendered = tpl.render(

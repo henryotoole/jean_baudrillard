@@ -394,10 +394,11 @@ def test_core_service_task_definition_environment_carries_project_version(
 
 def test_service_connect_namespace_emitted_per_env(compiled_prod_tf: str):
     """Mod 014: one aws_service_discovery_http_namespace per env, named
-    `<project>_<env>`. The elastic fixture's project name is `sample`."""
+    `<project>-<env>` (mod 030: data-plane resolvable name, hyphen).
+    The elastic fixture's project name is `sample`."""
     tf = compiled_prod_tf
     assert 'resource "aws_service_discovery_http_namespace" "env"' in tf
-    assert 'name        = "sample_prod"' in tf
+    assert 'name        = "sample-prod"' in tf
 
 
 def test_service_connect_namespace_emitted_for_stage(tmp_path: Path):
@@ -409,7 +410,7 @@ def test_service_connect_namespace_emitted_for_stage(tmp_path: Path):
     assert rc == 0
     stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
     assert 'resource "aws_service_discovery_http_namespace" "env"' in stage_tf
-    assert 'name        = "sample_stage"' in stage_tf
+    assert 'name        = "sample-stage"' in stage_tf
 
 
 def test_backing_service_hcl_lacks_project_version(compiled_prod_tf: str):

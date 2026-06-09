@@ -34,7 +34,7 @@ def test_test_runs_migrate_then_test_then_teardown(sample_ctx, fake_docker):
 def test_test_teardown_still_runs_after_test_failure(sample_ctx, fake_docker):
     """The try/finally guarantee: teardown always happens, even on test failure."""
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample_test_api", ("./test.sh",))
+        ("exit", "compose_exec", "sample-test-api", ("./test.sh",))
     ] = 1
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 1
@@ -73,7 +73,7 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
 
 def test_test_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample_test_api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample-test-api", ("./migrate.sh",))
     ] = 4
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 4

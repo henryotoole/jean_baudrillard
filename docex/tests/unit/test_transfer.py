@@ -102,7 +102,7 @@ def test_bundled_loader_exposes_naming_policies():
     tables = load_transfer_tables(project_root=None)
     by_name = tables.naming_policies.by_name
     # Every canonical AWS-resource policy must be present.
-    for policy_name in ("s3", "rds", "ddb", "alb", "ecs", "ecr_repo", "iam", "ssm_path", "docker", "http_host"):
+    for policy_name in ("s3", "rds", "ddb", "alb", "ecs", "iam", "ssm_path", "docker", "http_host"):
         assert policy_name in by_name, f"missing policy {policy_name}"
     # Sanity: the s3 policy has the documented rule shape.
     s3 = tables.naming_policies.get("s3")
