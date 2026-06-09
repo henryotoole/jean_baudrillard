@@ -1,5 +1,9 @@
 # Fixed Master Network
 
+On `fixed` foundations, the per-machine "master network" is two pieces working together: the `web_demux` HAProxy container that owns host :443 and :80, and the `docex-ingress` Docker bridge network it shares with every project's traefik container. Together they're the operator-managed prerequisite that lets multiple projects coexist on a single host without colliding on the public ports.
+
+This file applies to **every machine that hosts at least one doctrine project's env stack** — that's typically the operator's dev machine and (separately) any remote prod host. Each gets its own copy of the master network; they're independent.
+
 ## The `web_demux` Resource
 
 `web_demux` attaches to the fixed host machine's ports 443 and 80. It routes requests on the basis of domain down to the relevant project traefik container instance.
@@ -22,13 +26,229 @@ This is convenient because HAProxy never needs to have any further knowledge of 
 
 Project traefik instances share a consistent naming scheme: `${project_name}-traefik`. These traefik containers will be on the `docex-ingress` network alongside the HAProxy container itself, so requests can be forwarded directly to them by reconstructing their names from the domain-interpreted project name.
 
+The doctrine canonical form puts the project segment in DNS-labeled form (underscores → hyphens, lowercased — see [`cicl.md § Domain`](../cicl.md#domain)), so for an underscored project name `my_proj` the request will arrive carrying `my-proj` in the project segment. HAProxy parses out `my-proj` and forwards to a container named `my-proj-traefik`, which is exactly what `docex projinfra up <side>` emits. The DNS-label translation is the project's responsibility; HAProxy just forwards what it's parsed.
+
 ### Implementation
 
-TODO write this.
+HAProxy runs as a Docker container — `haproxy:lts-alpine` is the doctrine pick (small image, well-maintained LTS line). It binds host ports 443 and 80 (single occupant per host), joins the `docex-ingress` bridge, and mounts a config file from the host. Lua scripting handles the SNI-to-project parse; the resolved container name is then looked up via Docker's embedded DNS on `docex-ingress`.
+
+The container lives under `/opt/docex-preinfra/web_demux/` on the host (a doctrine-suggested path; the operator may put it elsewhere as long as `docker compose up -d` runs cleanly). Compose, config, and Lua script all live alongside each other so the operator can git-version the directory if they want.
+
+Suggested directory layout:
+
+```
+/opt/docex-preinfra/web_demux/
+├── docker-compose.yml
+├── haproxy/
+│   ├── haproxy.cfg
+│   └── project_resolver.lua
+```
 
 ### Setup Instructions
 
-TODO write setup instructions this after we've set this up once.
+#### Prerequisites
+
+- Docker engine running on the host (version 24+ recommended for predictable Docker-DNS behavior on user-defined bridges).
+- Host ports 80 and 443 free (nothing else binding them — see the "Migrating from a legacy machine-wide traefik" note below if a pre-1.0.0 doctrine machine-wide traefik currently owns them).
+- The `docex-ingress` bridge network created on the host (see [§ The `docex-ingress` Network § Setup Instructions](#setup-instructions-1) below). Stand up the bridge before bringing the `web_demux` up.
+
+#### Stand-up
+
+1. Create the working directory and config files:
+
+```bash
+sudo mkdir -p /opt/docex-preinfra/web_demux/haproxy
+cd /opt/docex-preinfra/web_demux
+```
+
+2. Write `docker-compose.yml`:
+
+```yaml
+# /opt/docex-preinfra/web_demux/docker-compose.yml
+services:
+  web_demux:
+    image: haproxy:lts-alpine
+    container_name: web_demux
+    restart: unless-stopped
+    networks:
+      - docex-ingress
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy/project_resolver.lua:/usr/local/etc/haproxy/project_resolver.lua:ro
+
+networks:
+  docex-ingress:
+    external: true
+```
+
+3. Write `haproxy/project_resolver.lua`:
+
+```lua
+-- /opt/docex-preinfra/web_demux/haproxy/project_resolver.lua
+--
+-- Doctrine-prescribed SNI/Host-header -> project-name parse.
+-- Expects requests in one of the three canonical doctrine forms:
+--   <service>.<env>.<project>.<apex_domain>
+--   <env>.<project>.<apex_domain>
+--   <project>.<apex_domain>
+--
+-- Returns the project segment regardless of which form arrived. The
+-- apex is assumed to be a single-label TLD (.com, .tech, .org, .net).
+-- Multi-label TLDs (.co.uk, .com.au) need the PSL-aware variant below
+-- — currently an open TODO; document the limitation here until a real
+-- multi-TLD operator scenario forces the fix.
+--
+-- See doctrine/infrastructure/preinfra/fixed_master_network.md.
+
+local function project_from_host(host)
+    if not host or host == "" then return nil end
+    -- Strip any trailing dot (FQDN form) before splitting.
+    host = host:gsub("%.$", "")
+    -- Split on '.'
+    local parts = {}
+    for p in string.gmatch(host, "[^.]+") do
+        table.insert(parts, p)
+    end
+    -- We need at least <project>.<apex_sld>.<apex_tld> (3 labels).
+    if #parts < 3 then return nil end
+    -- The project segment is always 3rd-from-last for a single-label TLD.
+    return parts[#parts - 2]
+end
+
+-- TCP path (https, SNI). Fetched as a string returning the resolved
+-- backend container hostname, e.g. "my-proj-traefik".
+core.register_fetches("project_traefik_from_sni", function(txn)
+    local sni = txn.f:ssl_fc_sni()
+    local proj = project_from_host(sni)
+    if not proj then return nil end
+    return proj .. "-traefik"
+end)
+
+-- HTTP path (port 80, Host header). Same shape.
+core.register_fetches("project_traefik_from_host_hdr", function(txn)
+    local host_hdr = txn.f:req_hdr("Host")
+    -- Strip any :port suffix
+    if host_hdr then host_hdr = host_hdr:gsub(":.*$", "") end
+    local proj = project_from_host(host_hdr)
+    if not proj then return nil end
+    return proj .. "-traefik"
+end)
+```
+
+4. Write `haproxy/haproxy.cfg`:
+
+```haproxy
+# /opt/docex-preinfra/web_demux/haproxy/haproxy.cfg
+
+global
+    log stdout format raw local0
+    lua-load /usr/local/etc/haproxy/project_resolver.lua
+    # Use Docker's embedded DNS for resolving <project>-traefik names on
+    # the docex-ingress bridge. 127.0.0.11 is the standard Docker DNS
+    # endpoint inside user-defined bridge networks.
+    resolvers docker_dns
+        nameserver dockerd 127.0.0.11:53
+        resolve_retries 3
+        timeout retry 1s
+        hold valid 10s
+        hold nx 5s
+
+defaults
+    log global
+    timeout connect 5s
+    timeout client 60s
+    timeout server 60s
+
+# -----------------------------------------------------------------------
+# HTTPS (443) — SNI pass-through. We don't terminate TLS; the per-project
+# traefik does. We look at SNI to pick the right backend container.
+# -----------------------------------------------------------------------
+frontend https_in
+    bind *:443
+    mode tcp
+    option tcplog
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req_ssl_hello_type 1 }
+    # Reject connections with no SNI — every doctrine-shaped request
+    # carries one.
+    tcp-request content reject if !{ req_ssl_sni -m found }
+
+    # Resolve target backend container hostname from the SNI.
+    use_backend project_traefik_pool
+
+backend project_traefik_pool
+    mode tcp
+    # The backend hostname is computed per-connection via Lua. HAProxy
+    # resolves it on docex-ingress (Docker DNS) and forwards the
+    # connection unmodified.
+    server-template project 50 _placeholder:443 check resolvers docker_dns init-addr none
+    # WHY server-template: HAProxy doesn't have first-class "compute
+    # backend from variable at connection time" support in pure TCP
+    # mode. The template reserves 50 slots; the Lua action below points
+    # each connection at the right one by reassigning its destination.
+    # NOTE: this is one of the v1 doctrine compromises — the real fix
+    # is either (a) sock-resolver Lua action that does set_dst from a
+    # fetched hostname, or (b) switch web_demux to nginx-stream where
+    # proxy_pass $variable works natively.
+    # TODO: refine after first stand-up — operator may swap to nginx
+    # if the HAProxy Lua approach proves fragile.
+
+# -----------------------------------------------------------------------
+# HTTP (80) — plain HTTP. For doctrine projects the project's per-project
+# traefik handles the 80→443 redirect, so demux forwards by Host header
+# the same way it forwards 443 by SNI.
+# -----------------------------------------------------------------------
+frontend http_in
+    bind *:80
+    mode http
+    option httplog
+    # Reject if no Host header — every well-formed HTTP/1.1 request has one.
+    http-request deny if !{ hdr(host) -m found }
+    # Route by Host -> <project>-traefik.
+    use_backend project_traefik_http_pool
+
+backend project_traefik_http_pool
+    mode http
+    # Same v1 compromise as the 443 backend; see WHY note above.
+    server-template http_project 50 _placeholder:80 check resolvers docker_dns init-addr none
+```
+
+> **NOTE — v1 caveat.** The HAProxy config above is honest about being a starting point. The pure-HAProxy "compute backend hostname per request from SNI" pattern is awkward; the `server-template` placeholder approach is a known compromise. After the first real stand-up, the operator should either: (a) refine the Lua resolver to do `txn:set_dst()` directly and use a single `0.0.0.0:0` backend, or (b) document concretely which projects coexist on this host and convert the template to a static list of `server my-proj-traefik:443` entries. Both work; the doctrine commits only to the *shape* (HAProxy + SNI demux + `docex-ingress` bridge), not the exact config grammar.
+
+5. Bring up the demux:
+
+```bash
+cd /opt/docex-preinfra/web_demux
+sudo docker compose up -d
+```
+
+6. Verify:
+
+```bash
+sudo docker ps --filter name=web_demux --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
+# Expect: web_demux  Up <ts>  0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+
+sudo docker network inspect docex-ingress --format '{{range .Containers}}{{.Name}} {{end}}'
+# Expect: includes 'web_demux' (and any project traefik containers that came up after)
+```
+
+`docex preinfra development` does NOT probe HAProxy directly (operator-managed); it only probes the `docex-ingress` bridge.
+
+### Migrating from a legacy machine-wide traefik
+
+If the host previously ran the pre-1.0.0 doctrine's machine-wide traefik (one shared `traefik` container on a single `web` docker network, owning host :443/:80 and routing for all projects via labels), the migration is the operator's responsibility and is not a `docex` command. The high-level shape:
+
+1. **Stand up `docex-ingress` bridge** alongside the existing `web` network (they coexist fine; different bridges).
+2. **For each project currently routed through the legacy traefik**: bring up its `${project}-traefik` per-project container (via `docex projinfra up <side>` for doctrine projects; via a hand-written compose for pre-doctrine workloads like preinfra-as-project HyperDX or the container registry). Each per-project traefik joins `docex-ingress` and the project's own `-web` networks.
+3. **Stop the legacy traefik** and free host :443/:80.
+4. **Bring up `web_demux`** per the steps above. It picks up the published `${project}-traefik` containers via `docex-ingress` and resumes routing.
+
+Steps 2 and 3 trade brief downtime (seconds to a minute) per project for the migration. There is no zero-downtime path with this design — host :443 has one owner.
+
+> TODO: refine after first migration. If the operator hits subtleties (TLS state continuity for Let's Encrypt, container-name collisions, in-flight connection drain expectations), document them here.
 
 ## The `docex-ingress` Network
 
@@ -36,13 +256,38 @@ TODO write setup instructions this after we've set this up once.
 
 The `docex-ingress` network is a docker bridge network that ties the `web_demux` resource together with all the project traefik containers. It is the standard way that ingress is provided to projects on `fixed` foundations.
 
+It's a plain Docker user-defined bridge — no fancy driver options, no specific CIDR requirements. Docker's embedded DNS resolves container names on the bridge (`<project>-traefik`, `web_demux`, etc.) so HAProxy can forward without static IP knowledge.
+
 ### Implementation
 
-TODO Write this. It should just be a sample docker config block that defines the network and a note detailing where it lives (probably within the `web_demux` docker compose.yml file)
+A single `docker network create docex-ingress` invocation. No compose file owns the network — it's external from the perspective of `web_demux/docker-compose.yml` and from every project's projinfra compose file. This keeps lifecycle independent: the bridge survives `docker compose down` cycles on any individual project (or on `web_demux` itself).
 
 ### Setup Instructions
 
-TODO write setup instructions this after we've set this up once.
+```bash
+# Create the bridge (idempotent: succeeds if absent, no-op if present).
+docker network inspect docex-ingress >/dev/null 2>&1 \
+    || docker network create docex-ingress
+
+# Verify
+docker network ls --filter name=docex-ingress
+# Expect one row.
+```
+
+`docex preinfra development` probes this bridge specifically — its existence is the doctrine-prescribed gate for any `projinfra up development` invocation. If it's missing, every project's projinfra refuses to run.
+
+### Teardown
+
+```bash
+# Confirm nothing is still attached (project traefiks, web_demux, etc.).
+docker network inspect docex-ingress --format '{{len .Containers}}'
+# If non-zero, take down the attached containers first (projinfra down,
+# compose down on web_demux) before proceeding.
+
+docker network rm docex-ingress
+```
+
+In practice this bridge gets stood up once per host and lives indefinitely.
 
 ## Other Concerns
 
@@ -51,3 +296,16 @@ TODO write setup instructions this after we've set this up once.
 Some prerequisite infrastructure (like the HyperDX observability backend) must be added to a fixed-foundation host machine and be accessed over HTTP/HTTPS. It has to fit into our `web_demux` structure. The simplest way to do this is to treat preinfra as just another project. It gets setup on its own docker network with a `traefik` container that spans its network and `docex-ingress`. Naming conventions for the `traefik` instance match those of any other project, so `web_demux` routing *just works*.
 
 The only drawback of this plan is that preinfra names might collide with project names. In practice this is unlikely, as preinfra names tend to be very specific, like `hyperdx`.
+
+### Coexistence with non-doctrine workloads
+
+The host machine may also be running workloads that don't follow the doctrine domain shape (legacy apps reachable via IP, internal-only services, etc.). Two coexistence patterns:
+
+- **They don't use host :443/:80.** Anything binding other ports or relying on container-network-only access is unaffected by `web_demux`.
+- **They use host :443/:80 but expect a different routing convention.** Migrate them to the doctrine domain shape (give them a project name, stand up a `${name}-traefik` per-project container, plug into the demux) — or accept that they remain on a different host while the doctrine-shaped workloads use this one.
+
+### Single-owner-of-:443 invariant
+
+Only one process can bind host :443 (and :80) on a Linux machine without SO_REUSEPORT trickery. `web_demux` claims them; nothing else can. This is the invariant that lets the doctrine guarantee single-source-of-truth routing: every inbound request hits HAProxy first, period.
+
+If the operator finds another process holding these ports, the migration path is "stop that process, start web_demux." There's no shared-ownership pattern in this design.
