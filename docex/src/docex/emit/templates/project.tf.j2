@@ -97,6 +97,7 @@ data "aws_subnet" "primary_private" {
   }
 }
 
+{% if reverse_proxy == "alb" %}
 # ---------------------------------------------------------------------------
 # ACM certificates — one per ALB-served env.
 #
@@ -107,6 +108,9 @@ data "aws_subnet" "primary_private" {
 #     the bare-project ergonomic `<project>.<apex>`.
 # Dev and test envs are always fixed-style; they never reach the ALB and are
 # excluded from these certs.
+#
+# Mod 044: ACM is ALB-only. EC2-traefik uses traefik's built-in Let's Encrypt
+# client (DNS-01 via Route53) instead — see projinfra/ec2_traefik.md.
 # ---------------------------------------------------------------------------
 resource "aws_acm_certificate" "stage" {
   domain_name = "*.stage.{{ project }}.{{ apex_domain }}"
@@ -266,6 +270,293 @@ resource "aws_lb_listener" "project_http" {
     }
   }
 }
+{% elif reverse_proxy in ("ec2_traefik_eip", "ec2_traefik_pip") %}
+# ---------------------------------------------------------------------------
+# EC2-traefik reverse proxy — mod 044.
+#
+# A single t3.nano running Traefik replaces the project ALB for cost-sensitive
+# projects. Traefik terminates TLS with built-in Let's Encrypt (DNS-01 via
+# Route53), proxies to ECS services via the env-tier Service Connect Cloud Map
+# namespace, and reads dynamic routing rules from an SSM Parameter.
+#
+# See doctrine/infrastructure/specifics/projinfra/ec2_traefik.md for the full
+# resource spec, IAM scoping, and user_data behavior.
+#
+# Variant: {{ reverse_proxy }}
+# ---------------------------------------------------------------------------
+
+# Canonical Ubuntu 24.04 LTS. Owner `099720109477` is Canonical's AWS account.
+# The name pattern pins to the 24.04 (Noble) gp3 amd64 server image.
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+# Public subnet in the primary AZ (us-east-1a) — the traefik instance needs
+# an inbound-reachable public IP and should sit in the same AZ as the ECS
+# services it routes to (cross-AZ data transfer cost reasons).
+data "aws_subnet" "primary_public" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.master.id]
+  }
+  filter {
+    name   = "availability-zone"
+    values = ["us-east-1a"]
+  }
+  tags = {
+    tier = "public"
+  }
+}
+
+resource "aws_security_group" "project_traefik" {
+  name        = "{{ project | replace('_', '-') }}-traefik"
+  description = "Project EC2-traefik ingress (80/443 from internet); egress all."
+  vpc_id      = data.aws_vpc.master.id
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = {
+    project    = "{{ project }}"
+    purpose    = "ec2_traefik"
+    managed_by = "doctrine"
+  }
+}
+
+# IAM role + instance profile for the traefik EC2 instance. Distinct from the
+# ECS task-execution role above — different principal (ec2 vs ecs-tasks) and
+# different permissions (Route53 ChangeRecordSets, SSM param fetch, EBS attach,
+# CloudWatch log writes).
+resource "aws_iam_role" "project_traefik" {
+  name = "{{ project }}_traefik_role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+
+resource "aws_iam_instance_profile" "project_traefik" {
+  name = "{{ project }}_traefik_profile"
+  role = aws_iam_role.project_traefik.name
+}
+
+resource "aws_iam_role_policy" "project_traefik" {
+  name = "{{ project }}_traefik_policy"
+  role = aws_iam_role.project_traefik.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Route53 record changes are scoped to the project's hosted zone only —
+        # a compromised instance cannot manipulate DNS for sibling projects on
+        # the same apex domain. Used for LE DNS-01 challenge + PIP boot DNS
+        # update.
+        Effect = "Allow"
+        Action = [
+          "route53:ChangeResourceRecordSets",
+          "route53:GetChange",
+        ]
+        Resource = [
+          "arn:aws:route53:::hostedzone/${aws_route53_zone.project.zone_id}",
+          "arn:aws:route53:::change/*",
+        ]
+      },
+      {
+        # ListHostedZones / GetHostedZone are unscopeable per AWS IAM — the
+        # traefik LE client needs them to discover the zone for DNS-01.
+        Effect   = "Allow"
+        Action   = [
+          "route53:ListHostedZones",
+          "route53:GetHostedZone",
+          "route53:ListResourceRecordSets",
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
+        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ ssm_path_project }}/ec2_traefik/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:{{ region }}:${data.aws_caller_identity.current.account_id}:log-group:/{{ ssm_path_project }}/ec2_traefik:*"
+      },
+      {
+        # EBS attach is scoped by tag — only volumes tagged
+        # `purpose=ec2_traefik_acme` AND project=<this project> may be
+        # attached. DescribeVolumes is required to look up the volume by tag
+        # but is unscopeable in IAM.
+        Effect   = "Allow"
+        Action   = "ec2:DescribeVolumes"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = ["ec2:AttachVolume", "ec2:DetachVolume"]
+        Resource = [
+          "arn:aws:ec2:{{ region }}:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:{{ region }}:${data.aws_caller_identity.current.account_id}:instance/*",
+        ]
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/purpose" = "ec2_traefik_acme"
+            "aws:ResourceTag/project" = "{{ project }}"
+          }
+        }
+      },
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "project_traefik" {
+  name              = "/{{ ssm_path_project }}/ec2_traefik"
+  retention_in_days = 30
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+
+# SSM Parameter that holds traefik's dynamic-config YAML. The instance's
+# systemd timer polls this every 30s and writes changes to
+# /etc/traefik/dynamic.yml; traefik's file provider reloads on change.
+#
+# v1 gap: env-tier release-side rerender is NOT implemented in mod 044 —
+# the parameter is created with an empty stub. Operators using EC2-traefik
+# manage the routing rules manually until a follow-up mod adds the
+# release-flow SSM push. The lifecycle.ignore_changes guard below means
+# subsequent `tofu apply` invocations won't fight with manual edits.
+resource "aws_ssm_parameter" "project_traefik_config" {
+  name        = "/{{ ssm_path_project }}/ec2_traefik/config.yml"
+  description = "Traefik dynamic config (HTTP routers + services) for {{ project }}."
+  type        = "SecureString"
+  value       = "http:\n  routers: {}\n  services: {}\n"
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+  lifecycle {
+    # The release flow (and operators, in v1) overwrite this. Don't drift-fight.
+    ignore_changes = [value]
+  }
+}
+
+# EBS volume that holds traefik's acme.json (LE cert material + account key).
+# Survives instance replacement so AMI / user_data bumps don't trigger LE
+# reissuance and hit rate limits.
+resource "aws_ebs_volume" "project_traefik_acme" {
+  availability_zone = data.aws_subnet.primary_public.availability_zone
+  size              = 8
+  type              = "gp3"
+  encrypted         = true
+  tags = {
+    project    = "{{ project }}"
+    purpose    = "ec2_traefik_acme"
+    managed_by = "doctrine"
+  }
+}
+
+{% if reverse_proxy == "ec2_traefik_eip" %}
+# EIP variant: stable public IP across instance stop/start. Costs 1 EIP from
+# the regional quota.
+resource "aws_eip" "project_traefik" {
+  domain = "vpc"
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+{% endif %}
+
+resource "aws_instance" "project_traefik" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.nano"
+  subnet_id     = data.aws_subnet.primary_public.id
+  vpc_security_group_ids      = [aws_security_group.project_traefik.id]
+  iam_instance_profile        = aws_iam_instance_profile.project_traefik.name
+  {% if reverse_proxy == "ec2_traefik_eip" -%}
+  # EIP variant: EIP attaches separately via aws_eip_association below; the
+  # auto-assigned public IP is suppressed so we don't double-allocate.
+  associate_public_ip_address = false
+  {%- else -%}
+  # PIP variant: subnet's `map_public_ip_on_launch` setting determines the
+  # default; explicitly request a public IP to remain independent of subnet
+  # config.
+  associate_public_ip_address = true
+  {%- endif %}
+  user_data = <<-USER_DATA
+{{ traefik_user_data }}
+  USER_DATA
+  user_data_replace_on_change = true
+  tags = {
+    Name       = "{{ project | replace('_', '-') }}-traefik"
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+
+{% if reverse_proxy == "ec2_traefik_eip" %}
+resource "aws_eip_association" "project_traefik" {
+  instance_id   = aws_instance.project_traefik.id
+  allocation_id = aws_eip.project_traefik.id
+}
+{% endif %}
+
+# Five Route53 A-records — the same five hosts the ALB path would otherwise
+# point at via env-tier alias records. With EC2-traefik these live at the
+# project tier because they all converge on a single instance regardless of
+# env. TTL = 60s so PIP-variant IP changes propagate quickly; the same TTL
+# applies to EIP for consistency.
+{% set traefik_target = "aws_eip.project_traefik.public_ip" if reverse_proxy == "ec2_traefik_eip" else "aws_instance.project_traefik.public_ip" %}
+{% set traefik_records = [
+  ("bare_project",   project ~ "." ~ apex_domain),
+  ("prod_wildcard",  "*.prod." ~ project ~ "." ~ apex_domain),
+  ("prod_bare",      "prod." ~ project ~ "." ~ apex_domain),
+  ("stage_wildcard", "*.stage." ~ project ~ "." ~ apex_domain),
+  ("stage_bare",     "stage." ~ project ~ "." ~ apex_domain),
+] %}
+{% for key, fqdn in traefik_records %}
+resource "aws_route53_record" "traefik_{{ key }}" {
+  zone_id = aws_route53_zone.project.zone_id
+  name    = "{{ fqdn }}"
+  type    = "A"
+  ttl     = 60
+  records = [{{ traefik_target }}]
+}
+{% endfor %}
+{% endif %}
 
 # ---------------------------------------------------------------------------
 # ECR repositories — one per core service. The image refs in each env's
@@ -399,16 +690,29 @@ output "zone_name_servers" {
   value = aws_route53_zone.project.name_servers
 }
 
+output "task_execution_role_arn" {
+  value = aws_iam_role.task_execution.arn
+}
+
+# Mod 044: polymorphic output. Env-tier `web` SGs use it as their ingress
+# source SG, regardless of which reverse-proxy variant the project picked.
+output "reverse_proxy_security_group_id" {
+  value = {% if reverse_proxy == "alb" -%}
+  aws_security_group.project_alb.id
+  {%- else -%}
+  aws_security_group.project_traefik.id
+  {%- endif %}
+}
+
+{% if reverse_proxy == "alb" %}
+# ALB-only outputs. Gated on `reverse_proxy == "alb"` (mod 044) — projects
+# using EC2-traefik don't have an ALB and these outputs would dangle.
 output "stage_cert_arn" {
   value = aws_acm_certificate_validation.stage.certificate_arn
 }
 
 output "prod_cert_arn" {
   value = aws_acm_certificate_validation.prod.certificate_arn
-}
-
-output "task_execution_role_arn" {
-  value = aws_iam_role.task_execution.arn
 }
 
 output "alb_arn" {
@@ -434,6 +738,7 @@ output "alb_http_listener_arn" {
 output "alb_security_group_id" {
   value = aws_security_group.project_alb.id
 }
+{% endif %}
 {% for svc in core_service_names %}
 output "ecr_repository_{{ svc.hcl_id }}_url" {
   value = aws_ecr_repository.{{ svc.hcl_id }}.repository_url

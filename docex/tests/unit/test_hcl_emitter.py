@@ -409,7 +409,11 @@ def test_env_main_tf_references_remote_state_outputs(compiled_elastic_project: P
     assert "data.terraform_remote_state.project.outputs.alb_dns_name" in tf
     assert "data.terraform_remote_state.project.outputs.alb_zone_id" in tf
     assert "data.terraform_remote_state.project.outputs.alb_https_listener_arn" in tf
-    assert "data.terraform_remote_state.project.outputs.alb_security_group_id" in tf
+    # Mod 044: env-tier `web` SG ingress source is the polymorphic
+    # `reverse_proxy_security_group_id`, not the now-gated `alb_security_group_id`.
+    assert "data.terraform_remote_state.project.outputs.reverse_proxy_security_group_id" in tf
+    # The legacy direct reference must be gone from env-tier consumers.
+    assert "data.terraform_remote_state.project.outputs.alb_security_group_id" not in tf
     # Mod 038: env-tier no longer references cert ARNs — the project ALB
     # listener owns both certs (prod default + stage SNI binding).
     assert "data.terraform_remote_state.project.outputs.prod_cert_arn" not in tf

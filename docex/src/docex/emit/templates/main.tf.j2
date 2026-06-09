@@ -72,14 +72,17 @@ resource "aws_security_group" "{{ short }}" {
   }
 }
 {% if short == "web" %}
-# Web SG: open ingress only from the project ALB SG (project-tier; mod 038).
-resource "aws_security_group_rule" "{{ short }}_ingress_from_alb" {
+# Web SG: open ingress only from the project reverse-proxy SG (project-tier).
+# Mod 044: source SG is polymorphic — `alb` projects use the project ALB's SG,
+# `ec2_traefik_*` projects use the project's traefik EC2 SG. Both expose the
+# value via the project-tier `reverse_proxy_security_group_id` output.
+resource "aws_security_group_rule" "{{ short }}_ingress_from_reverse_proxy" {
   type                     = "ingress"
   from_port                = 0
   to_port                  = 65535
   protocol                 = "tcp"
   security_group_id        = aws_security_group.{{ short }}.id
-  source_security_group_id = data.terraform_remote_state.project.outputs.alb_security_group_id
+  source_security_group_id = data.terraform_remote_state.project.outputs.reverse_proxy_security_group_id
 }
 {% else %}
 # Internal SG: accepts ingress only from itself (services in the same network).
@@ -137,8 +140,13 @@ resource "aws_service_discovery_private_dns_namespace" "env" {
 
 {% endfor %}
 
+{% if reverse_proxy == "alb" %}
 # ---------------------------------------------------------------------------
 # Route53 record: <env-subdomain> -> project ALB (project-tier; mod 038)
+#
+# Mod 044: gated on `reverse_proxy == "alb"`. EC2-traefik projects emit
+# these five-host A-records at the project tier instead (the records all
+# converge on the single traefik instance regardless of env).
 # ---------------------------------------------------------------------------
 resource "aws_route53_record" "env" {
   zone_id = data.terraform_remote_state.project.outputs.zone_id
@@ -164,3 +172,4 @@ resource "aws_route53_record" "env_wildcard" {
     evaluate_target_health = false
   }
 }
+{% endif %}

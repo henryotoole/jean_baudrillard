@@ -959,14 +959,20 @@ def test_mod038_env_tier_has_no_alb_resources(tmp_path: Path):
 
 def test_mod038_env_tier_uses_remote_state_for_alb(tmp_path: Path):
     """Mod 038: env-tier references the project ALB exclusively via
-    `data.terraform_remote_state.project.outputs.alb_*`."""
+    `data.terraform_remote_state.project.outputs.alb_*`.
+
+    Mod 044 update: the per-network SG ingress source is now the
+    polymorphic `reverse_proxy_security_group_id` output, not the
+    ALB-specific `alb_security_group_id`. The other ALB references
+    (dns_name, zone_id, https_listener_arn) remain ALB-only.
+    """
     root = _compile_elastic(tmp_path)
     for env in ("stage", "prod"):
         tf = (root / "infra" / "output" / env / "main.tf").read_text()
         # Per-network SG ingress source for the `web` network.
         assert (
             "source_security_group_id = "
-            "data.terraform_remote_state.project.outputs.alb_security_group_id"
+            "data.terraform_remote_state.project.outputs.reverse_proxy_security_group_id"
         ) in tf
         # Route53 alias records (env subdomain + wildcard).
         assert (
@@ -1016,3 +1022,261 @@ def test_mod038_alb_sg_ingress_open_to_internet(tmp_path: Path):
     assert sg_block.count("ingress {") == 2
     assert sg_block.count("egress {") == 1
     assert 'cidr_blocks = ["0.0.0.0/0"]' in sg_block
+
+
+# ---------------------------------------------------------------------------
+# Mod 044 — EC2-traefik reverse-proxy variant (EIP + PIP).
+# ---------------------------------------------------------------------------
+
+
+def _compile_elastic_with_reverse_proxy(tmp_path: Path, variant: str) -> Path:
+    """Copy the elastic fixture, set `reverse_proxy: <variant>` on its
+    infra.yml, compile, and return the project root."""
+    root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    text = infra_yml.read_text()
+    # Insert the field right after `foundation: elastic`. The elastic
+    # fixture has no existing reverse_proxy field.
+    assert "reverse_proxy:" not in text
+    text = text.replace(
+        "foundation: elastic\n",
+        f"foundation: elastic\nreverse_proxy: {variant}\n",
+        1,
+    )
+    infra_yml.write_text(text)
+    ctx = load_project_context(root)
+    rc = run_compile(ctx)
+    assert rc == 0
+    return root
+
+
+def test_mod044_default_reverse_proxy_emits_alb(tmp_path: Path):
+    """Omitting `reverse_proxy:` on an elastic project defaults to `alb` —
+    the project-tier main.tf still carries the ALB resource set."""
+    root = _compile_elastic(tmp_path)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert 'resource "aws_lb" "project"' in tf
+    assert 'resource "aws_security_group" "project_alb"' in tf
+    # No EC2-traefik resources leak through.
+    assert 'resource "aws_instance" "project_traefik"' not in tf
+    assert 'resource "aws_eip" "project_traefik"' not in tf
+
+
+def test_mod044_eip_variant_emits_traefik_resource_set(tmp_path: Path):
+    """`reverse_proxy: ec2_traefik_eip` emits the full EC2-traefik resource
+    set: instance, EIP, EBS volume, IAM role+policy+profile, SG, SSM param,
+    log group, and the five doctrine A-records pointing at the EIP."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # Core compute + storage resources.
+    assert 'resource "aws_instance" "project_traefik"' in tf
+    assert 'resource "aws_ebs_volume" "project_traefik_acme"' in tf
+    assert 'resource "aws_security_group" "project_traefik"' in tf
+    # EIP variant specifically: EIP + association.
+    assert 'resource "aws_eip" "project_traefik"' in tf
+    assert 'resource "aws_eip_association" "project_traefik"' in tf
+    # IAM + observability resources.
+    assert 'resource "aws_iam_role" "project_traefik"' in tf
+    assert 'resource "aws_iam_instance_profile" "project_traefik"' in tf
+    assert 'resource "aws_iam_role_policy" "project_traefik"' in tf
+    assert 'resource "aws_cloudwatch_log_group" "project_traefik"' in tf
+    # SSM dynamic-config param (stub initial value + ignore_changes guard).
+    assert 'resource "aws_ssm_parameter" "project_traefik_config"' in tf
+    assert "ignore_changes = [value]" in tf
+    # Five A-records at the project tier, pointing at the EIP public IP.
+    for key in (
+        "traefik_bare_project",
+        "traefik_prod_wildcard",
+        "traefik_prod_bare",
+        "traefik_stage_wildcard",
+        "traefik_stage_bare",
+    ):
+        assert f'resource "aws_route53_record" "{key}"' in tf
+    assert "aws_eip.project_traefik.public_ip" in tf
+    # PIP-only target must NOT appear.
+    assert "aws_instance.project_traefik.public_ip" not in tf
+
+
+def test_mod044_eip_variant_omits_alb_resources(tmp_path: Path):
+    """`ec2_traefik_eip` projects don't get an ALB or ACM certs."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert 'resource "aws_lb" "project"' not in tf
+    assert 'resource "aws_security_group" "project_alb"' not in tf
+    assert 'resource "aws_lb_listener" "project_https"' not in tf
+    assert 'resource "aws_lb_listener" "project_http"' not in tf
+    assert 'resource "aws_lb_listener_certificate" "project_stage"' not in tf
+    assert 'resource "aws_acm_certificate" "stage"' not in tf
+    assert 'resource "aws_acm_certificate" "prod"' not in tf
+    assert 'resource "aws_acm_certificate_validation"' not in tf
+    # ALB-specific outputs gated off, but the polymorphic output is present.
+    assert 'output "alb_arn"' not in tf
+    assert 'output "alb_security_group_id"' not in tf
+    assert 'output "stage_cert_arn"' not in tf
+    assert 'output "prod_cert_arn"' not in tf
+    assert 'output "reverse_proxy_security_group_id"' in tf
+
+
+def test_mod044_pip_variant_no_eip_uses_instance_ip(tmp_path: Path):
+    """`reverse_proxy: ec2_traefik_pip` skips EIP allocation, lets AWS
+    auto-assign a public IP, and Route53 A-records point at the
+    instance's `public_ip` attribute (boot-time DNS-update unit
+    handles changes after stop/start)."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_pip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # PIP variant: no EIP allocation, no association.
+    assert 'resource "aws_eip" "project_traefik"' not in tf
+    assert 'resource "aws_eip_association" "project_traefik"' not in tf
+    # Instance still exists, with auto-assigned public IP enabled.
+    assert 'resource "aws_instance" "project_traefik"' in tf
+    assert "associate_public_ip_address = true" in tf
+    # Route53 records point at the instance's public_ip directly.
+    assert "aws_instance.project_traefik.public_ip" in tf
+    # EIP-only target must NOT appear.
+    assert "aws_eip.project_traefik.public_ip" not in tf
+
+
+def test_mod044_pip_variant_user_data_has_dns_update_unit(tmp_path: Path):
+    """The PIP variant ships a doctrine systemd unit
+    (`docex-traefik-dns-update.service`) that re-batches Route53 records
+    to the current public IP on boot."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_pip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # The unit definition is heredoc'd into user_data; assert by name.
+    assert "docex-traefik-dns-update.service" in tf
+    assert "docex-traefik-dns-update" in tf
+    # ChangeResourceRecordSets reference confirms the batch logic shipped.
+    assert "change-resource-record-sets" in tf
+
+
+def test_mod044_eip_variant_user_data_omits_dns_update_unit(tmp_path: Path):
+    """The EIP variant has stable IPs — the boot-time DNS-update unit must
+    NOT appear in its user_data."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert "docex-traefik-dns-update.service" not in tf
+    assert "change-resource-record-sets" not in tf
+
+
+def test_mod044_traefik_variant_env_tier_skips_alb_route53_records(tmp_path: Path):
+    """EC2-traefik puts the five A-records at the project tier — env-tier
+    main.tf must NOT emit the alb-alias `aws_route53_record.env` /
+    `env_wildcard` resources."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        assert 'resource "aws_route53_record" "env"' not in tf
+        assert 'resource "aws_route53_record" "env_wildcard"' not in tf
+        # The env-tier should not reference ALB DNS outputs at all.
+        assert "outputs.alb_dns_name" not in tf
+        assert "outputs.alb_zone_id" not in tf
+
+
+def test_mod044_traefik_variant_env_tier_skips_listener_rules(tmp_path: Path):
+    """EC2-traefik routes via SSM-pushed dynamic config (out of mod 044
+    scope) — env-tier `aws_lb_listener_rule` resources must NOT emit."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_pip")
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        assert 'resource "aws_lb_listener_rule"' not in tf
+        assert 'resource "aws_lb_target_group"' not in tf
+        # ECS service no longer carries a load_balancer { } attachment.
+        assert "load_balancer {" not in tf
+        # The polymorphic SG output is still consumed by env-tier `web` SGs.
+        assert "outputs.reverse_proxy_security_group_id" in tf
+
+
+def test_mod044_alb_variant_keeps_alb_specific_outputs(tmp_path: Path):
+    """The default `alb` variant continues to emit every ALB-specific
+    output (alb_arn, alb_security_group_id, stage_cert_arn, etc.) — this
+    is a regression guard so the variant-gating doesn't accidentally drop
+    them."""
+    root = _compile_elastic(tmp_path)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    for out_name in (
+        "alb_arn",
+        "alb_dns_name",
+        "alb_zone_id",
+        "alb_https_listener_arn",
+        "alb_http_listener_arn",
+        "alb_security_group_id",
+        "stage_cert_arn",
+        "prod_cert_arn",
+        "reverse_proxy_security_group_id",
+    ):
+        assert f'output "{out_name}"' in tf, f"missing alb-variant output {out_name!r}"
+
+
+def test_mod044_traefik_iam_route53_scoped_to_project_zone(tmp_path: Path):
+    """The traefik instance's IAM policy scopes
+    `route53:ChangeResourceRecordSets` to the project's own hosted zone
+    only — a compromised instance can't manipulate sibling-project DNS."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # Policy resource references the project zone (an interpolation HCL
+    # literal); the exact arn string contains aws_route53_zone.project.zone_id.
+    policy_start = tf.find('resource "aws_iam_role_policy" "project_traefik"')
+    assert policy_start != -1
+    policy_end = tf.find('resource "aws_cloudwatch_log_group" "project_traefik"', policy_start)
+    policy_block = tf[policy_start:policy_end]
+    assert '"route53:ChangeResourceRecordSets"' in policy_block
+    assert "aws_route53_zone.project.zone_id" in policy_block
+
+
+def test_mod044_traefik_ssm_param_scoped_to_project_path(tmp_path: Path):
+    """The traefik instance's IAM `ssm:GetParameter*` permission is scoped
+    to `/<project>/ec2_traefik/*` only."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # The fixture project is `sample`; SSM path policy preserves its form.
+    assert "parameter/sample/ec2_traefik/*" in tf
+
+
+def test_mod044_traefik_ebs_volume_tagged_for_attach_discovery(tmp_path: Path):
+    """The ACME EBS volume is tagged so the instance's user_data can
+    discover it via `aws ec2 describe-volumes --filters` at boot."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    vol_start = tf.find('resource "aws_ebs_volume" "project_traefik_acme"')
+    assert vol_start != -1
+    # Scope to the volume block; an aws_instance or aws_eip follows.
+    vol_end = tf.find('resource "aws_instance" "project_traefik"', vol_start)
+    if vol_end == -1:
+        vol_end = tf.find('resource "aws_eip"', vol_start)
+    vol_block = tf[vol_start:vol_end]
+    assert 'purpose    = "ec2_traefik_acme"' in vol_block
+    assert 'project    = "sample"' in vol_block
+
+
+def test_mod044_traefik_user_data_renders_project_name(tmp_path: Path):
+    """The user_data shell script is rendered with `{{ project }}`
+    substituted; the rendered output must reference the project name."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # Project literal is set as a shell variable at the top of the
+    # user_data and then referenced by `${PROJECT}` throughout. The
+    # SSM-resource path elsewhere in the HCL carries the literal form too.
+    assert 'PROJECT="sample"' in tf
+    assert "/sample/ec2_traefik/config.yml" in tf

@@ -426,6 +426,13 @@ class CompiledEnv:
     # emitter can wire each core service's paired OTel Collector sidecar
     # to forward signals to the project's observability backend.
     observability_backend_url: str = ""
+    # Mod 044: propagated from the source CICLDocument so the elastic
+    # env-tier emitter can gate ALB-specific resources (listener rules,
+    # Route53 alias records) on `reverse_proxy == "alb"` and consume the
+    # polymorphic `reverse_proxy_security_group_id` project output.
+    # Defaults to "alb" — the doctrine default when the project leaves
+    # the CICL field unset on an elastic project.
+    reverse_proxy: str = "alb"
 
 
 def compile_env(
@@ -702,6 +709,7 @@ def compile_env(
         services=compiled_services,
         networks=networks_seen,
         observability_backend_url=doc.observability_backend_url,
+        reverse_proxy=doc.reverse_proxy or "alb",
     )
 
 
@@ -875,6 +883,7 @@ def run_compile(ctx: Any) -> int:
             core_service_names=list(ctx.infra.core_services.keys()),
             naming_policies=ctx.transfer_tables.naming_policies,
             out_path=prod_project_dir / "main.tf",
+            reverse_proxy=ctx.infra.reverse_proxy,
         )
         files_written += 1
 

@@ -170,6 +170,10 @@ class _RenderCtx:
     # constructing a ctx by hand; real compiles thread it through from
     # `compiled.observability_backend_url`.
     observability_backend_url: str = ""
+    # Mod 044: reverse-proxy variant. Controls env-tier emission of
+    # ALB-specific resources (listener rules). Defaults to "alb" so unit
+    # tests constructing a ctx by hand keep the legacy emit shape.
+    reverse_proxy: str = "alb"
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +472,14 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append("      }")
         out.append("    }")
     out.append("  }")
-    if "web" in nets and "target_group" in svc.emits.get("elastic", []):
+    # Mod 044: only emit the ALB-target-group attachment when the project's
+    # reverse-proxy variant emits the target group resource. EC2-traefik
+    # routes via Service Connect, so there is no target group to bind to.
+    if (
+        "web" in nets
+        and "target_group" in svc.emits.get("elastic", [])
+        and ctx.reverse_proxy == "alb"
+    ):
         out.append("  load_balancer {")
         out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
         out.append(f'    container_name   = "{svc.name}"')
@@ -482,6 +493,13 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
     """Emit ``aws_lb_target_group`` + ``aws_lb_listener_rule`` for a
     web-network service. The dispatcher only calls this when
     ``web in svc.networks`` (per ``_destination_applicable``).
+
+    Mod 044: ``aws_lb_listener_rule`` is ALB-specific. EC2-traefik routes
+    via the SSM-pushed dynamic config (handled at release time, out of
+    mod 044 scope) — listener rules don't apply there. We still emit the
+    target group: ECS services with a ``load_balancer { ... }`` reference
+    it, and even when traefik is the front door the target-group resource
+    is harmless (no ALB attaches to it). Future cleanup mod can prune.
     """
     # ALB target-group names disallow underscores, so the name is
     # policy-translated regardless of the engine's own naming.
@@ -508,25 +526,26 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
                 out.append(f'    {k} = {v}')
         out.append("  }")
     out.append("}")
-    out.append("")
-    out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
-    out.append( '  listener_arn = data.terraform_remote_state.project.outputs.alb_https_listener_arn')
-    out.append(f'  priority     = {priority}')
-    out.append( '  action {')
-    out.append( '    type             = "forward"')
-    out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
-    out.append( '  }')
-    out.append( '  condition {')
-    out.append( '    host_header {')
-    # Per-service host(s): <service>.<env>.<project>.<apex_domain>, plus
-    # the bare <env>.<project>.<apex_domain> for the
-    # domain_default_service; prod's default service also picks up
-    # <project>.<apex_domain>.
-    hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
-    out.append(f'      values = [{hosts_hcl}]')
-    out.append( '    }')
-    out.append( '  }')
-    out.append("}")
+    if ctx.reverse_proxy == "alb":
+        out.append("")
+        out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
+        out.append( '  listener_arn = data.terraform_remote_state.project.outputs.alb_https_listener_arn')
+        out.append(f'  priority     = {priority}')
+        out.append( '  action {')
+        out.append( '    type             = "forward"')
+        out.append(f'    target_group_arn = aws_lb_target_group.{svc.name}.arn')
+        out.append( '  }')
+        out.append( '  condition {')
+        out.append( '    host_header {')
+        # Per-service host(s): <service>.<env>.<project>.<apex_domain>, plus
+        # the bare <env>.<project>.<apex_domain> for the
+        # domain_default_service; prod's default service also picks up
+        # <project>.<apex_domain>.
+        hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
+        out.append(f'      values = [{hosts_hcl}]')
+        out.append( '    }')
+        out.append( '  }')
+        out.append("}")
     return "\n".join(out)
 
 
@@ -690,17 +709,26 @@ _DESTINATION_RENDERERS: dict[str, Callable[[CompiledService, _RenderCtx], str]] 
 }
 
 
-def _destination_applicable(dest: str, svc: CompiledService) -> bool:
+def _destination_applicable(dest: str, svc: CompiledService, ctx: _RenderCtx | None = None) -> bool:
     """Check whether ``dest`` is conditionally emittable for ``svc``.
 
-    Currently only ``target_group`` has a condition — it requires the
-    service to be on the ``web`` network. The doctrine doesn't forbid
-    an engine from declaring ``target_group`` even when no actual
-    service of that engine would be web-routed; the gate just keeps
-    the emit aligned with runtime reachability.
+    ``target_group`` requires the service to be on the ``web`` network.
+    The doctrine doesn't forbid an engine from declaring ``target_group``
+    even when no actual service of that engine would be web-routed; the
+    gate just keeps the emit aligned with runtime reachability.
+
+    Mod 044: ``target_group`` is additionally suppressed when the
+    project's ``reverse_proxy`` is one of the ``ec2_traefik_*`` variants —
+    those projects don't have an ALB to attach the target group to.
+    Traefik reaches ECS services via Service Connect's Cloud Map DNS,
+    so no target group is required.
     """
     if dest == "target_group":
-        return "web" in svc.networks
+        if "web" not in svc.networks:
+            return False
+        if ctx is not None and ctx.reverse_proxy != "alb":
+            return False
+        return True
     return True
 
 
@@ -722,7 +750,7 @@ def render_service(svc: CompiledService, ctx: _RenderCtx) -> str:
 
     emits_elastic = svc.emits.get("elastic", [])
     for dest in emits_elastic:
-        if not _destination_applicable(dest, svc):
+        if not _destination_applicable(dest, svc, ctx):
             continue
         renderer = _DESTINATION_RENDERERS.get(dest)
         if renderer is None:
@@ -763,6 +791,8 @@ def emit_hcl_project(
     core_service_names: list[str],
     naming_policies: NamingPolicies,
     out_path: Path,
+    reverse_proxy: str | None = None,
+    traefik_acme_email: str | None = None,
 ) -> None:
     """Emit the project-tier ``main.tf``.
 
@@ -771,6 +801,12 @@ def emit_hcl_project(
     ``key = "project/terraform.tfstate"`` in the same S3 backend the
     bootstrap creates. The bootstrap runs ``tofu apply`` against this
     HCL before any env-tier apply can succeed.
+
+    ``reverse_proxy`` selects between the doctrine's elastic reverse-proxy
+    variants (mod 044). ``"alb"`` (the doctrine default when the project
+    leaves the field unset) emits the ALB resource set plus ACM certs;
+    ``"ec2_traefik_eip"`` / ``"ec2_traefik_pip"`` emit a single EC2 instance
+    running traefik. See doctrine ``projinfra/ec2_traefik.md``.
     """
     env = Environment(
         loader=FileSystemLoader(_TEMPLATE_DIR),
@@ -800,6 +836,31 @@ def emit_hcl_project(
         name: f"{project}/{name}"
         for name in core_service_names
     }
+    # WHY: ``reverse_proxy`` defaults to "alb" — the doctrine's default
+    # when the project leaves the CICL field unset (see cicl.md § Reverse
+    # Proxy and mod 031's `_validate_reverse_proxy_field`). Centralising
+    # the default here keeps every downstream branch in the template free
+    # of `or "alb"` handling.
+    rp = reverse_proxy or "alb"
+
+    # Render the EC2-traefik user_data script ahead of the HCL template so
+    # the rendered shell is available as a single literal injected into
+    # `aws_instance.project_traefik.user_data`. Skipped on the ALB path
+    # because the template's ALB branch never references it.
+    traefik_user_data = ""
+    if rp in ("ec2_traefik_eip", "ec2_traefik_pip"):
+        # WHY: ACME registration email — LE needs *something*; use a
+        # project-derived placeholder when the operator hasn't supplied
+        # one. A real follow-up mod can surface this via infra.yml.
+        acme_email = traefik_acme_email or f"docex@{apex_domain}"
+        ud_tpl = env.get_template("ec2_traefik_user_data.sh.j2")
+        traefik_user_data = ud_tpl.render(
+            project=project,
+            apex_domain=apex_domain,
+            reverse_proxy=rp,
+            traefik_acme_email=acme_email,
+        )
+
     rendered = tpl.render(
         project=project,
         project_version=project_version,
@@ -818,6 +879,8 @@ def emit_hcl_project(
         ssm_path_project=apply_policy(project, ssm_p),
         alb_name=apply_policy(f"{project}_alb", alb_p),
         alb_sg_name=apply_policy(f"{project}_alb_sg", alb_p),
+        reverse_proxy=rp,
+        traefik_user_data=traefik_user_data,
     )
     out_path.write_text(rendered)
 
@@ -869,6 +932,7 @@ def emit_hcl(
         alb_policy=alb_p,
         priorities=priorities,
         observability_backend_url=compiled.observability_backend_url,
+        reverse_proxy=compiled.reverse_proxy,
     )
 
     def _render(svc: CompiledService) -> str:
@@ -893,5 +957,6 @@ def emit_hcl(
         ecs_cluster_name=apply_policy(
             f"{compiled.project}_{compiled.env}", ecs_p
         ),
+        reverse_proxy=compiled.reverse_proxy,
     )
     out_path.write_text(rendered)

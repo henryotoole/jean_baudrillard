@@ -56,7 +56,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 041 — Elastic master VPC as preinfra ([mod folder](../modifications/041_elastic_master_vpc_preinfra/))
 - [x] 042 — `preinfra <side>` implementations ([mod folder](../modifications/042_preinfra_implementations/))
 - [x] 043 — Service Connect: private DNS + hyphenated namespace ([mod folder](../modifications/043_service_connect_private_dns/))
-- [ ] 044 — EC2-traefik reverse-proxy variant (EIP + PIP)
+- [x] 044 — EC2-traefik reverse-proxy variant (EIP + PIP) ([mod folder](../modifications/044_ec2_traefik_variant/))
 - [ ] 045 — Test projects update + smoke walk
 
 ## Cut implications

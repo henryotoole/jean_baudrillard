@@ -1,0 +1,280 @@
+#!/bin/bash
+# Doctrine-managed user_data for the project's EC2-traefik instance (mod 044).
+# Variant: {{ reverse_proxy }}; project: {{ project }}
+#
+# IDempotence: this script runs on every instance boot (first boot + every
+# replacement). The EBS ACME volume survives instance termination so cert
+# material persists across AMI / user_data bumps. PIP variant also runs a
+# boot-time Route53 update so DNS catches the new public IP.
+set -euo pipefail
+exec > >(tee /var/log/docex-user-data.log | logger -t docex-user-data -s 2>/dev/console) 2>&1
+
+PROJECT="{{ project }}"
+TRAEFIK_VERSION="v3.3.1"
+
+apt-get update
+apt-get install -y --no-install-recommends \
+    curl ca-certificates unzip jq awscli amazon-cloudwatch-agent
+
+INSTANCE_ID=$(curl -sf http://169.254.169.254/latest/meta-data/instance-id)
+REGION=$(curl -sf http://169.254.169.254/latest/meta-data/placement/region)
+
+# --- Attach EBS ACME volume by tag ---------------------------------------------
+# WHY: the volume holds traefik's acme.json so cert material survives instance
+# replacement. Attach happens at runtime (not via aws_volume_attachment) because
+# the same volume must serve a freshly-launched replacement instance.
+VOLUME_ID=$(aws ec2 describe-volumes \
+    --region "$REGION" \
+    --filters "Name=tag:purpose,Values=ec2_traefik_acme" \
+              "Name=tag:project,Values=${PROJECT}" \
+    --query 'Volumes[0].VolumeId' --output text)
+
+if [[ -z "$VOLUME_ID" || "$VOLUME_ID" == "None" ]]; then
+    echo "FATAL: no EBS volume tagged purpose=ec2_traefik_acme project=${PROJECT}" >&2
+    exit 1
+fi
+
+VOL_STATE=$(aws ec2 describe-volumes --region "$REGION" --volume-ids "$VOLUME_ID" \
+    --query 'Volumes[0].State' --output text)
+if [[ "$VOL_STATE" != "in-use" ]]; then
+    aws ec2 attach-volume --region "$REGION" \
+        --volume-id "$VOLUME_ID" --instance-id "$INSTANCE_ID" --device /dev/sdh
+    # Block until the kernel sees the device (NVMe rename can take a few seconds).
+    for _ in $(seq 1 30); do
+        sleep 2
+        if [[ -n "$(lsblk -dn -o NAME,SERIAL | awk -v v="${VOLUME_ID//-/}" '$2==v {print $1}')" ]]; then
+            break
+        fi
+    done
+fi
+
+# Resolve the volume's actual kernel device. On Nitro instances /dev/sdh is
+# remapped to /dev/nvme?n1; lsblk's SERIAL column carries the volume ID
+# minus dashes, which is the most portable lookup.
+VOL_TAG="${VOLUME_ID//-/}"
+DEVICE_NAME=$(lsblk -dn -o NAME,SERIAL | awk -v v="$VOL_TAG" '$2==v {print $1; exit}')
+if [[ -z "$DEVICE_NAME" ]]; then
+    echo "FATAL: kernel did not surface EBS volume ${VOLUME_ID} as a block device" >&2
+    exit 1
+fi
+DEVICE="/dev/${DEVICE_NAME}"
+
+mkdir -p /etc/traefik/acme
+if ! blkid "$DEVICE" >/dev/null 2>&1; then
+    mkfs.ext4 -F "$DEVICE"
+fi
+mount "$DEVICE" /etc/traefik/acme
+echo "$DEVICE /etc/traefik/acme ext4 defaults,nofail 0 2" >> /etc/fstab
+# Traefik's LE client wants acme.json mode 600. Pre-create so first run is happy.
+touch /etc/traefik/acme/acme.json
+chmod 600 /etc/traefik/acme/acme.json
+
+# --- Install traefik ----------------------------------------------------------
+cd /tmp
+curl -sfLO "https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz"
+tar -xzf "traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz" traefik
+install -m 0755 traefik /usr/local/bin/traefik
+rm -f "/tmp/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz" /tmp/traefik
+
+mkdir -p /var/log/traefik
+
+# --- Static traefik config (entrypoints, LE DNS-01, file provider) ------------
+cat > /etc/traefik/traefik.yml <<'EOF'
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+
+certificatesResolvers:
+  doctrine:
+    acme:
+      email: {{ traefik_acme_email }}
+      storage: /etc/traefik/acme/acme.json
+      dnsChallenge:
+        provider: route53
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+log:
+  level: INFO
+  filePath: /var/log/traefik/traefik.log
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+
+api:
+  dashboard: false
+EOF
+
+# --- Initial dynamic config; SSM timer overwrites within 30s -----------------
+cat > /etc/traefik/dynamic.yml <<'EOF'
+http:
+  routers: {}
+  services: {}
+EOF
+
+# --- systemd timer that syncs dynamic.yml from SSM ----------------------------
+cat > /usr/local/bin/docex-traefik-config-sync <<EOF
+#!/bin/bash
+set -euo pipefail
+NEW=\$(mktemp)
+trap 'rm -f "\$NEW"' EXIT
+aws ssm get-parameter \\
+    --region ${REGION} \\
+    --name "/${PROJECT}/ec2_traefik/config.yml" \\
+    --with-decryption \\
+    --query 'Parameter.Value' --output text > "\$NEW"
+if ! cmp -s /etc/traefik/dynamic.yml "\$NEW"; then
+    mv "\$NEW" /etc/traefik/dynamic.yml
+    chmod 0644 /etc/traefik/dynamic.yml
+fi
+EOF
+chmod +x /usr/local/bin/docex-traefik-config-sync
+
+cat > /etc/systemd/system/docex-traefik-config.service <<'EOF'
+[Unit]
+Description=Sync traefik dynamic config from SSM
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/docex-traefik-config-sync
+EOF
+
+cat > /etc/systemd/system/docex-traefik-config.timer <<'EOF'
+[Unit]
+Description=Sync traefik dynamic config every 30 seconds
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=30s
+Unit=docex-traefik-config.service
+[Install]
+WantedBy=timers.target
+EOF
+
+{% if reverse_proxy == "ec2_traefik_pip" %}
+# --- PIP-only: boot-time Route53 update --------------------------------------
+# The PIP variant gets a fresh public IP on every stop/start. This unit reads
+# the new IP from IMDS at boot and updates the five doctrine A-records.
+cat > /usr/local/bin/docex-traefik-dns-update <<EOF
+#!/bin/bash
+set -euo pipefail
+IP=\$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4)
+ZONE_ID="\$(aws route53 list-hosted-zones-by-name \\
+    --dns-name "{{ project }}.{{ apex_domain }}." \\
+    --query 'HostedZones[?Name==\`{{ project }}.{{ apex_domain }}.\`].Id | [0]' \\
+    --output text | sed 's,^/hostedzone/,,')"
+if [[ -z "\$ZONE_ID" || "\$ZONE_ID" == "None" ]]; then
+    echo "FATAL: cannot resolve hosted zone for {{ project }}.{{ apex_domain }}" >&2
+    exit 1
+fi
+
+# Build the batch of five UPSERT changes — single ChangeResourceRecordSets call
+# so the update is atomic from Route53's perspective.
+BATCH=\$(jq -nc --arg ip "\$IP" '
+  {
+    "Comment": "docex-traefik PIP boot update",
+    "Changes": [
+      "{{ project }}.{{ apex_domain }}",
+      "prod.{{ project }}.{{ apex_domain }}",
+      "*.prod.{{ project }}.{{ apex_domain }}",
+      "stage.{{ project }}.{{ apex_domain }}",
+      "*.stage.{{ project }}.{{ apex_domain }}"
+    ] | map({
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": .,
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [{"Value": \$ip}]
+      }
+    })
+  }')
+
+CHANGE_ID=\$(aws route53 change-resource-record-sets \\
+    --hosted-zone-id "\$ZONE_ID" \\
+    --change-batch "\$BATCH" \\
+    --query 'ChangeInfo.Id' --output text)
+echo "Submitted Route53 change \$CHANGE_ID; polling INSYNC."
+aws route53 wait resource-record-sets-changed --id "\$CHANGE_ID" || true
+EOF
+chmod +x /usr/local/bin/docex-traefik-dns-update
+
+cat > /etc/systemd/system/docex-traefik-dns-update.service <<'EOF'
+[Unit]
+Description=Update Route53 A-records to current public IP (PIP boot)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/docex-traefik-dns-update
+[Install]
+WantedBy=multi-user.target
+EOF
+{% endif %}
+
+# --- traefik service ---------------------------------------------------------
+cat > /etc/systemd/system/traefik.service <<'EOF'
+[Unit]
+Description=Traefik reverse proxy
+After=network-online.target docex-traefik-config.service
+Wants=network-online.target
+[Service]
+ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# --- CloudWatch Logs agent ----------------------------------------------------
+cat > /etc/amazon-cloudwatch-agent.json <<EOF
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/traefik/traefik.log",
+            "log_group_name": "/${PROJECT}/ec2_traefik",
+            "log_stream_name": "{instance_id}/traefik",
+            "retention_in_days": 30
+          },
+          {
+            "file_path": "/var/log/traefik/access.log",
+            "log_group_name": "/${PROJECT}/ec2_traefik",
+            "log_stream_name": "{instance_id}/access",
+            "retention_in_days": 30
+          }
+        ]
+      }
+    }
+  }
+}
+EOF
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config -m ec2 -c file:/etc/amazon-cloudwatch-agent.json -s || true
+
+# --- start everything ---------------------------------------------------------
+systemctl daemon-reload
+systemctl enable --now docex-traefik-config.timer
+# Run the config sync once synchronously so dynamic.yml has the real config
+# before traefik first starts.
+/usr/local/bin/docex-traefik-config-sync || true
+{% if reverse_proxy == "ec2_traefik_pip" %}
+systemctl enable docex-traefik-dns-update.service
+systemctl start docex-traefik-dns-update.service || true
+{% endif %}
+systemctl enable --now traefik.service

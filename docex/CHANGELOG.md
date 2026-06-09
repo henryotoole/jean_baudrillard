@@ -12,7 +12,63 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- **EC2-traefik reverse-proxy variant (mod 044).** Elastic projects can now
+  set `reverse_proxy: ec2_traefik_eip` or `reverse_proxy: ec2_traefik_pip`
+  in `infra.yml` to swap the default ALB for a single t3.nano running
+  traefik — ~$4-8/month vs the ALB's ~$22/month, see
+  [`doctrine/infrastructure/specifics/projinfra/ec2_traefik.md`](../doctrine/infrastructure/specifics/projinfra/ec2_traefik.md).
+  The variant emits the full traefik resource set at the project tier
+  (instance + IAM role/policy/profile + SG + EBS ACME volume + SSM
+  Parameter for dynamic config + CloudWatch log group + five Route53
+  A-records); ACM and the ALB are omitted. Project-tier outputs are
+  polymorphic: env-tier `web` SG ingress consumes
+  `reverse_proxy_security_group_id`, which resolves to either the ALB
+  SG or the traefik SG depending on the variant. EIP variant pins a
+  stable public IP at 1 EIP/project; PIP variant uses an auto-assigned
+  public IP plus a boot-time systemd unit that rewrites the five
+  A-records via a Route53 batch on IP changes.
+- **`templates/ec2_traefik_user_data.sh.j2`** (~280 lines): doctrine-managed
+  user_data shell rendered into the EC2-traefik instance, covers EBS
+  ACME volume tag-attach, traefik install + static config (DNS-01 LE
+  via Route53), systemd timer for the SSM-driven dynamic-config sync,
+  optional PIP-only boot DNS update unit, and CloudWatch Logs agent
+  setup.
+
+### Known v1 gaps
+
+- **EC2-traefik release-flow SSM rerender is not implemented (mod 044
+  scope).** Mod 044 emits the SSM Parameter
+  `/<project>/ec2_traefik/config.yml` with an empty stub
+  (`http: { routers: {}, services: {} }`) and uses
+  `lifecycle.ignore_changes = [value]` so subsequent `tofu apply`
+  doesn't fight with manual edits. Operators using EC2-traefik manage
+  routing-rule YAML manually (via `aws ssm put-parameter`) until a
+  follow-up mod adds per-release SSM push from the merged stage+prod
+  routing surface. The instance polls SSM every 30s, so a
+  manually-pushed config reflects on the live instance promptly. ALB
+  users are unaffected.
+
 ### Changed
+
+- **Env-tier `web` SG ingress source is now polymorphic (mod 044).** Was
+  `data.terraform_remote_state.project.outputs.alb_security_group_id`;
+  is now `data.terraform_remote_state.project.outputs.reverse_proxy_security_group_id`.
+  The latter resolves to the ALB SG on `reverse_proxy: alb` projects
+  and to the traefik SG on `ec2_traefik_*` projects. No project-side
+  change is required for ALB projects — the polymorphic output is
+  drop-in.
+- **Env-tier ALB-alias A-records (`aws_route53_record.env` /
+  `env_wildcard`) are gated on `reverse_proxy == "alb"` (mod 044).**
+  EC2-traefik projects emit the five A-records at the project tier
+  instead (they converge on a single instance regardless of env).
+- **Env-tier `aws_lb_listener_rule` and `aws_lb_target_group` resources
+  are gated on `reverse_proxy == "alb"` (mod 044).** EC2-traefik
+  routes via the SSM-driven dynamic config consumed by traefik's file
+  provider; target groups and listener rules have no role on that
+  path. The ECS service's `load_balancer { ... }` attachment is
+  similarly gated.
 
 - **Service Connect namespace switched to private DNS (BREAKING).**
   Per [`shape2.md § Elastic-Foundation`](../doctrine/infrastructure/shape2.md#elastic-foundation),
