@@ -1,46 +1,65 @@
 # Networks
 
-This file goes over the exact nature of networks on `fixed` v `elastic` foundations. This is not intended to be force-loaded with doctrine context; these details get encoded into the compiler. It exists rather as documentation, both for the compiler or the developer who wishes to know more.
+This file describes **env-tier per-service network attachment** — which docker networks a container joins on fixed, which security groups a service joins on elastic, and how the `internal` default behaves. It is intentionally narrow: the project-tier `-web` network surface (and the reverse proxy that spans those networks) lives in [`projinfra/`](./projinfra/overview.md); the master networks live in [`preinfra/`](../preinfra/overview.md).
+
+This is documentation for the implementer of `docex` and the curious developer; it is not meant to be force-loaded as general doctrine context.
+
+## Where Each Network Tier Lives
+
+| Tier | Resource | Documented in |
+| ---- | -------- | ------------- |
+| Preinfra | The master network (`docex-ingress` bridge on fixed; master VPC on elastic) | [preinfra/fixed_master_network.md](../preinfra/fixed_master_network.md), [preinfra/elastic_master_network.md](../preinfra/elastic_master_network.md) |
+| Projinfra | The four per-project `-web` networks; the per-project reverse proxy that spans them | [projinfra/fixed_reverse_proxy.md](./projinfra/fixed_reverse_proxy.md), [projinfra/elastic_alb.md](./projinfra/elastic_alb.md), [projinfra/ec2_traefik.md](./projinfra/ec2_traefik.md) |
+| Envinfra | Per-env `internal` (and any other non-`web`) networks; per-service network attachment | This file |
+
+This file is concerned with the third row. Per-service network attachment is what the compiler decides on the basis of each service's `networks:` list in `infra.yml`.
 
 ## CICL Interpretation
 
-The *number* of networks needed is inferred from `infra.yml` simply by looking at what the services request. The *configuration* of those networks is inferred entirely from the name. Certain network names carry literal meaning:
+The *number* of non-`web` networks needed is inferred from `infra.yml` simply by looking at what the services request. The *configuration* of those networks is inferred entirely from the name. Certain network names carry literal meaning:
+
 **Special Network Names**
-1. `web` - A service on the `web` network is reachable from the public internet over HTTP/S.
+1. `web` — A service on the `web` network is reachable from the public internet over HTTP/S. The `-web` networks themselves are project-tier; only the per-service attachment to them is env-tier.
 
 Any network not given a special name simply defaults to an `internal` network.
 
-## Compiler Implementation
+## Compiled Names
 
-This section defines the implementation means the compiler will choose for networks for a given name and foundation.
+Networks are given short, meaningful names in `infra.yml` like `web`, `internal`, etc. The compiler scopes those names by project and env on both foundations:
 
-### Network Definition Name vs. Compiled Name
-Networks are given short, meaningful names in the `infra.yml` file like `web`, `internal`, etc. However, the compiler must actually create four different networks per `infra.yml`-defined network name: one for each environment. This ensures our environments stay airgapped.
+```
+${project_name}-${env_name}-${network_definition_name}
+```
 
-Therefore, the compiled name must be interpolated to ensure scope-uniqueness. The format is always `compiled_name = ${project}_${env}_${network_definition_name}`, whether it applies to a docker network name or an AWS SG.
+The same form applies whether the underlying resource is a Docker network (fixed) or an AWS security group (elastic). There are no special exceptions — `web` compiles to `${project}-${env}-web` just like any other network.
 
-**Exception: fixed-foundation `web`.** When compiling fixed-foundation output, the network named `web` compiles to a bare external network named `web` rather than `${project}_${env}_web`. This is the single shared public-routing plane that the machine-wide [reverse_proxy] attaches to; project-scoping it would force per-project reverse-proxy instances. See [`Implementation by Name § networks: [web]`](#networks-web) for the rationale. The exception applies only to fixed-foundation Docker networks — `web` in elastic-foundation output still compiles to a per-env, per-project security group named `${project}_${env}_web` for clarity in the AWS console.
+## Per-Service Attachment by Name
 
-### Implementation by Name
+### `networks: [web]`
 
-#### `networks: [web]`
+A service on the `web` network is reachable from the public internet over HTTP/S, at the [domain](../cicl.md#domain) derived from its name, env, and project. Routing is **network-driven**: any service on `web`, regardless of role, is routed; the compiler generates the routing config from network membership, not from the service's role.
 
-A service on the `web` network is reachable from the public internet over HTTP/S, at the [per-service subdomain(s)](../cicl.md#per-service-subdomains) derived from its name — `${service}.${env}.${domain}`, plus the bare `${env}.${domain}` for the `domain_default_service`. Routing is **network-driven**: any service on `web`, regardless of role, is routed; the compiler generates the routing config from network membership, not from the service's role. The `reverse_proxy` role is the one exception — it *is* the edge router, not a routed target.
+`web`-network services **do not publish host ports**. The project's reverse proxy reaches them over the project network on their declared `port`, so there's nothing to bind on the host. (This is why a `web` service may use any port — including 80 — and why two web services never collide.)
 
-`web`-network services **do not publish host ports**. The reverse proxy reaches them over the project network on their declared `port`, so there's nothing to bind on the host. (This is why a `web` service may use any port — including 80 — and why two web services never collide.)
+- **Fixed:** the container gets Traefik discovery labels (`traefik.enable=true`, a `Host(…)` router rule covering the service's domain, `loadbalancer.server.port=<port>`, `tls.certresolver=doctrine`, etc.) and joins the project-tier `${project}-${env}-web` docker network (declared `external: true` in the env's compose file). The project traefik, already running and spanning every `-web` network, picks up the labels and routes accordingly. See [`projinfra/fixed_reverse_proxy.md`](./projinfra/fixed_reverse_proxy.md).
 
-- **Fixed:** the container gets Traefik discovery labels (`traefik.enable=true`, a `Host(…)` router rule covering the service's subdomain(s), `loadbalancer.server.port=<port>`, `tls.certresolver=doctrine`, etc.) and joins the bare external `web` docker network, which the machine-wide Traefik is also attached to. Traefik terminates TLS — using the resolver named `doctrine`, which the operator configures with DNS-01 against Let's Encrypt (HTTP-01 cannot issue the per-env wildcard certs this scheme requires) — and routes each subdomain to the container over the network. The `web` network is shared across all fixed-foundation projects on the host: it is the public-routing plane, and service-level authentication is the right defense against cross-tenant exposure on it.
-- **Elastic:** the (core) service is registered as an ALB target group with a listener rule matching its subdomain(s) at a unique priority. The env's ALB listens on 443 (and 80, redirecting), terminates TLS using the project's ACM cert, and forwards to the task. The service's security group accepts ingress only from the ALB's security group. Managed backing services (RDS, S3, ElastiCache) on `web` are not ALB targets — they're reached at their own AWS endpoints; their `web` membership affects only the security group.
+- **Elastic (ALB):** the (core) service is registered as an ALB target group with a listener rule matching its domain at a unique priority. The project's ALB (project-tier) handles TLS termination using the ACM certs; the env-tier rules direct traffic to env-tier target groups. The service is attached to the `${project}-${env}-web` security group within the master VPC; that SG accepts ingress only from the ALB's security group (looked up via project remote state). See [`projinfra/elastic_alb.md`](./projinfra/elastic_alb.md).
 
-#### `networks: [internal]` (DEFAULT FOR ALL NON-SPECIAL-NAMED NETWORKS)
+- **Elastic (EC2-traefik):** when the project declares `reverse_proxy: ec2_traefik_eip` or `ec2_traefik_pip`, the routing surface changes — the EC2 instance running traefik replaces the ALB and ACM certs. The env-tier ingress source on the `${project}-${env}-web` SG becomes the project's `<project>-traefik` SG instead of the ALB SG. The SG-membership rule for `web`-tagged services is otherwise unchanged. See [`projinfra/ec2_traefik.md`](./projinfra/ec2_traefik.md).
 
-A service on a non-`web` network is reachable only from other services on the same network.
+Managed backing services (RDS, S3, ElastiCache) on `web` are not ALB targets — they're reached at their own AWS endpoints; their `web` membership affects only the security group.
 
-- **Fixed:** the container joins the `{project}_{env}_{network}` docker network. Other containers on the same network reach it by container name, which equals `${global_service_name}`. Docker enforces network isolation.
-- **Elastic:** the service is attached to the `{project}_{env}_{network}` security group. That SG accepts ingress only from itself — i.e., from other services attached to the same SG.
+### `networks: [internal]` (and any other non-special name)
 
-#### Egress
+A service on a non-`web` network is reachable only from other services on the same network. These networks are **env-tier** — declared inside each env's compiled output, torn up and down with the env. The doctrine has no notion of a per-project shared `internal` network; if two services need to talk, they declare the same network name in the same env.
 
-Every project-emitted SG on the elastic foundation carries an allow-all egress rule (`0.0.0.0/0`, all ports, all protocols). This matches the AWS-side default for a freshly-created SG; Terraform's `aws_security_group` resource otherwise denies egress when no `egress` block is specified, which would prevent Fargate tasks from reaching SSM, ECR, and other AWS service endpoints they need to start.
+- **Fixed:** the container joins the `${project}-${env}-${network}` docker network, declared inside the env's compose file (not `external: true` — owned by the env). Other containers on the same network reach it by container name, which equals `${global_service_name}`. Docker enforces network isolation.
+- **Elastic:** the service is attached to the `${project}-${env}-${network}` security group within the master VPC. That SG accepts ingress only from itself — i.e., from other services attached to the same SG. Cross-project isolation in the shared master VPC is enforced exclusively at the SG layer; there is no L3 subnet boundary between projects.
 
-Constraining egress per network — restricting traffic to specific AWS service endpoints or to other project SGs — is deferred. See [infrastructure.md § Deferred](../infrastructure.md#deferred) rule 6.
+## Egress
+
+- **Fixed:** outbound requests leave each container via Docker's normal `iptables`-managed NAT through the host's default route. Nothing project-specific or doctrine-emitted is involved.
+
+- **Elastic:** every project-emitted SG carries an allow-all egress rule (`0.0.0.0/0`, all ports, all protocols). This matches the AWS-side default for a freshly-created SG; Terraform's `aws_security_group` resource otherwise denies egress when no `egress` block is specified, which would prevent Fargate tasks from reaching SSM, ECR, and other AWS service endpoints they need to start. Outbound packets then flow from the private subnet through the master VPC's centralized NAT gateway and out via the IGW — both prerequisite resources shared across every project in the AWS account.
+
+  Constraining egress per network — restricting traffic to specific AWS service endpoints or to other project SGs — is deferred. See [infrastructure.md § Deferred](../infrastructure.md#deferred).

@@ -68,7 +68,7 @@ The developer must also ensure that the Dockerfile produces an environment with 
 
 | Variable | Source | Purpose |
 | -------- | ------ | ------- |
-| `STAGING_URL` | derived from `infra.yml`'s `domain` field | The public URL of the deployed staging environment. Tests issue HTTPS calls against this. |
+| `STAGING_URL` | derived from `infra.yml`'s `apex_domain` field and [domain rules](./cicl.md#domain) | The public URL of the deployed staging environment. Tests issue HTTPS calls against this. |
 | `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. Tests that assert a deployed `/health` returns the expected version read this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. |
 
 The contract is one-way and stable: docex injects these on every `stagetest` run; the project's tests are free to read or ignore them. Adding new doctrine-injected variables is a doctrine change, not a project change.

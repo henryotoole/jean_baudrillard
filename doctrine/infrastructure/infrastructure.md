@@ -17,10 +17,10 @@ Note that many of the choices made regarding infrastructure stem from the practi
 
 The "foundation" of an infrastructure stack defines how it is hosted in production. The choice comes down to whether the project manages the lifecycle of the machines that run its infrastructure. If it cannot manage that lifecycle, the project is on a **fixed** foundation. If it can, the foundation is **elastic**.
 
-1. **Fixed** - The stack is built on a handful of servers (often just one). They represent a fixed resource pool - machines can not automatically scale up or down. Docker containers run on these machines to provide both core and backing services.
+1. **Fixed** - The stack is built on a handful of servers (often just one). They represent a fixed resource pool - machines can not automatically scale up or down. Docker containers run on these machines to provide both core and backing services. Many projects and envs will live on one machine.
 2. **Elastic** - The stack is built across the cloud, taking advantage of infrastructure-as-a-service abstractions. Tools like ECS, S3, and Route53 form the infrastructure which runs the project.
 
-In this doctrine, much effort has gone into preventing this major choice from affecting the subsidiary pieces. It should be very easy to transition from a **fixed** to **elastic** foundation; the structure of the code will be identical.
+In this doctrine, much effort has gone into preventing this major choice from affecting the subsidiary pieces. It should be very easy to transition from a **fixed** to **elastic** foundation; the structure of the code will be identical. 
 
 ## Infrastructure as Code
 
@@ -36,15 +36,27 @@ This dichotomy is identical to that of the two foundations. However, the foundat
 
 There are three tiers, or types, of infrastructure:
 1. Prerequisite Infrastructure - These resources exist outside the scope of any project. They are required for the project to work, but are not constructed or configured by the project.
-	+ Examples: an AWS account used for an `elastic` setup or DNS for a `fixed` setup.
-2. Project Infrastructure - These resources are configured and controlled within project scope, but only one copy exists per project. They are shared across different environments.
-	+ Examples: an AWS VPC which provides the one Internet Gateway to the project's network space.
-3. Environment Infrastructure - These resources are configured and controlled within project scope and are replicated across each environment. Each environment gets an independent copy, although the exact nature of that copy may differ (e.g. between the `fixed` `dev` environment and an `elastic` `prod`).
-	+ Examples: subnets on a VPC scoping access per environment or the `postgres` container for each environment.
+	+ Examples: an AWS account used for an `elastic` setup, the `web_demux` resource in a `fixed` setup, or the master network in both.
+2. Project Infrastructure - These resources are configured and controlled within the scope of the whole project. They are required for environment infrastructure to function.
+	+ Examples: the project-level reverse proxy (whether ALB or Traefik), the `fixed`-foundation `web`-networks.
+3. Environment Infrastructure - These resources are configured and controlled within the scope of a single environment.
+	+ Examples: `elastic` SG's, the `postgres` container for each environment, core service containers.
 
-Of the three tiers, only environment infrastructure is actually designed by the project (in `infra.yml`). Project infrastructure is worked out deterministically by the [CICL compiler](./cicl.md) and is described in the compiled output but *not* `infra.yml`. And prerequisite infrastructure is not even described by the compiled output, as it by definition can not be controlled from within project scope. `docex` can, however, perform proactive checks on prerequisite infrastructure to check whether or not it exists in the needed form.
+Project infrastructure tends to be shared across all environments whereas environment infrastructure is *duplicated* across environments. Each environment gets an independent copy, although the exact nature of that copy may differ (e.g. between the `fixed` `dev` environment and an `elastic` `prod`).
+
+Of the three tiers, environment infrastructure is by far the least deterministic. It's designed for the project in `infra.yml` and will vary greatly from project to project. Project infrastructure is more constrained; it's configured by top-level `infra.yml` fields but most of the details are worked out deterministically by the [CICL compiler](./cicl.md). Prerequisite infrastructure is not even described by the compiled output, as it by definition can not be controlled from within project scope. `docex` can, however, perform proactive checks on prerequisite infrastructure to check whether or not it exists in the needed form.
 
 NOTE: Sometimes the word **stack** is used informally to describe a set of environment infrastructure components. "Restart the  dev stack" would translate to "restart all services for the `dev` environment".
+
+### Infrastructure Sides
+
+There are two "sides" to infrastructure:
+1. The Development Side - This contains the `dev` and `test` environments and the project-tier / prerequisite-tier infrastructure resources needed for them to run.
+2. The Production Side - This contains the `stage` and `prod` environments and the project-tier / prerequisite-tier infrastructure resources needed for them to run.
+
+The development side is always a `fixed` machine, and the production side is either a `fixed` machine or the `elastic` AWS platform. Sometimes development and production share a single `fixed` machine.
+
+Except in the case of a single `fixed` machine, project-tier and some prerequisite-tier infrastructure is duplicated across the two sides. This makes infrastructure side a distinct conceptual axis. 
 
 ## Environments
 
@@ -63,6 +75,18 @@ Every project has four environments: `dev`, `test`, `stage`, and `prod`. Each en
 True to 12-factor app principles, all environments should be as similar to each other as possible. This is one reason all our infrastructure is derived from the same `infra.yml` file. 
 
 `dev` and `test` are always fixed. This ensures that those environments can run on any developer's machine without cloud credentials, while still allowing production to be elastic.
+
+## Networking
+
+Networks are ultimately responsible for enabling requests to reach the right targets. This splits handily into two categories which get treated somewhat differently: ingress and egress.
+
+### Ingress
+
+For ingress, we adopt a semi-decentralized approach. Projects sharing an infrastructure space (an AWS account, an on-prem machine) manage their own reverse proxies for inbound traffic, but all exist on one large master network. This gives blast-radius protection against misconfiguration (one project can't misconfigure another's routing), but not against true outage (if the master network goes down, all projects go down).
+
+### Egress
+
+For egress, we adopt a completely centralized model. Projects sharing infra space also share a master network. A single mechanism performs NAT and grants outbound access to the internet. Full centralization does not bear the same misconfiguration risk (outbound configurations are far more stable and rarely change).
 
 ## CI/CD Pipeline
 
@@ -112,7 +136,7 @@ $pr
 │   │   ├── migrations
 │   │   ├── test.sh
 │   │   ├── build.sh
-│   │   └── migrate.sh
+│   │   └── migrate.sh  # Only if needed
 │   └── worker
 ├── infra
 │   ├── infra.yml
@@ -228,7 +252,7 @@ Every core service which is a provider *must* have a contract to pass CI checks.
 
 The `infra` folder holds our infrastructure concerns - driving config, compile config, secrets, and CI/CD credentials.
 
-**output** - Contains the compiled output by environment. Each `infra/output/${env}` folder will contain either compose config or HCL files, depending on environment and foundation. See [compiler output](./cicl.md#compiler-output) for details.
+**output** - Contains the compiled output. Each `infra/output/${env}` folder holds env-tier compose config or HCL files (depending on environment and foundation), and `infra/output/project/{development,production}/` holds the project-tier output for each side. See [compiler output](./cicl.md#compiler-output) for details.
 **secrets** - The source of truth for all [secrets](./credentials.md#secrets).
     + Each `infra/secrets/${env}.env` file is a .env file that defines secrets for an environment as environmental variables.
     + `infra/secrets/example.env` is generated by the compiler when it runs. It indicates the *required* fields for all env files.

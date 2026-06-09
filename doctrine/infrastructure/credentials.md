@@ -32,7 +32,7 @@ Credentials are stored in the `$pr/infra/deploy_creds` folder in the form of pri
 
 Public keys aren't strictly required, but will in practice often exist in this folder.
 
-How these keys are used is described more deeply in the [release_mechanism](./specifics/release_mechanism.md) specifics.
+How these keys are used is described more deeply in the [release](./specifics/release.md) specifics.
 
 #### Fixed Container Registry
 Both the push side (development machine) and pull side (production machine) of a `fixed`-foundation project need credentials to access the container registry.

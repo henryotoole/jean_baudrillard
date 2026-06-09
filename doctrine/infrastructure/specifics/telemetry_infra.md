@@ -2,7 +2,7 @@
 
 This document covers the deterministic infrastructure `docex` emits to fulfill the application telemetry flow promised in [telemetry.md](../telemetry.md). The developer doesn't read this to *use* telemetry — they read it to diagnose when telemetry breaks. The operator and LLM agent read it to understand what `docex` is actually doing.
 
-Scope: how the OTel collector sidecar is shaped, configured, secured, and wired into each core service's runtime, per foundation. Out of scope: the observability backend itself (covered in [telemetry_preinfra.md](../prereq/telemetry_preinfra.md)) and developer-facing OTel SDK practices (covered in [practices/logging.md § With Respect to Telemetry](../../practices/logging.md#with-respect-to-telemetry)).
+Scope: how the OTel collector sidecar is shaped, configured, secured, and wired into each core service's runtime, per foundation. Out of scope: the observability backend itself (covered in [telemetry_preinfra.md](../preinfra/telemetry_preinfra.md)) and developer-facing OTel SDK practices (covered in [practices/logging.md § With Respect to Telemetry](../../practices/logging.md#with-respect-to-telemetry)).
 
 ## Common
 
@@ -39,7 +39,7 @@ The sidecar's exporter destination is env-aware, implementing the dev/test vs. s
 | `stage` | `otlphttp` | `OBSERVABILITY_BACKEND_URL` with `Authorization: ${TELEMETRY_API_KEY}` | Both |
 | `prod` | `otlphttp` | `OBSERVABILITY_BACKEND_URL` with `Authorization: ${TELEMETRY_API_KEY}` | Both |
 
-In `dev` and `test`, telemetry signals are dumped to the sidecar's container stdout via otelcol's `debug` exporter. Developers and LLM agents read them with `docker logs -f <svc>_otelcol`. No backend setup or credentials required to run a dev stack.
+In `dev` and `test`, telemetry signals are dumped to the sidecar's container stdout via otelcol's `debug` exporter. Developers and LLM agents read them with `docker logs -f <svc>-otelcol`. No backend setup or credentials required to run a dev stack.
 
 In `stage` and `prod`, signals go to the project's observability backend via OTLP over HTTPS. Authentication is API-key in HTTP header per [telemetry.md § Authentication](../telemetry.md#authentication).
 
@@ -113,7 +113,7 @@ The sidecar never receives the application's env vars. Application code never se
 
 Lives in `infra/secrets/<env>.env` as `TELEMETRY_API_KEY=<value>`. `docex compile` emits it as a required entry in `infra/secrets/example.env` for `stage` and `prod`; it is omitted from the example for `dev` and `test`.
 
-The operator obtains the key from HyperDX (or the configured backend's equivalent) before first stage release per [telemetry_preinfra.md](../prereq/telemetry_preinfra.md).
+The operator obtains the key from HyperDX (or the configured backend's equivalent) before first stage release per [telemetry_preinfra.md](../preinfra/telemetry_preinfra.md).
 
 ### Resource Allocation
 
@@ -145,7 +145,7 @@ The reachability probe runs only when `stage` or `prod` are within the check's s
 
 | Failure | Symptom | Where to look |
 | ------- | ------- | ------------- |
-| Backend unreachable at runtime | Sidecar logs export errors; in-memory queue fills; oldest signals dropped on overflow | `docker logs <svc>_otelcol` (fixed) / CloudWatch task logs (elastic); backend's own health page |
+| Backend unreachable at runtime | Sidecar logs export errors; in-memory queue fills; oldest signals dropped on overflow | `docker logs <svc>-otelcol` (fixed) / CloudWatch task logs (elastic); backend's own health page |
 | Sidecar crashed | Core service's SDK can't reach `OTEL_EXPORTER_OTLP_ENDPOINT`; SDK buffers briefly, then drops | Sidecar container logs; on elastic, ECS task status — sidecar is `essential: false` so a crash doesn't tear down the task |
 | Sidecar config malformed at startup | Sidecar exits non-zero immediately; parse error in logs | `infra/output/<env>/...` — the rendered YAML is fully visible in compile output; compare against the spec in this document |
 | `TELEMETRY_API_KEY` missing in stage/prod env | Compile passes (it's syntactic). `docex release` succeeds but sidecar fails to start at runtime with `${env:TELEMETRY_API_KEY}` substitution error | `secrets/<env>.env` — confirm the key is present and non-empty |
@@ -161,16 +161,16 @@ Compose-level mechanics. Sidecar emitted as a paired compose service.
 
 ### Sidecar as Paired Compose Service
 
-For each core service `<svc>`, `docex compile` emits an additional compose service named `<svc>_otelcol`. The sidecar shares the core service's network namespace via compose's `network_mode: "service:<svc>"` — it does not declare its own `networks:` (mutually exclusive with `network_mode`).
+For each core service `<svc>`, `docex compile` emits an additional compose service named `<svc>-otelcol`. The sidecar shares the core service's network namespace via compose's `network_mode: "service:<svc>"` — it does not declare its own `networks:` (mutually exclusive with `network_mode`).
 
 Netns sharing on fixed deliberately mirrors the ECS task-netns sharing on elastic — the two foundations end up with identical loopback semantics, so `OTEL_EXPORTER_OTLP_ENDPOINT` resolves to the same value on both. It also sidesteps the edge case of a core service that only joins the `web` network: the sidecar inherits whatever networks the core service joins, with no per-network choice for `docex` to make.
 
 Emitted compose entry shape (illustrative — actual emit lives in `src/docex/emit/compose.py`):
 
 ```yaml
-<svc>_otelcol:
+<svc>-otelcol:
   image: otel/opentelemetry-collector:<digest>
-  container_name: ${project}_${env}_<svc>_otelcol
+  container_name: ${project}-${env}-<svc>-otelcol
   command: ["--config=/etc/otelcol/config.yaml"]
   network_mode: "service:<svc>"
   configs:
@@ -213,7 +213,7 @@ The rendered file lives under `infra/output/` and is git-tracked per [cicl.md §
 
 ### Secret Delivery
 
-Standard compose `environment:` block on the sidecar reading from the rendered `.env` per [release_mechanism.md § Fixed Foundation: Ansible](./release_mechanism.md#fixed-foundation-ansible).
+Standard compose `environment:` block on the sidecar reading from the rendered `.env` per [release.md § Fixed Foundation: Ansible](./release.md#fixed-foundation-ansible).
 
 The `${VAR:-}` syntax (with empty default) means the variables are optional from compose's perspective — `dev.env` and `test.env` don't need to declare them. In `stage.env` and `prod.env` they must be set; if omitted, the sidecar starts but otelcol's `${env:VAR}` substitution in the config fails at startup with a clear error.
 
@@ -221,7 +221,7 @@ The `${VAR:-}` syntax (with empty default) means the variables are optional from
 
 The sidecar runs otelcol's `health_check` extension on `127.0.0.1:13133`, polled by the compose healthcheck for diagnostic visibility — `docker compose ps` shows the sidecar's health status, and the operator can use it to confirm the sidecar started cleanly.
 
-The core service does **not** declare a `depends_on` healthcheck on `<svc>_otelcol`. With `network_mode: "service:<svc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
+The core service does **not** declare a `depends_on` healthcheck on `<svc>-otelcol`. With `network_mode: "service:<svc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
 
 This means the core service does not have a guaranteed sidecar at `t=0`. The OTel SDK's default batch/retry behavior covers the brief startup window — sidecar readiness is typically 1–2 seconds, well within the SDK's queue tolerance (default queue size of 2048 spans, 5-second flush interval). Signals emitted during the startup window are buffered, not dropped.
 
@@ -235,7 +235,7 @@ Note: `dev` and `test` are always fixed per [shape2.md § Shape and Environment]
 
 ### Sidecar as Paired Task Container
 
-For each core service `<svc>`, the ECS task definition contains two containers: the application container and an `<svc>_otelcol` container. They share the task netns. There is no separate ECS service for the sidecar.
+For each core service `<svc>`, the ECS task definition contains two containers: the application container and an `<svc>-otelcol` container. They share the task netns. There is no separate ECS service for the sidecar.
 
 Emitted task-definition container fragment for the sidecar (illustrative):
 
@@ -245,11 +245,11 @@ container_definitions = jsonencode([
     name      = "<svc>"
     # ... core service definition ...
     dependsOn = [
-      { containerName = "<svc>_otelcol", condition = "HEALTHY" }
+      { containerName = "<svc>-otelcol", condition = "HEALTHY" }
     ]
   },
   {
-    name      = "<svc>_otelcol"
+    name      = "<svc>-otelcol"
     image     = "otel/opentelemetry-collector:<digest>"
     essential = false
     command   = ["--config=env:OTEL_CONFIG_YAML"]
@@ -293,12 +293,12 @@ The rendered config YAML is embedded as a literal string into the task definitio
 otelcol's `env:` config-source provider reads its entire config from the named env var at startup. The HCL diff for the task definition (in `infra/output/<env>/main.tf`) contains the full literal YAML — operators can see exactly what the sidecar will run by reading the HCL.
 
 This is an embedded-YAML approach rather than an external config source (S3, SSM) for two reasons:
-1. Keeps the secret-flow surface narrow — SSM is reserved for actual secrets per [release_mechanism.md § Secrets](./release_mechanism.md#secrets).
+1. Keeps the secret-flow surface narrow — SSM is reserved for actual secrets per [secrets.md](./secrets.md).
 2. The config diff is visible in the same HCL the operator already reviews, not in a separate fetch path.
 
 ### Secret Delivery
 
-`TELEMETRY_API_KEY` is delivered via an ECS `secrets[]` entry on the sidecar container, sourcing from `/<project>/<env>/TELEMETRY_API_KEY` in SSM Parameter Store, per [release_mechanism.md § Elastic Foundation: OpenTofu](./release_mechanism.md#elastic-foundation-opentofu). `docex release` pushes the SSM parameter from `infra/secrets/<env>.env` on every deploy.
+`TELEMETRY_API_KEY` is delivered via an ECS `secrets[]` entry on the sidecar container, sourcing from `/<project>/<env>/TELEMETRY_API_KEY` in SSM Parameter Store, per [release.md § Elastic Foundation: OpenTofu](./release.md#elastic-foundation-opentofu) and [secrets.md](./secrets.md). `docex release` pushes the SSM parameter from `infra/secrets/<env>.env` on every deploy.
 
 `OBSERVABILITY_BACKEND_URL` is delivered as a regular `environment[]` entry — the URL is not sensitive.
 
@@ -310,7 +310,7 @@ The core service declares:
 
 ```hcl
 dependsOn = [
-  { containerName = "<svc>_otelcol", condition = "HEALTHY" }
+  { containerName = "<svc>-otelcol", condition = "HEALTHY" }
 ]
 ```
 
@@ -320,6 +320,8 @@ so the SDK has somewhere to send from `t=0`. ECS waits on the sidecar's healthch
 
 ECS Fargate tasks declare CPU and memory at the task level; per-container allocations come from the task's totals. The sidecar's 0.1 vCPU / 128 MB allowance adds to whatever the core service requested in `resources:`.
 
-A core service with `resources: { cpu: 1.0, memory: 2GB }` in `infra.yml` produces a Fargate task with task-level `cpu = 1126` (1.1 vCPU × 1024) and `memory = 2176` MB (2048 + 128) per [transfer_tables.md § Resources Translation](./transfer_tables.md#resources-translation). The sidecar's overhead is doctrine-fixed; the core service always receives exactly what it asked for, with the sidecar's allocation added on top.
+A core service with `resources: { cpu: 1.0, memory: 2GB }` in `infra.yml` produces a Fargate task whose task-level totals are the core service's request plus the sidecar's overhead — `cpu_desired = 1126` (1024 + 102) and `memory_desired = 2176 MiB` (2048 + 128). The sidecar's overhead is doctrine-fixed; the core service always receives exactly what it asked for, with the sidecar's allocation added on top.
 
-**Fargate tier rounding.** Fargate only supports discrete (vCPU, memory) combinations. The sidecar's overhead may push the computed task size into the next-tier-up combination (e.g., a project requesting `cpu: 1.0` produces a task needing `1.1 vCPU` total, which on Fargate rounds up to the `2 vCPU` tier). The compiler computes the next supported tier and surfaces the rounding in compile output so the cost implication is visible. Projects sensitive to this can request slightly under a Fargate tier boundary to absorb the sidecar overhead within the same tier.
+The desired totals are not necessarily what the emitted task definition carries. Per [transfer_tables.md § Resources Translation](./transfer_tables.md#resources-translation), the compiler then rounds the desired `(cpu, memory)` up to the smallest Fargate-supported tier that meets or exceeds both dimensions, and surfaces the rounding in compile output. The sidecar overhead is one of several triggers for this rounding — a project that requests non-tier-aligned values itself will round the same way, with or without a sidecar.
+
+**Practical consequence of the sidecar overhead trigger.** A project requesting `cpu: 1.0` produces a desired `1.1 vCPU` after sidecar overhead, which on Fargate rounds up to the `2 vCPU` tier. Projects sensitive to this can request slightly under a Fargate tier boundary (e.g., `cpu: 0.9`) so the sidecar overhead absorbs within the same tier rather than pushing into the next one.

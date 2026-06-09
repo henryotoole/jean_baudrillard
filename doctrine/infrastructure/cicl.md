@@ -19,11 +19,13 @@ The below yaml snippet is a non-exhaustive example of a CICL `infra.yml` file.
 
 cicl_version: "1"
 foundation: fixed # or "elastic". [More info](./infrastructure.md#foundation).
-domain: "example.com"
-domain_default_service: api  # the web service mapped to the bare <env>.<domain>
+apex_domain: "example.com"
+domain_default_service: api  # the web service mapped to the bare <env>.<project>.<apex_domain>
 container_registry: "registry.example.com"  # required for fixed; optional for elastic (defaults to project ECR)
 repo_url: "https://github.com/owner_account/project_name"
 observability_backend_url: "hyperdx.example.com"
+# Defines reverse proxy choice. Elastic foundations only.
+# reverse_proxy: alb # or ec2_traefik_eip or ec2_traefik_pip
 
 core_services:
 
@@ -37,6 +39,7 @@ core_services:
 			DATABASE_NAME: ${backing_services.database.db}
 			DATABASE_USER: ${backing_services.database.user}
 			DATABASE_PASSWORD: ${backing_services.database.password}
+			DATABASE_SSLMODE: ${backing_services.database.sslmode}
 		secrets:
 			DISCORD_API_KEY: "Key to the discord bot used by the API."
 		resources:
@@ -52,7 +55,6 @@ backing_services:
 		role: relational_db
 		engine: postgres
 		version: "15"
-		depends_on: [reverse_proxy]
 		networks: [internal]
 		schema_owned_by: api
 
@@ -60,7 +62,6 @@ backing_services:
 		role: cache
 		engine: redis
 		version: "7"
-		depends_on: [reverse_proxy]
 		networks: [internal]
 
 	bucket:
@@ -68,15 +69,7 @@ backing_services:
 		port: 9000	# on the web network, so a routing port is required
 		engine: [minio, s3]
 		versioning: true	# A role-specific field.
-		depends_on: [reverse_proxy]
 		networks: [web, internal]
-
-	reverse_proxy:
-		role: reverse_proxy
-		networks: [web, internal]
-
-
-
 ```
 
 ### Service Fields
@@ -126,30 +119,44 @@ We define some arbitrary but hard rules for these infra files in order to reduce
 
 ### Domain
 
-The `domain` toplevel config option is the project's apex domain — bare, with no `www` or other prefix. All environments are served at single-label subdomains derived from it:
+The anatomy of a project's domain is rigidly defined and critical to the "just works" nature of CICL machinery. A full domain describes a specific service container uniquely across all projects. The form is:
 
-| Environment | Subdomain |
-| ----------- | --------- |
-| `dev` | `dev.<domain>` |
-| `test` | `test.<domain>` |
-| `stage` | `stage.<domain>` |
-| `prod` | `www.<domain>` |
+`<service>.<env>.<project_name>.<apex_domain>` e.g. `api.dev.myproject.example.com`
 
-So `domain: "example.com"` yields `dev.example.com`, `test.example.com`, `stage.example.com`, and `www.example.com`. The apex itself (`example.com`) is not served by the doctrine; operators who want apex-to-`www` redirection handle it at the DNS or registrar level.
+Simply by assessing the domain of a request, any machinery with no further context can determine the destination project name, environment, and service container. The `infra.yml` config `apex_domain` field sets the project's bare apex domain e.g. `example.com` or `example.co.uk`. Projects may or may not share apex domains with other projects.
 
-There's also a slight difference in intent depending on project foundation. For a project with a `fixed` foundation, DNS configuration is out of scope for infra management and we assume each subdomain has already been routed to the correct machine. For `elastic` foundation projects, the subdomains are configured to route to the correct ALB by OpenTofu.
+Keep in mind, the domain structure is not the exclusive means of inter-service communication. Only `web`-network services are reachable from the outside; a domain pointing at a non-`web` service would not be routed there. There's also some variation by foundation - `elastic` backing services like S3 have their own endpoints provided by AWS whereas `fixed` backing services like `minio` require routing with the domain mechanism.
 
-#### Per-Service Subdomains
+#### Bare Subdomains
 
-The env subdomains above become the *base* host for each environment. Services on the `web` network are mapped to service subdomains below those env subdomain. These are derived deterministically according to the following scheme:
+There are a few "bare" subdomains possible with the above anatomy, listed in the table below. They require extra routing, as they do nothing by default.
 
-Service subdomain: `${service_name}.${env}.${domain}` (e.g. `backend.dev.example.com` or `frontend.stage.example.com`)
+| "Bare" Subdomain | Schema | Route |
+| ---------------- | ------ | --- |
+| Bare Env | `<env>.<project_name>.<apex_domain>` | Route to env's `domain_default_service`. |
+| Bare Project | `<project_name>.<apex_domain>` | Route to prod's "bare env". |
+| Bare Apex | `<apex_domain>` | Does nothing. |
 
-This allows all `web`-network services to be reachable via a distinct domain.
+The "bare project" domain is useful for user URL ergonomics - `<project_name>.<apex_domain>` simply reads as a clean way to access a project in a browser. Similarly, the "bare env" is nice for developers who wish to view the `dev` environment, perhaps via web interface, at `dev.<project_name>.<apex_domain>`. Note that these are routing choices, not redirects. A redirect would ruin the ergonomics.
 
-It's also possible to define a "default" service which is reached with the basic env subdomain with the `domain_default_service` toplevel config option in `infra.yml`. For example, to route `www.example.com` to the `frontend` module in production, `infra.yml` would include the line `domain_default_service: frontend`. This routing is *in addition* to the service subdomain - `www.example.com` and `frontend.www.example.com` will both route to the `frontend` service container. The `domain_default_service` is optional and if it is omitted, there will simply be no container mapped to the project's env subdomain.
+#### TLS Implications
 
-Realization is foundation-specific and **network-driven** (any `web` service, regardless of role) — see [networks.md](./specifics/networks.md). Services never reach *each other* by these public hosts; intra-environment calls use [service discovery](./shape2.md) by service name. On `elastic`, managed backing services (RDS, S3, ElastiCache) are reached at their own AWS endpoints, so the per-service host applies to what the project actually proxies — all core services, plus backing *containers* on `fixed`.
+This complex and subdomain-heavy structure does have implications for SSL certificates. When wildcard certificates are available, the load is not too bad. The following covers all possible domains for a given project when DNS-01 is used and wildcards are available:
+
+1. Development Cert - Covers all domains on the development machine (both `test` and `dev` environments).
+	+ `*.dev.<project_name>.<apex_domain>`
+	+ `*.test.<project_name>.<apex_domain>`
+	+ `dev.<project_name>.<apex_domain>`
+	+ `test.<project_name>.<apex_domain>`
+2. Stage Cert - Covers all domains for the `stage` environment.
+	+ `*.stage.<project_name>.<apex_domain>`
+	+ `stage.<project_name>.<apex_domain>`
+3. Production Cert - Covers all domains needed for `prod`. Distinct cert from `stage` to keep production safely airgapped from development operations.
+	+ `*.prod.<project_name>.<apex_domain>`
+	+ `prod.<project_name>.<apex_domain>`
+	+ `<project_name>.<apex_domain>`
+
+When DNS-01 is not available and the HTTP-01 fallback is used, the same three certs are used with substantially more SANs - one for each endpoint, no wildcards. It's a little more clunky, but costs and limits are generally based on the *number of certs*, not the number of SANs.
 
 ### Container Registry and Service Images
 
@@ -181,11 +188,15 @@ The URL must be HTTPS-scheme and well-formed. The compiler rejects `http://` and
 The purpose of a network is to scope windows of access by service. Networks are interpreted from `infra.yml` on the basis of the `networks` field. Each service may belong to multiple networks. Every service must belong to at least one network. For example, a service declaring `networks: [web, internal]` is on both networks: reachable from the internet *and* from the internal service network.
 
 Some networks will get special properties if they have a certain name. The full list is:
-1. `web` - A network named web will be open to the broader internet via HTTP.
+1. `web` - A network named web will be open to the broader internet via HTTP. Services on `web` can be accessed from the internet.
 
 The default is for networks to be internal and closed, such that only services on the network get access to each other.
 
-Details on networks, how they are evaluated, and how they compile out can be found [here](./specifics/networks.md). In practice, the network names defined in `infra.yml` are translated into project-scoped names. Services on a given network name will remain on a network together, but the actual name which will show up in compiled output can change form a bit.
+Network names are defined in `infra.yml` with simple names e.g. `web`, `internal`, etc. for developer convenience. However, in practice the compiler will create networks scoped by "simple name", project, and environment. A REST API service on the `web` network will be placed on a Docker network with a name something like `${project_name}-${env_name}-${network_definition_name}` (or a similar SG in `elastic`).
+
+Network names in practice **always** use hyphens. If an input (like a project name) has underscore it will be converted when the network name is formed.
+
+Details on networks, how they are evaluated, and how they compile out can be found [here](./specifics/networks.md).
 
 ### Resources
 
@@ -213,6 +224,7 @@ resources:
 - **Elastic + GPU is not supported.** The doctrine commits to Fargate for elastic, and Fargate does not run GPU workloads. Listed under [infrastructure.md § Deferred](./infrastructure.md#deferred).
 - The `disk` translation is asymmetric: on elastic, `ephemeral_storage` bounds the whole writable layer; on fixed, the compiler sizes a tmpfs at `/tmp` and the container's overlay layer remains unbounded (a limitation of the overlay2 storage driver). Apps that respect the [12-factor app](https://12factor.net/) ephemeral-storage principle write temp files to `/tmp` and are unaffected.
 - Backing services do not take a `resources:` block in v1. Their sizing comes from the engine's defaults in the transfer table; projects needing different sizes use project-local transfer tables.
+- **Fargate tier rounding (elastic only).** AWS Fargate supports only a discrete set of `(vCPU, memory)` combinations. The compiler rounds the requested `(cpu, memory)` (plus any doctrine-fixed sidecar overhead) up to the smallest supported Fargate tier that meets or exceeds both dimensions, and surfaces the rounding in compile output. Values that exceed the largest Fargate tier fail compile cleanly. The `resources:` block stays foundation-agnostic — the project author writes the sizing that makes sense; the compiler does the tier translation. See [transfer_tables.md § Resources Translation](./specifics/transfer_tables.md#resources-translation).
 
 ### Depends-On Relationships
 
@@ -222,6 +234,16 @@ The relationships between services defined by the `depends_on` block serve sever
 3. It defines a dependency chain which let's us check which services are "downstream" in the chain from others.
 
 Furthermore, if Service A reference's Service B's information via magic ref, then A depends on B. If that relationship doesn't actually show up in A's `depends_on` field, the compiler will trip an error.
+
+### Reverse Proxy
+
+Elastic foundations have two options for the reverse proxy resource - ALB for projects which require robust availability and ingress and an EC2 traefik instance for those which don't. ALB's cost substantially more than an EC2 instance doing the equivalent task. The EC2 instance can be backed with a regular Public IP or an Elastic IP. Public IP's will inevitably lead to some downtime if they change, but an infinite number of them are available, so both options are available.
+
+
+This selection is defined with the `reverse_proxy` field. It can be:
+1. `alb` - An ALB will be used.
+2. `ec2_traefik_eip` - The EC2 instance with traefik will be used and backed with an Elastic IP.
+3. `ec2_traefik_pip` - Same as `ec2_traefik_eip`, except a Public IP is used instead.
 
 ## The CICL Compiler
 
@@ -233,6 +255,7 @@ The compiler is bundled into `docex` as a command e.g. `./bin/docex compile`.
 
 In order to simplify down the massive complexities of infrastructure, we make some simplifications:
 1. `elastic` foundations only use AWS as a provider and only use one region: "us-east-1".
+2. `elastic` foundations use "us-east-1a" as the primary AZ. We sometimes include a second AZ if required by AWS (e.g. for ALB's), but we avoid placing service containers in it [in practice](./reasoning/ingress_and_egress.md#elastic-azs).
 
 ### Shape Assumption and Declaration
 
@@ -241,10 +264,10 @@ The [shape](./shape2.md) of the infrastructure surrounding a project covers all 
 | Tier | Described by `infra.yml` | Described by compiler output |
 | ---- | ------------------------ | ---------------------------- |
 | Prerequisite | No | No |
-| Project | No | Yes |
+| Project | Partially | Yes |
 | Environment | Yes | Yes |
 
-Keeping prerequisite and project infrastructure out of `infra.yml` succeeds in the doctrine's goal of reducing as much as possible to "one canonical method" - it keeps infrastructure design simple. However, those results should still be *discoverable* by the developer both for understanding and debugging. For this reason, `docex` provides the [describe](./docex.md#describe) command.
+Limiting prerequisite and project infrastructure exposure in `infra.yml` succeeds in the doctrine's goal of reducing as much as possible to "one canonical method" - it keeps infrastructure design simple. However, those results should still be *discoverable* by the developer both for understanding and debugging. For this reason, `docex` provides the [describe](./docex.md#describe) command.
 
 Furthermore, the compiler documents all its derived infrastructure configuration in the output files to this end.
 
@@ -260,41 +283,52 @@ When adding project-specific transfer tables, always load the `docex-transfer-ta
 
 ### Compiler Output
 
-All compiler output lives under `infra/output/<env>/`, one subdirectory per environment. Output is git-tracked: diffs on output files show what an `infra.yml` change actually produces, and reviewers can see the full infrastructure impact of a change in a PR. The exact contents depend on the env's foundation.
+All compiler output lives under `infra/output/`. Output is git-tracked: diffs on output files show what an `infra.yml` change actually produces, and reviewers can see the full infrastructure impact of a change in a PR. The output is organized first by tier (project vs. env) and then by side (for project tier) or env name (for env tier).
 
-**Fixed envs** (`dev`, `test`, and `stage`/`prod` when foundation is fixed):
+**Env-tier output** (one subdirectory per environment).
+
+For **fixed envs** (`dev`, `test`, and `stage`/`prod` when foundation is fixed):
 
 ```
 infra/output/<env>/
 	docker-compose.yml        # always
 	playbook.yml              # stage/prod only
-	inventory.yml             # stage/prod only (derived from `domain`)
+	inventory.yml             # stage/prod only (derived from `apex_domain`)
 	ansible.cfg               # stage/prod only
 ```
 
-For `dev` and `test`, just the compose file — those envs run locally and don't need an Ansible playbook. `./bin/docex up` and `./bin/docex up test` invoke `docker compose -f infra/output/<env>/docker-compose.yml up` under the hood.
+For `dev` and `test`, just the compose file — those envs run locally and don't need an Ansible playbook. `./bin/docex envinfra up dev` and `./bin/docex envinfra up test` invoke `docker compose -f infra/output/<env>/docker-compose.yml up` under the hood.
 
-**Elastic envs** (`stage` and `prod` when foundation is elastic):
+For **elastic envs** (`stage` and `prod` when foundation is elastic):
 
 ```
 infra/output/<env>/
 	main.tf
 ```
 
-A single env `main.tf` contains the env-tier resources: provider config, state backend reference, networks (security groups), ALB, ECS, backing services, env-specific DNS records. OpenTofu does not require splitting, and a single file is simpler to read and review. Each env reads project-tier outputs (VPC, subnets, zone, cert, ECR repos) via `data "terraform_remote_state" "project"`.
+A single env `main.tf` contains the env-tier resources: provider config, state backend reference, networks (security groups), ECS, backing services, env-specific DNS records, ALB listener rules / EC2-traefik SSM config updates. OpenTofu does not require splitting, and a single file is simpler to read and review. Each env reads project-tier outputs (zone, certs, ALB/EC2-traefik ARNs, ECR repos, task-execution role) via `data "terraform_remote_state" "project"`.
 
-**Project-tier output** (elastic foundation only, one per project):
+**Project-tier output** (one subdirectory per side). Project-tier resources are sided per [`projinfra/overview.md`](./specifics/projinfra/overview.md), so output is split too:
 
 ```
 infra/output/project/
-	main.tf
+	development/
+		docker-compose.yml    # 4 -web networks + project traefik; always emitted
+	production/
+		docker-compose.yml    # fixed-foundation only: 4 -web networks + project traefik
+		playbook.yml          # fixed-foundation only when prod side is a remote host
+		inventory.yml         # fixed-foundation only when prod side is a remote host
+		ansible.cfg           # fixed-foundation only when prod side is a remote host
+		main.tf               # elastic-foundation only: Route53 zone, ACM certs, ALB or EC2-traefik, ECR repos, task-execution role
 ```
 
-The project `main.tf` provisions the resources shared across every elastic environment: the project VPC, public/private subnets, Route53 hosted zone, ACM certificate, and one ECR repository per core service. It uses a distinct state key (`key = "project/terraform.tfstate"`) in the same S3 backend. Applied by [`./bin/docex bootstrap`](./docex.md#bootstrap) — see [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description and the two-phase apply mechanism.
+The development side is always fixed-style (docker-compose) regardless of project foundation, because `dev`/`test` always run as docker stacks. The production side mirrors that for fixed projects; for elastic projects it switches to HCL. Both sides are applied via `./bin/docex projinfra <direction> <side>`.
+
+The project-tier elastic HCL uses a distinct state key (`key = "project/terraform.tfstate"`) in the project's S3 state backend. See [`projinfra/elastic_state_backend.md`](./specifics/projinfra/elastic_state_backend.md).
 
 **Secret declarations** (both foundations):
 
-Alongside the env-specific output, the compiler emits `infra/secrets/example.env` documenting every runtime secret the project's services require. This is derived from the `env:` blocks of [transfer table](./specifics/transfer_tables.md) entries for each backing service and `secrets` blocks for core services in `infra.yml`. The developer never writes secret names into the project by hand — the surface stays in sync with doctrine knowledge automatically. See [release_mechanism.md § Secrets](./specifics/release_mechanism.md#secrets) for the full layout of `infra/secrets/` and how the operator's `<env>.env` files are consumed at release time.
+Alongside the env-specific output, the compiler emits `infra/secrets/example.env` documenting every runtime secret the project's services require. This is derived from the `env:` blocks of [transfer table](./specifics/transfer_tables.md) entries for each backing service and `secrets` blocks for core services in `infra.yml`. The developer never writes secret names into the project by hand — the surface stays in sync with doctrine knowledge automatically. See [secrets.md](./specifics/secrets.md) for the full layout of `infra/secrets/` and how the operator's `<env>.env` files are consumed at release time.
 
 ### Validation Rules
 The following rules apply to whether or not an `infra.yml` file is valid.
@@ -311,8 +345,9 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 10. Every core service has a `resources:` block declaring at least `cpu` and `memory`.
 11. `resources.gpu` is not declared when `foundation: elastic` — GPU workloads are not supported on Fargate.
 12. `domain_default_service`, if set, names a service that is on the `web` network.
-13. Every `web`-network service (other than the `reverse_proxy` role) declares a `port` — the reverse proxy routes to it.
-14. A core service's `env:` and `secrets:` do not declare the same key.
-15. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).
-
-Rules 11 and 15 are enforced at transfer-table load time, before any compilation begins, per [transfer_tables.md § Failure-mode contract](./specifics/transfer_tables.md#failure-mode-contract). Rules 1–10 and 12–14 are enforced at compile time against the loaded tables and `infra.yml`.
+13. `apex_domain` must be a bare apex domain without subdomains.
+14. Service names can not be one of the following: [`dev`, `test`, `stage`, `prod`, `www`], because it makes domain parsing challenging.
+15. Every `web`-network service declares a `port`.
+16. A core service's `env:` and `secrets:` do not declare the same key.
+17. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).
+18. `reverse_proxy` can only appear on `foundation: elastic` projects.

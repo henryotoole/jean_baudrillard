@@ -95,11 +95,11 @@ The `build artifact` must always be deposited in the service's `dist/` directory
 
 The developer must write and maintain `build.sh`. They must also write the Dockerfile such that its `build` stage invokes `build.sh` — see [Core Service Containers](./infrastructure.md#core-service-containers).
 
-The build step is required for any environment to actually function. The developer rarely invokes it directly; `./bin/docex up <env>`, `./bin/docex test`, and `./bin/docex containerize` all cause Docker to build (or rebuild) images as needed, which in turn runs `build.sh` inside the `build` stage.
+The build step is required for any environment to actually function. The developer rarely invokes it directly; `./bin/docex envinfra up <env>`, `./bin/docex test`, and `./bin/docex containerize` all cause Docker to build (or rebuild) images as needed, which in turn runs `build.sh` inside the `build` stage.
 
 #### Process (formal, during `docker build`)
 
-This is what runs inside the Dockerfile during `./bin/docex containerize`, `./bin/docex up`, and `./bin/docex test`. It is not invoked directly by `./bin/docex build`.
+This is what runs inside the Dockerfile during `./bin/docex containerize`, `./bin/docex envinfra up`, and `./bin/docex test`. It is not invoked directly by `./bin/docex build`.
 
 1. The `build` Dockerfile stage `COPY`s `src/` (and any other build inputs).
 2. It runs `./build.sh`, which deposits artifacts to `/service/dist` inside the stage.
@@ -150,7 +150,9 @@ Cross-platform builds are handled by `docker buildx`. The target platform is set
 #### Process
 1. `docker buildx build --platform <target> --target prod` each core service. The `build` stage runs `build.sh` on the target platform; the `prod` stage receives the artifact via `COPY --from=build`. Resulting images are stored locally.
 2. Tag each image as `${container_registry}/${project_name}/${service_name}:${version}` — one image per core service, all sharing the project-wide version from `project.yml`. The registry host is part of the tag, so `docker push` routes correctly without a separate target argument.
-3. `docker login` using stored [credentials](./credentials.md#fixed-container-registry)
+3. `docker login` against the project's `container_registry`. Containerize runs this on every invocation regardless of foundation — one uniform codepath. Only the credential source differs:
+	+ **Fixed:** static creds previously placed in the operator's `~/.docker/config.json` by a one-time setup login per the [registry-credentials convention](./credentials.md#fixed-container-registry).
+	+ **Elastic:** a fresh short-lived token generated via `aws ecr get-login-password`. The token expires after 12 hours, so the per-invocation refresh is necessary (and is what justifies the uniformity — the redundant fixed-side login is the cost of having one codepath instead of two).
 4. `docker push` each tagged image.
 
 #### `docex`
@@ -180,7 +182,7 @@ Depending on the target environment, `migrate.sh` will be run a little different
 
 This refers to combining a `build image` and environment-specific config into a release. This same process happens both on `stage` and `prod`.
 
-This process is different depending on whether the project has a `fixed` or `elastic` foundation. The details for this are pretty complex and can be found [here](./specifics/release_mechanism.md).
+This process is different depending on whether the project has a `fixed` or `elastic` foundation. The details for this are pretty complex and can be found [here](./specifics/release.md).
 
 #### Process - Fixed-Foundation
 1. Use ansible to:
@@ -229,7 +231,7 @@ The rollback feature is designed for emergency situations where a serious proble
 
 This "narrow window" rollback philosophy dodges many of the numerous problems associated with rollbacks. Rolling back rolls infrastructure definitions back, which could delete newly-added services with persistent memory. If it's only been a few minutes since release, little to no data will have time to accrue in a new database.
 
-Rollbacks are only intended to go back one minor version. They effect code and infrastructure definitions, but not database schemas. We can pull this trick because database migrations are supposed to be [backwards compatible](./specifics/release_mechanism.md#backward-compatibility-requirement).
+Rollbacks are only intended to go back one minor version. They effect code and infrastructure definitions, but not database schemas. We can pull this trick because database migrations are supposed to be [backwards compatible](./specifics/migrations.md#backward-compatibility-requirement).
 
 #### Process
 

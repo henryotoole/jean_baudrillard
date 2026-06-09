@@ -34,11 +34,12 @@ Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perfo
 | `why <resource>` | Describe *why* the `doctrine` handles an infrastructural resource the way that it does. |
 | `roles` | List the available service roles, with short descriptions. |
 | `role <name>` | Describe a role: engines, provided parts (magic-ref targets), env vars, and fields. |
-| `bootstrap` | Idempotently performs the one-shot setup to make an `elastic`-foundation project useable. |
-| `up <env>` | Bring up a fixed-foundation environment locally. |
-| `down <env>` | Tear down a locally-running environment. |
+| `preinfra <side>` | Checks that the necessary prerequisite infrastructure resources exist for this project to launch on the indicated infrastructure side |
+| `projinfra <direction> <side>` | Idempotently controls project-tier infrastructure for a given side. |
+| `envinfra <direction> <env>` | Bring up or tear down a fixed-foundation environment locally. |
 | `build <core_service>` | Run `build.sh` for one or all core services. |
 | `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. |
+| `migrate <env>` | Apply database migrations for each schema-owning core service in `<env>`. |
 | `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. |
 | `merge` | Rebase the feature branch onto main, tag the release commit, and push. |
 | `containerize` | Build and push core service prod images to the container registry. |
@@ -74,21 +75,30 @@ Lists every service role the transfer tables define, each with a short descripti
 `./bin/docex role <name> [--format text|llm]`
 Describes one role: its engines (and foundations), the **provided parts** that magic refs target (`${backing_services.<svc>.<part>}`), which parts are secrets, the required `infra/secrets/<env>.env` variables, and the role-specific fields settable in `infra.yml`. This is the canonical way to discover what a magic ref can reference, since the parts live in the transfer tables rather than the doctrine prose. The `llm` format emits JSON.
 
-### `bootstrap`
-`./bin/docex bootstrap`
-Performs the one-shot setup required to make an elastic-foundation project usable: creates the project's OpenTofu state backend (an S3 bucket for state and a DynamoDB table for locking), then applies the project-tier HCL emitted at `infra/output/project/main.tf` to provision the VPC, Route53 hosted zone, ACM certificate, subnets, and ECR repositories shared across every elastic environment. Idempotent — safe to re-run, and reconciles configuration drift if any. No-op for fixed-foundation projects.
+### `preinfra`
+`./bin/docex preinfra <side>`
+Checks that the necessary prerequisite infrastructure resources exist for this project to launch on the indicated infrastructure side. Side can be "development" or "production"; "development" will select necessary development-side infrastructure for the project's foundation and "production" will select necessary production-side infrastructure.
 
-The project-tier apply runs in two phases because ACM DNS validation requires the project zone to be NS-delegated from the parent (registrar or parent hosted zone). Phase 1 applies just the Route53 zone and prints the NS records the operator must delegate; phase 2 (on a subsequent invocation, after delegation propagates) applies the rest. Phase is detected from `tofu state list` — the operator runs the same `./bin/docex bootstrap` command both times.
+For example, one preinfra resource needed for the `development` side is the [HAProxy web demux](./shape2.md#fixed-foundation) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
 
-Typically run after `./bin/docex compile` and before the first `./bin/docex release` for `stage` or `prod`. See [elastic_bootstrap.md](./specifics/elastic_bootstrap.md) for the full description of what gets created and why.
+Command does not fix or create preinfra. It only checks status.
 
-### `up`
-`./bin/docex up <env>`
-Brings up a `dev` or `test` environment locally via docker-compose, using the compiled config at `$pr/infra/output/${env}/docker-compose.yml`. Docker rebuilds any out-of-date images as a prerequisite, so containers always have fresh artifacts (the image's `build` stage invokes `build.sh` — see [cicd.md § Build Step](./cicd.md#build-step)). Most commonly invoked as `./bin/docex up dev` to start a working development environment. Not for use with `stage` or `prod`.
+### `projinfra`
+`./bin/docex projinfra <direction> <side>`
+Idempotently controls project-tier infrastructure. Direction can be "up" or "down"; "up" will construct required infrastructure and "down" will remove. Side can be "development" or "production"; "development" will select necessary development-side infrastructure for the project's foundation and "production" will select necessary production-side infrastructure.
 
-### `down`
-`./bin/docex down <env>`
-Tears down a previously-running local environment. Stops and removes containers and networks; named volumes are preserved so persistent data survives the teardown.
+TODO write deeper specifics of behavior on `fixed` and `elastic`.
+TODO remark on the two-step nature of `elastic` when NS delegation is required of the operator.
+
+Command refuses to run with `direction="up"` if `./bin/docex preinfra <side>` fails.
+
+### `envinfra` 
+`./bin/docex envinfra <direction> <env>`
+Brings up or tears down a `dev` or `test` environment locally via docker-compose, using the compiled config at `$pr/infra/output/${env}/docker-compose.yml`. Docker rebuilds any out-of-date images as a prerequisite, so containers always have fresh artifacts (the image's `build` stage invokes `build.sh` — see [cicd.md § Build Step](./cicd.md#build-step)). Most commonly invoked as `./bin/docex envinfra up dev` to start a working development environment. Not for use with `stage` or `prod`.
+
+When tearing down, stops and removes containers and networks; named volumes are preserved so persistent data survives the teardown.
+
+Command refuses to run with `direction="up"` if `./bin/docex preinfra development` fails.
 
 ### `build`
 `./bin/docex build` to refresh `dist/` for all core services in the running dev environment.
@@ -96,7 +106,7 @@ Tears down a previously-running local environment. Stops and removes containers 
 
 Runs each core service's `build.sh` inside its running `dev`-stage container, depositing artifacts in `$pr/core/<service>/dist/` via bind-mount. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
 
-**This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source against an already-running dev environment without paying for a container rebuild. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
+**This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex envinfra up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source against an already-running dev environment without paying for a container rebuild. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
 
 ### `test`
 `./bin/docex test`
@@ -114,9 +124,13 @@ Rebases the current feature branch onto the latest main, fast-forwards main, tag
 `./bin/docex containerize`
 Formally containerizes the build for release: `docker buildx build --platform <target> --target prod` for each core service, tag each resulting image as `<container_registry>/<project_name>/<service_name>:<version>` (with `<container_registry>` from `infra.yml` and `<version>` from `project.yml`), and push to the registry. When an elastic project omits `container_registry`, the registry host is the project's default ECR (`<account>.dkr.ecr.us-east-1.amazonaws.com`); `containerize` resolves the account ID, authenticates to ECR, and ensures each service's repository exists before pushing. The `build` Dockerfile stage runs `build.sh` on the target platform as part of `docker build`, so the artifact embedded in each prod image always matches the production runtime regardless of host architecture. One image per core service; all share the project-wide version. Requires a clean working tree on `main` to ensure the resulting images correspond to a real, tagged commit. Image tags are 1:1 with `project.yml` versions — no floating tags. See [cicd.md](./cicd.md#containerize-step).
 
+### `migrate`
+`./bin/docex migrate <env>`
+Applies database migrations for each schema-owning core service in `<env>`. For `dev` and `test`, runs `migrate.sh` inside each service's already-running container via `docker compose exec`. For `stage` and `prod` on fixed-foundation projects, runs the emitted Ansible playbook with `--tags migrate`, which spawns a one-off migrate container per schema owner on the target host using the current build image. For `stage` and `prod` on elastic-foundation projects, dispatches an ECS `RunTask` per schema owner against the migration task definition emitted by `compile`, polling each task to completion and aborting on the first non-zero container exit. Schema ownership comes from each backing service's `schema_owned_by` field; the command is a no-op when the project has no schema owners. Most of the time `migrate` runs implicitly — `envinfra up dev`, `test`, and `release` all invoke it at the appropriate point — but the command is available standalone for re-running a failed migration or for hand-driven flows. See [migrations.md](./specifics/migrations.md).
+
 ### `release`
 `./bin/docex release <env>`
-Releases the previously-containerized build to `<env>` (typically `stage` or `prod`). For fixed-foundation projects, runs the emitted Ansible playbook against the env's host(s) to pull the new image and reconcile the deployment. For elastic-foundation projects, pushes secrets from `infra/secrets/<env>.env` to SSM Parameter Store and then runs `tofu apply` against the env's HCL. Both paths are push-initiated and idempotent — re-running on an already-converged target is a no-op. See [release_mechanism.md](./specifics/release_mechanism.md).
+Releases the previously-containerized build to `<env>` (typically `stage` or `prod`). For fixed-foundation projects, runs the emitted Ansible playbook against the env's host(s) to pull the new image and reconcile the deployment. For elastic-foundation projects, pushes secrets from `infra/secrets/<env>.env` to SSM Parameter Store and then runs `tofu apply` against the env's HCL. Both paths are push-initiated and idempotent — re-running on an already-converged target is a no-op. See [release.md](./specifics/release.md).
 
 ### `stagetest`
 `./bin/docex stagetest`
@@ -124,4 +138,4 @@ Runs the project's staging tests against the deployed staging environment via HT
 
 ### `rollback`
 `./bin/docex rollback <env> <target_version>`
-Rolls `<env>` (`stage` or `prod`) back to a prior `<target_version>` in emergency situations where a recent release has surfaced a serious problem. Resolves the `v<target_version>` git tag in an ephemeral worktree, recompiles that version's `infra.yml` using the current `docex`, and applies the recompiled output via the standard release machinery with the migrate step skipped. Code-only by design — the database schema is not reversed; the rolled-back code is expected to be backward-compatible with the current schema per the [backward-compatibility requirement](./specifics/release_mechanism.md#backward-compatibility-requirement). Rejects targets more than one minor version behind `project.yml`'s current version and targets whose images are missing from the registry. The operator's working tree, `project.yml`, and `main` are untouched; the natural recovery path is a fix-forward release through the normal pipeline. See [cicd.md](./cicd.md#rollback).
+Rolls `<env>` (`stage` or `prod`) back to a prior `<target_version>` in emergency situations where a recent release has surfaced a serious problem. Resolves the `v<target_version>` git tag in an ephemeral worktree, recompiles that version's `infra.yml` using the current `docex`, and applies the recompiled output via the standard release machinery with the migrate step skipped. Code-only by design — the database schema is not reversed; the rolled-back code is expected to be backward-compatible with the current schema per the [backward-compatibility requirement](./specifics/migrations.md#backward-compatibility-requirement). Rejects targets more than one minor version behind `project.yml`'s current version and targets whose images are missing from the registry. The operator's working tree, `project.yml`, and `main` are untouched; the natural recovery path is a fix-forward release through the normal pipeline. See [cicd.md](./cicd.md#rollback).

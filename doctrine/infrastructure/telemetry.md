@@ -120,7 +120,7 @@ When `docex` implements the telemetry infrastructure, it will treat the `dev` an
 
 In `dev` and `test`, the sidecars are still emitted, but they are configured such that their exporter writes to the sidecar's `stdout` instead of forwarding to the observability backend.
 
-Developers and LLMs can still view trace output by tailing sidecars e.g. `docker compose logs <svc>_otelcol`
+Developers and LLMs can still view trace output by tailing sidecars e.g. `docker compose logs <svc>-otelcol`
 
 ## Planned but NOT Implemented
 

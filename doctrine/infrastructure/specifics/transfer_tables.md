@@ -54,7 +54,8 @@ The following variables are always available inside a transfer table entry:
 | `${project_name}` | From `project.yml`. |
 | `${env_name}` | The environment being compiled (`dev`, `test`, `stage`, `prod`). |
 | `${role_name}` | The service's `role` field from `infra.yml` (e.g., `web`, `relational_db`). |
-| `${env_subdomain}` | The full hostname for the env: `dev.<domain>` / `test.<domain>` / `stage.<domain>` / `www.<domain>` for prod. |
+| `${env_subdomain}` | The full bare-env hostname per [cicl.md § Domain](../cicl.md#domain): `${env_name}.${project_name}.${apex_domain}` (e.g., `dev.myproject.example.com`, `prod.myproject.example.com`). The bare-project ergonomic shortcut `${project_name}.${apex_domain}` is also available as `${bare_project_subdomain}` for prod-routing rules. |
+| `${apex_domain}` | The apex domain from `infra.yml`'s `apex_domain:` field. |
 | `${field_value}` | Inside a `fields:` entry, the value the project supplied for that role-specific field. |
 
 ### Magic refs
@@ -71,10 +72,10 @@ ${project_name}_${env_name}_${service_name}
 
 That internal form then passes through a **naming policy** appropriate to the target AWS resource type (or to docker, on fixed) before reaching the emitted artifact. Different downstream systems have different constraints:
 
-- **Docker container/network names** accept both underscores and hyphens.
-- **AWS resource identifiers** vary by service: RDS allows hyphens but not underscores; S3 bucket names must be lowercase with hyphens and globally unique across all of AWS; SGs are more permissive; etc.
+- **Docker container, network, and volume names** always use hyphens — the `docker` policy is hyphen-only and applies wherever a Docker resource is rendered, regardless of which engine emitted it.
+- **AWS resource identifiers** vary by service: RDS requires hyphens; S3 bucket names must be lowercase with hyphens and globally unique across all of AWS; ECS clusters/services/task-defs and Service Connect names also use hyphens (so a service's compiled name is identical on fixed Docker and elastic ECS); IAM roles, SSM path segments, and DynamoDB tables preserve underscores. ECR repo names are a special case (a two-segment path joined by `/`) handled by a structural emitter rather than a naming policy — see [§ How structural emitters reference a policy](#how-structural-emitters-reference-a-policy).
 
-Policies live as a top-level `naming_policies:` block in the transfer tables, named by resource type. Engines reference one by name (`naming: rds`); structural emitters in `docex` code (state backend, project ECR/IAM, SSM path prefix) hardcode the policy name they need.
+Policies live as a top-level `naming_policies:` block in the transfer tables, named by resource type. Engines reference one by name (`naming: rds`); structural emitters in `docex` code (state backend, project IAM, SSM path prefix, ECR repo path) hardcode either the policy name they need or — when the policy machinery cannot express the desired shape — the rendering itself.
 
 ### Schema
 
@@ -98,14 +99,15 @@ naming_policies:
 | `rds` | RDS instance identifier, DB subnet group, ElastiCache cluster | hyphen | lower | 63 |
 | `ddb` | DynamoDB table | underscore | any | 255 |
 | `alb` | ALB and target-group name | hyphen | any | 32 |
-| `ecs` | ECS cluster, service, task-definition family | underscore | any | 255 |
-| `ecr_repo` | ECR repository | underscore | lower | 256 |
+| `ecs` | ECS cluster, service, task-definition family, Service Connect discoverable name | hyphen | any | 255 |
 | `iam` | IAM role / policy | underscore | any | 64 |
 | `ssm_path` | SSM parameter path segment | underscore | any | 1024 |
-| `docker` | Docker network / container / volume | underscore | any | (none) |
+| `docker` | Docker network / container / volume | hyphen | any | (none) |
 | `http_host` | DNS label (hostname) | hyphen | lower | (none) |
 
-Default rule, expressed once: **where AWS allows both underscore and hyphen, the doctrine prefers underscore** (matching the project-name form). Hyphen-translation happens only where AWS requires it (S3, RDS, ALB).
+Default rule, expressed once: **anything name-resolvable on the data plane** — Docker containers/networks/volumes, ECS cluster/service/task-def identifiers, ECS Service Connect names, ALB/target-group names, S3 buckets, RDS identifiers, hostnames — **uses hyphens**, so a service's compiled name is identical on fixed Docker and elastic ECS. **Underscores are preserved only for inert identifiers** that AWS uses as record keys but applications never name in DNS or compose: IAM roles, SSM path segments, and DynamoDB tables.
+
+**ECR repo names are a separate case.** The image-reference form `${container_registry}/${project_name}/${service_name}:${version}` declared in [cicl.md § Container Registry and Service Images](../../cicl.md#container-registry-and-service-images) requires a literal `/` between the project segment and the service segment, with each segment's own underscores preserved. The single-separator naming-policy machinery cannot express "join with `/`, preserve `_` inside each segment" — `separator: hyphen` mangles intra-segment underscores; `separator: underscore` produces the wrong joiner. ECR repo naming is therefore not handled by a policy entry; it is emitted directly by the structural emitter — see [§ How structural emitters reference a policy](#how-structural-emitters-reference-a-policy).
 
 ### How engines reference a policy
 
@@ -121,7 +123,9 @@ roles:
 
 ### How structural emitters reference a policy
 
-Resources `docex` emits that are not associated with any `infra.yml` service — the OpenTofu state-backend bucket and DDB table, the project-tier ECR repos, the project task-execution IAM role, the SSM path prefix — pick a policy by hardcoded name in `docex` code. The body of the policy still comes from `naming_policies:` (so it remains reloadable / overridable from a project-local table); only the *choice* of policy is doctrine knowledge embedded in `docex` itself.
+Resources `docex` emits that are not associated with any `infra.yml` service — the OpenTofu state-backend bucket and DDB table, the project task-execution IAM role, the SSM path prefix — pick a policy by hardcoded name in `docex` code. The body of the policy still comes from `naming_policies:` (so it remains reloadable / overridable from a project-local table); only the *choice* of policy is doctrine knowledge embedded in `docex` itself.
+
+Some structural emitters render a shape the single-separator policy machinery cannot express, and in those cases the emitter hardcodes the rendering directly rather than referencing a policy. The current case is **ECR repos**: the emitter renders `${project_name}/${service_name}` literally — each segment verbatim, slash as joiner. No policy applies. The SSM path prefix `/${project}/${env}/` is a milder version of the same pattern: the `ssm_path` policy controls per-segment rendering, but the `/` joiners between `project`, `env`, and the parameter key are emitted directly by docex code, not by the policy. The principle is the same — joiners with shape that can't be reduced to a single global separator live in the emitter; the policy governs only what happens within a segment.
 
 ## Anatomy of a Role Definition
 
@@ -264,15 +268,18 @@ roles:
 					# come from the service's `resources:` block (see § Resources Translation).
 					# Routing is NOT carried here. The compiler emits it
 					# network-driven for any `web`-network service — Traefik
-					# discovery labels (fixed) / an ALB target group + listener
-					# rule (elastic), with per-service subdomains. See
-					# networks.md and cicl.md § Domain.
+					# discovery labels picked up by the project's own traefik
+					# (fixed) / an ALB target group + listener rule attached
+					# to the project ALB (elastic), with per-service domains.
+					# See networks.md and cicl.md § Domain.
 				elastic:
 					# Port, env, and depends_on come from infra.yml. Image is derived (see fixed
 					# block above). cpu/memory/ephemeral_storage come from the service's
 					# `resources:` block (see § Resources Translation). Doctrine adds Fargate
 					# task settings; the ALB target group + listener rule are emitted alongside
-					# the ECS service when this service is on the `web` network.
+					# the ECS service when this service is on the `web` network, attaching to
+					# the project's project-tier ALB by ARN (looked up via the project tofu
+					# remote state).
 					launch_type: FARGATE
 					network_mode: awsvpc
 			fields:
@@ -295,19 +302,19 @@ roles:
 			provides:
 				host:
 					fixed: "${global_service_name}"
-					elastic: "${global_service_name}"   # Resolved via ECS Service Connect within the env's namespace
+					elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable as-is by ECS tasks inside the namespace (via Envoy sidecar) and as `<this>.<namespace>` from elsewhere in the master VPC (via the namespace's private DNS zone). See shape2.md § Elastic-Foundation.
 				port:
 					fixed: "${port}"
 					elastic: "${port}"
 			env: {}
-			naming: ecs   # ECS cluster/service/task family (underscore, case-preserving, 255)
+			naming: ecs   # ECS cluster/service/task family + Service Connect name (hyphen, case-preserving, 255)
 ```
 
 This entry shows what differs from a backing service like postgres:
 
 - **No project-side `engine:` declaration.** Core service roles have a single canonical engine (`container`); the project does not pick one in `infra.yml`. The transfer table's engine layer is filled by the `container` placeholder for schema uniformity.
 - **`env: {}` is empty.** Core services do not introduce engine-required env vars the way postgres does (POSTGRES_USER, etc.). The project's own env vars are declared directly in its `core_services.<name>.env` block in `infra.yml`.
-- **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject_prod_api` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
+- **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject-prod-api` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
 - **`health_check_path` is a role-specific field that crosses emit targets.** The project supplies the value (e.g., `/health`) in its `infra.yml`. On fixed, the translation lands on the default `compose_service` target as a docker healthcheck block. On elastic, the translation routes via `target: target_group` to the ALB target group's `health_check` block — *not* to the ECS task definition (the default elastic target). Without the `target:` redirect, the field would silently land on the wrong resource and the ALB would fall back to checking `/`. This is the canonical example of why `emits:` and `target:` exist; before this mechanism the field was structurally undeliverable.
 
 ## Failure-mode contract
@@ -363,7 +370,7 @@ The compiler emits, per such service:
 - A `volume` block on the `aws_ecs_task_definition` referencing the EFS by ID, with `transit_encryption = "ENABLED"`.
 - A `mountPoints` entry on the container definition linking the volume to the declared `mount_path`. The volume name inside the task definition is the doctrine-fixed handle `"data"` (one EFS per stateful service, mounted at one path).
 
-**Backups are project-opt-in.** Engines that emit `efs_file_system` may declare a `backups` field with `target: efs_file_system` (Mod 010's field-routing mechanism); the project sets `backups: true` on the backing service in `infra.yml` to enable. When enabled, the compiler emits an `aws_efs_backup_policy` resource tying the filesystem to the AWS Backup default plan. Default disabled — only the project knows whether the data is replaceable cache or irreplaceable user state.
+**Backups are project-opt-in.** Engines that emit `efs_file_system` may declare a `backups` field with `target: efs_file_system` (the field-routing mechanism described in [§ Anatomy of a Role Definition](#anatomy-of-a-role-definition)); the project sets `backups: true` on the backing service in `infra.yml` to enable. When enabled, the compiler emits an `aws_efs_backup_policy` resource tying the filesystem to the AWS Backup default plan. Default disabled — only the project knows whether the data is replaceable cache or irreplaceable user state.
 
 **Bidirectional validation.** An engine declaring `persistent_storage` must also declare `efs_file_system` in `emits.elastic`, and vice-versa. Either alone is a compile-time error at load — they go together.
 
@@ -373,7 +380,7 @@ The compiler emits, per such service:
 
 ## Authoring Project-Local Transfer Tables
 
-The doctrine ships canonical engines for the common roles — `relational_db/postgres`, `cache/redis`, `object_store/{minio,s3}`, `web/container`, `reverse_proxy`. When a project needs a role or engine the doctrine doesn't bundle (ClickHouse, OpenTelemetry collector, RabbitMQ, etc.), it adds a project-local transfer table. The doctrine's machinery does the rest: schema validation, foundation translation, magic-ref resolution, ECS dispatch, EFS plumbing if stateful.
+The doctrine ships canonical engines for the common roles — `relational_db/postgres`, `cache/redis`, `object_store/{minio,s3}`, `web/container`. When a project needs a role or engine the doctrine doesn't bundle (ClickHouse, OpenTelemetry collector, RabbitMQ, etc.), it adds a project-local transfer table. The doctrine's machinery does the rest: schema validation, foundation translation, magic-ref resolution, ECS dispatch, EFS plumbing if stateful.
 
 This section is the authoring perspective. The schema and rules live earlier in this document — this section is "how to actually write one."
 
@@ -555,7 +562,7 @@ core_services:
       # ... other env
 ```
 
-At runtime, `web` reads `SIDECAR_HOST=<project>_<env>_probe` and `SIDECAR_PORT=80`. On fixed, docker network DNS resolves the host. On elastic, ECS Service Connect resolves it through the env's namespace (Mod 014). No application code change crosses foundations.
+At runtime, `web` reads `SIDECAR_HOST=<project>-<env>-probe` and `SIDECAR_PORT=80`. On fixed, docker network DNS resolves the host. On elastic, ECS Service Connect resolves it through the env's namespace. No application code change crosses foundations.
 
 ### Worked example: stateful container backing
 
@@ -578,7 +585,7 @@ roles:
         fixed:
           image: clickhouse/clickhouse-server:24.10
           volumes:
-            - ${global_service_name}_data:/var/lib/clickhouse
+            - ${global_service_name}-data:/var/lib/clickhouse
         elastic:
           image: clickhouse/clickhouse-server:24.10
           cpu: "1024"
@@ -631,13 +638,13 @@ What the compiler emits on elastic for `events`:
 - `aws_efs_backup_policy.events` (because `backups: true`).
 - `aws_efs_mount_target.events` with `count = length(private_subnet_ids)`, attached to the `internal` SG.
 - `aws_ecs_task_definition.events` with a `volume { name = "data" efs_volume_configuration { ... } }` block and a container `mountPoints` entry linking `"data"` → `/var/lib/clickhouse`.
-- `aws_ecs_service.events` with `service_connect_configuration` registering the service as discoverable at `<project>_<env>_events`.
+- `aws_ecs_service.events` with `service_connect_configuration` registering the service as discoverable at `<project>-<env>-events`.
 
 On fixed, the `defaults.fixed.volumes` entry creates a docker named volume mounted at `/var/lib/clickhouse`; ClickHouse's data survives `./bin/docex down dev` / `up dev` cycles. The compose stack runs ClickHouse as a regular container on the internal network.
 
 Same `infra.yml`, same magic-ref values flowing into `web`'s env block, same application code on both foundations. The foundation-specific machinery — EFS on elastic, docker volumes on fixed — is doctrine-internal; the project just declares "stateful at /var/lib/clickhouse" and gets the right thing.
 
-If the engine declares `persistent_storage` but the project forgets `backups`, the data is durable but not backed up; if the engine omits `efs_file_system` from `emits.elastic`, the loader fails at compile time with a clear bidirectional-validation error (Mod 012's strict-failure contract).
+If the engine declares `persistent_storage` but the project forgets `backups`, the data is durable but not backed up; if the engine omits `efs_file_system` from `emits.elastic`, the loader fails at compile time with a clear bidirectional-validation error per [§ Failure-mode contract](#failure-mode-contract).
 
 ## Foundation Invariants
 
@@ -666,21 +673,29 @@ labels:
   - "traefik.http.services.${global_service_name}.loadbalancer.server.port=${port}"
 ```
 
-`${host_rule}` is the per-service [host rule](../cicl.md#per-service-subdomains). The literal resolver name `doctrine` is the prescribed handle for the single machine-wide cert resolver — the operator configures Traefik with a resolver of that exact name, and docex emits labels referencing it. Decoupling the *name* (a doctrine handshake) from the *implementation* (currently Let's Encrypt + DNS-01) lets the doctrine evolve the underlying mechanism without changing the handle.
+`${host_rule}` is the per-service host rule derived from [cicl.md § Domain](../cicl.md#domain) — `Host(\`${service}.${env}.${project}.${apex_domain}\`)`, with the additional bare-env / bare-project rules for the `domain_default_service` in prod.
+
+The literal resolver name `doctrine` is the prescribed handle for the project's traefik cert resolver — the per-project traefik (one per project, part of the project's compose stack) is configured with a resolver of that exact name, and docex emits labels referencing it. Decoupling the *name* (a doctrine handshake) from the *implementation* (currently Let's Encrypt + DNS-01, with HTTP-01 fallback) lets the doctrine evolve the underlying mechanism without changing the handle. See [networks.md § networks: [web]](./networks.md#networks-web) for how the per-project traefik connects to the host-wide `docex-ingress` network and is reached by the HAProxy web demux.
 
 ### Per-core-service env (both foundations)
 
-Every core service — regardless of foundation — additionally receives one doctrine-injected env var:
+Every core service — regardless of foundation — additionally receives a set of doctrine-injected env vars:
 
 | Variable | Value | Source |
 | -------- | ----- | ------ |
 | `PROJECT_VERSION` | The project's current version | `project.yml` `version:` field |
+| `OTEL_SERVICE_NAME` | The service's `infra.yml` name | `infra.yml` `core_services.<name>` key |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Doctrine-fixed. The paired OTel sidecar shares the core service's network namespace, so loopback addressing resolves to the sidecar identically on both foundations — see [telemetry_infra.md § Service Discovery (Fixed)](./telemetry_infra.md#service-discovery) and [§ Service Discovery (Elastic)](./telemetry_infra.md#service-discovery-1). |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | Doctrine-fixed; matches the `otlp` receiver shape baked into the sidecar config — see [telemetry_infra.md § Pipeline Shape](./telemetry_infra.md#pipeline-shape). |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name}` | Composed by the compiler from `project.yml` and `infra.yml`; drives backend-side filtering in the observability backend. |
 
-The variable is doctrine-injected, not project-declared — a project's `infra.yml` need not list it under `env:`, and listing it explicitly is redundant. The compiler emits it on every core service's environment block (compose `environment:` on fixed; ECS `environment[]` entry on elastic — not an SSM secret, since the version is not sensitive).
+These variables are doctrine-injected, not project-declared — a project's `infra.yml` need not list them under `env:`, and listing them explicitly is redundant. The compiler emits each on every core service's environment block (compose `environment:` on fixed; ECS `environment[]` entry on elastic — not SSM secrets, since none of these values are sensitive).
 
-The name matches the env var [`./bin/docex stagetest` injects](../cicd.md#staging-tests) into the stage tester container. A service introspecting its own version (e.g. a `/health` endpoint that returns `{"version": "..."}`) reads from the same canonical handle a stage test compares against — so the assertion `body["version"] == os.environ["PROJECT_VERSION"]` is deterministic across the release boundary, not a manual sync.
+`PROJECT_VERSION`'s name matches the env var [`./bin/docex stagetest` injects](../cicd.md#staging-tests) into the stage tester container. A service introspecting its own version (e.g. a `/health` endpoint that returns `{"version": "..."}`) reads from the same canonical handle a stage test compares against — so the assertion `body["version"] == os.environ["PROJECT_VERSION"]` is deterministic across the release boundary, not a manual sync.
 
-Backing services do not receive this env var. They run third-party software with no application-side code that would consume it; emitting it on them would be inert.
+The four `OTEL_*` variables are the OTel SDK's standard auto-discovery surface: any conformant SDK reads them from the environment at startup, so application code doesn't have to wire telemetry config explicitly. The full picture of how the sidecar, exporter, and backend fit together lives in [telemetry_infra.md](./telemetry_infra.md); this table is the canonical list of what the compiler emits onto the core service container itself.
+
+Backing services do not receive these env vars. They run third-party software with no application-side code that would consume `PROJECT_VERSION`, and the OTel SDK auto-instrumentation lives in core services' application code, not in backing-service images. Emitting any of these on a backing service would be inert.
 
 ### Per-compose-file (fixed)
 
@@ -758,15 +773,27 @@ deploy:
 
 ### Elastic (ECS Fargate task definition)
 
-For each core service, the compiler emits the corresponding HCL fields on the Fargate task definition:
+For each core service, the compiler computes the Fargate task definition's `cpu` and `memory` in two steps:
+
+1. **Compute the desired `(cpu, memory)`** by summing the service's `resources:` block and any doctrine-fixed sidecar overhead (currently the OTel sidecar's 0.1 vCPU / 128 MB allowance — see [telemetry_infra.md § Task-Level Resource Allocation](./telemetry_infra.md#task-level-resource-allocation)). The intermediate values are `cpu_desired = resources.cpu * 1024 + sidecar_cpu_units` and `memory_desired = resources.memory_mib + sidecar_memory_mib`.
+
+2. **Round up to the smallest Fargate-supported tier** that meets or exceeds both dimensions. Fargate only supports a discrete table of `(vCPU, memory)` combinations (e.g., `0.25 vCPU` pairs with `0.5 / 1 / 2 GB`; `1 vCPU` pairs with `2 / 3 / 4 / 5 / 6 / 7 / 8 GB`; `2 vCPU` pairs with `4 / 5 / ... / 16 GB`; and so on). The compiler ships a hardcoded table of these combinations and looks up the next-up tier deterministically.
+
+The emitted HCL is then:
 
 ```hcl
-cpu              = "${resources.cpu * 1024}"   # Fargate vCPU units: 1024 = 1 vCPU
-memory           = "${resources.memory in MiB}"
+cpu              = "${tier.cpu}"               # Fargate vCPU units: 1024 = 1 vCPU
+memory           = "${tier.memory}"            # MiB
 ephemeral_storage {
 	size_in_gib = ${resources.disk}            # only when resources.disk is set
 }
 ```
+
+**Tier rounding is uniform across all core services**, not just those where a sidecar pushes a boundary. A project declaring `cpu: 1.5, memory: 3GB` produces a `(cpu_desired = 1536, memory_desired = 3072)` that Fargate doesn't support, so the compiler rounds up to the next valid tier (e.g., `(2048, 4096)`). Sidecar overhead is one trigger; non-tier-aligned project values are another; both produce the same behavior.
+
+**The compiler surfaces the rounding in compile output** so the cost implication is visible to the operator before apply. Projects sensitive to over-allocation can request slightly under a Fargate tier boundary so the sidecar (or other) overhead absorbs within the same tier.
+
+Values that exceed the largest Fargate tier (currently 16 vCPU / 120 GB) fail compile with a descriptive error rather than silently capping to the max.
 
 `resources.gpu` is rejected at validation time on elastic compiles — Fargate does not support GPU workloads. See [cicl.md § Resources](../cicl.md#resources) and [infrastructure.md § Deferred](../infrastructure.md#deferred).
 

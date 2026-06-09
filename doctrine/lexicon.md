@@ -16,6 +16,10 @@ This guide defines special words and phrases that have unique context for all ma
 | Foundation |  | A project has a `fixed` or `elastic` foundation dependeing on whether a project manages the lifecycle of the machines which run its infrastructure. |
 | Environment | "env" | A copy of all environment-tier infrastructure that serves a distinct purpose: `dev`, `test`, `stage`, and `prod`. |
 | Infrastructure Tier |  | All infrastructure falls into one of three tiers on the basis of project control and environmental replication. See [here](./infrastructure/infrastructure.md#infrastructure-tiers).
+| Prerequisite Infrastructure | "preinfra" | Infrastructure outside of project scope. |
+| Project Infrastructure | "projinfra" | Infrastructure shared by all environments and driven at the project level. |
+| Environment Infrastructure | "envinfra", "env infra" | Infrastructure duplicated across all environments and driven at the  environment level. |
+| Infrastructure Side | "production side", "development side" | Refers to project infrastructure which services `prod` / `stage` envs (for production side) and `dev` / `test` envs (for development side). What a side *is* depends on foundation; it can be a `fixed` development machine, a `fixed` production machine, or an `elastic` AWS platform. |
 | Shape |  | The fixed topology of a deployed stack: which resources exist, where they live, what depends on what. |
 | Stack |  | Loosely describes the machinery that is needed for one environment to run. |
 | CICL |  | The language / format in which [`infra.yml`](./infrastructure/cicl.md) is defined. |
@@ -25,3 +29,5 @@ This guide defines special words and phrases that have unique context for all ma
 | Modification | "mod" | The process of designing, implementing, and testing a new feature or change to the codebase. |
 | Core Planning Docs | "core docs", "core project docs", "project documentation" | The architectural and module docs found at "$pr/plans/core/*". |
 | Objectives |  | Strategic goals for the project. These define what a project *does*. The project is neither complete nor successful until it achieves its objectives. |
+| Apex Domain |  | An absolute top level domain without any subdomains e.g. `example.com` |
+| Master Network | `master_network`, `master_vpc` | The main, toplevel network which spans all projects. |

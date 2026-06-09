@@ -57,8 +57,10 @@ All these core planning docs are driven by `masterplan.md`. They "unpack" those 
 
 __PART III__: Infrastructure Smoke Test
 1. Make a commit with the message "Inception Part II: design complete."
-2. Write `infra.yml` to reflect the needs of the core planning docs.
-3. Create the core service folders in `$pr/core` and the infrastructural concerns within each:
+2. Verify development preinfra exists with `./bin/docex preinfra development`
+	+ If it doesn't exist or is broken, load the `docex-preinfra` skill and create / fix needed resources.
+3. Write `infra.yml` to reflect the needs of the core planning docs.
+4. Create the core service folders in `$pr/core` and the infrastructural concerns within each:
 	1. A Dockerfile that defines the environment.
 		+ These don't need to be perfect. At this stage, we only know what the core services are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.
 	2. `dist`, `src`, and `tests` folders.
@@ -67,14 +69,14 @@ __PART III__: Infrastructure Smoke Test
 		+ These can be empty, they must merely exist.
 	4. If this core service owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
 		+ These can be empty, they must merely exist.
-4. Compile `infra.yml`.
+5. Compile `infra.yml`.
 	+ This will produce `example.env`
-5. Write `dev.env` and `test.env` using `example.env` as a template.
+6. Write `dev.env` and `test.env` using `example.env` as a template.
 	+ You will need the values for these vars and secrets. For some, you might need to ask the operator.
-6. Bring the `dev` environment up to smoke test that the infrastructure works.
+7. Bring the `dev` environment up to smoke test that the infrastructure works.
 	1. Check that the environment comes up without error.
-7. Take the `dev` environment back down.
-8. Make a commit with the message "Inception Part III: infrastructure smoke tested"
+8. Take the `dev` environment back down.
+9. Make a commit with the message "Inception Part III: infrastructure smoke tested"
 
 __PART IV__: First Draft
 The project has been setup and has a `dev` and `test` env that work. The next step is the "first draft" of the project where the initial design state is implemented. This will be done in one or more [modification](./modifications.md) cycles.
@@ -97,8 +99,9 @@ Much time may separate __PART IV__ and __PART V__. The operator may wish to keep
 	1. Check if the credentials exist, and if they do not, tell the operator to get them.
 2. The `stage.env` and `prod.env` files must be written with the relevant secrets. Some of these may have to come from the operator.
 3. The `$pr/infra/stage` resources will need to be created. These are described in detail [here](../infrastructure/tests.md#staging-tests).
-4. The LLM should check all the [prerequisite infrastructure](../infrastructure/shape2.md#description-of-shape) for the project's foundation. If any is misconfigured or doesn't exist, the operator should be notified and asked to fix it.
-5. **(Elastic foundation only)** `./bin/docex bootstrap` must have produced both the OpenTofu state backend and the project-tier infrastructure (VPC, Route53 zone, ACM cert, ECR repos). Per [elastic_bootstrap.md](../infrastructure/specifics/elastic_bootstrap.md#two-phase-project-tier-apply), this runs in two phases separated by an operator NS-delegation step at the parent registrar (or parent hosted zone). Confirm both phases have completed before proceeding.
+4. Verify production preinfra exists with `./bin/docex preinfra production`
+	+ If it doesn't exist or is broken, load the `docex-preinfra` skill and create / fix needed resources.
+5. Setup production project infrastructure with `./bin/docex projinfra up production`. There may need to be an operator NS-delegation step at the parent registrar if it has not been done before for the project domain.
 6. The LLM should carefully proceed along the CI/CD pipeline. See [CI/CD Pipeline](../infrastructure/cicd.md#the-pipeline) and run each step in order.
 
 After doing a production release for the first time, any barriers will be overcome and future releases will proceed smoothly.
@@ -109,7 +112,7 @@ After doing a production release for the first time, any barriers will be overco
 core/*/dist/
 
 # OpenTofu local state and plan files
-# (state itself is remote per elastic_bootstrap, but the directory and lock files are local)
+# (state itself is remote per projinfra/elastic_state_backend, but the directory and lock files are local)
 infra/output/**/.terraform/
 infra/output/**/*.tfplan
 infra/output/**/*.tfstate*
@@ -146,7 +149,7 @@ One file to apply to both `secrets` and `deploy_creds`.
 name: ${project_name}
 version: "0.0.1"
 ```
-The `docex_version` field is appended to this file by `docex_install.sh` in PART I step 7 — do not write it by hand.
+The `docex_version` field is appended to this file by `docex_install.sh` in PART I step 8 — do not write it by hand.
 
 ### `CHANGELOG.md` Default
 
