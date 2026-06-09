@@ -29,10 +29,6 @@ provider "aws" {
   region = "{{ region }}"
 }
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
 # ---------------------------------------------------------------------------
 # Route53 hosted zone for the project subdomain (`<project>.<apex_domain>`).
 #
@@ -56,111 +52,49 @@ resource "aws_route53_zone" "project" {
 }
 
 # ---------------------------------------------------------------------------
-# VPC + IGW + public/private subnets across two AZs + NAT gateways.
+# Master VPC — preinfra. Operator brings it up out-of-band; docex consumes
+# via tag-based data sources. See preinfra/elastic_master_network.md.
 # ---------------------------------------------------------------------------
-resource "aws_vpc" "project" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_support   = true
-  enable_dns_hostnames = true
+data "aws_vpc" "master" {
   tags = {
-    project    = "{{ project }}"
-    managed_by = "doctrine"
-    Name       = "{{ project }}"
+    Name       = "docex-master-vpc"
+    managed_by = "docex-preinfra"
   }
 }
 
-resource "aws_internet_gateway" "project" {
-  vpc_id = aws_vpc.project.id
-  tags = {
-    project    = "{{ project }}"
-    managed_by = "doctrine"
-  }
-}
-
-resource "aws_subnet" "public" {
-  count                   = 2
-  vpc_id                  = aws_vpc.project.id
-  cidr_block              = cidrsubnet(aws_vpc.project.cidr_block, 8, count.index)
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-  tags = {
-    project    = "{{ project }}"
-    tier       = "public"
-    managed_by = "doctrine"
-    Name       = "{{ project }}_public_${data.aws_availability_zones.available.names[count.index]}"
-  }
-}
-
-resource "aws_subnet" "private" {
-  count             = 2
-  vpc_id            = aws_vpc.project.id
-  cidr_block        = cidrsubnet(aws_vpc.project.cidr_block, 8, 10 + count.index)
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-  tags = {
-    project    = "{{ project }}"
-    tier       = "private"
-    managed_by = "doctrine"
-    Name       = "{{ project }}_private_${data.aws_availability_zones.available.names[count.index]}"
-  }
-}
-
-resource "aws_eip" "nat" {
-  count  = 2
-  domain = "vpc"
-  tags = {
-    project    = "{{ project }}"
-    managed_by = "doctrine"
-  }
-}
-
-resource "aws_nat_gateway" "project" {
-  count         = 2
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
-  tags = {
-    project    = "{{ project }}"
-    managed_by = "doctrine"
-  }
-  depends_on = [aws_internet_gateway.project]
-}
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.project.id
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.project.id
+data "aws_subnets" "public" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.master.id]
   }
   tags = {
-    project    = "{{ project }}"
-    tier       = "public"
-    managed_by = "doctrine"
+    tier = "public"
   }
 }
 
-resource "aws_route_table_association" "public" {
-  count          = 2
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
-}
-
-resource "aws_route_table" "private" {
-  count  = 2
-  vpc_id = aws_vpc.project.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.project[count.index].id
+data "aws_subnets" "private" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.master.id]
   }
   tags = {
-    project    = "{{ project }}"
-    tier       = "private"
-    managed_by = "doctrine"
+    tier = "private"
   }
 }
 
-resource "aws_route_table_association" "private" {
-  count          = 2
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private[count.index].id
+# Primary-AZ private subnet — single-AZ commit per cicl.md.
+data "aws_subnet" "primary_private" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.master.id]
+  }
+  filter {
+    name   = "availability-zone"
+    values = ["us-east-1a"]
+  }
+  tags = {
+    tier = "private"
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -257,7 +191,7 @@ resource "aws_acm_certificate_validation" "prod" {
 resource "aws_security_group" "project_alb" {
   name        = "{{ alb_sg_name }}"
   description = "Project ALB ingress (80/443 from internet); egress all."
-  vpc_id      = aws_vpc.project.id
+  vpc_id      = data.aws_vpc.master.id
   ingress {
     from_port   = 80
     to_port     = 80
@@ -287,8 +221,7 @@ resource "aws_lb" "project" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.project_alb.id]
-  # mod 041 will switch this to a master VPC data source.
-  subnets            = aws_subnet.public[*].id
+  subnets            = data.aws_subnets.public.ids
   tags = {
     project    = "{{ project }}"
     managed_by = "doctrine"
@@ -442,15 +375,20 @@ resource "aws_iam_role_policy" "task_execution" {
 # Outputs. Consumed by each env's main.tf via terraform_remote_state.
 # ---------------------------------------------------------------------------
 output "vpc_id" {
-  value = aws_vpc.project.id
+  value = data.aws_vpc.master.id
 }
 
 output "public_subnet_ids" {
-  value = aws_subnet.public[*].id
+  value = data.aws_subnets.public.ids
 }
 
 output "private_subnet_ids" {
-  value = aws_subnet.private[*].id
+  value = data.aws_subnets.private.ids
+}
+
+# Mod 041: primary-AZ private subnet for single-AZ ECS placement.
+output "primary_private_subnet_id" {
+  value = data.aws_subnet.primary_private.id
 }
 
 output "zone_id" {

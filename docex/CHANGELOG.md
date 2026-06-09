@@ -14,6 +14,29 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Master VPC consumed as preinfra (BREAKING).** Per
+  [`shape2.md § Elastic-Foundation`](../doctrine/infrastructure/shape2.md#elastic-foundation),
+  the master VPC is now prerequisite infrastructure shared across all
+  elastic projects in an account, not project-tier. `project.tf.j2`
+  drops ~100 lines of per-project VPC stack (VPC, IGW, public/private
+  subnets, NAT gateways, EIPs, route tables, route-table
+  associations) and replaces them with tag-based data sources:
+  `data "aws_vpc" "master"` (tags `Name=docex-master-vpc`,
+  `managed_by=docex-preinfra`), `data "aws_subnets" "public"|
+  "private"` (tag `tier=public|private`), `data "aws_subnet"
+  "primary_private"` (filter `availability-zone=us-east-1a`).
+  Project-tier outputs keep their names (`vpc_id`,
+  `public_subnet_ids`, `private_subnet_ids`); a new
+  `primary_private_subnet_id` output exposes the primary-AZ subnet
+  for single-AZ workloads. Per
+  [`cicl.md § Simplifications`](../doctrine/infrastructure/cicl.md#simplifications),
+  ECS service `network_configuration.subnets` pins to
+  `[primary_private_subnet_id]` (single-AZ commit); RDS/ElastiCache
+  subnet groups and EFS mount targets keep multi-AZ
+  `private_subnet_ids` per AWS requirements. The `docex-preinfra`
+  skill needs an update to document the master VPC + subnet tag
+  scheme (operator action). Mod 041 of the shape-and-tier campaign.
+
 - **Env-tier SG names now use hyphen form (BREAKING).** Closes a
   data-plane naming leak missed by mod 030: the env-tier security
   group's AWS-side `name` field in `main.tf.j2` was composed with

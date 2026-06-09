@@ -53,7 +53,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 038 — Elastic projinfra: ALB (default variant) + project-tier outputs ([mod folder](../modifications/038_elastic_projinfra_alb/))
 - [x] 039 — ECR + IAM move to project-tier ([mod folder](../modifications/039_ecr_iam_project_tier/))
 - [x] 040 — Env-tier SG name hyphen fix ([mod folder](../modifications/040_env_tier_sg_name_hyphen/)) — most of original scope absorbed into mods 037-039
-- [ ] 041 — Elastic master VPC as preinfra
+- [x] 041 — Elastic master VPC as preinfra ([mod folder](../modifications/041_elastic_master_vpc_preinfra/))
 - [ ] 042 — `preinfra <side>` implementations
 - [ ] 043 — Service Connect: private DNS + hyphenated namespace
 - [ ] 044 — EC2-traefik reverse-proxy variant (EIP + PIP)

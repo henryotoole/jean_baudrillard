@@ -913,11 +913,12 @@ def test_mod038_project_tier_has_alb_resources(tmp_path: Path):
     assert "certificate_arn = aws_acm_certificate_validation.stage.certificate_arn" in tf
     # HTTP listener performs a 301 redirect to 443.
     assert 'status_code = "HTTP_301"' in tf
-    # Subnets reference the local public subnets (mod 041 will swap to
-    # master VPC data source).
-    assert "subnets            = aws_subnet.public[*].id" in tf
-    # Subnet ref carries the mod 041 comment.
-    assert "mod 041 will switch this to a master VPC data source" in tf
+    # Mod 041: subnets now resolve from the master VPC data source.
+    assert "subnets            = data.aws_subnets.public.ids" in tf
+    # The mod-038 placeholder comment is gone.
+    assert "mod 041 will switch this to a master VPC data source" not in tf
+    # ALB SG hangs off the master VPC.
+    assert "vpc_id      = data.aws_vpc.master.id" in tf
 
 
 def test_mod038_project_tier_alb_outputs(tmp_path: Path):

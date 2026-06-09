@@ -445,7 +445,10 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append( '  launch_type     = "FARGATE"')
     out.append( '  desired_count   = 1')
     out.append("  network_configuration {")
-    out.append("    subnets         = data.terraform_remote_state.project.outputs.private_subnet_ids")
+    # WHY: single-element subnet list pins ECS task placement to the primary
+    # AZ per cicl.md § Simplifications. ALB+RDS+EFS still span both AZs to
+    # satisfy AWS's multi-AZ subnet-group requirements; workloads do not.
+    out.append("    subnets         = [data.terraform_remote_state.project.outputs.primary_private_subnet_id]")
     sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in sorted(nets))
     out.append(f"    security_groups = [{sg_refs}]")
     out.append("  }")

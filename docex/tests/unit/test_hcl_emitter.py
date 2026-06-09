@@ -258,7 +258,9 @@ def test_project_main_tf_written(compiled_elastic_project: Path):
 def test_project_main_tf_has_zone_vpc_cert_ecr(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     assert 'resource "aws_route53_zone" "project"' in tf
-    assert 'resource "aws_vpc" "project"' in tf
+    # Mod 041: master VPC consumed via data source; no per-project VPC.
+    assert 'data "aws_vpc" "master"' in tf
+    assert 'resource "aws_vpc" "project"' not in tf
     # Mod 037: cert split into stage and prod; no more single `project` cert.
     assert 'resource "aws_acm_certificate" "stage"' in tf
     assert 'resource "aws_acm_certificate" "prod"' in tf
@@ -267,6 +269,46 @@ def test_project_main_tf_has_zone_vpc_cert_ecr(compiled_elastic_project: Path):
     assert 'resource "aws_acm_certificate" "project"' not in tf
     # ECR repo for the `api` core service from the elastic fixture.
     assert 'resource "aws_ecr_repository" "api"' in tf
+
+
+def test_project_main_tf_uses_master_vpc_data_sources(compiled_elastic_project: Path):
+    """Mod 041: master VPC + subnets are consumed via tag-based data sources.
+    The per-project VPC stack (VPC, IGW, public/private subnets, NAT, EIPs,
+    route tables) is deleted entirely."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    # Data sources present with the doctrine-prescribed tags.
+    assert 'data "aws_vpc" "master"' in tf
+    assert 'Name       = "docex-master-vpc"' in tf
+    assert 'managed_by = "docex-preinfra"' in tf
+    assert 'data "aws_subnets" "public"' in tf
+    assert 'data "aws_subnets" "private"' in tf
+    assert 'data "aws_subnet" "primary_private"' in tf
+    # Primary-AZ filter on the singular data source.
+    assert 'values = ["us-east-1a"]' in tf
+    # Old per-project VPC stack is gone.
+    for stale in (
+        'resource "aws_vpc" "project"',
+        'resource "aws_internet_gateway" "project"',
+        'resource "aws_subnet" "public"',
+        'resource "aws_subnet" "private"',
+        'resource "aws_eip" "nat"',
+        'resource "aws_nat_gateway" "project"',
+        'resource "aws_route_table" "public"',
+        'resource "aws_route_table" "private"',
+        'resource "aws_route_table_association"',
+        'data "aws_availability_zones"',
+    ):
+        assert stale not in tf, f"{stale!r} should be gone after mod 041"
+
+
+def test_project_main_tf_intra_template_refs_use_master_vpc(compiled_elastic_project: Path):
+    """Mod 041: the ALB SG's vpc_id and the ALB's subnets point at the master
+    VPC's data sources (not the deleted per-project resources)."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    assert "vpc_id      = data.aws_vpc.master.id" in tf
+    assert "subnets            = data.aws_subnets.public.ids" in tf
+    # The stale mod-038 placeholder comment is gone.
+    assert "mod 041 will switch this to a master VPC data source" not in tf
 
 
 def test_project_route53_zone_name_is_project_subdomain(compiled_elastic_project: Path):
@@ -319,6 +361,8 @@ def test_project_main_tf_emits_outputs(compiled_elastic_project: Path):
         "vpc_id",
         "public_subnet_ids",
         "private_subnet_ids",
+        # Mod 041: primary-AZ private subnet for single-AZ ECS placement.
+        "primary_private_subnet_id",
         "zone_id",
         "zone_name_servers",
         # Mod 037: per-env cert ARN outputs replace the single `certificate_arn`.
@@ -329,6 +373,11 @@ def test_project_main_tf_emits_outputs(compiled_elastic_project: Path):
         assert f'output "{out_name}"' in tf, f"missing output {out_name!r}"
     # And the old single-cert output is gone.
     assert 'output "certificate_arn"' not in tf
+    # Mod 041: outputs are data-source-backed, not resource-backed.
+    assert "value = data.aws_vpc.master.id" in tf
+    assert "value = data.aws_subnets.public.ids" in tf
+    assert "value = data.aws_subnets.private.ids" in tf
+    assert "value = data.aws_subnet.primary_private.id" in tf
 
 
 def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):
@@ -345,7 +394,14 @@ def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Pat
 def test_env_main_tf_references_remote_state_outputs(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
     assert "data.terraform_remote_state.project.outputs.vpc_id" in tf
+    # Mod 041: backing-service subnet groups (RDS / ElastiCache) and EFS
+    # mount targets still consume the multi-AZ list (AWS requires it).
     assert "data.terraform_remote_state.project.outputs.private_subnet_ids" in tf
+    # Mod 041: ECS workloads pin to the primary-AZ private subnet.
+    assert (
+        "subnets         = [data.terraform_remote_state.project.outputs.primary_private_subnet_id]"
+        in tf
+    )
     assert "data.terraform_remote_state.project.outputs.zone_id" in tf
     # Mod 038: the ALB moved to the project tier. Env-tier consumes its
     # DNS+zone for Route53 alias records, the HTTPS listener ARN for
