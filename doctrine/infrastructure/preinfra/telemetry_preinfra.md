@@ -188,7 +188,7 @@ If all four pass, the instance is ready for project sidecars to connect.
 
 The following describes how to setup HyperDX in fixed-foundation projects.
 
-1. **Choose Base Directory** for the HyperDX instance to live in. Default is `~/preinfra/hyperdx`.
+1. **Choose Base Directory** for the HyperDX instance to live in. Default is `/opt/docex-preinfra/hyperdx`.
 
 2. **Route DNS.** Determine the appropriate records to route `hyperdx.${base_domain}` to the fixed machine's IP, and then ask the operator to add those records to the domain registrar's DNS.
 
@@ -204,9 +204,9 @@ The following describes how to setup HyperDX in fixed-foundation projects.
 
       `docex-ingress` is preinfra and already exists — do not recreate it.
 
-   2. Make a directory at `~/preinfra/hyperdx/traefik` (sibling to the HyperDX clone).
+   2. Make a directory at `/opt/docex-preinfra/hyperdx/traefik` (sibling to the HyperDX clone).
 
-   3. Create `~/preinfra/hyperdx/traefik/docker-compose.yml`:
+   3. Create `/opt/docex-preinfra/hyperdx/traefik/docker-compose.yml`:
 
       ```yaml
       services:
@@ -231,7 +231,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
           external: true
       ```
 
-   4. Create `~/preinfra/hyperdx/traefik/traefik.yml`:
+   4. Create `/opt/docex-preinfra/hyperdx/traefik/traefik.yml`:
 
       ```yaml
       entryPoints:
@@ -264,7 +264,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
    5. Create an empty `acme.json` with restricted permissions:
 
       ```bash
-      touch ~/preinfra/hyperdx/traefik/acme.json && chmod 600 ~/preinfra/hyperdx/traefik/acme.json
+      touch /opt/docex-preinfra/hyperdx/traefik/acme.json && chmod 600 /opt/docex-preinfra/hyperdx/traefik/acme.json
       ```
 
       Traefik refuses to write certificate data to a file with looser permissions.
@@ -272,7 +272,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
    6. Bring up traefik:
 
       ```bash
-      cd ~/preinfra/hyperdx/traefik && docker compose up -d
+      cd /opt/docex-preinfra/hyperdx/traefik && docker compose up -d
       ```
 
    7. Verify traefik is reachable via HAProxy by curling its HTTP entrypoint:

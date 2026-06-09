@@ -119,9 +119,13 @@ local function project_from_host(host)
 end
 
 -- TCP path (https, SNI). Fetched as a string returning the resolved
--- backend container hostname, e.g. "my-proj-traefik".
+-- backend container hostname, e.g. "my-proj-traefik". Uses `req_ssl_sni`
+-- (NOT `ssl_fc_sni`) — `ssl_fc_sni` only returns a value when the
+-- frontend itself terminates TLS, which web_demux deliberately does not
+-- do. The per-project traefik downstream is what terminates TLS; here
+-- we parse the SNI from the L4 ClientHello in TCP pass-through.
 core.register_fetches("project_traefik_from_sni", function(txn)
-    local sni = txn.f:ssl_fc_sni()
+    local sni = txn.f:req_ssl_sni()
     local proj = project_from_host(sni)
     if not proj then return nil end
     return proj .. "-traefik"
@@ -145,16 +149,22 @@ end)
 
 global
     log stdout format raw local0
+    # Opt into modern HAProxy 3.1+ Lua boolean-sample semantics. Silences
+    # a startup warning under the `lts-alpine` tag (currently 3.x).
+    # Must appear before any `lua-load` directive.
+    tune.lua.bool-sample-conversion normal
     lua-load /usr/local/etc/haproxy/project_resolver.lua
-    # Use Docker's embedded DNS for resolving <project>-traefik names on
-    # the docex-ingress bridge. 127.0.0.11 is the standard Docker DNS
-    # endpoint inside user-defined bridge networks.
-    resolvers docker_dns
-        nameserver dockerd 127.0.0.11:53
-        resolve_retries 3
-        timeout retry 1s
-        hold valid 10s
-        hold nx 5s
+
+# Docker's embedded DNS resolves <project>-traefik container names on the
+# docex-ingress bridge. 127.0.0.11 is the standard Docker DNS endpoint
+# inside user-defined bridge networks. The `resolvers` section is a
+# top-level block — it cannot be nested inside `global`.
+resolvers docker_dns
+    nameserver dockerd 127.0.0.11:53
+    resolve_retries 3
+    timeout retry 1s
+    hold valid 10s
+    hold nx 5s
 
 defaults
     log global
@@ -163,60 +173,58 @@ defaults
     timeout server 60s
 
 # -----------------------------------------------------------------------
-# HTTPS (443) — SNI pass-through. We don't terminate TLS; the per-project
-# traefik does. We look at SNI to pick the right backend container.
+# HTTPS (443) — SNI pass-through. No TLS termination; per-project traefik
+# handles that. Parse <project>-traefik hostname from SNI via Lua,
+# resolve to an IP through docker_dns, then rewrite the per-connection
+# destination IP. Fully dynamic — no per-project static list and no new
+# Lua action needed beyond the parser the doctrine prescribes.
 # -----------------------------------------------------------------------
 frontend https_in
     bind *:443
     mode tcp
     option tcplog
     tcp-request inspect-delay 5s
-    tcp-request content accept if { req_ssl_hello_type 1 }
-    # Reject connections with no SNI — every doctrine-shaped request
-    # carries one.
+    tcp-request content reject if !{ req_ssl_hello_type 1 }
     tcp-request content reject if !{ req_ssl_sni -m found }
 
-    # Resolve target backend container hostname from the SNI.
-    use_backend project_traefik_pool
+    tcp-request content set-var(sess.proj_host) lua.project_traefik_from_sni
+    tcp-request content reject if !{ var(sess.proj_host) -m found }
+    tcp-request content do-resolve(sess.target_ip,docker_dns,ipv4) var(sess.proj_host)
+    tcp-request content reject if !{ var(sess.target_ip) -m found }
+    tcp-request content set-dst var(sess.target_ip)
 
-backend project_traefik_pool
+    use_backend project_pool_tcp
+
+backend project_pool_tcp
     mode tcp
-    # The backend hostname is computed per-connection via Lua. HAProxy
-    # resolves it on docex-ingress (Docker DNS) and forwards the
-    # connection unmodified.
-    server-template project 50 _placeholder:443 check resolvers docker_dns init-addr none
-    # WHY server-template: HAProxy doesn't have first-class "compute
-    # backend from variable at connection time" support in pure TCP
-    # mode. The template reserves 50 slots; the Lua action below points
-    # each connection at the right one by reassigning its destination.
-    # NOTE: this is one of the v1 doctrine compromises — the real fix
-    # is either (a) sock-resolver Lua action that does set_dst from a
-    # fetched hostname, or (b) switch web_demux to nginx-stream where
-    # proxy_pass $variable works natively.
-    # TODO: refine after first stand-up — operator may swap to nginx
-    # if the HAProxy Lua approach proves fragile.
+    # Destination IP is replaced per-connection by `set-dst` above; this
+    # line only contributes the port (443) for the upstream connection.
+    server target 0.0.0.0:443
 
 # -----------------------------------------------------------------------
-# HTTP (80) — plain HTTP. For doctrine projects the project's per-project
-# traefik handles the 80→443 redirect, so demux forwards by Host header
-# the same way it forwards 443 by SNI.
+# HTTP (80) — plain HTTP, route by Host header. The per-project traefik
+# handles the 80→443 redirect, so web_demux just forwards.
 # -----------------------------------------------------------------------
 frontend http_in
     bind *:80
     mode http
     option httplog
-    # Reject if no Host header — every well-formed HTTP/1.1 request has one.
     http-request deny if !{ hdr(host) -m found }
-    # Route by Host -> <project>-traefik.
-    use_backend project_traefik_http_pool
 
-backend project_traefik_http_pool
+    http-request set-var(txn.proj_host) lua.project_traefik_from_host_hdr
+    http-request deny if !{ var(txn.proj_host) -m found }
+    http-request do-resolve(txn.target_ip,docker_dns,ipv4) var(txn.proj_host)
+    http-request deny if !{ var(txn.target_ip) -m found }
+    http-request set-dst var(txn.target_ip)
+
+    use_backend project_pool_http
+
+backend project_pool_http
     mode http
-    # Same v1 compromise as the 443 backend; see WHY note above.
-    server-template http_project 50 _placeholder:80 check resolvers docker_dns init-addr none
+    server target 0.0.0.0:80
 ```
 
-> **NOTE — v1 caveat.** The HAProxy config above is honest about being a starting point. The pure-HAProxy "compute backend hostname per request from SNI" pattern is awkward; the `server-template` placeholder approach is a known compromise. After the first real stand-up, the operator should either: (a) refine the Lua resolver to do `txn:set_dst()` directly and use a single `0.0.0.0:0` backend, or (b) document concretely which projects coexist on this host and convert the template to a static list of `server my-proj-traefik:443` entries. Both work; the doctrine commits only to the *shape* (HAProxy + SNI demux + `docex-ingress` bridge), not the exact config grammar.
+> **Why `do-resolve` + `set-dst` instead of `server-template` or `use_backend %[var]`.** HAProxy's `server-template` reserves N static server slots — useful for known-ahead pools, but it can't compute a backend hostname per connection from a fetched value. `use_backend %[var]` works in HTTP mode for *named* backends but doesn't translate to "open a TCP connection to a hostname I just computed." The `do-resolve` action does exactly that: it runs `var(sess.proj_host)` through `docker_dns` and stores the IP in `sess.target_ip`, then `set-dst` rewrites the connection's destination. The trailing `backend project_pool_tcp` exists only to contribute the port. Caching is handled by `hold valid 10s` in the resolver block.
 
 5. Bring up the demux:
 

@@ -19,12 +19,12 @@ Key choices:
 
 ## Implementation
 
-The registry lives under `~/preinfra/container_registry` on the host machine. Two compose stacks side by side: a dedicated `traefik` (subdirectory `traefik/`) and the `registry` container itself (subdirectory `registry/`). Both compose stacks share an external docker network `container_registry-internal` so the traefik can reach the registry; the traefik additionally joins `docex-ingress` so HAProxy can reach the traefik.
+The registry lives under `/opt/docex-preinfra/container_registry` on the host machine. Two compose stacks side by side: a dedicated `traefik` (subdirectory `traefik/`) and the `registry` container itself (subdirectory `registry/`). Both compose stacks share an external docker network `container_registry-internal` so the traefik can reach the registry; the traefik additionally joins `docex-ingress` so HAProxy can reach the traefik.
 
 Layout:
 
 ```
-~/preinfra/container_registry
+/opt/docex-preinfra/container_registry
 ├── traefik
 │   ├── docker-compose.yml
 │   ├── traefik.yml
@@ -39,7 +39,7 @@ Layout:
 
 The traefik is structurally identical to HyperDX's dedicated traefik on `fixed` ([telemetry_preinfra.md § Fixed](./telemetry_preinfra.md#fixed) step 4) — it does NOT bind host ports (HAProxy owns 80/443), joins `docex-ingress` and the registry's internal network, and uses ACME HTTP-01 against the canonical `doctrine` cert resolver.
 
-`~/preinfra/container_registry/traefik/docker-compose.yml`:
+`/opt/docex-preinfra/container_registry/traefik/docker-compose.yml`:
 
 ```yaml
 services:
@@ -66,7 +66,7 @@ networks:
 
 The container is named `registry-traefik` to match the `${project_name}-traefik` scheme HAProxy expects when it parses `registry.${base_domain}` into project name `registry` (per [fixed_master_network.md](./fixed_master_network.md#the-web_demux-resource)). The name is what makes `web_demux` routing work without per-project configuration.
 
-`~/preinfra/container_registry/traefik/traefik.yml`:
+`/opt/docex-preinfra/container_registry/traefik/traefik.yml`:
 
 ```yaml
 entryPoints:
@@ -96,7 +96,7 @@ certificatesResolvers:
 
 ### Registry container
 
-`~/preinfra/container_registry/registry/docker-compose.yml`:
+`/opt/docex-preinfra/container_registry/registry/docker-compose.yml`:
 
 ```yaml
 services:
@@ -157,8 +157,8 @@ The procedure assumes the host already has the [fixed master network](./fixed_ma
 4. **Create the directory layout.**
 
    ```bash
-   mkdir -p ~/preinfra/container_registry/traefik
-   mkdir -p ~/preinfra/container_registry/registry/auth
+   mkdir -p /opt/docex-preinfra/container_registry/traefik
+   mkdir -p /opt/docex-preinfra/container_registry/registry/auth
    ```
 
 5. **Create the shared internal network.**
@@ -171,13 +171,13 @@ The procedure assumes the host already has the [fixed master network](./fixed_ma
 
 6. **Set up the dedicated traefik.**
 
-   1. Write `~/preinfra/container_registry/traefik/docker-compose.yml` and `traefik.yml` per [Implementation § Dedicated traefik](#dedicated-traefik). Substitute the operator's email into `traefik.yml`.
+   1. Write `/opt/docex-preinfra/container_registry/traefik/docker-compose.yml` and `traefik.yml` per [Implementation § Dedicated traefik](#dedicated-traefik). Substitute the operator's email into `traefik.yml`.
 
    2. Create an empty `acme.json` with restricted permissions:
 
       ```bash
-      touch ~/preinfra/container_registry/traefik/acme.json
-      chmod 600 ~/preinfra/container_registry/traefik/acme.json
+      touch /opt/docex-preinfra/container_registry/traefik/acme.json
+      chmod 600 /opt/docex-preinfra/container_registry/traefik/acme.json
       ```
 
       Traefik refuses to write certificate data to a file with looser permissions.
@@ -185,8 +185,10 @@ The procedure assumes the host already has the [fixed master network](./fixed_ma
    3. Bring up traefik:
 
       ```bash
-      cd ~/preinfra/container_registry/traefik && docker compose up -d
+      cd /opt/docex-preinfra/container_registry/traefik && docker compose up -d
       ```
+
+      `docker logs registry-traefik` will be empty immediately after start — `traefik:v3` produces no stdout at the default INFO level until requests arrive. Confirm health via `docker ps` (status `Up`) rather than by waiting for log output.
 
    4. Verify traefik is reachable via HAProxy:
 
@@ -200,16 +202,16 @@ The procedure assumes the host already has the [fixed master network](./fixed_ma
 
    ```bash
    docker run --rm --entrypoint htpasswd httpd:2 -Bbn <username> '<password>' \
-     > ~/preinfra/container_registry/registry/auth/htpasswd
+     > /opt/docex-preinfra/container_registry/registry/auth/htpasswd
    ```
 
    `-B` selects bcrypt. The registry image accepts bcrypt only; older `md5`/`crypt` formats produce an authentication failure that is not obvious from the error message. Record the username and password somewhere safe — they need to be available to every operator who pushes or pulls against this registry.
 
 8. **Set up the registry.**
 
-   1. Write `~/preinfra/container_registry/registry/docker-compose.yml` per [Implementation § Registry container](#registry-container).
+   1. Write `/opt/docex-preinfra/container_registry/registry/docker-compose.yml` per [Implementation § Registry container](#registry-container).
 
-   2. Create `~/preinfra/container_registry/registry/.env` with the base domain:
+   2. Create `/opt/docex-preinfra/container_registry/registry/.env` with the base domain:
 
       ```
       BASE_DOMAIN=<base_domain>
@@ -218,7 +220,7 @@ The procedure assumes the host already has the [fixed master network](./fixed_ma
    3. Bring up the registry:
 
       ```bash
-      cd ~/preinfra/container_registry/registry && docker compose up -d
+      cd /opt/docex-preinfra/container_registry/registry && docker compose up -d
       ```
 
 9. **Test reachability.** Follow [Verifying Reachability](#verifying-reachability) below.
@@ -286,7 +288,7 @@ docker exec registry registry garbage-collect /etc/docker/registry/config.yml
 GC is offline-safe by default but can be run while the registry is up; concurrent pushes during GC may be lost, so the doctrine-aligned procedure is to stop the registry container first:
 
 ```bash
-cd ~/preinfra/container_registry/registry
+cd /opt/docex-preinfra/container_registry/registry
 docker compose stop registry
 docker compose run --rm registry garbage-collect /etc/docker/registry/config.yml
 docker compose up -d registry
