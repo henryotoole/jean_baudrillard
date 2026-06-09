@@ -172,9 +172,13 @@ def _print_delegation_instructions(
     project_dir: Path, project: str, apex_domain: str
 ) -> None:
     """Print the zone's NS records and what the operator must do next."""
+    # WHY: the zone covers `<project>.<apex_domain>`, not the bare apex —
+    # the apex zone lives at the parent (registrar or parent Route53 zone)
+    # and is what we delegate FROM.
+    project_subdomain = f"{project}.{apex_domain}"
     nameservers = tofu_output(project_dir, "zone_name_servers")
     print("")
-    print(f"bootstrap: Route53 hosted zone for {apex_domain!r} created.")
+    print(f"bootstrap: Route53 hosted zone for {project_subdomain!r} created.")
     print("")
     if isinstance(nameservers, list) and nameservers:
         print("  NS records:")
@@ -187,12 +191,13 @@ def _print_delegation_instructions(
         )
     print("")
     print(
-        f"  Next step: delegate {apex_domain!r} to the NS records above at "
-        "the parent zone\n"
-        "  (registrar or parent Route53 hosted zone). After the delegation "
-        "propagates,\n"
-        "  re-run `docex bootstrap` to apply the rest of the project-tier "
-        "infrastructure\n"
-        f"  ({project} VPC, subnets, ACM cert, ECR repositories)."
+        f"  Next step: delegate {project_subdomain!r} to the NS records above "
+        f"by setting NS records\n"
+        f"  in the parent zone ({apex_domain!r}) at your registrar or parent "
+        "Route53 hosted zone.\n"
+        "  After the delegation propagates, re-run `docex bootstrap` to apply "
+        "the rest of\n"
+        f"  the project-tier infrastructure ({project} VPC, subnets, ACM "
+        "certs, ECR repositories)."
     )
     print("")

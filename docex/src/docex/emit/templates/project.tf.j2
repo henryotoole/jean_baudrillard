@@ -34,16 +34,21 @@ data "aws_availability_zones" "available" {
 }
 
 # ---------------------------------------------------------------------------
-# Route53 hosted zone for the project domain.
+# Route53 hosted zone for the project subdomain (`<project>.<apex_domain>`).
 #
-# The operator must NS-delegate from the parent (registrar or parent hosted
-# zone) using the name servers printed by `docex bootstrap` after the first
-# apply. Until that delegation propagates, ACM DNS validation will not
-# complete, which is why `docex bootstrap` applies this zone first and pauses
-# for delegation before proceeding to the cert.
+# The zone covers the project's subdomain — not the bare apex. The apex zone
+# typically belongs to whoever owns the registrar account; this project's
+# zone is delegated from there via NS records.
+#
+# The operator must NS-delegate `<project>.<apex_domain>` from the parent
+# zone (`<apex_domain>`, at the registrar or parent Route53 hosted zone)
+# using the name servers printed by `docex bootstrap` after the first apply.
+# Until that delegation propagates, ACM DNS validation will not complete,
+# which is why `docex bootstrap` applies this zone first and pauses for
+# delegation before proceeding to the certs.
 # ---------------------------------------------------------------------------
 resource "aws_route53_zone" "project" {
-  name = "{{ apex_domain }}"
+  name = "{{ project }}.{{ apex_domain }}"
   tags = {
     project    = "{{ project }}"
     managed_by = "doctrine"
@@ -159,20 +164,20 @@ resource "aws_route_table_association" "private" {
 }
 
 # ---------------------------------------------------------------------------
-# ACM certificate.
+# ACM certificates — one per ALB-served env.
 #
-# `*.{{ apex_domain }}` covers the env subdomains (`dev.{{ apex_domain }}`,
-# `test.{{ apex_domain }}`, `stage.{{ apex_domain }}`, `www.{{ apex_domain }}`). The four
-# per-env wildcard SANs cover per-service hosts
-# (e.g. `backend.stage.{{ apex_domain }}`).
+# Two certs ship per project per the doctrine's "stage and prod cert-separated
+# for blast-radius" rule (cicl.md § TLS Implications):
+#   - Stage cert covers `*.stage.<project>.<apex>` and `stage.<project>.<apex>`.
+#   - Prod cert covers `*.prod.<project>.<apex>`, `prod.<project>.<apex>`, and
+#     the bare-project ergonomic `<project>.<apex>`.
+# Dev and test envs are always fixed-style; they never reach the ALB and are
+# excluded from these certs.
 # ---------------------------------------------------------------------------
-resource "aws_acm_certificate" "project" {
-  domain_name = "*.{{ apex_domain }}"
+resource "aws_acm_certificate" "stage" {
+  domain_name = "*.stage.{{ project }}.{{ apex_domain }}"
   subject_alternative_names = [
-    "*.dev.{{ apex_domain }}",
-    "*.test.{{ apex_domain }}",
-    "*.stage.{{ apex_domain }}",
-    "*.www.{{ apex_domain }}",
+    "stage.{{ project }}.{{ apex_domain }}",
   ]
   validation_method = "DNS"
   lifecycle {
@@ -180,13 +185,31 @@ resource "aws_acm_certificate" "project" {
   }
   tags = {
     project    = "{{ project }}"
+    env        = "stage"
     managed_by = "doctrine"
   }
 }
 
-resource "aws_route53_record" "cert_validation" {
+resource "aws_acm_certificate" "prod" {
+  domain_name = "*.prod.{{ project }}.{{ apex_domain }}"
+  subject_alternative_names = [
+    "prod.{{ project }}.{{ apex_domain }}",
+    "{{ project }}.{{ apex_domain }}",
+  ]
+  validation_method = "DNS"
+  lifecycle {
+    create_before_destroy = true
+  }
+  tags = {
+    project    = "{{ project }}"
+    env        = "prod"
+    managed_by = "doctrine"
+  }
+}
+
+resource "aws_route53_record" "cert_validation_stage" {
   for_each = {
-    for dvo in aws_acm_certificate.project.domain_validation_options : dvo.domain_name => {
+    for dvo in aws_acm_certificate.stage.domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       record = dvo.resource_record_value
       type   = dvo.resource_record_type
@@ -200,9 +223,30 @@ resource "aws_route53_record" "cert_validation" {
   zone_id         = aws_route53_zone.project.zone_id
 }
 
-resource "aws_acm_certificate_validation" "project" {
-  certificate_arn         = aws_acm_certificate.project.arn
-  validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
+resource "aws_route53_record" "cert_validation_prod" {
+  for_each = {
+    for dvo in aws_acm_certificate.prod.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = aws_route53_zone.project.zone_id
+}
+
+resource "aws_acm_certificate_validation" "stage" {
+  certificate_arn         = aws_acm_certificate.stage.arn
+  validation_record_fqdns = [for record in aws_route53_record.cert_validation_stage : record.fqdn]
+}
+
+resource "aws_acm_certificate_validation" "prod" {
+  certificate_arn         = aws_acm_certificate.prod.arn
+  validation_record_fqdns = [for record in aws_route53_record.cert_validation_prod : record.fqdn]
 }
 
 # ---------------------------------------------------------------------------
@@ -305,8 +349,12 @@ output "zone_name_servers" {
   value = aws_route53_zone.project.name_servers
 }
 
-output "certificate_arn" {
-  value = aws_acm_certificate_validation.project.certificate_arn
+output "stage_cert_arn" {
+  value = aws_acm_certificate_validation.stage.certificate_arn
+}
+
+output "prod_cert_arn" {
+  value = aws_acm_certificate_validation.prod.certificate_arn
 }
 
 output "task_execution_role_arn" {

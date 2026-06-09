@@ -259,10 +259,52 @@ def test_project_main_tf_has_zone_vpc_cert_ecr(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     assert 'resource "aws_route53_zone" "project"' in tf
     assert 'resource "aws_vpc" "project"' in tf
-    assert 'resource "aws_acm_certificate" "project"' in tf
-    assert 'resource "aws_acm_certificate_validation" "project"' in tf
+    # Mod 037: cert split into stage and prod; no more single `project` cert.
+    assert 'resource "aws_acm_certificate" "stage"' in tf
+    assert 'resource "aws_acm_certificate" "prod"' in tf
+    assert 'resource "aws_acm_certificate_validation" "stage"' in tf
+    assert 'resource "aws_acm_certificate_validation" "prod"' in tf
+    assert 'resource "aws_acm_certificate" "project"' not in tf
     # ECR repo for the `api` core service from the elastic fixture.
     assert 'resource "aws_ecr_repository" "api"' in tf
+
+
+def test_project_route53_zone_name_is_project_subdomain(compiled_elastic_project: Path):
+    """Mod 037: the project's hosted zone covers `<project>.<apex_domain>`,
+    not the bare apex (which belongs to whoever owns the registrar account)."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    # Fixture: project name `sample`, apex `example.com`.
+    assert 'name = "sample.example.com"' in tf
+    # Bare apex is no longer the zone name.
+    assert 'name = "example.com"' not in tf
+
+
+def test_project_stage_cert_sans(compiled_elastic_project: Path):
+    """Mod 037: stage cert covers `*.stage.<project>.<apex>` + ergonomic
+    `stage.<project>.<apex>`. Nothing else."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    assert 'domain_name = "*.stage.sample.example.com"' in tf
+    assert '"stage.sample.example.com",' in tf
+
+
+def test_project_prod_cert_sans(compiled_elastic_project: Path):
+    """Mod 037: prod cert covers `*.prod.<project>.<apex>` + ergonomic
+    `prod.<project>.<apex>` + bare-project `<project>.<apex>`."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    assert 'domain_name = "*.prod.sample.example.com"' in tf
+    assert '"prod.sample.example.com",' in tf
+    assert '"sample.example.com",' in tf
+
+
+def test_project_main_tf_no_obsolete_cert_sans(compiled_elastic_project: Path):
+    """The pre-mod-037 single cert had `*.dev`, `*.test`, and `*.www` SANs.
+    Those are obsolete — dev/test never reach the ALB, `www` was dropped."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    assert "*.dev.example.com" not in tf
+    assert "*.test.example.com" not in tf
+    assert "*.www" not in tf
+    # The old apex-wildcard form is also gone.
+    assert 'domain_name = "*.example.com"' not in tf
 
 
 def test_project_main_tf_uses_project_state_key(compiled_elastic_project: Path):
@@ -279,10 +321,14 @@ def test_project_main_tf_emits_outputs(compiled_elastic_project: Path):
         "private_subnet_ids",
         "zone_id",
         "zone_name_servers",
-        "certificate_arn",
+        # Mod 037: per-env cert ARN outputs replace the single `certificate_arn`.
+        "stage_cert_arn",
+        "prod_cert_arn",
         "ecr_repository_api_url",
     ):
         assert f'output "{out_name}"' in tf, f"missing output {out_name!r}"
+    # And the old single-cert output is gone.
+    assert 'output "certificate_arn"' not in tf
 
 
 def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):
@@ -302,7 +348,19 @@ def test_env_main_tf_references_remote_state_outputs(compiled_elastic_project: P
     assert "data.terraform_remote_state.project.outputs.public_subnet_ids" in tf
     assert "data.terraform_remote_state.project.outputs.private_subnet_ids" in tf
     assert "data.terraform_remote_state.project.outputs.zone_id" in tf
-    assert "data.terraform_remote_state.project.outputs.certificate_arn" in tf
+    # Mod 037: prod env consumes the prod cert; stage consumes the stage cert.
+    assert "data.terraform_remote_state.project.outputs.prod_cert_arn" in tf
+    assert "data.terraform_remote_state.project.outputs.stage_cert_arn" not in tf
+    # The old single-cert output reference is gone.
+    assert "outputs.certificate_arn" not in tf
+
+
+def test_stage_env_main_tf_references_stage_cert_arn(compiled_elastic_project: Path):
+    """Mod 037: stage env reads its own cert ARN, not prod's."""
+    tf = (compiled_elastic_project / "infra" / "output" / "stage" / "main.tf").read_text()
+    assert "data.terraform_remote_state.project.outputs.stage_cert_arn" in tf
+    assert "data.terraform_remote_state.project.outputs.prod_cert_arn" not in tf
+    assert "outputs.certificate_arn" not in tf
 
 
 # ---------------------------------------------------------------------------

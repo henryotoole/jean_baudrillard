@@ -49,7 +49,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 034 — Command surface refresh ([mod folder](../modifications/034_command_surface_refresh/))
 - [x] 035 — Compiler output split + always-on four `-web` networks ([mod folder](../modifications/035_compiler_output_split/))
 - [x] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed ([mod folder](../modifications/036_fixed_projinfra/))
-- [ ] 037 — Elastic projinfra: Route53 zone + ACM certs + two-phase apply
+- [x] 037 — Elastic projinfra: Route53 zone + ACM certs + two-phase apply ([mod folder](../modifications/037_elastic_projinfra_route53_acm/))
 - [ ] 038 — Elastic projinfra: ALB (default variant) + project-tier outputs
 - [ ] 039 — ECR + IAM move to project-tier
 - [ ] 040 — Env-tier HCL refactor: remote state + per-web listener rules

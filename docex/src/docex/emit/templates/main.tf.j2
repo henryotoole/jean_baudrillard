@@ -143,7 +143,11 @@ resource "aws_lb_listener" "alb_https" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = data.terraform_remote_state.project.outputs.certificate_arn
+{% if env == "stage" -%}
+  certificate_arn   = data.terraform_remote_state.project.outputs.stage_cert_arn
+{%- elif env == "prod" -%}
+  certificate_arn   = data.terraform_remote_state.project.outputs.prod_cert_arn
+{%- endif %}
   default_action {
     type = "fixed-response"
     fixed_response {

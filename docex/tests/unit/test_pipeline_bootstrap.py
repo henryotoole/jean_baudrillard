@@ -190,6 +190,21 @@ def test_bootstrap_phase1_prints_ns_records(
     assert "delegate" in out.lower()
 
 
+def test_bootstrap_phase1_delegation_message_references_project_subdomain(
+    elastic_ctx_compiled, fake_aws, stub_tofu, capsys
+):
+    """Mod 037: the delegation print must reference `<project>.<apex>` (the
+    zone we created) and `<apex>` (the parent zone to delegate FROM), not
+    just the bare apex like the pre-mod-037 message did."""
+    run_bootstrap(elastic_ctx_compiled, fake_aws)
+    out = capsys.readouterr().out
+    # Fixture: project name 'sample', apex 'example.com'.
+    assert "sample.example.com" in out
+    # The parent zone is named explicitly so the operator knows where to
+    # set the NS records.
+    assert "example.com" in out
+
+
 def test_bootstrap_phase2_runs_full_apply_when_zone_in_state(
     elastic_ctx_compiled, fake_aws, stub_tofu
 ):

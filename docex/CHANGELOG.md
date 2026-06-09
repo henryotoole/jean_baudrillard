@@ -14,6 +14,25 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Route53 zone + ACM certs aligned with new doctrine (BREAKING).**
+  Three real bugs in the existing project-tier HCL fixed:
+  (1) `aws_route53_zone.project.name` now `<project>.<apex>` (was the
+  bare apex) so the zone is the project subdomain delegated from the
+  parent zone, matching
+  [`projinfra/elastic_route53_zone.md`](../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md).
+  (2) Single ACM cert with `*.dev`/`*.test`/`*.www` SANs replaced with
+  two ACM certs (stage + prod) carrying the doctrine-spec SANs:
+  stage cert covers `*.stage.<p>.<a>` + `stage.<p>.<a>`; prod cert
+  covers `*.prod.<p>.<a>` + `prod.<p>.<a>` + `<p>.<a>` (the bare-
+  project ergonomic). Dev/test certs live on the per-project traefik,
+  not ACM. (3) Single `certificate_arn` output replaced with
+  `stage_cert_arn` and `prod_cert_arn`. Env-tier `main.tf` branches
+  on the compile-time `env` to consume the right per-env cert ARN.
+  `pipeline/bootstrap.py` delegation-instructions print updated to
+  reference the project subdomain and the parent-zone delegation
+  requirement. Two-phase apply logic itself unchanged. Mod 037 of
+  the shape-and-tier campaign.
+
 - **Per-project traefik on per-project `-web` networks (BREAKING).**
   Replaces the obsolete machine-wide-traefik model with the doctrine's
   per-project traefik (per
