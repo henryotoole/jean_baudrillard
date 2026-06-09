@@ -49,7 +49,9 @@ data "terraform_remote_state" "project" {
 # ---------------------------------------------------------------------------
 {% for short in networks_sorted -%}
 resource "aws_security_group" "{{ short }}" {
-  name        = "{{ project }}_{{ env }}_{{ short }}"
+  # WHY: data-plane name per networks.md § Compiled Names — hyphenated form
+  # regardless of the project's underscore form.
+  name        = "{{ project | replace('_', '-') }}-{{ env }}-{{ short }}"
   description = "{{ short }} network for {{ project }} {{ env }}"
   vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
   # WHY: aws_security_group denies egress when no egress block is given,

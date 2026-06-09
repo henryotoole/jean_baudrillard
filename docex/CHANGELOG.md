@@ -14,6 +14,22 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Env-tier SG names now use hyphen form (BREAKING).** Closes a
+  data-plane naming leak missed by mod 030: the env-tier security
+  group's AWS-side `name` field in `main.tf.j2` was composed with
+  literal underscores (`${project}_${env}_${short}`) instead of the
+  hyphen form
+  [`networks.md`](../doctrine/infrastructure/specifics/networks.md#compiled-names)
+  prescribes for data-plane resolvable identifiers. Now renders as
+  `${project-hyphen-form}-${env}-${short}` consistently across the
+  Docker (mod 030) and elastic-HCL (this mod) sides. The rest of
+  mod 040's originally-planned scope (`data
+  "terraform_remote_state" "project"` block, per-web-service
+  listener rules + target groups, env web SG ingress from project
+  ALB SG, allow-all egress on every emitted SG) had already landed
+  as side effects of mods 037, 038, and earlier mod 006. Mod 040 of
+  the shape-and-tier campaign.
+
 - **Task-execution IAM policy tightened to project-scoped (BREAKING).**
   Per
   [`projinfra/elastic_iam.md`](../doctrine/infrastructure/specifics/projinfra/elastic_iam.md),

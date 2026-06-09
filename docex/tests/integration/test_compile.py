@@ -758,6 +758,24 @@ def test_env_tier_rds_and_ecs_service_names(tmp_path: Path):
         assert f'family                   = "docex-smoke-elastic-{env}-web-migrate"' in tf
 
 
+def test_env_tier_sg_name_uses_hyphen_form(tmp_path: Path):
+    """Mod 040: env-tier security-group AWS-side `name` follows the doctrine's
+    data-plane convention from `networks.md § Compiled Names`: hyphenated,
+    project-then-env-then-short, with the project's underscores translated.
+    Locks the regression site at `main.tf.j2:52`, which historically emitted
+    `{project}_{env}_{short}` against the doctrine's stated form."""
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    for env in ("stage", "prod"):
+        tf = (proj / "infra" / "output" / env / "main.tf").read_text()
+        # Both env-tier SGs (web, internal) carry the hyphenated name.
+        assert f'name        = "docex-smoke-elastic-{env}-web"' in tf
+        assert f'name        = "docex-smoke-elastic-{env}-internal"' in tf
+        # Old literal-underscore form must not leak through.
+        assert f'"docex_smoke_elastic_{env}_web"' not in tf
+        assert f'"docex_smoke_elastic_{env}_internal"' not in tf
+
+
 def test_bootstrap_state_backend_matches_project_tier(tmp_path: Path):
     """The bucket/table names the bootstrap creates must match the names
     referenced in the project-tier `backend "s3"` block. Drift here is
