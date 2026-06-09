@@ -162,7 +162,12 @@ def _require_docker() -> "object":
 def _cmd_envinfra(args: list[str]) -> int:
     """``docex envinfra <direction> <env>`` — bring up or tear down a
     local dev / test environment. Dev/test only; stage/prod go via
-    `release`."""
+    `release`.
+
+    Mod 042: ``up`` refuses when ``preinfra development`` fails;
+    teardown is not gated (preinfra existence isn't required to remove
+    a stack).
+    """
     parser = argparse.ArgumentParser(prog="docex envinfra", add_help=True)
     parser.add_argument("direction", choices=["up", "down"],
                         help="up | down")
@@ -176,6 +181,13 @@ def _cmd_envinfra(args: list[str]) -> int:
     docker = _require_docker()
 
     if ns.direction == "up":
+        # envinfra is dev/test only — always development side, never
+        # needs AWS even on elastic projects.
+        from docex.pipeline.preinfra import run_preinfra
+        rc = run_preinfra(ctx, docker, aws=None, side="development")
+        if rc != 0:
+            print("error: preinfra development failed; aborting envinfra up.")
+            return rc
         from docex.orchestrate.up import run_up
         return run_up(ctx, docker, env=ns.env)
     else:
@@ -185,15 +197,30 @@ def _cmd_envinfra(args: list[str]) -> int:
 
 def _cmd_preinfra(args: list[str]) -> int:
     """``docex preinfra <side>`` — check prerequisite infrastructure
-    for the given side. STUB in mod 034 — real checks land in mod 042."""
+    for the given side.
+
+    Mod 042: lazy AWS client construction. Boto3 is only built when
+    the project is elastic and the side is production; fixed-only
+    operators (or anyone checking the development side) don't need
+    AWS credentials on disk.
+    """
     parser = argparse.ArgumentParser(prog="docex preinfra", add_help=True)
     parser.add_argument("side", choices=["development", "production"],
                         help="side to check (development or production)")
     ns = parser.parse_args(args)
 
-    print(f"preinfra check (stub): {ns.side} side — "
-          f"real checks land in mod 042. Returning success.")
-    return 0
+    from docex.context import load_project_context
+    from docex.pipeline.preinfra import run_preinfra
+
+    ctx = load_project_context(Path(os.getcwd()))
+    docker = _require_docker()
+    needs_aws = (
+        ctx.infra is not None
+        and ctx.infra.foundation == "elastic"
+        and ns.side == "production"
+    )
+    aws = _make_aws_client() if needs_aws else None
+    return run_preinfra(ctx, docker, aws, side=ns.side)
 
 
 def _cmd_projinfra(args: list[str]) -> int:
@@ -228,6 +255,16 @@ def _cmd_projinfra(args: list[str]) -> int:
         )
         docker = _require_docker()
         if ns.direction == "up":
+            # Mod 042: precondition gate. Fixed-side preinfra needs
+            # only docker, never AWS.
+            from docex.pipeline.preinfra import run_preinfra
+            rc = run_preinfra(ctx, docker, aws=None, side=ns.side)
+            if rc != 0:
+                print(
+                    f"error: preinfra {ns.side} failed; "
+                    f"aborting projinfra up."
+                )
+                return rc
             return run_projinfra_fixed_up(ctx, docker, side=ns.side)
         return run_projinfra_fixed_down(ctx, docker, side=ns.side)
 
@@ -236,8 +273,19 @@ def _cmd_projinfra(args: list[str]) -> int:
             and ctx.infra.foundation == "elastic"
             and ns.direction == "up"
             and ns.side == "production"):
+        # Mod 042: precondition gate. Elastic prod side needs AWS to
+        # probe the master VPC and subnets.
         from docex.pipeline.bootstrap import run_bootstrap
+        from docex.pipeline.preinfra import run_preinfra
+        docker = _require_docker()
         aws = _make_aws_client()
+        rc = run_preinfra(ctx, docker, aws, side="production")
+        if rc != 0:
+            print(
+                "error: preinfra production failed; "
+                "aborting projinfra up."
+            )
+            return rc
         return run_bootstrap(ctx, aws)
 
     print(f"projinfra {ns.direction} {ns.side} (stub): "

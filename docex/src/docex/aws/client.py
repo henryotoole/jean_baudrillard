@@ -200,3 +200,36 @@ class AWSClient(Protocol):
         (cluster exists; migrations run first per the doctrine order).
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Mod 042: preinfra master VPC discovery.
+    # ------------------------------------------------------------------
+
+    def find_vpc_by_tags(self, tags: dict[str, str]) -> str | None:
+        """Return the first VPC ID matching every (key, value) in tags,
+        or None if no match. Operator setup should produce exactly one
+        master VPC; if multiple match, the first is returned.
+
+        Used by ``docex preinfra production`` to discover the doctrine-
+        prescribed master VPC (tagged ``Name=docex-master-vpc`` and
+        ``managed_by=docex-preinfra`` per mod 041).
+        """
+        ...
+
+    def find_subnet_ids(
+        self,
+        *,
+        vpc_id: str,
+        tags: dict[str, str],
+        availability_zone: str | None = None,
+    ) -> list[str]:
+        """Return subnet IDs in ``vpc_id`` matching all ``tags``. If
+        ``availability_zone`` is set, also filter by it. Empty list when
+        nothing matches.
+
+        Used by ``docex preinfra production`` to count tagged subnets
+        on the master VPC (``tier=public`` / ``tier=private``) and to
+        verify the primary-AZ private subnet that elastic workloads pin
+        to.
+        """
+        ...

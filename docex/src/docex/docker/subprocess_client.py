@@ -333,6 +333,23 @@ class SubprocessDockerClient:
         return False
 
     # ------------------------------------------------------------------
+    # Mod 042: preinfra existence checks.
+    # ------------------------------------------------------------------
+
+    def network_exists(self, name: str) -> bool:
+        # WHY: capture_output (not inherited) so probing a missing network
+        # doesn't spam the operator's terminal with docker's "No such
+        # network" output — this is a probe.
+        cmd = [self._docker, "network", "inspect", name]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return False
+        return res.returncode == 0
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 

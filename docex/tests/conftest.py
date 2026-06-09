@@ -50,6 +50,12 @@ class FakeDockerClient:
     # Mod 036: scripted return for ``any_env_compose_up``. Maps project
     # name -> bool; default False (no env stacks up) when unset.
     any_env_compose_up_results: dict[str, bool] = field(default_factory=dict)
+    # Mod 042: scripted return for ``network_exists``. Maps network
+    # name -> bool. Default True (network present) when unset, so most
+    # existing tests don't need to pre-script the ``docex-ingress``
+    # bridge to satisfy the new ``envinfra up`` / ``projinfra up``
+    # preinfra gate.
+    network_exists_results: dict[str, bool] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
 
     # -- protocol ------------------------------------------------------
@@ -172,6 +178,12 @@ class FakeDockerClient:
     def any_env_compose_up(self, project_name: str) -> bool:
         self.calls.append(("any_env_compose_up", project_name))
         return self.any_env_compose_up_results.get(project_name, False)
+
+    # ------- Mod 042: preinfra ``network_exists`` probe ---------------
+
+    def network_exists(self, name: str) -> bool:
+        self.calls.append(("network_exists", name))
+        return self.network_exists_results.get(name, True)
 
     # -- internals -----------------------------------------------------
 
@@ -449,6 +461,14 @@ class FakeAWSClient:
     # ``(repository, tag) -> bool``. Defaults to True (image present)
     # when a key isn't in the dict.
     ecr_image_exists_results: dict[tuple[str, str], bool] = field(default_factory=dict)
+    # Mod 042: scripted results for the preinfra master VPC discovery
+    # methods. ``find_vpc_by_tags_result`` returns the VPC ID (or None
+    # for "not found"); ``find_subnet_ids_results`` is a mapping by
+    # ``(vpc_id, tags_tuple, az)`` (where ``tags_tuple`` is the sorted
+    # tuple of (k, v) pairs and ``az`` is the AZ string or None) to a
+    # list of subnet IDs. Default empty list when key absent.
+    find_vpc_by_tags_result: str | None = "vpc-fake0001"
+    find_subnet_ids_results: dict[tuple, list[str]] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
     _task_counter: int = 0
 
@@ -572,6 +592,26 @@ class FakeAWSClient:
     def ecs_cluster_exists(self, name: str) -> bool:
         self._record("ecs_cluster_exists", name)
         return self.cluster_exists
+
+    # -- Mod 042: preinfra master VPC discovery -----------------------
+
+    def find_vpc_by_tags(self, tags: dict[str, str]) -> str | None:
+        self._record("find_vpc_by_tags", tags)
+        return self.find_vpc_by_tags_result
+
+    def find_subnet_ids(
+        self,
+        *,
+        vpc_id: str,
+        tags: dict[str, str],
+        availability_zone: str | None = None,
+    ) -> list[str]:
+        self._record(
+            "find_subnet_ids",
+            vpc_id=vpc_id, tags=tags, availability_zone=availability_zone,
+        )
+        key = (vpc_id, tuple(sorted(tags.items())), availability_zone)
+        return list(self.find_subnet_ids_results.get(key, []))
 
 
 @pytest.fixture

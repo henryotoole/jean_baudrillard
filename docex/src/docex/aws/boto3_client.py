@@ -366,5 +366,41 @@ class Boto3AWSClient:
         clusters = resp.get("clusters", [])
         return bool(clusters) and clusters[0].get("status") == "ACTIVE"
 
+    # ------------------------------------------------------------------
+    # Mod 042: preinfra master VPC discovery
+    # ------------------------------------------------------------------
+
+    def find_vpc_by_tags(self, tags: dict[str, str]) -> str | None:
+        ec2 = self._client("ec2")
+        filters = [
+            {"Name": f"tag:{key}", "Values": [value]}
+            for key, value in tags.items()
+        ]
+        resp = ec2.describe_vpcs(Filters=filters)
+        vpcs = resp.get("Vpcs", [])
+        if not vpcs:
+            return None
+        return str(vpcs[0]["VpcId"])
+
+    def find_subnet_ids(
+        self,
+        *,
+        vpc_id: str,
+        tags: dict[str, str],
+        availability_zone: str | None = None,
+    ) -> list[str]:
+        ec2 = self._client("ec2")
+        filters: list[dict[str, Any]] = [
+            {"Name": "vpc-id", "Values": [vpc_id]},
+        ]
+        for key, value in tags.items():
+            filters.append({"Name": f"tag:{key}", "Values": [value]})
+        if availability_zone is not None:
+            filters.append(
+                {"Name": "availability-zone", "Values": [availability_zone]}
+            )
+        resp = ec2.describe_subnets(Filters=filters)
+        return sorted(s["SubnetId"] for s in resp.get("Subnets", []))
+
 
 __all__ = ["Boto3AWSClient", "BotoCoreError", "ClientError", "NoCredentialsError"]

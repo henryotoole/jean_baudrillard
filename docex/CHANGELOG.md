@@ -14,6 +14,27 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **`docex preinfra <side>` now does real checks.** Replaces mod 034's
+  stub with per-(foundation, side) verification:
+  - Any project, development side: `docex-ingress` docker bridge
+    exists on the local daemon.
+  - Fixed project, production side: same docker-bridge check
+    (single-machine; multi-machine fixed deferred).
+  - Elastic project, production side: master VPC discovered by the
+    mod-041 tag scheme (`Name = "docex-master-vpc"`,
+    `managed_by = "docex-preinfra"`), at least 2 public subnets
+    (tag `tier=public`), at least 2 private subnets
+    (tag `tier=private`), at least 1 private subnet in
+    `us-east-1a` (primary AZ).
+  All failures enumerated in one pass. `projinfra up <side>` and
+  `envinfra up <env>` now gate on `preinfra` returning 0 — these
+  commands abort before doing any work when preinfra fails. AWS
+  client construction is lazy — fixed-only operators running
+  `preinfra development` don't need AWS creds. New
+  `DockerClient.network_exists`, `AWSClient.find_vpc_by_tags`,
+  `AWSClient.find_subnet_ids` cover the underlying API calls.
+  Mod 042 of the shape-and-tier campaign.
+
 - **Master VPC consumed as preinfra (BREAKING).** Per
   [`shape2.md § Elastic-Foundation`](../doctrine/infrastructure/shape2.md#elastic-foundation),
   the master VPC is now prerequisite infrastructure shared across all

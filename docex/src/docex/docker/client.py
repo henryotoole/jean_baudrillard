@@ -228,3 +228,16 @@ class DockerClient(Protocol):
         filter. ``projinfra down`` refuses when this returns True.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Mod 042: preinfra existence checks.
+    # ------------------------------------------------------------------
+
+    def network_exists(self, name: str) -> bool:
+        """True iff the named docker network exists on the local daemon.
+
+        Used by ``docex preinfra`` to verify that prerequisite docker
+        networks (notably the ``docex-ingress`` bridge) have been
+        created by the operator before any side runs.
+        """
+        ...
