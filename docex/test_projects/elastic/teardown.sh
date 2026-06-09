@@ -155,8 +155,16 @@ for repo in $(aws ecr describe-repositories \
 done
 
 # -- 4. tofu destroy each env, then project tier ------------------------
+# Post-mod-035 layout: env-tier HCL lives at infra/output/<env>/main.tf,
+# project-tier HCL lives at infra/output/project/production/main.tf
+# (the doctrine side-split). Walk both shapes deterministically.
+declare -A LAYERS=(
+  ["prod"]="$PROJECT_ROOT/infra/output/prod"
+  ["stage"]="$PROJECT_ROOT/infra/output/stage"
+  ["project"]="$PROJECT_ROOT/infra/output/project/production"
+)
 for layer in prod stage project; do
-  dir="$PROJECT_ROOT/infra/output/$layer"
+  dir="${LAYERS[$layer]}"
   if [[ -f "$dir/main.tf" ]]; then
     echo "-- tofu destroy: $layer"
     (cd "$dir" && tofu init -input=false -upgrade >/dev/null 2>&1 || true)

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-06-09
+
+### Fixed
+
+- `teardown.sh` walks the post-mod-035 project-tier path
+  (`infra/output/project/production/main.tf`) explicitly. The previous
+  loop checked `infra/output/$layer/main.tf` and silently skipped the
+  project tier (mod 035 had split the layout into per-side
+  subdirectories). Without this fix, the project-tier `tofu destroy`
+  is skipped, the state bucket is destroyed in step 6 anyway, and
+  project-tier resources (ALB, ACM, Route53 zone) are left orphaned —
+  `verify_clean.sh` fails. Now uses an explicit layer→path map.
+
+### Changed
+
+- Repinned to docex 1.0.3 (mod 048). Mod 048's three docex fixes
+  (`projinfra up development` not a stub anymore, `migrate.py` master-
+  VPC + hyphenated SG lookups, bare-project A-record on prod env-tier
+  ALB emit) all apply to this project's release path.
+
+## [0.0.4] - 2026-06-09
+
+### Changed
+
+- Version-only bump to exercise the rollback walk (D.12). No code or
+  config changes; smoke walk needs two versions in ECR for the
+  rollback path to flow.
+
+## [0.0.3] - 2026-06-09
+
+### Fixed
+
+- `core/web/Dockerfile` installs curl. Doctrine-emitted docker
+  healthcheck (`CMD curl -f`) needs it; without curl the container is
+  marked unhealthy and traefik 3.x's docker provider filters it out.
+  Same fix as the fixed companion at v0.0.2 — propagated here to
+  preserve core-tree parity per `test_projects.md`.
+
 ## [0.0.2] - 2026-06-09
 
 ### Changed

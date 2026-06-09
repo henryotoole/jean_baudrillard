@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-06-09
+
+### Changed
+
+- Repinned to docex 1.0.3 (mod 048 — elastic-side bug bundle). No
+  fixed-side changes were needed in this cut (mod 048 covers elastic
+  bugs the fixed walk doesn't surface), but the repin keeps the two
+  test projects in lockstep on the current docex version.
+
 ## [0.0.4] - 2026-06-09
 
 ### Changed
