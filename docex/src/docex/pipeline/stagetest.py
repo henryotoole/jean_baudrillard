@@ -60,15 +60,19 @@ def run_stagetest(
     if staging_url_override:
         staging_url = staging_url_override
     else:
-        domain = infra.domain
-        if not domain:
+        apex_domain = infra.apex_domain
+        if not apex_domain:
             print(
-                "error: infra.yml is missing 'domain' — required to "
+                "error: infra.yml is missing 'apex_domain' — required to "
                 "construct STAGING_URL.",
                 file=sys.stderr,
             )
             return 1
-        staging_url = f"https://stage.{domain}"
+        # Canonical bare-env host per cicl.md § Domain:
+        # <env>.<project>.<apex_domain>. The project segment must be
+        # DNS-labeled — see _dns_label in compile.py for the same rule.
+        project_seg = project_name.replace("_", "-").lower()
+        staging_url = f"https://stage.{project_seg}.{apex_domain}"
 
     # 2. Build the stage tester image ----------------------------------
     stage_dir = project_root / "infra" / "stage"

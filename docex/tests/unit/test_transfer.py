@@ -40,7 +40,8 @@ def test_load_bundled_tables():
     assert "relational_db" in tables.by_role
     assert "cache" in tables.by_role
     assert "object_store" in tables.by_role
-    assert "reverse_proxy" in tables.by_role
+    # Mod 031: reverse_proxy is no longer a CICL role — it's project-tier infra.
+    assert "reverse_proxy" not in tables.by_role
     # Postgres on relational_db.
     pg = tables.engine("relational_db", "postgres")
     assert pg.foundation == "both"

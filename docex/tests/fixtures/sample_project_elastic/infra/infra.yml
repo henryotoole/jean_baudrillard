@@ -1,6 +1,6 @@
 cicl_version: "1"
 foundation: elastic
-domain: "example.com"
+apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
 domain_default_service: api
 

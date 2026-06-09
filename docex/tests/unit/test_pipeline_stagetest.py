@@ -15,16 +15,19 @@ def test_stagetest_builds_then_runs(sample_ctx, fake_docker):
     assert methods.index("build_image") < methods.index("run_one_shot")
 
 
-def test_stagetest_url_from_domain(sample_ctx, fake_docker):
-    """STAGING_URL should be derived from infra.yml's ``domain`` field."""
+def test_stagetest_url_from_apex_domain(sample_ctx, fake_docker):
+    """STAGING_URL should be derived from infra.yml's ``apex_domain`` field
+    combined with the project name per cicl.md § Domain
+    (<env>.<project>.<apex_domain>)."""
     rc = run_stagetest(sample_ctx, fake_docker)
     assert rc == 0
     run_call = next(c for c in fake_docker.calls if c[0] == "run_one_shot")
     # run_one_shot recorded as
     # (method, image, command_tuple, env_items_tuple, network, mounts_tuple)
     env_items = dict(run_call[3])
-    # sample fixture has domain: example.com → https://stage.example.com
-    assert env_items["STAGING_URL"] == "https://stage.example.com"
+    # sample fixture has apex_domain: example.com, project: sample
+    # → https://stage.sample.example.com
+    assert env_items["STAGING_URL"] == "https://stage.sample.example.com"
 
 
 def test_stagetest_injects_project_version(sample_ctx, fake_docker):

@@ -121,15 +121,31 @@ def test_web_service_publishes_no_host_ports(tmp_path: Path):
 
 def test_default_web_service_traefik_dual_host(tmp_path: Path):
     """The domain_default_service (api) routes at BOTH the bare env subdomain
-    and its per-service host."""
+    and its per-service host, per the canonical
+    <service>.<env>.<project>.<apex_domain> form (mod 031)."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     services = _compose_services(root, "dev")
     api = _find_core_service_block(services, "api")
     rule = next(l for l in (api.get("labels") or []) if ".rule=" in l)
-    assert "Host(`dev.example.com`)" in rule
-    assert "Host(`api.dev.example.com`)" in rule
+    assert "Host(`dev.sample.example.com`)" in rule
+    assert "Host(`api.dev.sample.example.com`)" in rule
+
+
+def test_prod_default_web_service_traefik_triple_host(tmp_path: Path):
+    """Mod 031: in prod, the domain_default_service additionally answers
+    at the bare-project host (<project>.<apex_domain>), replacing the old
+    `www.<apex>` convention."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    services = _compose_services(root, "prod")
+    api = _find_core_service_block(services, "api")
+    rule = next(l for l in (api.get("labels") or []) if ".rule=" in l)
+    assert "Host(`api.prod.sample.example.com`)" in rule
+    assert "Host(`prod.sample.example.com`)" in rule
+    assert "Host(`sample.example.com`)" in rule
 
 
 def test_backing_service_on_web_is_routed(tmp_path: Path):
@@ -148,7 +164,7 @@ def test_backing_service_on_web_is_routed(tmp_path: Path):
     labels = appdb.get("labels") or []
     assert "traefik.enable=true" in labels
     rule = next(l for l in labels if ".rule=" in l)
-    assert "Host(`appdb.dev.example.com`)" in rule
+    assert "Host(`appdb.dev.sample.example.com`)" in rule
 
 
 def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: Path):
@@ -206,24 +222,40 @@ def test_web_router_emits_certresolver_doctrine(tmp_path: Path):
 
 
 def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path: Path):
-    """A dep target without a healthcheck must get service_started. We add a
-    reverse_proxy backing service to the fixture — its transfer-table entry
-    declares no healthcheck — and point api at it via depends_on."""
+    """A dep target without a healthcheck must get service_started. We add
+    a project-local transfer table for a custom no-healthcheck backing
+    role and point api at it via depends_on. (Mod 031 removed the bundled
+    `reverse_proxy` role that used to serve this purpose.)"""
+    import yaml as _yaml
     root = _copy_fixture(tmp_path)
+    # Project-local transfer table defining a no-healthcheck role.
+    tt_dir = root / "infra" / "transfer_tables"
+    tt_dir.mkdir(parents=True, exist_ok=True)
+    (tt_dir / "no_health.yml").write_text(_yaml.safe_dump({
+        "roles": {
+            "no_health": {
+                "noop": {
+                    "foundation": "fixed",
+                    "emits": {"fixed": ["compose_service"]},
+                    "defaults": {"fixed": {"image": "busybox:latest"}},
+                    "provides": {"host": {"fixed": "${global_service_name}"}},
+                    "naming": "docker",
+                },
+            },
+        },
+    }))
     infra_yml = root / "infra" / "infra.yml"
     original = infra_yml.read_text()
-    # Add reverse_proxy backing service and point api.depends_on at it. The
-    # reverse_proxy role's fixed defaults are empty, so the emitted compose
-    # block has no healthcheck — the exact shape needed for this branch.
     modified = original.replace(
         "    depends_on: [appdb]",
         "    depends_on: [appdb, proxy]",
         1,
     ) + (
         "\n  proxy:\n"
-        "    role: reverse_proxy\n"
-        "    engine: traefik\n"
+        "    role: no_health\n"
+        "    engine: noop\n"
         "    networks: [web]\n"
+        "    port: 80\n"
     )
     infra_yml.write_text(modified)
 

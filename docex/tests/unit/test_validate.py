@@ -20,7 +20,7 @@ def _doc(src: str) -> CICLDocument:
 _BASE_FIXED = """
 cicl_version: "1"
 foundation: fixed
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
@@ -299,7 +299,7 @@ def test_validate_emits_missing_for_supported_foundation(tmp_path: Path):
     src = """
 cicl_version: "1"
 foundation: elastic
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
@@ -398,7 +398,7 @@ def test_validate_field_target_not_applicable_when_service_off_web():
     src = """
 cicl_version: "1"
 foundation: elastic
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
@@ -421,7 +421,7 @@ def test_validate_field_target_applicable_when_on_web():
     src = """
 cicl_version: "1"
 foundation: elastic
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
@@ -470,3 +470,102 @@ def test_validate_rejects_project_version_in_secrets():
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
     assert "rule_reserved_env_key" in rules
+
+
+# ---------------------------------------------------------------------------
+# Mod 031 — apex_domain bare requirement, service-name blacklist,
+# reverse_proxy field foundation gate, reverse_proxy role removal.
+# ---------------------------------------------------------------------------
+
+
+def test_apex_domain_must_be_bare():
+    """`apex_domain` with a project subdomain (`myproject.example.com`)
+    is rejected — the project segment is derived automatically from
+    project.yml's name. Rule 13."""
+    src = _BASE_FIXED.replace(
+        "apex_domain: example.com",
+        "apex_domain: myproject.example.com",
+    )
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_13_apex_domain_bare" in rules
+
+
+def test_apex_domain_accepts_two_part_apex():
+    """`example.com` is fine (2 parts)."""
+    issues = validate_document(_doc(_BASE_FIXED), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_13_apex_domain_bare" not in rules
+
+
+def test_apex_domain_accepts_three_part_country_apex():
+    """`example.co.uk` is fine (3 parts; country-code TLD ladder)."""
+    src = _BASE_FIXED.replace(
+        "apex_domain: example.com",
+        "apex_domain: example.co.uk",
+    )
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_13_apex_domain_bare" not in rules
+
+
+@pytest.mark.parametrize("reserved", ["dev", "test", "stage", "prod", "www"])
+def test_service_name_blacklist(reserved: str):
+    """A service named with any reserved token (`dev`/`test`/`stage`/
+    `prod`/`www`) fails validation. Rule 14."""
+    # Replace api -> reserved in core_services and update depends_on chain.
+    src = _BASE_FIXED.replace("  api:", f"  {reserved}:").replace(
+        "schema_owned_by: api", f"schema_owned_by: {reserved}",
+    )
+    doc = _doc(src)
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_14_service_name_blacklist" in rules
+
+
+def test_reverse_proxy_field_rejected_on_fixed():
+    """The top-level `reverse_proxy:` field is elastic-only; declaring it
+    on a fixed-foundation project fails validation. Rule 18."""
+    src = _BASE_FIXED.replace(
+        "container_registry: registry.example.com",
+        "container_registry: registry.example.com\nreverse_proxy: alb",
+    )
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_18_reverse_proxy_elastic_only" in rules
+
+
+def test_reverse_proxy_field_accepted_on_elastic():
+    """`reverse_proxy: alb` on an elastic project compiles cleanly."""
+    src = _BASE_FIXED.replace("foundation: fixed", "foundation: elastic")
+    src = src.replace("container_registry: registry.example.com\n", "")
+    src = src.replace(
+        "apex_domain: example.com",
+        "apex_domain: example.com\nreverse_proxy: alb",
+    )
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_18_reverse_proxy_elastic_only" not in rules
+
+
+def test_reverse_proxy_field_defaults_to_none():
+    """Omitting `reverse_proxy:` on an elastic project is valid (compile-
+    time default is `alb` — handled elsewhere in the compiler)."""
+    src = _BASE_FIXED.replace("foundation: fixed", "foundation: elastic")
+    src = src.replace("container_registry: registry.example.com\n", "")
+    doc = _doc(src)
+    assert doc.reverse_proxy is None
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_18_reverse_proxy_elastic_only" not in rules
+
+
+def test_reverse_proxy_role_no_longer_exists():
+    """A service declaring `role: reverse_proxy` is rejected — the role
+    was removed in mod 031."""
+    src = _BASE_FIXED.replace(
+        "    role: web\n", "    role: reverse_proxy\n", 1,
+    )
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_reverse_proxy_role_removed" in rules

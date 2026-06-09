@@ -18,12 +18,10 @@ def render_llm(compiled: CompiledEnv) -> str:
     project = _PROJECT_FIXED if compiled.foundation == "fixed" else _PROJECT_ELASTIC
 
     env_resources: list[dict[str, object]] = []
-    if compiled.foundation == "elastic":
-        env_resources.append({
-            "kind": "reverse_proxy",
-            "name": f"{compiled.project}-{compiled.env}-alb",
-            "means": "AWS ALB",
-        })
+    # WHY: the project-tier reverse proxy is no longer a CICL service (mod 031
+    # removed the `reverse_proxy` role). Its describe representation is
+    # project-tier work landing in mods 036/038 — for now the synthetic
+    # env-tier node is dropped rather than misrepresenting tier or shape.
     for n in sorted(compiled.networks):
         env_resources.append({
             "kind": "network",
@@ -55,7 +53,7 @@ def render_llm(compiled: CompiledEnv) -> str:
         "version": compiled.project_version,
         "env": compiled.env,
         "foundation": compiled.foundation,
-        "domain": compiled.domain,
+        "apex_domain": compiled.apex_domain,
         "subdomain": compiled.subdomain,
         "tiers": {
             "prerequisite": [{"name": n, "description": d} for n, d in prereq],

@@ -111,14 +111,25 @@ class CICLDocument(BaseModel):
 
     cicl_version: str
     foundation: Literal["fixed", "elastic"]
-    domain: str
+    # The bare apex domain (e.g. ``example.com`` or ``example.co.uk``).
+    # Must NOT include a project subdomain — the project segment is derived
+    # automatically from ``name`` in project.yml. The canonical service host
+    # form is ``<service>.<env>.<project>.<apex_domain>``. See cicl.md § Domain.
+    apex_domain: str
+    # Elastic-only choice of reverse proxy. ``alb`` (default) provisions an
+    # AWS ALB; ``ec2_traefik_eip`` / ``ec2_traefik_pip`` provision an EC2
+    # instance running traefik backed by an Elastic IP or a regular Public
+    # IP respectively. Rejected on fixed-foundation projects (validation
+    # rule 18). See cicl.md § Reverse Proxy.
+    reverse_proxy: Literal["alb", "ec2_traefik_eip", "ec2_traefik_pip"] | None = None
     container_registry: str | None = None
     # Documentary only — the git host and repo are prerequisite infrastructure;
     # docex doesn't act on this. Accepted so a project that follows the
     # cicl.md § "Git Repo URL" prose still compiles. See cicl.md.
     repo_url: str | None = None
-    # The web service mapped to the bare <env>.<domain> subdomain. Other
-    # web services live at <service>.<env>.<domain>. Optional; if unset,
+    # The web service mapped to the bare ``<env>.<project>.<apex_domain>``
+    # subdomain. Other web services live at
+    # ``<service>.<env>.<project>.<apex_domain>``. Optional; if unset,
     # nothing occupies the bare subdomain. See cicl.md § Domain.
     domain_default_service: str | None = None
     # The HTTPS URL of the project's observability backend (HyperDX).

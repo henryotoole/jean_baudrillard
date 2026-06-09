@@ -15,7 +15,9 @@ _PREREQ_FIXED = [
     ("registrar", "domain registrar (NameSilo, GoDaddy, etc.)"),
     ("dns", "registrar's DNS configuration"),
     ("host_machine", "the on-prem server"),
-    ("reverse_proxy", "machine-wide traefik"),
+    # WHY: machine-wide traefik is preinfra but the per-project reverse proxy
+    # is project-tier (cicl.md § Reverse Proxy). Project-tier describe shows
+    # up in mods 036/038; until then, no reverse_proxy node is emitted here.
     ("cert_manager", "traefik + Let's Encrypt"),
     ("container_registry", "Docker Registry V2 (project-pinned)"),
 ]
@@ -61,9 +63,11 @@ def render_dag(compiled: CompiledEnv) -> str:
     lines.append("")
 
     # Environment tier.
+    # WHY: the elastic ALB / fixed project Traefik is project-tier infra (per
+    # mod 031 + cicl.md § Reverse Proxy), so it no longer appears here under
+    # environment infrastructure. Project-tier describe arrives in mods
+    # 036/038.
     lines.append(f"Environment Infrastructure ({compiled.env})")
-    if compiled.foundation == "elastic":
-        lines.append(f"  - reverse_proxy            ALB ({compiled.project}-{compiled.env}-alb)")
     networks = sorted(compiled.networks)
     if networks:
         for n in networks:

@@ -1,6 +1,6 @@
 cicl_version: "1"
 foundation: fixed
-domain: "example.com"
+apex_domain: "example.com"
 container_registry: "registry.example.com"
 observability_backend_url: "https://hyperdx.luxrnd.tech"
 domain_default_service: api

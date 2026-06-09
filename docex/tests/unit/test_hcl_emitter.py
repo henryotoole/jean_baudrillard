@@ -203,22 +203,33 @@ def test_elastic_rds_username_uses_ssm_data_source(compiled_prod_tf: str):
 
 
 def test_elastic_listener_rule_uses_per_service_hosts(compiled_prod_tf: str):
-    """For prod, the default web service's listener rule matches both the
-    bare env subdomain and its per-service host (dual-host)."""
-    assert 'values = ["www.example.com", "api.www.example.com"]' in compiled_prod_tf
+    """For prod, the default web service's listener rule matches the
+    per-service host, the bare env subdomain, AND the bare-project host
+    (the new mod 031 triple). Order is most-specific → least-specific."""
+    assert (
+        'values = ["api.prod.sample.example.com", '
+        '"prod.sample.example.com", "sample.example.com"]'
+        in compiled_prod_tf
+    )
     # The env name must never appear as a host.
     assert 'values = ["prod"]' not in compiled_prod_tf
 
 
 def test_elastic_stage_listener_rule_uses_per_service_hosts(tmp_path: Path):
-    """Same dual-host for stage."""
+    """For non-prod envs, the default web service's listener rule matches
+    only the per-service host and the bare env subdomain — no bare-project
+    third (mod 031 routes that solely to prod)."""
     dest = tmp_path / "project"
     shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
     ctx = load_project_context(dest)
     rc = run_compile(ctx)
     assert rc == 0
     stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
-    assert 'values = ["stage.example.com", "api.stage.example.com"]' in stage_tf
+    assert (
+        'values = ["api.stage.sample.example.com", '
+        '"stage.sample.example.com"]'
+        in stage_tf
+    )
     assert 'values = ["stage"]' not in stage_tf
 
 

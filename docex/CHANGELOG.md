@@ -14,6 +14,30 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **CICL surface refresh (BREAKING).** `infra.yml`'s top-level
+  `domain:` field is renamed `apex_domain:` and its semantics narrowed:
+  the value is now the *bare apex* (e.g. `example.com`,
+  `example.co.uk`), not the per-project domain. The canonical service
+  host shape is now `<service>.<env>.<project>.<apex_domain>` (e.g.
+  `api.dev.myproject.example.com`); the project segment is derived
+  automatically from `project.yml`'s `name` and DNS-labeled for
+  underscored names. Prod's `domain_default_service` answers at three
+  hosts now — `<svc>.prod.<project>.<apex>`, `prod.<project>.<apex>`,
+  and `<project>.<apex>` (the bare-project host, replacing the
+  old `www.<apex>` convention).
+  New compile-time magic vars: `${apex_domain}`,
+  `${bare_project_subdomain}`; `${env_subdomain}` redefined to the
+  new shape. New elastic-only top-level field
+  `reverse_proxy: alb | ec2_traefik_eip | ec2_traefik_pip` (default
+  `alb`); fixed-foundation projects rejecting it. New validation rules:
+  apex must be bare (rule 13), service-name blacklist
+  `{dev, test, stage, prod, www}` (rule 14), `reverse_proxy:`
+  elastic-only (rule 18). The `reverse_proxy` role is removed entirely
+  — services declaring `role: reverse_proxy` now fail validation
+  pointing at mod 031; the reverse proxy is project-tier infra
+  (see [projinfra/](../doctrine/infrastructure/specifics/projinfra/)).
+  Mod 031 of the shape-and-tier campaign.
+
 - **Naming policy unification (BREAKING).** The `docker` and `ecs` policies
   flip from `separator: underscore` to `separator: hyphen` per the doctrine's
   new default rule: anything name-resolvable on the data plane uses hyphens;

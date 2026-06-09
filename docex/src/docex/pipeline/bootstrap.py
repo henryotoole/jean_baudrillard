@@ -139,7 +139,7 @@ def _apply_project_tier(ctx: ProjectContext) -> int:
             raise BootstrapFailed(
                 f"`tofu apply -target={_ZONE_RESOURCE_ADDR}` exited {rc}."
             )
-        _print_delegation_instructions(project_dir, project, ctx.infra.domain)
+        _print_delegation_instructions(project_dir, project, ctx.infra.apex_domain)
         return 0
 
     # ----- Phase 2: full apply -----
@@ -166,12 +166,12 @@ def _apply_project_tier(ctx: ProjectContext) -> int:
 
 
 def _print_delegation_instructions(
-    project_dir: Path, project: str, domain: str
+    project_dir: Path, project: str, apex_domain: str
 ) -> None:
     """Print the zone's NS records and what the operator must do next."""
     nameservers = tofu_output(project_dir, "zone_name_servers")
     print("")
-    print(f"bootstrap: Route53 hosted zone for {domain!r} created.")
+    print(f"bootstrap: Route53 hosted zone for {apex_domain!r} created.")
     print("")
     if isinstance(nameservers, list) and nameservers:
         print("  NS records:")
@@ -184,8 +184,8 @@ def _print_delegation_instructions(
         )
     print("")
     print(
-        f"  Next step: delegate {domain!r} to the NS records above at the "
-        "parent zone\n"
+        f"  Next step: delegate {apex_domain!r} to the NS records above at "
+        "the parent zone\n"
         "  (registrar or parent Route53 hosted zone). After the delegation "
         "propagates,\n"
         "  re-run `docex bootstrap` to apply the rest of the project-tier "

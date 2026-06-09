@@ -123,8 +123,14 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
             )
             return rc
 
-    domain = ctx.infra.domain if ctx.infra is not None else "<unknown>"
-    subdomain = f"{env if env != 'prod' else 'www'}.{domain}"
+    if ctx.infra is not None:
+        apex_domain = ctx.infra.apex_domain
+        # Canonical bare-env host per cicl.md § Domain:
+        # <env>.<project>.<apex_domain>. Project segment is DNS-labeled.
+        project_seg = ctx.project.name.replace("_", "-").lower()
+        subdomain = f"{env}.{project_seg}.{apex_domain}"
+    else:
+        subdomain = "<unknown>"
     print(
         f"Stack up. Compose file: {compose_file}. "
         f"Migrated services: {schema_owners or '(none)'}. "

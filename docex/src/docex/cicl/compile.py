@@ -39,14 +39,6 @@ from docex.errors import ValidationError, ValidationIssue
 from docex.naming import NamingPolicy, apply_policy
 
 
-# Subdomain prefixes per env (from cicl.md § Domain).
-_ENV_SUBDOMAIN_PREFIX = {
-    "dev": "dev",
-    "test": "test",
-    "stage": "stage",
-    "prod": "www",
-}
-
 _ENVS = ("dev", "test", "stage", "prod")
 
 # Runtime-ref token ($[VAR]). Used to enforce the parts-only rule: a
@@ -282,8 +274,23 @@ def _image_ref(
     )
 
 
-def _env_subdomain(domain: str, env: str) -> str:
-    return f"{_ENV_SUBDOMAIN_PREFIX[env]}.{domain}"
+def _env_subdomain(apex_domain: str, project: str, env: str) -> str:
+    """Build the canonical bare-env subdomain per cicl.md § Domain.
+
+    Returns ``<env>.<project>.<apex_domain>``. The project segment is
+    pushed through :func:`_dns_label` so an underscored project name
+    (e.g. ``docex_smoke_elastic``) resolves to a DNS-valid label
+    (``docex-smoke-elastic``). DNS labels do not accept underscores.
+    """
+    return f"{env}.{_dns_label(project)}.{apex_domain}"
+
+
+def _bare_project_subdomain(apex_domain: str, project: str) -> str:
+    """The bare-project host: ``<project>.<apex_domain>`` per cicl.md §
+    Domain. Used to route prod's ``domain_default_service`` for user URL
+    ergonomics, replacing the old ``www.<apex>`` convention. Project
+    segment is DNS-labeled (see :func:`_env_subdomain`)."""
+    return f"{_dns_label(project)}.{apex_domain}"
 
 
 def _dns_label(name: str) -> str:
@@ -292,22 +299,30 @@ def _dns_label(name: str) -> str:
 
 
 def _web_hosts(
-    name: str, role: str, networks: list[str], subdomain: str,
+    name: str, networks: list[str], subdomain: str,
     default_service: str | None,
+    *, env: str, bare_project: str,
 ) -> list[str]:
     """The public host(s) a web-network service is reachable at.
 
     Every web-network service gets ``<service>.<env_subdomain>``. The
     ``domain_default_service`` additionally answers at the bare
-    ``<env_subdomain>``. Non-web services get no hosts. The
-    ``reverse_proxy`` role is excluded — it *is* the edge router, not a
-    routed target.
+    ``<env_subdomain>``; in ``prod`` it ALSO answers at the bare-project
+    host (``<project>.<apex_domain>``) per cicl.md § Domain (bare
+    project routes to prod's default service). Non-web services get no
+    hosts.
+
+    Host order is most-specific to least-specific:
+    ``[per_service, bare_env, bare_project?]``.
     """
-    if role == "reverse_proxy" or "web" not in networks:
+    if "web" not in networks:
         return []
     per_service = f"{_dns_label(name)}.{subdomain}"
     if default_service is not None and name == default_service:
-        return [subdomain, per_service]
+        hosts = [per_service, subdomain]
+        if env == "prod":
+            hosts.append(bare_project)
+        return hosts
     return [per_service]
 
 
@@ -362,8 +377,12 @@ class CompiledEnv:
 
     env: str
     foundation: str
-    domain: str
+    # Mod 031: the bare apex domain (e.g. ``example.com``). Distinct from
+    # ``subdomain`` (the bare-env host ``<env>.<project>.<apex>``) and
+    # ``bare_project_subdomain`` (``<project>.<apex>``).
+    apex_domain: str
     subdomain: str
+    bare_project_subdomain: str
     project: str
     project_version: str
     container_registry: str | None
@@ -385,7 +404,8 @@ def compile_env(
 ) -> CompiledEnv:
     """Compile a single environment in-memory."""
     foundation = _env_foundation(doc.foundation, env)
-    subdomain = _env_subdomain(doc.domain, env)
+    subdomain = _env_subdomain(doc.apex_domain, project_name, env)
+    bare_project = _bare_project_subdomain(doc.apex_domain, project_name)
 
     # Resolve engines per service first; magic refs need them.
     engines_by_service: dict[str, EngineEntry] = {}
@@ -430,6 +450,8 @@ def compile_env(
             "env_name": env,
             "role_name": svc.role,
             "env_subdomain": subdomain,
+            "apex_domain": doc.apex_domain,
+            "bare_project_subdomain": bare_project,
         }
 
     # The magic-ref resolver shares state across all services in this env.
@@ -620,7 +642,8 @@ def compile_env(
             ),
             env=env_block,
             web_hosts=_web_hosts(
-                name, svc.role, svc.networks, subdomain, doc.domain_default_service
+                name, svc.networks, subdomain, doc.domain_default_service,
+                env=env, bare_project=bare_project,
             ),
             schema_owned_by=getattr(svc, "schema_owned_by", None),
             schema_owned_by_db=(is_core and name in core_owning_schema),
@@ -636,8 +659,9 @@ def compile_env(
     return CompiledEnv(
         env=env,
         foundation=foundation,
-        domain=doc.domain,
+        apex_domain=doc.apex_domain,
         subdomain=subdomain,
+        bare_project_subdomain=bare_project,
         project=project_name,
         project_version=project_version,
         container_registry=doc.container_registry,
@@ -793,7 +817,7 @@ def run_compile(ctx: Any) -> int:
         emit_hcl_project(
             project=ctx.project.name,
             project_version=ctx.project.version,
-            domain=ctx.infra.domain,
+            apex_domain=ctx.infra.apex_domain,
             core_service_names=list(ctx.infra.core_services.keys()),
             naming_policies=ctx.transfer_tables.naming_policies,
             out_path=project_dir / "main.tf",

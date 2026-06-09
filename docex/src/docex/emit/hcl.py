@@ -515,8 +515,10 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append( '  }')
     out.append( '  condition {')
     out.append( '    host_header {')
-    # Per-service host(s): <service>.<env>.<domain>, plus the bare
-    # <env>.<domain> for the domain_default_service.
+    # Per-service host(s): <service>.<env>.<project>.<apex_domain>, plus
+    # the bare <env>.<project>.<apex_domain> for the
+    # domain_default_service; prod's default service also picks up
+    # <project>.<apex_domain>.
     hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
     out.append(f'      values = [{hosts_hcl}]')
     out.append( '    }')
@@ -754,7 +756,7 @@ def emit_hcl_project(
     *,
     project: str,
     project_version: str,
-    domain: str,
+    apex_domain: str,
     core_service_names: list[str],
     naming_policies: NamingPolicies,
     out_path: Path,
@@ -797,7 +799,7 @@ def emit_hcl_project(
     rendered = tpl.render(
         project=project,
         project_version=project_version,
-        domain=domain,
+        apex_domain=apex_domain,
         region=ELASTIC_REGION,
         core_service_names=svc_entries,
         state_bucket=apply_policy(f"{project}_tofu_state", s3_p),
@@ -865,7 +867,7 @@ def emit_hcl(
         project=compiled.project,
         project_version=compiled.project_version,
         env=compiled.env,
-        domain=compiled.domain,
+        apex_domain=compiled.apex_domain,
         subdomain=compiled.subdomain,
         region=ELASTIC_REGION,
         networks_sorted=sorted(compiled.networks),

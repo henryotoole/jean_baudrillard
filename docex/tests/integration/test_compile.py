@@ -228,7 +228,7 @@ def test_example_env_includes_postgres_keys(tmp_path: Path):
 _SECRET_INFRA = """\
 cicl_version: "1"
 foundation: __FND__
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: reg.example.com
 domain_default_service: api
@@ -316,7 +316,7 @@ def test_compose_has_logging_anchor(tmp_path: Path):
 _NAMING_INFRA = """\
 cicl_version: "1"
 foundation: elastic
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 domain_default_service: web
 core_services:

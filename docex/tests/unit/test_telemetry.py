@@ -32,7 +32,7 @@ def _tables():
 _MINIMAL_FIXED = """
 cicl_version: "1"
 foundation: fixed
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
@@ -64,7 +64,7 @@ backing_services:
 _MINIMAL_ELASTIC = """
 cicl_version: "1"
 foundation: elastic
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
@@ -104,7 +104,7 @@ def test_observability_backend_url_required():
     src = """
 cicl_version: "1"
 foundation: fixed
-domain: example.com
+apex_domain: example.com
 container_registry: registry.example.com
 core_services: {}
 """
@@ -168,7 +168,7 @@ def _multi_core_fixed_doc() -> CICLDocument:
     src = """
 cicl_version: "1"
 foundation: fixed
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
@@ -194,7 +194,7 @@ def _multi_core_elastic_doc() -> CICLDocument:
     src = """
 cicl_version: "1"
 foundation: elastic
-domain: example.com
+apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:

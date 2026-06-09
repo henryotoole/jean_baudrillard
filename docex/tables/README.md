@@ -15,8 +15,11 @@ tables/
     relational_db.yml   # postgres on fixed and elastic (RDS)
     cache.yml           # redis on fixed and elastic (ElastiCache)
     object_store.yml    # minio (fixed) + s3 (elastic)
-    reverse_proxy.yml   # marker role; machine-wide traefik on fixed, ALB on elastic
 ```
+
+The reverse proxy is not a CICL role. It is project-tier infrastructure
+managed by the compiler — Traefik on fixed; ALB or EC2-Traefik on elastic
+via the top-level `reverse_proxy:` field. See `cicl.md § Reverse Proxy`.
 
 Each file is rooted at `roles:` so files can be deep-merged into one logical table at load time.
 

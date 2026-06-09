@@ -227,7 +227,7 @@ def test_bootstrap_underscored_project_hyphenates_s3_bucket(
     (proj / "infra" / "infra.yml").write_text(
         'cicl_version: "1"\n'
         'foundation: elastic\n'
-        'domain: example.com\n'
+        'apex_domain: example.com\n'
         'observability_backend_url: "https://obs.example.com"\n'
         'domain_default_service: web\n'
         'core_services:\n'

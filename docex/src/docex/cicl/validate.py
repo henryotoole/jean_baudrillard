@@ -84,6 +84,10 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_reserved_engine_names(doc, tables))
     issues.extend(_validate_emits(doc, tables))
     issues.extend(_validate_reserved_env_keys(doc))
+    issues.extend(_validate_apex_domain_bare(doc))
+    issues.extend(_validate_service_name_blacklist(doc))
+    issues.extend(_validate_reverse_proxy_field(doc))
+    issues.extend(_validate_reverse_proxy_role_removed(doc))
     return issues
 
 
@@ -453,9 +457,6 @@ def _validate_web_service_ports(doc: CICLDocument) -> list[ValidationIssue]:
     (Traefik / ALB) needs the container port to route to."""
     issues: list[ValidationIssue] = []
     for name, svc in sorted(doc.all_services().items()):
-        # reverse_proxy IS the edge router, not a routed target — exempt.
-        if svc.role == "reverse_proxy":
-            continue
         if "web" in svc.networks and svc.port is None:
             issues.append(ValidationIssue(
                 rule="rule_web_service_needs_port",
@@ -704,5 +705,132 @@ def _validate_reserved_env_keys(
                         f"Per-core-service env."
                     ),
                     where=f"core_services.{svc_name}.{source}",
+                ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Mod 031 — apex_domain bare check, service-name blacklist, reverse_proxy
+# field foundation gate, reverse_proxy role removal.
+# ---------------------------------------------------------------------------
+
+
+# Service-name blacklist (cicl.md § Validation Rules rule 14). These tokens
+# collide with the canonical domain anatomy `<service>.<env>.<project>.
+# <apex_domain>` (`dev`/`test`/`stage`/`prod` are env labels, `www` is the
+# near-universal subdomain convention preserved for ergonomic clarity).
+_RESERVED_SERVICE_NAMES = frozenset({"dev", "test", "stage", "prod", "www"})
+
+
+def _validate_apex_domain_bare(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 13: ``apex_domain`` must be a bare apex (e.g. ``example.com``
+    or ``example.co.uk``); subdomain components are rejected. The project
+    segment of the canonical service host is derived automatically from
+    ``project.yml``'s ``name``.
+
+    The 3-part form is only accepted when the middle label is a recognized
+    second-level country-code domain (``co.uk``, ``com.au``, etc.) —
+    otherwise the leading label is treated as a project subdomain and
+    rejected.
+    """
+    value = doc.apex_domain
+    if not value:
+        return [ValidationIssue(
+            rule="rule_13_apex_domain_required",
+            message="apex_domain must be set",
+            where="apex_domain",
+        )]
+    parts = value.split(".")
+    # Known second-level domain labels used in ccTLD ladders. A 3-part
+    # apex requires the middle label to be one of these — anything else is
+    # presumed to be a project subdomain. The set is intentionally small;
+    # it covers the cases the doctrine has examples for. Adding to it is
+    # a doctrine change.
+    _SLD_LABELS = frozenset({
+        "co", "com", "org", "net", "gov", "ac", "edu",
+    })
+    valid = False
+    if len(parts) == 2 and all(parts):
+        # Two-part apex: domain + TLD.
+        valid = True
+    elif len(parts) == 3 and all(parts):
+        # Three-part apex: only valid when middle is a known SLD.
+        valid = parts[1].lower() in _SLD_LABELS
+    if not valid:
+        return [ValidationIssue(
+            rule="rule_13_apex_domain_bare",
+            message=(
+                f"apex_domain must be a bare apex (e.g. 'example.com' or "
+                f"'example.co.uk'), got {value!r}. Per cicl.md, the project "
+                f"subdomain is derived automatically from project.yml's name."
+            ),
+            where="apex_domain",
+        )]
+    return []
+
+
+def _validate_service_name_blacklist(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 14: service names cannot be ``dev``, ``test``, ``stage``,
+    ``prod``, or ``www`` — they collide with the canonical domain anatomy."""
+    issues: list[ValidationIssue] = []
+    for name in sorted(doc.all_services()):
+        if name in _RESERVED_SERVICE_NAMES:
+            issues.append(ValidationIssue(
+                rule="rule_14_service_name_blacklist",
+                message=(
+                    f"service name {name!r} is reserved (one of "
+                    f"{sorted(_RESERVED_SERVICE_NAMES)}). Per cicl.md § "
+                    f"Validation Rules rule 14, these collide with the "
+                    f"canonical domain anatomy "
+                    f"<service>.<env>.<project>.<apex_domain>."
+                ),
+                where=name,
+            ))
+    return issues
+
+
+def _validate_reverse_proxy_field(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 18: ``reverse_proxy:`` is elastic-only. Fixed-foundation
+    projects must not declare it. The Literal type already constrains the
+    accepted values (``alb`` / ``ec2_traefik_eip`` / ``ec2_traefik_pip``)
+    at parse time; this validator gates by foundation."""
+    if doc.foundation == "fixed" and doc.reverse_proxy is not None:
+        return [ValidationIssue(
+            rule="rule_18_reverse_proxy_elastic_only",
+            message=(
+                f"reverse_proxy: {doc.reverse_proxy!r} is set, but the "
+                f"project foundation is 'fixed'. The reverse_proxy field is "
+                f"only valid on elastic-foundation projects (cicl.md § "
+                f"Reverse Proxy)."
+            ),
+            where="reverse_proxy",
+        )]
+    return []
+
+
+def _validate_reverse_proxy_role_removed(
+    doc: CICLDocument,
+) -> list[ValidationIssue]:
+    """Mod 031 removes the ``reverse_proxy`` role. A service declaring
+    ``role: reverse_proxy`` in infra.yml previously parsed as a no-op
+    marker; the role is now project-tier infra (see projinfra/) and
+    must not appear in CICL."""
+    issues: list[ValidationIssue] = []
+    for kind, services in (
+        ("core_services", doc.core_services),
+        ("backing_services", doc.backing_services),
+    ):
+        for name, svc in sorted(services.items()):
+            if svc.role == "reverse_proxy":
+                issues.append(ValidationIssue(
+                    rule="rule_reverse_proxy_role_removed",
+                    message=(
+                        f"{kind} {name!r} declares role 'reverse_proxy', "
+                        f"which no longer exists. Per mod 031, the reverse "
+                        f"proxy is project-tier infrastructure managed by "
+                        f"the compiler (Traefik on fixed; ALB or EC2-Traefik "
+                        f"on elastic via the top-level reverse_proxy: field)."
+                    ),
+                    where=f"{kind}.{name}",
                 ))
     return issues
