@@ -1,10 +1,9 @@
 """CLI entrypoint for docex.
 
-The dispatcher reserves the *interface shape* for every command across
-every phase. Commands not implemented in this phase print a sensible
-"<command> is part of Phase N; not yet implemented" message rather
-than a generic "unknown command" error, so users discover the eventual
-surface from day one.
+The dispatcher exposes the doctrine-defined command surface. Commands
+are grouped in ``--help`` by purpose (Introspection / Infrastructure /
+Development / Pipeline / Reference) matching the doctrine's
+``docex.md`` provided-tools table.
 
 See ``plans/core/masterplan.md`` § Subcommand Surface for the complete list.
 """
@@ -24,29 +23,16 @@ from docex.errors import DocexError, ErrorReporter
 # ---------------------------------------------------------------------------
 # Subcommand registry
 # ---------------------------------------------------------------------------
-#
-# Each entry is (command_name, phase_number, help_text). Phase 1 commands
-# get real handlers in dispatch(); the rest are stubs.
-
-_PHASE1_COMMANDS = ("compile", "describe", "why")
-
-_PHASE2_COMMANDS = ("up", "down", "build", "test", "migrate")
-
-_PHASE3_COMMANDS = ("check", "merge", "containerize", "release", "stagetest")
-
-_PHASE4_COMMANDS = ("bootstrap",)
-
-_PHASE5_COMMANDS = ("rollback",)
-
-# Reference commands (not phase-gated): the role / parts catalog.
-_REFERENCE_COMMANDS = ("roles", "role")
 
 _HELP_TEXT: dict[str, str] = {
     "compile": "Translate infra.yml into per-env infra config (compose / HCL).",
     "describe": "Show an environment's infrastructure (DAG or LLM-JSON).",
     "why": "Explain why doctrine handles a resource the way it does.",
-    "up": "Bring up a fixed-foundation env locally.",
-    "down": "Tear down a local env.",
+    "roles": "List the available service roles (with descriptions).",
+    "role": "Describe a role: engines, provided parts, env vars, fields.",
+    "preinfra": "Check prerequisite infrastructure for a side (development | production).",
+    "projinfra": "Bring up or tear down project-tier infrastructure for a side.",
+    "envinfra": "Bring up or tear down a local dev or test environment.",
     "build": "Refresh dist/ for one or all core services.",
     "test": "Run build-time tests in a fresh test env.",
     "migrate": "Apply database migrations against an env.",
@@ -55,25 +41,20 @@ _HELP_TEXT: dict[str, str] = {
     "containerize": "Build and push core service prod images.",
     "release": "Deploy the containerized build to stage or prod.",
     "stagetest": "Run staging tests against the deployed stage env.",
-    "bootstrap": "Idempotent one-shot setup for elastic projects.",
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
-    "roles": "List the available service roles (with descriptions).",
-    "role": "Describe a role: engines, provided parts, env vars, fields.",
 }
 
 
-def _phase_of(cmd: str) -> int | None:
-    if cmd in _PHASE1_COMMANDS:
-        return 1
-    if cmd in _PHASE2_COMMANDS:
-        return 2
-    if cmd in _PHASE3_COMMANDS:
-        return 3
-    if cmd in _PHASE4_COMMANDS:
-        return 4
-    if cmd in _PHASE5_COMMANDS:
-        return 5
-    return None
+# Purpose-based grouping for ``--help`` output. Order matches the doctrine
+# ``docex.md`` § Provided Tools table; the dispatcher itself doesn't depend
+# on this grouping.
+_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Introspection", ("compile", "describe", "why", "roles", "role")),
+    ("Infrastructure", ("preinfra", "projinfra", "envinfra")),
+    ("Development", ("build", "test", "migrate")),
+    ("Pipeline", ("check", "merge", "containerize", "release",
+                  "stagetest", "rollback")),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -96,12 +77,8 @@ def _format_usage() -> str:
             help_ = _HELP_TEXT.get(cmd, "")
             lines.append(f"    {cmd:<13} {help_}")
 
-    _group("Phase 1 (implemented)", _PHASE1_COMMANDS)
-    _group("Phase 2 (implemented)", _PHASE2_COMMANDS)
-    _group("Phase 3 (implemented)", _PHASE3_COMMANDS)
-    _group("Phase 4 (implemented)", _PHASE4_COMMANDS)
-    _group("Phase 5 (implemented)", _PHASE5_COMMANDS)
-    _group("Reference", _REFERENCE_COMMANDS)
+    for title, cmds in _GROUPS:
+        _group(title, cmds)
     lines.append("")
     lines.append("global options:")
     lines.append("  --debug    Show full Python tracebacks on errors.")
@@ -110,7 +87,7 @@ def _format_usage() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 1 handlers
+# Introspection handlers
 # ---------------------------------------------------------------------------
 
 
@@ -159,7 +136,7 @@ def _cmd_why(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 handlers
+# Infrastructure handlers (preinfra / projinfra / envinfra)
 # ---------------------------------------------------------------------------
 
 
@@ -182,32 +159,78 @@ def _require_docker() -> "object":
     return client
 
 
-def _cmd_up(args: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="docex up", add_help=True)
-    parser.add_argument("env", choices=["dev", "test", "stage", "prod"],
-                        help="environment to bring up (dev or test)")
+def _cmd_envinfra(args: list[str]) -> int:
+    """``docex envinfra <direction> <env>`` — bring up or tear down a
+    local dev / test environment. Dev/test only; stage/prod go via
+    `release`."""
+    parser = argparse.ArgumentParser(prog="docex envinfra", add_help=True)
+    parser.add_argument("direction", choices=["up", "down"],
+                        help="up | down")
+    parser.add_argument("env", choices=["dev", "test"],
+                        help="environment (dev or test)")
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.orchestrate.up import run_up
 
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
-    return run_up(ctx, docker, env=ns.env)
+
+    if ns.direction == "up":
+        from docex.orchestrate.up import run_up
+        return run_up(ctx, docker, env=ns.env)
+    else:
+        from docex.orchestrate.down import run_down
+        return run_down(ctx, docker, env=ns.env)
 
 
-def _cmd_down(args: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="docex down", add_help=True)
-    parser.add_argument("env", choices=["dev", "test", "stage", "prod"],
-                        help="environment to tear down (dev or test)")
+def _cmd_preinfra(args: list[str]) -> int:
+    """``docex preinfra <side>`` — check prerequisite infrastructure
+    for the given side. STUB in mod 034 — real checks land in mod 042."""
+    parser = argparse.ArgumentParser(prog="docex preinfra", add_help=True)
+    parser.add_argument("side", choices=["development", "production"],
+                        help="side to check (development or production)")
+    ns = parser.parse_args(args)
+
+    print(f"preinfra check (stub): {ns.side} side — "
+          f"real checks land in mod 042. Returning success.")
+    return 0
+
+
+def _cmd_projinfra(args: list[str]) -> int:
+    """``docex projinfra <direction> <side>`` — bring up or tear down
+    project-tier infrastructure for a side. Mostly STUB in mod 034.
+    The only real behavior is `projinfra up production` on elastic
+    projects, which runs the existing state-backend setup (formerly
+    the `bootstrap` command). Mods 036 (fixed) and 037-039 (elastic)
+    flesh out the rest."""
+    parser = argparse.ArgumentParser(prog="docex projinfra", add_help=True)
+    parser.add_argument("direction", choices=["up", "down"],
+                        help="up | down")
+    parser.add_argument("side", choices=["development", "production"],
+                        help="side (development or production)")
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.orchestrate.down import run_down
 
     ctx = load_project_context(Path(os.getcwd()))
-    docker = _require_docker()
-    return run_down(ctx, docker, env=ns.env)
+
+    # Elastic + up + production: run the existing state-backend setup.
+    if (ctx.infra.foundation == "elastic"
+            and ns.direction == "up"
+            and ns.side == "production"):
+        from docex.pipeline.bootstrap import run_bootstrap
+        aws = _make_aws_client()
+        return run_bootstrap(ctx, aws)
+
+    print(f"projinfra {ns.direction} {ns.side} (stub): "
+          f"real behavior lands in mod 036 (fixed) or mods 037-039 "
+          f"(elastic). Returning success.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Development handlers (build / test / migrate)
+# ---------------------------------------------------------------------------
 
 
 def _cmd_build(args: list[str]) -> int:
@@ -267,7 +290,7 @@ def _cmd_migrate(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3 handlers
+# Pipeline handlers (check / merge / containerize / release / stagetest / rollback)
 # ---------------------------------------------------------------------------
 
 
@@ -377,31 +400,6 @@ def _cmd_stagetest(args: list[str]) -> int:
     return run_stagetest(ctx, docker, staging_url_override=ns.staging_url)
 
 
-# ---------------------------------------------------------------------------
-# Phase 4 handlers
-# ---------------------------------------------------------------------------
-
-
-def _cmd_bootstrap(args: list[str]) -> int:
-    """``docex bootstrap`` — idempotent S3 + DynamoDB setup for elastic
-    projects' OpenTofu state backend. No-op for fixed-foundation
-    projects."""
-    parser = argparse.ArgumentParser(prog="docex bootstrap", add_help=True)
-    parser.parse_args(args)  # no positional args
-
-    from docex.context import load_project_context
-    from docex.pipeline.bootstrap import run_bootstrap
-
-    ctx = load_project_context(Path(os.getcwd()))
-    aws = _make_aws_client()
-    return run_bootstrap(ctx, aws)
-
-
-# ---------------------------------------------------------------------------
-# Phase 5 handlers
-# ---------------------------------------------------------------------------
-
-
 def _cmd_rollback(args: list[str]) -> int:
     """``docex rollback <env> <target_version> [--dry-run]`` — emergency
     reversion to a prior version. Code-only, at most one minor back."""
@@ -490,30 +488,29 @@ def _cmd_role(args: list[str]) -> int:
 
 
 def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
+    # Ordered to mirror the ``_GROUPS`` purpose-based help grouping.
     return {
-        # Phase 1
+        # Introspection
         "compile": _cmd_compile,
         "describe": _cmd_describe,
         "why": _cmd_why,
-        # Phase 2
-        "up": _cmd_up,
-        "down": _cmd_down,
+        "roles": _cmd_roles,
+        "role": _cmd_role,
+        # Infrastructure
+        "preinfra": _cmd_preinfra,
+        "projinfra": _cmd_projinfra,
+        "envinfra": _cmd_envinfra,
+        # Development
         "build": _cmd_build,
         "test": _cmd_test,
         "migrate": _cmd_migrate,
-        # Phase 3
+        # Pipeline
         "check": _cmd_check,
         "merge": _cmd_merge,
         "containerize": _cmd_containerize,
         "release": _cmd_release,
         "stagetest": _cmd_stagetest,
-        # Phase 4
-        "bootstrap": _cmd_bootstrap,
-        # Phase 5
         "rollback": _cmd_rollback,
-        # Reference
-        "roles": _cmd_roles,
-        "role": _cmd_role,
     }
 
 

@@ -14,6 +14,24 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Command surface refreshed (BREAKING).** Per the doctrine's
+  [`docex.md`](../doctrine/infrastructure/docex.md) command table:
+  `bootstrap` is removed; `up` and `down` are collapsed into
+  `envinfra <direction> <env>` (dev/test only — stage/prod still
+  route via `release`); two new commands `preinfra <side>` and
+  `projinfra <direction> <side>` are added with `side` being
+  `development` or `production`. `--help` regrouped from the
+  internal phase scheme (`Phase 1`/`Phase 2`/…) to purpose-based
+  (Introspection / Infrastructure / Development / Pipeline).
+  In mod 034 the new commands are mostly stubs that return 0 with
+  an explicit `(stub)` notice — the one real branch is
+  `projinfra up production` on elastic projects, which runs the
+  existing state-backend setup that `bootstrap` used to do.
+  Real `preinfra` checks land in mod 042; real `projinfra` behavior
+  in mod 036 (fixed) and mods 037–039 (elastic). Internal modules
+  `orchestrate/{up,down}.py` and `pipeline/bootstrap.py` keep their
+  names. Mod 034 of the shape-and-tier campaign.
+
 - **Fargate tier rounding made visible.** Per the doctrine's now-formal
   "rounding is uniform across all core services" rule
   ([cicl.md § Resources](../doctrine/infrastructure/cicl.md#resources)),

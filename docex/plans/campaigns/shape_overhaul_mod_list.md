@@ -46,7 +46,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 031 — CICL surface refresh ([mod folder](../modifications/031_cicl_surface_refresh/))
 - [x] 032 — Telemetry alignment ([mod folder](../modifications/032_telemetry_alignment/))
 - [x] 033 — Fargate tier rounding formalized ([mod folder](../modifications/033_fargate_tier_rounding/))
-- [ ] 034 — Command surface refresh
+- [x] 034 — Command surface refresh ([mod folder](../modifications/034_command_surface_refresh/))
 - [ ] 035 — Compiler output split + always-on four `-web` networks
 - [ ] 036 — Fixed projinfra: per-project traefik + projinfra behavior on fixed
 - [ ] 037 — Elastic projinfra: Route53 zone + ACM certs + two-phase apply
