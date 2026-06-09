@@ -7,28 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.0.4] - 2026-06-03
+## [0.0.1] - 2026-06-09
 
 ### Added
 
-- Declare `observability_backend_url: "https://hyperdx.luxrnd.tech"` in
-  `infra/infra.yml`. Required as of docex 0.11.0 (added by mod 017).
-  Sidecars in stage/prod export telemetry to this backend; the API key
-  goes in `infra/secrets/{stage,prod}.env` as `TELEMETRY_API_KEY=`.
-
-## [0.0.2] - 2026-06-02
-
-### Changed
-
-- Repinned to docex 0.9.0; adopted doctrine-injected PROJECT_VERSION
-  (mod 011) and DATABASE_SSLMODE part on postgres (mod 009).
-- Renamed backing service `db` → `appdb` to avoid postgres engine's
-  reserved-DBName list (mod 006), matching the elastic smoke
-  project's convention.
-- `teardown.sh` walks both underscore and hyphen forms of the project
-  name to clean up resources whose names came through the naming
-  policy translation (mod 005).
-
-### Added
-
-- Project incepted.
+- Project re-incepted against doctrine docex 1.0.0 (post shape-and-tier
+  campaign) and then immediately repinned to docex 1.0.1 (mod 046, the
+  naming-policy leak patch). The inner git history starts fresh at this
+  version; the compiled output reflects the 1.0.1 fix (data-plane names
+  hyphenate the project segment everywhere doctrine prescribes). See
+  `../PRE_CUT_CHECKLIST.md` for the walk.
+- `infra.yml` declares `apex_domain: luxrnd.tech` (mod 031's bare-apex
+  rule); project subdomain derives to `docex-smoke-fixed.luxrnd.tech`.
+- Project-local transfer tables `infra/transfer_tables/{sidecar,clickhouse}.yml`
+  preserved from the prior seed; they keep the project-local
+  transfer-table feature exercised on every cut.

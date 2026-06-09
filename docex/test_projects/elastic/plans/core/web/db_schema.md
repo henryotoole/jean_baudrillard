@@ -1,6 +1,6 @@
 # web — db schema
 
-`web` owns the schema of the project's single backing relational database, `db` (postgres 15 — RDS on elastic `stage`/`prod`, a postgres container on `dev`/`test`).
+`web` owns the schema of the project's relational database backing service, `appdb` (postgres 15 — RDS on elastic `stage`/`prod`, a postgres container on `dev`/`test`).
 
 ## Tables
 

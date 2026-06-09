@@ -1,6 +1,6 @@
 cicl_version: "1"
 foundation: fixed
-domain: "doctrine-fixed.luxrnd.tech"
+apex_domain: "luxrnd.tech"
 domain_default_service: web
 # Operator-provided container registry. See PRE_CUT_CHECKLIST.md
 # "Container registry" for the prerequisite setup (Docker Registry V2 at
@@ -17,6 +17,10 @@ core_services:
     role: web
     port: 8080
     networks: [web, internal]
+    # The doctrine-mandated /health endpoint. On fixed this drives the
+    # container's docker healthcheck via the role's
+    # `health_check_path` field translation.
+    health_check_path: /health
     depends_on: [appdb, probe, events]
     env:
       # Built from appdb's provided parts at startup (parts-only model).
@@ -26,8 +30,9 @@ core_services:
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-      # Project-local container backings introduced for the docex 0.10.0
-      # campaign smoke walk: nginx sidecar + ClickHouse analytics_db.
+      # Project-local container backings: nginx sidecar + ClickHouse
+      # analytics_db. The /health/{probe,events} endpoints in `web`'s
+      # composition root exercise them as part of the smoke walk.
       SIDECAR_HOST: ${backing_services.probe.host}
       SIDECAR_PORT: ${backing_services.probe.port}
       CLICKHOUSE_HOST: ${backing_services.events.host}
@@ -39,7 +44,7 @@ core_services:
   worker:
     role: web
     # No port — `worker` isn't on the web network, so no reverse-proxy
-    # exposure (per cicl.md validation rule 13).
+    # exposure (rule 15 only applies to web-network services).
     networks: [internal]
     depends_on: [appdb]
     env:
@@ -54,6 +59,9 @@ core_services:
       memory: 512MB
 
 backing_services:
+  # `appdb` rather than `db` — `db` collides with postgres's reserved
+  # DBName list on RDS. The elastic counterpart uses the same name so
+  # core code stays foundation-agnostic.
   appdb:
     role: relational_db
     engine: postgres
@@ -62,9 +70,9 @@ backing_services:
     schema_owned_by: web
 
   # Project-local engines declared at infra/transfer_tables/{sidecar,clickhouse}.yml.
-  # See the doctrine's transfer_tables.md § Authoring Project-Local Transfer Tables
-  # for the schema. probe is stateless (sidecar/nginx); events is stateful
-  # (analytics_db/clickhouse) with persistent_storage and project-opt-in backups.
+  # `probe` is stateless (sidecar/nginx); `events` is stateful
+  # (analytics_db/clickhouse) with persistent_storage and project-opt-in
+  # backups.
   probe:
     role: sidecar
     engine: nginx
@@ -74,7 +82,7 @@ backing_services:
     role: analytics_db
     engine: clickhouse
     networks: [internal]
-    # Opt in to AWS Backup for ClickHouse data. Default disabled — only the
-    # project knows whether the data is replaceable cache or irreplaceable
-    # user state. (Mod 015's project-opt-in field-routed via target_extras.)
+    # Opt in to AWS Backup for ClickHouse data. Default disabled — only
+    # the project knows whether the data is replaceable cache or
+    # irreplaceable user state.
     backups: true

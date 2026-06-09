@@ -21,13 +21,16 @@ info:
   description: |
     Test-project web service for the doctrine smoke test. POST a payload
     to /pings, the worker picks it up via postgres. /health/{probe,events}
-    exercise the project-local sidecar + analytics_db backings introduced
-    in the docex 0.10.0 campaign.
+    exercise the project-local sidecar + analytics_db backings.
 servers:
-  - url: "https://www.doctrine-fixed.luxrnd.tech"
-    description: prod
-  - url: "https://stage.doctrine-fixed.luxrnd.tech"
-    description: stage
+  - url: "https://docex-smoke-fixed.luxrnd.tech"
+    description: prod (bare-project, domain_default_service)
+  - url: "https://web.prod.docex-smoke-fixed.luxrnd.tech"
+    description: prod (canonical per-service host)
+  - url: "https://stage.docex-smoke-fixed.luxrnd.tech"
+    description: stage (bare-env)
+  - url: "https://web.stage.docex-smoke-fixed.luxrnd.tech"
+    description: stage (canonical per-service host)
 
 paths:
   /health:

@@ -1,9 +1,15 @@
 cicl_version: "1"
 foundation: elastic
-domain: "doctrine-elastic.luxrnd.tech"
+apex_domain: "luxrnd.tech"
 domain_default_service: web
+# Default reverse_proxy on elastic per mod 044. Operator decision for
+# the smoke project: ALB is the doctrine default — exercise it here.
+# Switch to `ec2_traefik_eip` or `ec2_traefik_pip` only when smoke-
+# walking that path explicitly.
+reverse_proxy: alb
 # container_registry omitted on elastic — defaults to the project ECR
-# provisioned by `docex bootstrap`. See cicl.md § Container Registry.
+# provisioned by `docex projinfra up production`. See
+# cicl.md § Container Registry.
 repo_url: "https://github.com/luxedo/jean_baudrillard"
 # Project-wide observability backend (self-hosted HyperDX). Sidecars in
 # stage/prod export OTLP signals here. See doctrine/infrastructure/
@@ -17,22 +23,23 @@ core_services:
     networks: [web, internal]
     # Declared so the ALB target group (on elastic) and the container
     # healthcheck (on fixed) point at /health rather than /. Routes
-    # via mod 010's `target: target_group` translation on elastic.
+    # via the role's `health_check_path` field's `target: target_group`
+    # translation on elastic.
     health_check_path: /health
     depends_on: [appdb, probe, events]
     env:
-      # Built from db's provided parts at startup (parts-only model).
-      # On elastic, DATABASE_HOST resolves to the RDS endpoint and
-      # USER/PASSWORD come from SSM via ECS secrets[].
+      # Built from appdb's provided parts at startup (parts-only model).
+      # On elastic, DATABASE_HOST resolves to the RDS endpoint (HCL
+      # pass-through) and USER/PASSWORD come from SSM via ECS secrets[].
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_PORT: ${backing_services.appdb.port}
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-      # Project-local container backings introduced for the docex 0.10.0
-      # campaign smoke walk: nginx sidecar + ClickHouse analytics_db.
-      # On elastic, the hosts resolve via ECS Service Connect's namespace.
+      # Project-local container backings: nginx sidecar + ClickHouse
+      # analytics_db. On elastic, the hosts resolve via ECS Service
+      # Connect's per-env private DNS namespace.
       SIDECAR_HOST: ${backing_services.probe.host}
       SIDECAR_PORT: ${backing_services.probe.port}
       CLICKHOUSE_HOST: ${backing_services.events.host}
@@ -63,11 +70,11 @@ core_services:
       disk: 25GB
 
 backing_services:
-  # Service name chosen to avoid RDS reserved-DBName collision: "db",
-  # "database", "postgres", etc. are rejected by RDS as DBName values
-  # for the postgres engine. The service name flows into both the RDS
-  # identifier and the initial database name (the postgres engine's
-  # `db` provided part = ${name}).
+  # `appdb` rather than `db`: postgres engine reserves DBName values
+  # like `db`, `database`, `postgres` etc., so a service named `db`
+  # would fail RDS provisioning when the engine's `provides.db = ${name}`
+  # flows into RDS's `db_name` parameter. The fixed companion uses the
+  # same name so core code stays foundation-agnostic.
   appdb:
     role: relational_db
     engine: postgres
@@ -76,9 +83,9 @@ backing_services:
     schema_owned_by: web
 
   # Project-local engines declared at infra/transfer_tables/{sidecar,clickhouse}.yml.
-  # See the doctrine's transfer_tables.md § Authoring Project-Local Transfer Tables
-  # for the schema. probe is stateless (sidecar/nginx); events is stateful
-  # (analytics_db/clickhouse) with persistent_storage and project-opt-in backups.
+  # `probe` is stateless (sidecar/nginx); `events` is stateful
+  # (analytics_db/clickhouse) with persistent_storage and project-opt-in
+  # backups.
   probe:
     role: sidecar
     engine: nginx
@@ -88,7 +95,7 @@ backing_services:
     role: analytics_db
     engine: clickhouse
     networks: [internal]
-    # Opt in to AWS Backup for ClickHouse data. Default disabled — only the
-    # project knows whether the data is replaceable cache or irreplaceable
-    # user state. (Mod 015's project-opt-in field-routed via target_extras.)
+    # Opt in to AWS Backup for ClickHouse data. Default disabled — only
+    # the project knows whether the data is replaceable cache or
+    # irreplaceable user state.
     backups: true

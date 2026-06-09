@@ -9,11 +9,11 @@ set -uo pipefail
 
 PROJECT_NAME="docex_smoke_elastic"
 AWS_REGION="us-east-1"
-STATE_BUCKET="${PROJECT_NAME}-tofu-state"
-STATE_LOCK_TABLE="${PROJECT_NAME}-tofu-locks"
-
-# Hyphenated form used in many AWS resource names (RDS, ECS cluster).
+# S3 policy is hyphen+lower+63 (per doctrine naming_policies); DDB policy
+# preserves underscores. Match what `projinfra` actually emits.
 PROJECT_AWS_PREFIX="${PROJECT_NAME//_/-}"
+STATE_BUCKET="${PROJECT_AWS_PREFIX}-tofu-state"
+STATE_LOCK_TABLE="${PROJECT_NAME}_tofu_locks"
 
 export AWS_REGION
 
@@ -79,13 +79,13 @@ if [[ -n "$ssm_params" ]]; then mark_fail "SSM parameters" "$ssm_params"; else r
 
 # -- Route53 hosted zone -------------------------------------------------
 zones="$(aws route53 list-hosted-zones \
-  --query "HostedZones[?Name==\`doctrine-elastic.luxrnd.tech.\`].Id" \
+  --query "HostedZones[?Name==\`docex-smoke-elastic.luxrnd.tech.\`].Id" \
   --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' || true)"
 if [[ -n "$zones" ]]; then mark_fail "Route53 zones" "$zones"; else report_ok "Route53 zones"; fi
 
 # -- ACM certificate -----------------------------------------------------
 certs="$(aws acm list-certificates \
-  --query "CertificateSummaryList[?contains(DomainName, \`doctrine-elastic.luxrnd.tech\`)].CertificateArn" \
+  --query "CertificateSummaryList[?contains(DomainName, \`docex-smoke-elastic.luxrnd.tech\`)].CertificateArn" \
   --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' || true)"
 if [[ -n "$certs" ]]; then mark_fail "ACM certificates" "$certs"; else report_ok "ACM certificates"; fi
 
