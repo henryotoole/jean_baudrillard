@@ -597,10 +597,11 @@ def test_project_tier_ecr_and_iam_names_use_correct_policies(tmp_path: Path):
     assert "/docex_smoke_elastic/*" in project_tf
 
 
-def test_env_tier_state_backend_alb_ecs_cluster_names(tmp_path: Path):
-    """Stage/prod main.tf state backend + ALB + ECS cluster names follow
-    the matching policies (S3 = hyphen, DDB = underscore, ALB = hyphen,
-    ECS = hyphen)."""
+def test_env_tier_state_backend_ecs_cluster_names(tmp_path: Path):
+    """Stage/prod main.tf state backend + ECS cluster names follow the
+    matching policies (S3 = hyphen, DDB = underscore, ECS = hyphen).
+    Mod 038: the ALB moved to project-tier; its name is asserted in the
+    project-tier name test."""
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
     for env in ("stage", "prod"):
@@ -609,11 +610,23 @@ def test_env_tier_state_backend_alb_ecs_cluster_names(tmp_path: Path):
         assert 'bucket         = "docex-smoke-elastic-tofu-state"' in tf
         assert 'dynamodb_table = "docex_smoke_elastic_tofu_locks"' in tf
         assert f'bucket = "docex-smoke-elastic-tofu-state"' in tf
-        # ALB: hyphen + lower not enforced (case=any); the project string still
-        # hyphenates because the alb policy uses `separator: hyphen`.
-        assert f'name               = "docex-smoke-elastic-{env}-alb"' in tf
         # ECS cluster: hyphen (ecs policy is data-plane resolvable).
         assert f'name = "docex-smoke-elastic-{env}"' in tf
+
+
+def test_project_tier_alb_name(tmp_path: Path):
+    """Mod 038: the project ALB and its SG live at the project tier and
+    use the `alb` naming policy (hyphen + case-any + max 32). For a
+    project with underscores, the policy hyphenates."""
+    proj = _write_underscore_project(tmp_path)
+    run_compile(load_project_context(proj))
+    project_tf = (
+        proj / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # ALB name: project + hyphen + "alb".
+    assert 'name               = "docex-smoke-elastic-alb"' in project_tf
+    # ALB SG name.
+    assert 'name        = "docex-smoke-elastic-alb-sg"' in project_tf
 
 
 def test_env_tier_rds_and_ecs_service_names(tmp_path: Path):
@@ -660,17 +673,24 @@ def test_every_emitted_sg_has_egress(tmp_path: Path):
     """Mod 006: every project-emitted SG in an elastic env main.tf carries
     an egress block. Without it, Terraform's aws_security_group denies all
     egress and Fargate can't reach SSM/ECR. The elastic fixture declares
-    two networks (web, internal); plus the ALB SG = 3 egress blocks total.
+    two networks (web, internal) = 2 egress blocks in env main.tf. Mod
+    038: the ALB SG moved to the project tier, so it no longer counts
+    here. The project-tier ALB SG egress is asserted separately below.
     """
     root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     for env in ("stage", "prod"):
         tf = (root / "infra" / "output" / env / "main.tf").read_text()
-        assert tf.count("egress {") == 3, (
-            f"expected 3 egress blocks in {env}/main.tf "
-            f"(web SG, internal SG, ALB SG), got {tf.count('egress {')}"
+        assert tf.count("egress {") == 2, (
+            f"expected 2 egress blocks in {env}/main.tf "
+            f"(web SG, internal SG), got {tf.count('egress {')}"
         )
+    # Mod 038: the ALB SG's egress block lives at the project tier.
+    project_tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert "egress {" in project_tf, "project-tier ALB SG must declare an egress block"
 
 
 # ---------------------------------------------------------------------------
@@ -720,3 +740,147 @@ def test_describe_dag_and_llm(tmp_path: Path):
         edge["from"] == "api" and edge["to"] == "appdb"
         for edge in parsed["edges"]
     )
+
+
+# ---------------------------------------------------------------------------
+# Mod 038 — project-tier ALB; listener rules stay env-tier with banded
+# priorities (stage [1000, 4999], prod [5000, 9999]).
+# ---------------------------------------------------------------------------
+
+
+def _compile_elastic(tmp_path: Path) -> Path:
+    """Compile the elastic fixture into tmp_path; return the project root."""
+    root = _copy_fixture(_FIXTURE_ELASTIC, tmp_path)
+    ctx = load_project_context(root)
+    rc = run_compile(ctx)
+    assert rc == 0
+    return root
+
+
+def test_mod038_project_tier_has_alb_resources(tmp_path: Path):
+    """Mod 038: the project-tier main.tf declares the ALB set (SG, LB,
+    HTTPS listener, listener_certificate for stage SNI, HTTP→HTTPS
+    redirect)."""
+    root = _compile_elastic(tmp_path)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert 'resource "aws_security_group" "project_alb"' in tf
+    assert 'resource "aws_lb" "project"' in tf
+    assert 'resource "aws_lb_listener" "project_https"' in tf
+    assert 'resource "aws_lb_listener_certificate" "project_stage"' in tf
+    assert 'resource "aws_lb_listener" "project_http"' in tf
+    # LB type is application + internet-facing.
+    assert 'load_balancer_type = "application"' in tf
+    assert "internal           = false" in tf
+    # Public ingress on both 80 and 443.
+    assert "from_port   = 80" in tf
+    assert "from_port   = 443" in tf
+    # HTTPS listener default cert is the prod cert; stage cert is the
+    # SNI binding.
+    assert "certificate_arn   = aws_acm_certificate_validation.prod.certificate_arn" in tf
+    assert "certificate_arn = aws_acm_certificate_validation.stage.certificate_arn" in tf
+    # HTTP listener performs a 301 redirect to 443.
+    assert 'status_code = "HTTP_301"' in tf
+    # Subnets reference the local public subnets (mod 041 will swap to
+    # master VPC data source).
+    assert "subnets            = aws_subnet.public[*].id" in tf
+    # Subnet ref carries the mod 041 comment.
+    assert "mod 041 will switch this to a master VPC data source" in tf
+
+
+def test_mod038_project_tier_alb_outputs(tmp_path: Path):
+    """Mod 038: the project-tier main.tf exposes six ALB outputs for
+    env-tier remote-state consumption."""
+    root = _compile_elastic(tmp_path)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    for out_name in (
+        "alb_arn",
+        "alb_dns_name",
+        "alb_zone_id",
+        "alb_https_listener_arn",
+        "alb_http_listener_arn",
+        "alb_security_group_id",
+    ):
+        assert f'output "{out_name}"' in tf, f"missing project-tier output {out_name!r}"
+
+
+def test_mod038_env_tier_has_no_alb_resources(tmp_path: Path):
+    """Mod 038: env-tier main.tf declares no ALB-defining resources —
+    the project ALB SG, the ALB itself, and both listeners all moved
+    to the project tier."""
+    root = _compile_elastic(tmp_path)
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        # No ALB-defining resources.
+        assert 'resource "aws_lb" "alb"' not in tf
+        assert 'resource "aws_lb_listener" "alb_https"' not in tf
+        assert 'resource "aws_lb_listener" "alb_http_redirect"' not in tf
+        assert 'resource "aws_security_group" "alb"' not in tf
+        # No local references to the removed resources.
+        assert "aws_lb.alb." not in tf
+        assert "aws_security_group.alb.id" not in tf
+        assert "aws_lb_listener.alb_https" not in tf
+
+
+def test_mod038_env_tier_uses_remote_state_for_alb(tmp_path: Path):
+    """Mod 038: env-tier references the project ALB exclusively via
+    `data.terraform_remote_state.project.outputs.alb_*`."""
+    root = _compile_elastic(tmp_path)
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        # Per-network SG ingress source for the `web` network.
+        assert (
+            "source_security_group_id = "
+            "data.terraform_remote_state.project.outputs.alb_security_group_id"
+        ) in tf
+        # Route53 alias records (env subdomain + wildcard).
+        assert (
+            "name                   = "
+            "data.terraform_remote_state.project.outputs.alb_dns_name"
+        ) in tf
+        assert (
+            "zone_id                = "
+            "data.terraform_remote_state.project.outputs.alb_zone_id"
+        ) in tf
+        # Listener rules for web services.
+        assert (
+            "listener_arn = "
+            "data.terraform_remote_state.project.outputs.alb_https_listener_arn"
+        ) in tf
+
+
+def test_mod038_listener_rule_priorities_banded_by_env(tmp_path: Path):
+    """Mod 038: stage and prod share the project ALB's HTTPS listener,
+    so listener-rule priorities are banded by env to avoid collisions:
+    stage in [1000, 4999], prod in [5000, 9999]."""
+    root = _compile_elastic(tmp_path)
+    # The elastic fixture has exactly one web core service (`api`), so
+    # each env yields a single listener rule at the band's base.
+    stage_tf = (root / "infra" / "output" / "stage" / "main.tf").read_text()
+    prod_tf = (root / "infra" / "output" / "prod" / "main.tf").read_text()
+    assert "priority     = 1000" in stage_tf
+    assert "priority     = 5000" in prod_tf
+    # The pre-mod-038 base (100) must not appear (regression guard).
+    assert "priority     = 100\n" not in stage_tf
+    assert "priority     = 100\n" not in prod_tf
+
+
+def test_mod038_alb_sg_ingress_open_to_internet(tmp_path: Path):
+    """Mod 038: the project ALB SG admits 80 and 443 from 0.0.0.0/0
+    (public ingress); egress is allow-all."""
+    root = _compile_elastic(tmp_path)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    sg_start = tf.find('resource "aws_security_group" "project_alb"')
+    assert sg_start != -1
+    # Scope to the SG block; it's followed by the aws_lb block.
+    sg_end = tf.find('resource "aws_lb" "project"', sg_start)
+    sg_block = tf[sg_start:sg_end]
+    # Two ingress rules and one egress rule.
+    assert sg_block.count("ingress {") == 2
+    assert sg_block.count("egress {") == 1
+    assert 'cidr_blocks = ["0.0.0.0/0"]' in sg_block

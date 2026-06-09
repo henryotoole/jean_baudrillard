@@ -250,6 +250,91 @@ resource "aws_acm_certificate_validation" "prod" {
 }
 
 # ---------------------------------------------------------------------------
+# Project-tier ALB. One per project, serves stage and prod via SNI
+# listener-cert bindings + env-tier listener rules. See
+# projinfra/elastic_alb.md.
+# ---------------------------------------------------------------------------
+resource "aws_security_group" "project_alb" {
+  name        = "{{ alb_sg_name }}"
+  description = "Project ALB ingress (80/443 from internet); egress all."
+  vpc_id      = aws_vpc.project.id
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+
+resource "aws_lb" "project" {
+  name               = "{{ alb_name }}"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.project_alb.id]
+  # mod 041 will switch this to a master VPC data source.
+  subnets            = aws_subnet.public[*].id
+  tags = {
+    project    = "{{ project }}"
+    managed_by = "doctrine"
+  }
+}
+
+resource "aws_lb_listener" "project_https" {
+  load_balancer_arn = aws_lb.project.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  # WHY: prod cert is the listener default; stage cert is attached as
+  # an additional SNI binding below. SNI behavior selects whichever
+  # cert's SAN matches the incoming Host header, and the default cert
+  # is the conservative fallback for an unrecognised host.
+  certificate_arn   = aws_acm_certificate_validation.prod.certificate_arn
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      status_code  = "404"
+      message_body = "not found"
+    }
+  }
+}
+
+resource "aws_lb_listener_certificate" "project_stage" {
+  listener_arn    = aws_lb_listener.project_https.arn
+  certificate_arn = aws_acm_certificate_validation.stage.certificate_arn
+}
+
+resource "aws_lb_listener" "project_http" {
+  load_balancer_arn = aws_lb.project.arn
+  port              = 80
+  protocol          = "HTTP"
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
 # ECR repositories — one per core service. The image refs in each env's
 # main.tf resolve to `<repo_url>:<version>`.
 # ---------------------------------------------------------------------------
@@ -359,6 +444,30 @@ output "prod_cert_arn" {
 
 output "task_execution_role_arn" {
   value = aws_iam_role.task_execution.arn
+}
+
+output "alb_arn" {
+  value = aws_lb.project.arn
+}
+
+output "alb_dns_name" {
+  value = aws_lb.project.dns_name
+}
+
+output "alb_zone_id" {
+  value = aws_lb.project.zone_id
+}
+
+output "alb_https_listener_arn" {
+  value = aws_lb_listener.project_https.arn
+}
+
+output "alb_http_listener_arn" {
+  value = aws_lb_listener.project_http.arn
+}
+
+output "alb_security_group_id" {
+  value = aws_security_group.project_alb.id
 }
 {% for svc in core_service_names %}
 output "ecr_repository_{{ svc.hcl_id }}_url" {

@@ -345,20 +345,31 @@ def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Pat
 def test_env_main_tf_references_remote_state_outputs(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
     assert "data.terraform_remote_state.project.outputs.vpc_id" in tf
-    assert "data.terraform_remote_state.project.outputs.public_subnet_ids" in tf
     assert "data.terraform_remote_state.project.outputs.private_subnet_ids" in tf
     assert "data.terraform_remote_state.project.outputs.zone_id" in tf
-    # Mod 037: prod env consumes the prod cert; stage consumes the stage cert.
-    assert "data.terraform_remote_state.project.outputs.prod_cert_arn" in tf
+    # Mod 038: the ALB moved to the project tier. Env-tier consumes its
+    # DNS+zone for Route53 alias records, the HTTPS listener ARN for
+    # listener rules, and the SG ID for per-network ingress sources.
+    assert "data.terraform_remote_state.project.outputs.alb_dns_name" in tf
+    assert "data.terraform_remote_state.project.outputs.alb_zone_id" in tf
+    assert "data.terraform_remote_state.project.outputs.alb_https_listener_arn" in tf
+    assert "data.terraform_remote_state.project.outputs.alb_security_group_id" in tf
+    # Mod 038: env-tier no longer references cert ARNs — the project ALB
+    # listener owns both certs (prod default + stage SNI binding).
+    assert "data.terraform_remote_state.project.outputs.prod_cert_arn" not in tf
     assert "data.terraform_remote_state.project.outputs.stage_cert_arn" not in tf
     # The old single-cert output reference is gone.
     assert "outputs.certificate_arn" not in tf
+    # Mod 038: env-tier no longer references public_subnet_ids — the
+    # project ALB owns the public subnets.
+    assert "outputs.public_subnet_ids" not in tf
 
 
-def test_stage_env_main_tf_references_stage_cert_arn(compiled_elastic_project: Path):
-    """Mod 037: stage env reads its own cert ARN, not prod's."""
+def test_stage_env_main_tf_no_cert_ref(compiled_elastic_project: Path):
+    """Mod 038: env-tier no longer references cert ARNs; the project
+    ALB listener owns both certs (prod default + stage SNI binding)."""
     tf = (compiled_elastic_project / "infra" / "output" / "stage" / "main.tf").read_text()
-    assert "data.terraform_remote_state.project.outputs.stage_cert_arn" in tf
+    assert "data.terraform_remote_state.project.outputs.stage_cert_arn" not in tf
     assert "data.terraform_remote_state.project.outputs.prod_cert_arn" not in tf
     assert "outputs.certificate_arn" not in tf
 
@@ -498,3 +509,79 @@ def test_backing_service_hcl_lacks_project_version(compiled_prod_tf: str):
     assert rds_end != -1
     rds_block = tf[rds_start:rds_end]
     assert "PROJECT_VERSION" not in rds_block, rds_block
+
+
+# ---------------------------------------------------------------------------
+# Mod 038 — project-tier ALB; listener rules stay env-tier with banded
+# priorities (stage [1000, 4999], prod [5000, 9999]).
+# ---------------------------------------------------------------------------
+
+
+def test_mod038_env_listener_rule_uses_remote_state_listener_arn(
+    compiled_prod_tf: str,
+):
+    """The env-tier `aws_lb_listener_rule.listener_arn` references the
+    project-tier ALB's HTTPS listener via remote state, never the
+    deleted env-tier `aws_lb_listener.alb_https.arn`."""
+    tf = compiled_prod_tf
+    assert "data.terraform_remote_state.project.outputs.alb_https_listener_arn" in tf
+    assert "aws_lb_listener.alb_https.arn" not in tf
+
+
+def test_mod038_prod_listener_rule_priority_in_prod_band(compiled_prod_tf: str):
+    """Prod env's listener-rule priorities live in `[5000, 9999]`. The
+    elastic fixture has one web service (`api`), so the rule lands at
+    the band's base (5000)."""
+    tf = compiled_prod_tf
+    assert "priority     = 5000" in tf
+    # Pre-mod-038 base (100) must not survive.
+    assert "priority     = 100\n" not in tf
+
+
+def test_mod038_stage_listener_rule_priority_in_stage_band(tmp_path: Path):
+    """Stage env's listener-rule priorities live in `[1000, 4999]`. The
+    elastic fixture has one web service, so the rule lands at 1000."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
+    assert "priority     = 1000" in tf
+    assert "priority     = 100\n" not in tf
+
+
+def test_mod038_project_tier_has_alb_set(compiled_elastic_project: Path):
+    """Project-tier main.tf carries the ALB SG, the ALB, both listeners,
+    and the stage SNI listener_certificate."""
+    tf = (
+        compiled_elastic_project
+        / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert 'resource "aws_security_group" "project_alb"' in tf
+    assert 'resource "aws_lb" "project"' in tf
+    assert 'resource "aws_lb_listener" "project_https"' in tf
+    assert 'resource "aws_lb_listener_certificate" "project_stage"' in tf
+    assert 'resource "aws_lb_listener" "project_http"' in tf
+    # HTTPS listener default cert = prod; stage cert attaches via
+    # aws_lb_listener_certificate.
+    assert "certificate_arn   = aws_acm_certificate_validation.prod.certificate_arn" in tf
+    assert "certificate_arn = aws_acm_certificate_validation.stage.certificate_arn" in tf
+
+
+def test_mod038_project_tier_alb_outputs_present(compiled_elastic_project: Path):
+    """Six project-tier ALB outputs are exposed for env-tier remote-state
+    consumption."""
+    tf = (
+        compiled_elastic_project
+        / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    for out_name in (
+        "alb_arn",
+        "alb_dns_name",
+        "alb_zone_id",
+        "alb_https_listener_arn",
+        "alb_http_listener_arn",
+        "alb_security_group_id",
+    ):
+        assert f'output "{out_name}"' in tf, f"missing project output {out_name!r}"

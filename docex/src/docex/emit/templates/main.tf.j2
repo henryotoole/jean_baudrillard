@@ -70,14 +70,14 @@ resource "aws_security_group" "{{ short }}" {
   }
 }
 {% if short == "web" %}
-# Web SG: open ingress only from the ALB SG.
+# Web SG: open ingress only from the project ALB SG (project-tier; mod 038).
 resource "aws_security_group_rule" "{{ short }}_ingress_from_alb" {
   type                     = "ingress"
   from_port                = 0
   to_port                  = 65535
   protocol                 = "tcp"
   security_group_id        = aws_security_group.{{ short }}.id
-  source_security_group_id = aws_security_group.alb.id
+  source_security_group_id = data.terraform_remote_state.project.outputs.alb_security_group_id
 }
 {% else %}
 # Internal SG: accepts ingress only from itself (services in the same network).
@@ -91,86 +91,6 @@ resource "aws_security_group_rule" "{{ short }}_self_ingress" {
 }
 {% endif %}
 {% endfor %}
-
-# ALB security group (allows public 443/80).
-resource "aws_security_group" "alb" {
-  name        = "{{ project }}_{{ env }}_alb"
-  description = "ALB ingress for {{ project }} {{ env }}"
-  vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  tags = {
-    project    = "{{ project }}"
-    env        = "{{ env }}"
-    managed_by = "doctrine"
-  }
-}
-
-# ---------------------------------------------------------------------------
-# Reverse proxy: one ALB per env
-# ---------------------------------------------------------------------------
-resource "aws_lb" "alb" {
-  name               = "{{ alb_name }}"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = data.terraform_remote_state.project.outputs.public_subnet_ids
-  tags = {
-    project    = "{{ project }}"
-    env        = "{{ env }}"
-    managed_by = "doctrine"
-  }
-}
-
-resource "aws_lb_listener" "alb_https" {
-  load_balancer_arn = aws_lb.alb.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-2016-08"
-{% if env == "stage" -%}
-  certificate_arn   = data.terraform_remote_state.project.outputs.stage_cert_arn
-{%- elif env == "prod" -%}
-  certificate_arn   = data.terraform_remote_state.project.outputs.prod_cert_arn
-{%- endif %}
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      status_code  = "404"
-      message_body = "not found"
-    }
-  }
-}
-
-resource "aws_lb_listener" "alb_http_redirect" {
-  load_balancer_arn = aws_lb.alb.arn
-  port              = 80
-  protocol          = "HTTP"
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
-  }
-}
 
 # ---------------------------------------------------------------------------
 # ECS cluster
@@ -211,15 +131,15 @@ resource "aws_service_discovery_http_namespace" "env" {
 {% endfor %}
 
 # ---------------------------------------------------------------------------
-# Route53 record: <env-subdomain> -> ALB
+# Route53 record: <env-subdomain> -> project ALB (project-tier; mod 038)
 # ---------------------------------------------------------------------------
 resource "aws_route53_record" "env" {
   zone_id = data.terraform_remote_state.project.outputs.zone_id
   name    = "{{ subdomain }}"
   type    = "A"
   alias {
-    name                   = aws_lb.alb.dns_name
-    zone_id                = aws_lb.alb.zone_id
+    name                   = data.terraform_remote_state.project.outputs.alb_dns_name
+    zone_id                = data.terraform_remote_state.project.outputs.alb_zone_id
     evaluate_target_health = false
   }
 }
@@ -232,8 +152,8 @@ resource "aws_route53_record" "env_wildcard" {
   name    = "*.{{ subdomain }}"
   type    = "A"
   alias {
-    name                   = aws_lb.alb.dns_name
-    zone_id                = aws_lb.alb.zone_id
+    name                   = data.terraform_remote_state.project.outputs.alb_dns_name
+    zone_id                = data.terraform_remote_state.project.outputs.alb_zone_id
     evaluate_target_health = false
   }
 }

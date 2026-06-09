@@ -507,7 +507,7 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append("}")
     out.append("")
     out.append(f'resource "aws_lb_listener_rule" "{svc.name}" {{')
-    out.append( '  listener_arn = aws_lb_listener.alb_https.arn')
+    out.append( '  listener_arn = data.terraform_remote_state.project.outputs.alb_https_listener_arn')
     out.append(f'  priority     = {priority}')
     out.append( '  action {')
     out.append( '    type             = "forward"')
@@ -786,6 +786,7 @@ def emit_hcl_project(
     ddb_p = naming_policies.get("ddb")
     iam_p = naming_policies.get("iam")
     ssm_p = naming_policies.get("ssm_path")
+    alb_p = naming_policies.get("alb")
 
     # WHY: ECR repo names are structural — `${project}/${service}` with each
     # segment verbatim and `/` as joiner. The single-separator policy
@@ -812,6 +813,8 @@ def emit_hcl_project(
         ),
         ecr_repo_names=ecr_repo_names,
         ssm_path_project=apply_policy(project, ssm_p),
+        alb_name=apply_policy(f"{project}_alb", alb_p),
+        alb_sg_name=apply_policy(f"{project}_alb_sg", alb_p),
     )
     out_path.write_text(rendered)
 
@@ -843,9 +846,14 @@ def emit_hcl(
     services_ordered = backing + core
 
     # ALB listener rules need a unique priority per web-network core service.
-    # Assigned deterministically from the sorted web-core services (100, 101, ...).
+    # Mod 038: stage and prod share the project-tier ALB's HTTPS listener,
+    # so priorities are banded by env to keep their rule namespaces
+    # collision-free: stage in [1000, 4999], prod in [5000, 9999]. Within
+    # each band, services are assigned deterministically by sorted name.
+    _ENV_PRIORITY_BASE = {"stage": 1000, "prod": 5000}
     _web_core = [s for s in core if "web" in s.networks]
-    priorities = {s.name: 100 + i for i, s in enumerate(_web_core)}
+    _base = _ENV_PRIORITY_BASE.get(compiled.env, 100)
+    priorities = {s.name: _base + i for i, s in enumerate(_web_core)}
 
     s3_p = naming_policies.get("s3")
     ddb_p = naming_policies.get("ddb")
@@ -878,9 +886,6 @@ def emit_hcl(
         ),
         state_lock_table=apply_policy(
             f"{compiled.project}_tofu_locks", ddb_p
-        ),
-        alb_name=apply_policy(
-            f"{compiled.project}_{compiled.env}_alb", alb_p
         ),
         ecs_cluster_name=apply_policy(
             f"{compiled.project}_{compiled.env}", ecs_p

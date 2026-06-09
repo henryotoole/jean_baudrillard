@@ -14,6 +14,23 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **ALB moved to project-tier with SNI (BREAKING).** Per
+  [`projinfra/elastic_alb.md`](../doctrine/infrastructure/specifics/projinfra/elastic_alb.md),
+  the project ALB is now project-tier — one ALB per project, serving
+  both stage and prod through SNI cert binding. `project.tf.j2`
+  gains `aws_security_group.project_alb`, `aws_lb.project`,
+  `aws_lb_listener.project_https` (prod cert as the listener default),
+  `aws_lb_listener_certificate.project_stage` (stage cert via SNI),
+  `aws_lb_listener.project_http` (80→443 redirect), plus six outputs
+  (`alb_arn`, `alb_dns_name`, `alb_zone_id`, both `listener_arn`s,
+  `alb_security_group_id`). Env-tier `main.tf.j2` no longer defines
+  the ALB; the per-network SG ingress source, the Route53 alias DNS+
+  zone references, and the per-web-service listener-rule
+  `listener_arn` all read from `data.terraform_remote_state.project`.
+  Listener-rule priorities are now env-banded — stage in
+  `[1000, 4999]`, prod in `[5000, 9999]` — so they can never collide
+  on the shared listener. Mod 038 of the shape-and-tier campaign.
+
 - **Route53 zone + ACM certs aligned with new doctrine (BREAKING).**
   Three real bugs in the existing project-tier HCL fixed:
   (1) `aws_route53_zone.project.name` now `<project>.<apex>` (was the
