@@ -325,10 +325,10 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     sidecar_def: dict[str, Any] | None = None
     if svc.is_core:
         container_def["dependsOn"] = [
-            {"containerName": f"{svc.name}_otelcol", "condition": "START"},
+            {"containerName": f"{svc.name}-otelcol", "condition": "START"},
         ]
         sidecar_def = {
-            "name": f"{svc.name}_otelcol",
+            "name": f"{svc.name}-otelcol",
             "image": OTEL_COLLECTOR_IMAGE,
             "essential": False,
             "command": ["--config=env:OTEL_CONFIG_YAML"],

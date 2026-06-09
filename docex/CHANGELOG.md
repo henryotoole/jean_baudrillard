@@ -14,6 +14,19 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **Telemetry sidecar rename (BREAKING).** All container/service names
+  for the OTel sidecar flip from `<svc>_otelcol` to `<svc>-otelcol` per
+  the doctrine's data-plane naming unification. Compose form on fixed:
+  `${project}-${env}-${svc}-otelcol` (was
+  `${project}_${env}_${svc}_otelcol`); ECS form: `${svc}-otelcol`
+  (was `${svc}_otelcol`). Mod 030's partial flip left the suffix on
+  underscores pending this mod; mod 032 closes that. Doctrine-injected
+  OTEL_* env vars on every core service were already wired by prior
+  work (mods 011 + 017); no compile.py changes were required to
+  satisfy the doctrine bullet about OTEL_SERVICE_NAME,
+  OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL,
+  OTEL_RESOURCE_ATTRIBUTES. Mod 032 of the shape-and-tier campaign.
+
 - **CICL surface refresh (BREAKING).** `infra.yml`'s top-level
   `domain:` field is renamed `apex_domain:` and its semantics narrowed:
   the value is now the *bare apex* (e.g. `example.com`,

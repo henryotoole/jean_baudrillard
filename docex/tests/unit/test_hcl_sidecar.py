@@ -49,7 +49,7 @@ def _slice_task_def(hcl: str, resource_name: str) -> str:
 
 def test_task_def_has_paired_sidecar_container(tmp_path: Path):
     """`aws_ecs_task_definition.api` carries both `api` and
-    `api_otelcol` containers in container_definitions."""
+    `api-otelcol` containers in container_definitions."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -57,7 +57,7 @@ def test_task_def_has_paired_sidecar_container(tmp_path: Path):
     hcl = _stage_hcl(root)
     api_td = _slice_task_def(hcl, "api")
     assert 'name = "api"' in api_td
-    assert 'name = "api_otelcol"' in api_td
+    assert 'name = "api-otelcol"' in api_td
 
 
 def test_core_container_dependsOn_sidecar_start(tmp_path: Path):
@@ -72,7 +72,7 @@ def test_core_container_dependsOn_sidecar_start(tmp_path: Path):
 
     hcl = _stage_hcl(root)
     api_td = _slice_task_def(hcl, "api")
-    assert 'containerName = "api_otelcol"' in api_td
+    assert 'containerName = "api-otelcol"' in api_td
     assert 'condition = "START"' in api_td
     assert 'condition = "HEALTHY"' not in api_td
 
@@ -175,7 +175,7 @@ def test_migration_task_def_has_no_sidecar(tmp_path: Path):
     mig_td = _slice_task_def(hcl, "api_migrate")
     # The container_definitions has the core container only — no sidecar.
     assert 'name = "api"' in mig_td
-    assert 'name = "api_otelcol"' not in mig_td
+    assert 'name = "api-otelcol"' not in mig_td
 
 
 def test_sidecar_has_no_healthcheck(tmp_path: Path):
@@ -204,7 +204,7 @@ def test_sidecar_has_no_healthcheck(tmp_path: Path):
 def test_backing_service_task_def_has_no_sidecar(tmp_path: Path):
     """Backing-service task defs (RDS, S3, ElastiCache) on elastic don't
     emit task definitions at all — RDS is `aws_db_instance`, etc. For
-    completeness, assert no `<backing>_otelcol` container shows up
+    completeness, assert no `<backing>-otelcol` container shows up
     anywhere in the emitted HCL.
     """
     root = _copy_fixture(tmp_path)
@@ -213,7 +213,7 @@ def test_backing_service_task_def_has_no_sidecar(tmp_path: Path):
 
     hcl = _stage_hcl(root)
     # The fixture's `appdb` is a postgres backing service.
-    assert "appdb_otelcol" not in hcl
+    assert "appdb-otelcol" not in hcl
 
 
 def test_elastic_otel_config_yaml_escapes_dollar_in_hcl_source(tmp_path: Path):

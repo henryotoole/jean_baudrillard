@@ -36,7 +36,7 @@ def _compose_doc(root: Path, env: str) -> dict:
 
 
 def _sidecar_names(services: dict) -> list[str]:
-    return [k for k in services if k.endswith("_otelcol")]
+    return [k for k in services if k.endswith("-otelcol")]
 
 
 def test_sidecar_emitted_per_core_service(tmp_path: Path):
@@ -50,9 +50,9 @@ def test_sidecar_emitted_per_core_service(tmp_path: Path):
     sidecars = _sidecar_names(services)
     # The fixture has one core service (`api`) and one backing (`appdb`).
     assert len(sidecars) == 1, sorted(services)
-    assert sidecars[0].endswith("-api_otelcol")
+    assert sidecars[0].endswith("-api-otelcol")
     # No sidecar for the backing appdb.
-    assert not any(k.endswith("-appdb_otelcol") for k in services)
+    assert not any(k.endswith("-appdb-otelcol") for k in services)
 
 
 def test_sidecar_network_mode_pairs_with_core(tmp_path: Path):
@@ -64,7 +64,7 @@ def test_sidecar_network_mode_pairs_with_core(tmp_path: Path):
     doc = _compose_doc(root, "dev")
     services = doc["services"]
     api_global = next(k for k in services if k.endswith("-api") and "otelcol" not in k)
-    sidecar = next(services[k] for k in services if k.endswith("-api_otelcol"))
+    sidecar = next(services[k] for k in services if k.endswith("-api-otelcol"))
     assert sidecar["network_mode"] == f"service:{api_global}"
 
 
@@ -76,7 +76,7 @@ def test_sidecar_has_no_networks_list(tmp_path: Path):
 
     doc = _compose_doc(root, "dev")
     services = doc["services"]
-    sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
+    sidecar = next(services[k] for k in services if k.endswith("-otelcol"))
     assert "networks" not in sidecar
 
 
@@ -88,7 +88,7 @@ def test_sidecar_uses_pinned_image_constant(tmp_path: Path):
 
     doc = _compose_doc(root, "dev")
     services = doc["services"]
-    sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
+    sidecar = next(services[k] for k in services if k.endswith("-otelcol"))
     assert sidecar["image"] == docex.OTEL_COLLECTOR_IMAGE
 
 
@@ -150,7 +150,7 @@ def test_sidecar_environment_uses_default_form(tmp_path: Path):
 
     doc = _compose_doc(root, "dev")
     services = doc["services"]
-    sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
+    sidecar = next(services[k] for k in services if k.endswith("-otelcol"))
     env = sidecar["environment"]
     assert env["OBSERVABILITY_BACKEND_URL"] == "https://hyperdx.luxrnd.tech"
     assert env["TELEMETRY_API_KEY"] == "${TELEMETRY_API_KEY:-}"
@@ -169,7 +169,7 @@ def test_sidecar_has_no_healthcheck(tmp_path: Path):
 
     doc = _compose_doc(root, "dev")
     services = doc["services"]
-    sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
+    sidecar = next(services[k] for k in services if k.endswith("-otelcol"))
     assert "healthcheck" not in sidecar
 
 
@@ -181,7 +181,7 @@ def test_sidecar_resource_limits(tmp_path: Path):
 
     doc = _compose_doc(root, "dev")
     services = doc["services"]
-    sidecar = next(services[k] for k in services if k.endswith("_otelcol"))
+    sidecar = next(services[k] for k in services if k.endswith("-otelcol"))
     limits = sidecar["deploy"]["resources"]["limits"]
     assert limits["cpus"] == "0.1"
     assert limits["memory"] == "128M"

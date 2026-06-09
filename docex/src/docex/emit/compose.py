@@ -176,7 +176,7 @@ def _sidecar_block(
     127.0.0.1:13133 stays available for in-band diagnostics from
     inside the shared netns.
     """
-    sidecar_name = f"{project}_{env}_{svc.name}_otelcol"
+    sidecar_name = f"{project}-{env}-{svc.name}-otelcol"
     return {
         "image": OTEL_COLLECTOR_IMAGE,
         "container_name": sidecar_name,
@@ -323,10 +323,10 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         svc = compiled.services[name]
         if not svc.is_core:
             continue
-        # WHY: project/env/svc joiners use hyphens per mod 030's data-plane
-        # naming rule (docker container names). The `_otelcol` suffix is
-        # tracked separately for mod 032.
-        sidecar_name = f"{compiled.project}-{compiled.env}-{svc.name}_otelcol"
+        # WHY: project/env/svc joiners and the `-otelcol` suffix all use
+        # hyphens per the unified data-plane naming rule (mod 030 flipped
+        # joiners; mod 032 flipped the suffix). Docker container names.
+        sidecar_name = f"{compiled.project}-{compiled.env}-{svc.name}-otelcol"
         services[sidecar_name] = _sidecar_block(
             svc, compiled.project, compiled.env,
             compiled.observability_backend_url,
