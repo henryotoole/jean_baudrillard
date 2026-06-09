@@ -12,315 +12,215 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-09
+
+The **shape-and-tier campaign** cut. Sixteen mods (030–045) bring
+docex into alignment with the doctrine restructure that introduced
+`preinfra`/`projinfra`/`envinfra` as first-class tiers, unified data-
+plane naming on hyphens, refactored the elastic shape around a shared
+master VPC + project-tier ALB-or-EC2-traefik reverse proxy, and
+reshaped the CICL surface (`apex_domain`, `reverse_proxy:`,
+service-name blacklist). Every consumer project needs a recompile +
+redeploy after upgrading the `docex_version` pin; old identifier
+forms are not preserved.
+
+Each entry below carries a `(mod NNN)` attribution; the campaign list
+and per-mod planning docs live at
+[`docex/plans/campaigns/shape_overhaul_mod_list.md`](plans/campaigns/shape_overhaul_mod_list.md).
+
 ### Added
 
-- **EC2-traefik reverse-proxy variant (mod 044).** Elastic projects can now
-  set `reverse_proxy: ec2_traefik_eip` or `reverse_proxy: ec2_traefik_pip`
-  in `infra.yml` to swap the default ALB for a single t3.nano running
-  traefik — ~$4-8/month vs the ALB's ~$22/month, see
-  [`doctrine/infrastructure/specifics/projinfra/ec2_traefik.md`](../doctrine/infrastructure/specifics/projinfra/ec2_traefik.md).
-  The variant emits the full traefik resource set at the project tier
-  (instance + IAM role/policy/profile + SG + EBS ACME volume + SSM
-  Parameter for dynamic config + CloudWatch log group + five Route53
-  A-records); ACM and the ALB are omitted. Project-tier outputs are
-  polymorphic: env-tier `web` SG ingress consumes
-  `reverse_proxy_security_group_id`, which resolves to either the ALB
-  SG or the traefik SG depending on the variant. EIP variant pins a
-  stable public IP at 1 EIP/project; PIP variant uses an auto-assigned
-  public IP plus a boot-time systemd unit that rewrites the five
-  A-records via a Route53 batch on IP changes.
-- **`templates/ec2_traefik_user_data.sh.j2`** (~280 lines): doctrine-managed
-  user_data shell rendered into the EC2-traefik instance, covers EBS
-  ACME volume tag-attach, traefik install + static config (DNS-01 LE
-  via Route53), systemd timer for the SSM-driven dynamic-config sync,
-  optional PIP-only boot DNS update unit, and CloudWatch Logs agent
-  setup.
-
-### Known v1 gaps
-
-- **EC2-traefik release-flow SSM rerender is not implemented (mod 044
-  scope).** Mod 044 emits the SSM Parameter
-  `/<project>/ec2_traefik/config.yml` with an empty stub
-  (`http: { routers: {}, services: {} }`) and uses
-  `lifecycle.ignore_changes = [value]` so subsequent `tofu apply`
-  doesn't fight with manual edits. Operators using EC2-traefik manage
-  routing-rule YAML manually (via `aws ssm put-parameter`) until a
-  follow-up mod adds per-release SSM push from the merged stage+prod
-  routing surface. The instance polls SSM every 30s, so a
-  manually-pushed config reflects on the live instance promptly. ALB
-  users are unaffected.
+- **EC2-traefik reverse-proxy variant (mod 044).** Elastic projects can
+  now set `reverse_proxy: ec2_traefik_eip` or `ec2_traefik_pip` in
+  `infra.yml` to swap the default ALB for a single t3.nano running
+  traefik — ~$4–8/month vs the ALB's ~$22. Project-tier emits the
+  full traefik resource set (instance + IAM role/policy/profile + SG
+  + EBS ACME volume + SSM Parameter for dynamic config + CloudWatch
+  log group + five Route53 A-records); ACM and the ALB are omitted.
+  EIP variant pins a stable public IP; PIP variant uses an
+  auto-assigned IP plus a boot-time systemd unit that rewrites the
+  five A-records via a Route53 batch on IP changes. Per
+  [`projinfra/ec2_traefik.md`](../doctrine/infrastructure/specifics/projinfra/ec2_traefik.md).
+- **`templates/ec2_traefik_user_data.sh.j2`** (~280 lines, mod 044):
+  doctrine-managed user_data covering EBS ACME volume tag-attach,
+  traefik install + static config (DNS-01 LE via Route53), systemd
+  timer for SSM-driven dynamic-config sync, optional PIP-only boot
+  DNS-update unit, CloudWatch Logs agent.
+- **Polymorphic `reverse_proxy_security_group_id` project-tier output
+  (mod 044).** Resolves to the ALB SG or the traefik SG depending on
+  variant; env-tier consumers stay variant-agnostic.
+- **New commands `preinfra`, `projinfra`, `envinfra` (mod 034).** Per
+  [`docex.md`](../doctrine/infrastructure/docex.md) — `preinfra <side>`
+  checks prerequisite infrastructure existence (real per-foundation
+  checks landed in mod 042); `projinfra <direction> <side>` brings
+  project-tier infra up/down (real behavior for fixed in mod 036,
+  for elastic in mods 037–044); `envinfra <direction> <env>`
+  replaces the old `up`/`down` for dev/test environments.
+- **Real `preinfra` per-foundation checks (mod 042).** Fixed/dev-side
+  checks the `docex-ingress` docker bridge exists. Elastic/production
+  checks the master VPC + 4 subnets + primary-AZ subnet via tag
+  discovery (matching mod 041's data-source filter scheme).
+  `projinfra up <side>` and `envinfra up <env>` now refuse when
+  `preinfra` fails; all failures enumerated in one pass; AWS client
+  construction is lazy (fixed-only operators don't need AWS creds
+  for `preinfra development`).
+- **Per-project traefik + four `-web` networks (mod 036).** Replaces
+  the obsolete machine-wide-traefik model with the doctrine's
+  per-project traefik per
+  [`projinfra/fixed_reverse_proxy.md`](../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md).
+  Container named `${project}-traefik` joined to all four
+  `${project}-${env}-web` networks plus `docex-ingress`. DNS-01 LE
+  with cert resolver named `doctrine`, project-named acme volume,
+  pinned by digest via new `TRAEFIK_IMAGE` constant
+  (`traefik:v3.3@sha256:2cd5cc7…`). Operator-supplied
+  `${TRAEFIK_ACME_EMAIL}` / `${TRAEFIK_DNS_PROVIDER}` at runtime.
+  `projinfra <up|down> <side>` for fixed runs real docker-compose
+  with single-machine convergence; `down` refuses while env-tier is
+  up; acme volume survives.
+- **Fargate tier rounding now surfaces every cause (mod 033).**
+  `_resources_to_elastic` prints a one-line notice for project-only
+  rounding, sidecar-pushed rounding, or both — not just the
+  sidecar-pushed case.
 
 ### Changed
 
-- **Env-tier `web` SG ingress source is now polymorphic (mod 044).** Was
-  `data.terraform_remote_state.project.outputs.alb_security_group_id`;
-  is now `data.terraform_remote_state.project.outputs.reverse_proxy_security_group_id`.
-  The latter resolves to the ALB SG on `reverse_proxy: alb` projects
-  and to the traefik SG on `ec2_traefik_*` projects. No project-side
-  change is required for ALB projects — the polymorphic output is
-  drop-in.
-- **Env-tier ALB-alias A-records (`aws_route53_record.env` /
-  `env_wildcard`) are gated on `reverse_proxy == "alb"` (mod 044).**
-  EC2-traefik projects emit the five A-records at the project tier
-  instead (they converge on a single instance regardless of env).
-- **Env-tier `aws_lb_listener_rule` and `aws_lb_target_group` resources
-  are gated on `reverse_proxy == "alb"` (mod 044).** EC2-traefik
-  routes via the SSM-driven dynamic config consumed by traefik's file
-  provider; target groups and listener rules have no role on that
-  path. The ECS service's `load_balancer { ... }` attachment is
-  similarly gated.
-
-- **Service Connect namespace switched to private DNS (BREAKING).**
-  Per [`shape2.md § Elastic-Foundation`](../doctrine/infrastructure/shape2.md#elastic-foundation),
-  ECS Service Connect now registers against an
-  `aws_service_discovery_private_dns_namespace.env` instead of the
-  prior HTTP namespace. The private DNS namespace auto-creates a
-  Route53 private hosted zone associated with the master VPC,
-  making service names resolvable VPC-wide. ECS tasks inside the
-  namespace continue to resolve by `discoveryName` alone via the
-  Envoy sidecar; consumers outside the namespace (mod 044's
-  EC2-traefik instance) can resolve `<discoveryName>.<namespace>`
-  via VPC DNS. The new `vpc` field on the namespace references the
-  master VPC via `data.terraform_remote_state.project.outputs.vpc_id`.
-  `provides.host.elastic` unchanged. Mod 043 of the shape-and-tier
-  campaign; foundational for mod 044.
-
-- **`docex preinfra <side>` now does real checks.** Replaces mod 034's
-  stub with per-(foundation, side) verification:
-  - Any project, development side: `docex-ingress` docker bridge
-    exists on the local daemon.
-  - Fixed project, production side: same docker-bridge check
-    (single-machine; multi-machine fixed deferred).
-  - Elastic project, production side: master VPC discovered by the
-    mod-041 tag scheme (`Name = "docex-master-vpc"`,
-    `managed_by = "docex-preinfra"`), at least 2 public subnets
-    (tag `tier=public`), at least 2 private subnets
-    (tag `tier=private`), at least 1 private subnet in
-    `us-east-1a` (primary AZ).
-  All failures enumerated in one pass. `projinfra up <side>` and
-  `envinfra up <env>` now gate on `preinfra` returning 0 — these
-  commands abort before doing any work when preinfra fails. AWS
-  client construction is lazy — fixed-only operators running
-  `preinfra development` don't need AWS creds. New
-  `DockerClient.network_exists`, `AWSClient.find_vpc_by_tags`,
-  `AWSClient.find_subnet_ids` cover the underlying API calls.
-  Mod 042 of the shape-and-tier campaign.
-
-- **Master VPC consumed as preinfra (BREAKING).** Per
-  [`shape2.md § Elastic-Foundation`](../doctrine/infrastructure/shape2.md#elastic-foundation),
-  the master VPC is now prerequisite infrastructure shared across all
-  elastic projects in an account, not project-tier. `project.tf.j2`
-  drops ~100 lines of per-project VPC stack (VPC, IGW, public/private
-  subnets, NAT gateways, EIPs, route tables, route-table
-  associations) and replaces them with tag-based data sources:
-  `data "aws_vpc" "master"` (tags `Name=docex-master-vpc`,
-  `managed_by=docex-preinfra`), `data "aws_subnets" "public"|
-  "private"` (tag `tier=public|private`), `data "aws_subnet"
-  "primary_private"` (filter `availability-zone=us-east-1a`).
-  Project-tier outputs keep their names (`vpc_id`,
-  `public_subnet_ids`, `private_subnet_ids`); a new
-  `primary_private_subnet_id` output exposes the primary-AZ subnet
-  for single-AZ workloads. Per
-  [`cicl.md § Simplifications`](../doctrine/infrastructure/cicl.md#simplifications),
-  ECS service `network_configuration.subnets` pins to
-  `[primary_private_subnet_id]` (single-AZ commit); RDS/ElastiCache
-  subnet groups and EFS mount targets keep multi-AZ
-  `private_subnet_ids` per AWS requirements. The `docex-preinfra`
-  skill needs an update to document the master VPC + subnet tag
-  scheme (operator action). Mod 041 of the shape-and-tier campaign.
-
-- **Env-tier SG names now use hyphen form (BREAKING).** Closes a
-  data-plane naming leak missed by mod 030: the env-tier security
-  group's AWS-side `name` field in `main.tf.j2` was composed with
-  literal underscores (`${project}_${env}_${short}`) instead of the
-  hyphen form
-  [`networks.md`](../doctrine/infrastructure/specifics/networks.md#compiled-names)
-  prescribes for data-plane resolvable identifiers. Now renders as
-  `${project-hyphen-form}-${env}-${short}` consistently across the
-  Docker (mod 030) and elastic-HCL (this mod) sides. The rest of
-  mod 040's originally-planned scope (`data
-  "terraform_remote_state" "project"` block, per-web-service
-  listener rules + target groups, env web SG ingress from project
-  ALB SG, allow-all egress on every emitted SG) had already landed
-  as side effects of mods 037, 038, and earlier mod 006. Mod 040 of
-  the shape-and-tier campaign.
-
-- **Task-execution IAM policy tightened to project-scoped (BREAKING).**
-  Per
-  [`projinfra/elastic_iam.md`](../doctrine/infrastructure/specifics/projinfra/elastic_iam.md),
-  the project task-execution role no longer attaches the broad
-  AWS-managed `AmazonECSTaskExecutionRolePolicy`. Replaced with a
-  single inline `aws_iam_role_policy.task_execution` containing five
-  explicit statements: `ecr:GetAuthorizationToken` on `*`; per-repo
-  ECR pull permissions scoped to the project's ECR repo ARNs (gated
-  on `core_service_names` so empty-project compiles work);
-  `ssm:GetParameters` split into two statements for
-  `/<project>/stage/*` and `/<project>/prod/*`; CloudWatch
-  `CreateLogStream`/`PutLogEvents` scoped to `/<project>/{stage,prod}/*`
-  log group ARNs. `kms:Decrypt` removed — the AWS-managed `aws/ssm`
-  key requires no explicit grant. ECR repos and the role resource
-  itself were already project-tier in earlier work; only the policy
-  shape changes. Mod 039 of the shape-and-tier campaign.
-
-- **ALB moved to project-tier with SNI (BREAKING).** Per
-  [`projinfra/elastic_alb.md`](../doctrine/infrastructure/specifics/projinfra/elastic_alb.md),
-  the project ALB is now project-tier — one ALB per project, serving
-  both stage and prod through SNI cert binding. `project.tf.j2`
-  gains `aws_security_group.project_alb`, `aws_lb.project`,
-  `aws_lb_listener.project_https` (prod cert as the listener default),
-  `aws_lb_listener_certificate.project_stage` (stage cert via SNI),
-  `aws_lb_listener.project_http` (80→443 redirect), plus six outputs
-  (`alb_arn`, `alb_dns_name`, `alb_zone_id`, both `listener_arn`s,
-  `alb_security_group_id`). Env-tier `main.tf.j2` no longer defines
-  the ALB; the per-network SG ingress source, the Route53 alias DNS+
-  zone references, and the per-web-service listener-rule
-  `listener_arn` all read from `data.terraform_remote_state.project`.
-  Listener-rule priorities are now env-banded — stage in
-  `[1000, 4999]`, prod in `[5000, 9999]` — so they can never collide
-  on the shared listener. Mod 038 of the shape-and-tier campaign.
-
-- **Route53 zone + ACM certs aligned with new doctrine (BREAKING).**
-  Three real bugs in the existing project-tier HCL fixed:
-  (1) `aws_route53_zone.project.name` now `<project>.<apex>` (was the
-  bare apex) so the zone is the project subdomain delegated from the
-  parent zone, matching
-  [`projinfra/elastic_route53_zone.md`](../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md).
-  (2) Single ACM cert with `*.dev`/`*.test`/`*.www` SANs replaced with
-  two ACM certs (stage + prod) carrying the doctrine-spec SANs:
-  stage cert covers `*.stage.<p>.<a>` + `stage.<p>.<a>`; prod cert
-  covers `*.prod.<p>.<a>` + `prod.<p>.<a>` + `<p>.<a>` (the bare-
-  project ergonomic). Dev/test certs live on the per-project traefik,
-  not ACM. (3) Single `certificate_arn` output replaced with
-  `stage_cert_arn` and `prod_cert_arn`. Env-tier `main.tf` branches
-  on the compile-time `env` to consume the right per-env cert ARN.
-  `pipeline/bootstrap.py` delegation-instructions print updated to
-  reference the project subdomain and the parent-zone delegation
-  requirement. Two-phase apply logic itself unchanged. Mod 037 of
-  the shape-and-tier campaign.
-
-- **Per-project traefik on per-project `-web` networks (BREAKING).**
-  Replaces the obsolete machine-wide-traefik model with the doctrine's
-  per-project traefik (per
-  [`projinfra/fixed_reverse_proxy.md`](../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md)).
-  `emit_project_compose` now emits a `${project}-traefik` container
-  joined to all four `${project}-${env}-web` networks plus
-  `docex-ingress`, with the doctrine cert resolver named `doctrine`,
-  DNS-01 challenge config sourcing `${TRAEFIK_ACME_EMAIL:-}` and
-  `${TRAEFIK_DNS_PROVIDER:-}` from the operator's env, and a
-  project-named acme named volume for cert persistence. Traefik image
-  pinned by digest via new `TRAEFIK_IMAGE` constant
-  (`traefik:v3.3@sha256:2cd5cc7...`). Env-tier compose now references
-  the project-tier `${project}-${env}-web` network as `external: true`
-  (was the bare host-wide `web` external network).
-  `docex projinfra <up|down> <side>` for fixed projects now runs real
-  docker-compose against `infra/output/project/<side>/docker-compose.yml`
-  via a new `pipeline/projinfra.py` module — single-machine
-  convergence means the two sides emit identical content and the
-  second `up` is a docker-compose no-op. `down` refuses when any
-  env-tier compose stack for the project is still up; the acme volume
-  survives `down`. `DockerClient` gains `compose_up`, `compose_down`,
-  `any_env_compose_up`. Multi-machine fixed (ansible-at-project-tier)
-  stays deferred; mod 042 adds real preinfra preconditions; mod 044
-  adds the EC2-traefik elastic alternative. Mod 036 of the
-  shape-and-tier campaign.
-
-- **Compiler output split by side (BREAKING).** Project-tier output is
-  now organized under `infra/output/project/{development,production}/`
-  instead of a single `infra/output/project/`. Both sides emit on every
-  project: development side always emits a compose file declaring the
-  four `${project}-${env}-web` external networks plus the
-  `docex-ingress` preinfra reference; production side switches by
-  foundation — compose for fixed projects, `main.tf` for elastic
-  projects (relocated from `infra/output/project/main.tf` to
-  `infra/output/project/production/main.tf`). `pipeline/bootstrap.py`
-  reads from the new path. Env-tier compose is unchanged in this mod;
-  the `external: true` flip and per-project traefik addition land in
-  mod 036. Pure structural/path mod with no runtime behavior change.
-  Mod 035 of the shape-and-tier campaign.
-
-- **Command surface refreshed (BREAKING).** Per the doctrine's
-  [`docex.md`](../doctrine/infrastructure/docex.md) command table:
-  `bootstrap` is removed; `up` and `down` are collapsed into
-  `envinfra <direction> <env>` (dev/test only — stage/prod still
-  route via `release`); two new commands `preinfra <side>` and
-  `projinfra <direction> <side>` are added with `side` being
-  `development` or `production`. `--help` regrouped from the
-  internal phase scheme (`Phase 1`/`Phase 2`/…) to purpose-based
+- **Naming policy unification (mod 030).** `docker` and `ecs`
+  policies flip from `separator: underscore` to `separator: hyphen`
+  per the doctrine's new default rule: data-plane resolvable names
+  use hyphens; underscores survive only for inert AWS record-key
+  identifiers (`iam`, `ssm_path`, `ddb`). Every Docker
+  container/network/volume name and every ECS cluster/service/
+  task-def family/Service Connect identifier flips from
+  `${project}_${env}_${svc}` to `${project}-${env}-${svc}`. ECR repo
+  names are emitted via a structural emitter (`${project}/${svc}`
+  with per-segment underscores preserved) since the single-separator
+  policy machinery cannot express the `/`-joined two-segment shape.
+- **CICL surface refresh (mod 031).** `infra.yml`'s top-level
+  `domain:` field renamed to `apex_domain:` with narrower semantics
+  — the value is the *bare apex* (e.g. `example.com`). Canonical
+  service host shape is now
+  `<service>.<env>.<project>.<apex_domain>`; project segment is
+  derived from `project.yml`'s `name` and DNS-labeled for underscored
+  names. Prod's `domain_default_service` answers at three hosts now
+  — including the bare-project ergonomic host
+  `<project>.<apex_domain>` (replaces the old `www.<apex>`
+  convention). New magic vars `${apex_domain}` and
+  `${bare_project_subdomain}`; `${env_subdomain}` redefined. New
+  elastic-only top-level field `reverse_proxy:` with three accepted
+  values. New validation rules 13/14/18 (apex bare, service-name
+  blacklist, reverse_proxy elastic-only).
+- **Telemetry sidecar rename (mod 032).** All sidecar container and
+  service names flip from `<svc>_otelcol` to `<svc>-otelcol`.
+  Compose form: `${project}-${env}-${svc}-otelcol`; ECS form:
+  `${svc}-otelcol`.
+- **Command surface refreshed (mod 034).** Per the doctrine's
+  [`docex.md`](../doctrine/infrastructure/docex.md). `--help`
+  regrouped from the internal phase scheme to purpose-based
   (Introspection / Infrastructure / Development / Pipeline).
-  In mod 034 the new commands are mostly stubs that return 0 with
-  an explicit `(stub)` notice — the one real branch is
-  `projinfra up production` on elastic projects, which runs the
-  existing state-backend setup that `bootstrap` used to do.
-  Real `preinfra` checks land in mod 042; real `projinfra` behavior
-  in mod 036 (fixed) and mods 037–039 (elastic). Internal modules
-  `orchestrate/{up,down}.py` and `pipeline/bootstrap.py` keep their
-  names. Mod 034 of the shape-and-tier campaign.
+- **Compiler output split by side (mod 035).** Project-tier output
+  now lives under `infra/output/project/{development,production}/`.
+  Both sides emit on every project; production-side shape switches
+  by foundation. Env-tier compose web networks reference the
+  project-tier `${project}-${env}-web` as `external: true` (mod
+  036), owned by projinfra.
+- **Route53 zone + ACM certs aligned with the new doctrine (mod
+  037).** Three bug fixes: zone name is now `<project>.<apex>` (was
+  the bare apex); single ACM cert replaced with two
+  (stage + prod) carrying the doctrine-spec SANs; `certificate_arn`
+  output replaced with `stage_cert_arn` + `prod_cert_arn`. Env-tier
+  branches on compile-time `env` for per-env cert ARN consumption.
+- **ALB moved to project-tier with SNI cert binding (mod 038).** One
+  ALB per project serving both stage + prod. Listener-rule
+  priorities env-banded (stage 1000–4999, prod 5000–9999) so they
+  can never collide on the shared listener. Six new project-tier
+  outputs (`alb_arn`, `alb_dns_name`, `alb_zone_id`, both
+  `listener_arn`s, `alb_security_group_id`). Env-tier ALB-adjacent
+  refs go through `data.terraform_remote_state.project`.
+- **Task-execution IAM policy tightened (mod 039).** AWS-managed
+  `AmazonECSTaskExecutionRolePolicy` replaced with a single
+  doctrine-shaped inline policy: ECR auth on `*`; per-repo ECR pull
+  gated on `core_service_names`; SSM split into stage + prod
+  statements; CloudWatch logs scoped to per-env log group ARNs. No
+  `kms:Decrypt` (the AWS-managed `aws/ssm` key needs no explicit
+  grant).
+- **Env-tier SG names hyphenated (mod 040).** Closes a data-plane
+  naming leak missed by mod 030 — env-tier security-group `name`
+  fields now render as `${project-hyphen}-${env}-${short}`.
+- **Master VPC consumed as preinfra (mod 041).** `project.tf.j2`
+  drops ~100 lines of per-project VPC stack; replaced with tag-based
+  data sources for the master VPC + public/private subnets +
+  primary-AZ subnet. Per
+  [`cicl.md § Simplifications`](../doctrine/infrastructure/cicl.md#simplifications),
+  ECS workloads pin to `[primary_private_subnet_id]` (single-AZ);
+  RDS/ElastiCache subnet groups and EFS mount targets keep multi-AZ
+  per AWS requirements. The `docex-preinfra` skill needs an update
+  to document the master VPC tag scheme
+  (`Name=docex-master-vpc`, `managed_by=docex-preinfra`, subnet
+  `tier=public|private`) — operator action.
+- **Service Connect namespace switched to private DNS (mod 043).**
+  `aws_service_discovery_private_dns_namespace.env` replaces the
+  prior HTTP namespace; new `vpc` field associates with the master
+  VPC. Auto-creates a Route53 private hosted zone resolvable
+  VPC-wide so EC2-traefik (mod 044) can reach services by name from
+  outside any ECS task netns.
+- **Env-tier `web` SG ingress source polymorphic (mod 044).** Was
+  `outputs.alb_security_group_id`; is now
+  `outputs.reverse_proxy_security_group_id`. Variant-agnostic.
+- **Env-tier ALB-alias A-records gated on `reverse_proxy == "alb"`
+  (mod 044).** EC2-traefik emits the five A-records at project tier
+  instead.
+- **Env-tier `aws_lb_listener_rule`, `aws_lb_target_group`, and ECS
+  service `load_balancer` attachments gated on
+  `reverse_proxy == "alb"` (mod 044).** EC2-traefik routes via the
+  SSM-driven dynamic config consumed by traefik's file provider.
 
-- **Fargate tier rounding made visible.** Per the doctrine's now-formal
-  "rounding is uniform across all core services" rule
-  ([cicl.md § Resources](../doctrine/infrastructure/cicl.md#resources)),
-  `_resources_to_elastic` surfaces a one-line notice whenever a core
-  service's request rounds to a Fargate tier — not only when the
-  sidecar overhead specifically pushed the bump. The notice names the
-  cause: project values not landing on a tier, sidecar overhead, or
-  both. Pre-existing overflow handling and the 0.1 vCPU + 128 MiB
-  sidecar overhead math are unchanged. Mod 033 of the shape-and-tier
-  campaign.
+### Removed
 
-- **Telemetry sidecar rename (BREAKING).** All container/service names
-  for the OTel sidecar flip from `<svc>_otelcol` to `<svc>-otelcol` per
-  the doctrine's data-plane naming unification. Compose form on fixed:
-  `${project}-${env}-${svc}-otelcol` (was
-  `${project}_${env}_${svc}_otelcol`); ECS form: `${svc}-otelcol`
-  (was `${svc}_otelcol`). Mod 030's partial flip left the suffix on
-  underscores pending this mod; mod 032 closes that. Doctrine-injected
-  OTEL_* env vars on every core service were already wired by prior
-  work (mods 011 + 017); no compile.py changes were required to
-  satisfy the doctrine bullet about OTEL_SERVICE_NAME,
-  OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL,
-  OTEL_RESOURCE_ATTRIBUTES. Mod 032 of the shape-and-tier campaign.
+- **`bootstrap` command** — replaced by `projinfra up production` on
+  elastic projects (mod 034).
+- **`up` and `down` commands** — collapsed into
+  `envinfra <direction> <env>` (mod 034).
+- **`reverse_proxy` role / CICL backing-service marker** — the
+  reverse proxy is project-tier infrastructure now, not a CICL
+  service. Projects declaring `role: reverse_proxy` fail validation
+  (mod 031).
+- **`domain:` top-level field** — renamed `apex_domain:` with
+  narrower semantics (mod 031).
+- **`ecr_repo` naming policy** — ECR repo names emit structurally
+  (mod 030).
+- **Machine-wide-traefik model on fixed** — replaced by per-project
+  traefik behind HAProxy (mod 036).
+- **Per-project AWS VPC stack** (VPC, IGW, NAT, public/private
+  subnets ×2, EIPs ×2, route tables, route-table associations) —
+  consumed as preinfra via the shared master VPC (mod 041).
+- **`AmazonECSTaskExecutionRolePolicy` AWS-managed policy
+  attachment** — replaced with an inline project-scoped policy (mod
+  039).
+- **Per-env ALB** — one shared project-tier ALB serves stage + prod
+  via SNI (mod 038).
+- **`*.dev`, `*.test`, `*.www` ACM cert SANs** — dev/test certs live
+  on the per-project traefik (mod 036); `www` form retired with the
+  bare-project routing rule (mod 031).
 
-- **CICL surface refresh (BREAKING).** `infra.yml`'s top-level
-  `domain:` field is renamed `apex_domain:` and its semantics narrowed:
-  the value is now the *bare apex* (e.g. `example.com`,
-  `example.co.uk`), not the per-project domain. The canonical service
-  host shape is now `<service>.<env>.<project>.<apex_domain>` (e.g.
-  `api.dev.myproject.example.com`); the project segment is derived
-  automatically from `project.yml`'s `name` and DNS-labeled for
-  underscored names. Prod's `domain_default_service` answers at three
-  hosts now — `<svc>.prod.<project>.<apex>`, `prod.<project>.<apex>`,
-  and `<project>.<apex>` (the bare-project host, replacing the
-  old `www.<apex>` convention).
-  New compile-time magic vars: `${apex_domain}`,
-  `${bare_project_subdomain}`; `${env_subdomain}` redefined to the
-  new shape. New elastic-only top-level field
-  `reverse_proxy: alb | ec2_traefik_eip | ec2_traefik_pip` (default
-  `alb`); fixed-foundation projects rejecting it. New validation rules:
-  apex must be bare (rule 13), service-name blacklist
-  `{dev, test, stage, prod, www}` (rule 14), `reverse_proxy:`
-  elastic-only (rule 18). The `reverse_proxy` role is removed entirely
-  — services declaring `role: reverse_proxy` now fail validation
-  pointing at mod 031; the reverse proxy is project-tier infra
-  (see [projinfra/](../doctrine/infrastructure/specifics/projinfra/)).
-  Mod 031 of the shape-and-tier campaign.
+### Known v1 gaps
 
-- **Naming policy unification (BREAKING).** The `docker` and `ecs` policies
-  flip from `separator: underscore` to `separator: hyphen` per the doctrine's
-  new default rule: anything name-resolvable on the data plane uses hyphens;
-  underscores survive only for inert AWS record-key identifiers (`iam`,
-  `ssm_path`, `ddb`). Every Docker container/network/volume name and every
-  ECS cluster/service/task-def family/Service Connect identifier flips from
-  `${project}_${env}_${svc}` to `${project}-${env}-${svc}`. ECR repo names
-  are the same string today (`${project}/${svc}`) but the *mechanism* changes:
-  the `ecr_repo` policy is deleted and ECR joins the small set of structural
-  emit sites whose names bypass the policy table — required because the
-  single-separator policy machinery cannot express the `/`-joined
-  two-segment shape with per-segment underscores preserved. Mod 030 of the
-  shape-and-tier campaign tracked at
-  `docex/plans/campaigns/shape_overhaul_mod_list.md`. Consumer projects
-  pinned to a prior `docex_version` keep their existing names; the next
-  pinned upgrade after the campaign-completing cut will require a recompile
-  and redeploy with new identifier forms.
+- **EC2-traefik release-flow SSM rerender is not implemented.** Mod
+  044 emits the SSM Parameter `/<project>/ec2_traefik/config.yml`
+  with an empty stub (`http: { routers: {}, services: {} }`) and
+  uses `lifecycle.ignore_changes = [value]` so subsequent
+  `tofu apply` doesn't fight with manual edits. Operators using
+  EC2-traefik manage routing-rule YAML manually via
+  `aws ssm put-parameter` until a follow-up mod adds per-release
+  SSM push from the merged stage+prod routing surface. The instance
+  polls SSM every 30s; manually-pushed config reflects promptly.
+  ALB users are unaffected.
+- **Multi-machine fixed foundation is deferred.** Single-machine
+  fixed only in v1. The `ansible-at-project-tier` artifacts
+  documented for "fixed + remote prod host" are not emitted; mods
+  036/042 implement single-machine paths. `docker-compose` runs
+  against the local daemon for both `projinfra` sides on a
+  single-machine fixed project (convergence is implicit because
+  both sides emit identical content).
 
 ## [0.12.1] - 2026-06-04
 

@@ -57,7 +57,7 @@ When a mod's design pass starts, link its folder here.
 - [x] 042 — `preinfra <side>` implementations ([mod folder](../modifications/042_preinfra_implementations/))
 - [x] 043 — Service Connect: private DNS + hyphenated namespace ([mod folder](../modifications/043_service_connect_private_dns/))
 - [x] 044 — EC2-traefik reverse-proxy variant (EIP + PIP) ([mod folder](../modifications/044_ec2_traefik_variant/))
-- [ ] 045 — Test projects update + smoke walk
+- [x] 045 — Campaign closeout / cut docex 1.0.0 ([mod folder](../modifications/045_campaign_closeout/)) — original "test projects update + smoke walk" scope reframed since the operator deferred test-project changes to post-cut re-inception
 
 ## Cut implications
 
