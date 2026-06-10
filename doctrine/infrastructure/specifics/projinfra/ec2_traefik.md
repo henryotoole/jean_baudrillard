@@ -104,7 +104,7 @@ EC2-traefik uses Traefik's built-in Let's Encrypt client instead of the ALB opti
 
 **Challenge type:** DNS-01 via Route53, always. Project-tier IAM role grants the instance `route53:ChangeResourceRecordSets` scoped to the project's Route53 zone, which is sufficient for traefik's LE client to complete DNS-01 challenges. HTTP-01 is not used on elastic — DNS-01 is always available (Route53 is part of the doctrine's elastic prereq) and supports wildcards.
 
-**Cert SAN set:** The stage and prod portions of the three-cert layout defined [here](../../cicl.md#tls-implications) — i.e. the same two certs that ACM would issue for the ALB path. Identical SAN structure to the ACM certs in [`elastic_acm_certs.md`](./elastic_acm_certs.md); only the issuance mechanism differs (LE in traefik vs. ACM-managed). The dev/test cert is still handled by the dev-side per-project traefik per [`fixed_reverse_proxy.md`](./fixed_reverse_proxy.md), so the split is the same on both elastic reverse-proxy paths.
+**Cert SAN set:** The two-cert layout defined [here](../../cicl.md#elastic-tls) — i.e. the same two certs that ACM would issue for the ALB path. Identical SAN structure to the ACM certs in [`elastic_acm_certs.md`](./elastic_acm_certs.md); only the issuance mechanism differs (LE in traefik vs. ACM-managed). The dev/test certs are still issued via HTTP-01 by the dev-side per-project traefik per [fixed_reverse_proxy.md](./fixed_reverse_proxy.md), so the split is the same on both elastic reverse-proxy paths.
 
 **Cert persistence across instance replacement:** an EBS volume (8 GB gp3, in `public-az-1`) is attached to the instance at `/etc/traefik/acme/`. The volume holds traefik's `acme.json` (cert material + LE account key). It is:
 

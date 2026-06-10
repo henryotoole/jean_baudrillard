@@ -226,6 +226,12 @@ Dockerfiles will all describe multi-stage builds. The following list of stages m
 
 `build.sh` is the canonical build entry point and is invoked by the `build` stage during `docker build`. See [Build Step](./cicd.md#build-step) for how `build.sh` is shared between the formal and dev-iteration paths.
 
+#### Healthcheck Tooling Requirement
+
+A core service that declares `health_check_path` (i.e. every `web`-network core service — see [contracts.md § Health Checks](./contracts.md#health-checks)) compiles to a Docker healthcheck that probes `/health` with **`curl`**. That healthcheck runs *inside* the container, so the service's image **must contain `curl`** in its runnable stages (`dev`, `prod`, `test` — the `build` stage never runs as a container). On `debian`/`ubuntu` bases this is one line (`RUN apt-get install -y curl`); on `alpine`, `apk add curl`. Curl-less bases (distroless, `scratch`) must `COPY` a static `curl` in or they cannot satisfy this requirement.
+
+The cost of a missing `curl` is severe and non-obvious: the healthcheck errors on every run, Docker marks the container `unhealthy`, and the reverse proxy (Traefik) drops the route — the service is unreachable with no error in the application logs. To make this a loud, early failure instead, [`./bin/docex check`](./cicd.md#check-step) verifies that every `health_check_path`-declaring service's image carries `curl` and fails the gate descriptively if it does not.
+
 ### Contracts
 
 Contracts define the boundaries of core service containers. They exist both:

@@ -18,19 +18,17 @@ Two ACM certificates per ALB-using elastic project, both in the project's elasti
 
 Both certs are attached to the project's ALB as SNI certs by [`elastic_alb.md`](./elastic_alb.md) at projinfra-apply time. The ALB selects the right cert at TLS handshake based on the SNI host of the incoming request.
 
-## Why Two Certs (Not One, Not Three)
+## Why Two Certs
 
-This is the full three-cert layout from [cicl.md § TLS Implications](../../cicl.md#tls-implications), but with one of the three certs handled elsewhere:
+ACM issues the two wildcard certs from [cicl.md § Elastic TLS](../../cicl.md#elastic-tls); dev/test are not ACM certs at all:
 
-| Env | Cert | Lives on |
-| --- | ---- | -------- |
-| `dev` + `test` | Development cert (`*.dev.<project>.<apex_domain>` + `*.test.<project>.<apex_domain>` + two bare-env forms) | The dev-side per-project traefik (LE-issued); see [`fixed_reverse_proxy.md`](./fixed_reverse_proxy.md) |
-| `stage` | Stage cert | This file |
-| `prod` | Prod cert | This file |
+| Env | Cert(s) | Live on |
+| --- | ------- | ------- |
+| `dev` + `test` | Per-host certs (one per `web`-service hostname under `dev.`/`test.`) — HTTP-01, **not** wildcards | The dev-side per-project traefik (LE-issued); see [`fixed_reverse_proxy.md`](./fixed_reverse_proxy.md) |
+| `stage` | Stage cert (wildcard, DNS-01) | This file |
+| `prod` | Prod cert (wildcard, DNS-01) | This file |
 
-The development cert isn't emitted by ACM because dev/test are always fixed-style per [shape2.md § Shape and Environment](../../shape2.md#shape-and-environment) — they never reach the AWS ALB, so the cert that would serve them lives on the docker traefik that handles them instead.
-
-The split keeps production safely airgapped from development operations — a leak or misissuance of the dev/test cert can't compromise stage or prod, and vice versa.
+Dev/test certs aren't emitted by ACM because those envs are always fixed-style per [shape2.md § Shape and Environment](../../shape2.md#shape-and-environment) — they never reach the AWS ALB. The traefik that handles them issues per-host HTTP-01 certs per [Fixed TLS](../../cicl.md#fixed-tls); there is no single wildcard "development cert".
 
 ## DNS-01 Validation
 

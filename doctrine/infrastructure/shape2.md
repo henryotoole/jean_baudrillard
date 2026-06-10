@@ -35,7 +35,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | repo | prerequisite | github, gitlab, etc. | The repository in which project code, docs, infra declarations, etc. are stored. |
 | observability_backend | prerequisite | HyperDX | A backend / application stack, either self-hosted or cloud-managed, which collects, indexes, and displays telemetry data. |
 | reverse_proxy | project | traefik | Acts as reverse proxy, load balancer, and TLS terminator. Routes requests to containers. Always named `${project_name}-traefik`. |
-| cert_manager | project | Traefik | Built into traefik, enabled in traefik config. Uses Let's Encrypt for automatic cert provisioning and renewal. Uses the three cert system defined [here](./cicl.md#tls-implications) |
+| cert_manager | project | Traefik | Built into traefik, enabled in traefik config. Uses Let's Encrypt for automatic cert provisioning and renewal. Uses HTTP-01 and produces one cert per web-service and env as described [here](./cicl.md#fixed-tls) |
 | service_discovery | project | Docker network DNS | This *just works* when containers are placed on a docker network. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |
 | web_network | project | Docker network | A standard docker network scoping access between [service]s for a given environment and `infra.yml`-defined network. `web` networks are joined by the [reverse_proxy] to the [master_network]. |
@@ -63,7 +63,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | master_network | prerequisite | AWS VPC | A master VPC shared by all projects. Contains centralized IGW, NAT, and four subnets: a public-private pair in the default AZ and a redundant public-private pair in a secondary AZ. The redundant pair is included only to satisfy the two-AZ requirement. |
 | nat_gateway | prerequisite | AWS NAT | Centralized NAT gateway shared by all projects. |
 | reverse_proxy | project | AWS ALB or EC2-with-traefik | Each project gets its own reverse proxy. This is project-configured either as an ALB or a small EC2 instance with traefik. Terminates TLS via [cert_manager] and forwards to [service]s. Doubles as a load balancer for replicated [core_service]s in `prod`. |
-| cert_manager | project | AWS ACM certificate (ALB) or traefik (EC2) | ALB: Uses ACM certs. Traefik: Uses built-in Lets Encrypt; enabled with config. Both employ the three cert system defined [here](./cicl.md#tls-implications) |
+| cert_manager | project | AWS ACM certificate (ALB) or traefik (EC2) | ALB: Uses ACM certs. Traefik: Uses built-in Lets Encrypt; enabled with config. Both employ DNS-01 and the two cert system defined [here](./cicl.md#elastic-tls) |
 | dns | project | AWS Route53 | DNS handling which project can drive. `docex` creates one hosted zone per project for its `apex_domain:`; the operator NS-delegates to it from the parent. |
 | container_registry | project | AWS ECR | The project's container registry, holding [build_image]s. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |

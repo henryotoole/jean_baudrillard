@@ -86,12 +86,13 @@ services:
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      - --providers.docker.constraints=Label(`docex.project`,`${project_name}`)
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --certificatesresolvers.doctrine.acme.email=...
       - --certificatesresolvers.doctrine.acme.storage=/letsencrypt/acme.json
-      - --certificatesresolvers.doctrine.acme.dnschallenge=true
-      - --certificatesresolvers.doctrine.acme.dnschallenge.provider=<provider>
+      - --certificatesresolvers.doctrine.acme.httpchallenge=true
+      - --certificatesresolvers.doctrine.acme.httpchallenge.entrypoint=web
     labels: ...    # see Cert resolver name handling below
 
 volumes:
@@ -102,25 +103,27 @@ The traefik container itself listens only inside docker (no published host ports
 
 ## TLS and Cert Handling
 
-Traefik's built-in Let's Encrypt client issues and renews certs. The challenge mechanism is **DNS-01 by default** because the doctrine prefers per-env wildcards, which only DNS-01 supports. HTTP-01 fallback is available for projects whose DNS provider is not supported by traefik's LE integration — at the cost of more certs (one per SAN rather than a wildcard).
+Traefik's built-in Let's Encrypt client issues and renews certs via the ACME **HTTP-01** challenge: when a router for a new service hostname appears, traefik obtains a **per-host** cert by serving the challenge token on its `:80` (`web`) entrypoint, which the upstream HAProxy web demux forwards by Host header. **No DNS-provider credentials are required** — this is what keeps the fixed cert path provider-agnostic (it works with any registrar/DNS). The cost relative to wildcards is one cert per service hostname rather than one per env; at the doctrine's scale this is immaterial (LE limits are per registered domain per week, well clear of a typical project's host count), and per-host certs preserve dev↔prod cert airgapping for free — separate hostnames yield separate certs.
 
-The cert SAN structure is the three-cert layout from [cicl.md § TLS Implications](../../cicl.md#tls-implications), specifically the dev/test cert. On an elastic-foundation project where the production side uses ACM, the dev-side traefik issues only the development cert (covering `*.dev.<project>.<apex_domain>`, `*.test.<project>.<apex_domain>`, and the two bare-env forms); the staging and production certs live with the elastic ACM resources. On a fixed-foundation project, the same single per-project traefik on the prod-side machine issues the stage and prod certs in addition.
+Each `web`-network service gets its own cert keyed to its domain (`<service>.<env>.<project>.<apex_domain>`), plus the bare-env (and, in prod, bare-project) host certs for the `domain_default_service` — see [cicl.md § Fixed TLS](../../cicl.md#fixed-tls). On a fixed-foundation project, the single per-project traefik issues all such certs across `dev`/`test`/`stage`/`prod`. On an elastic-foundation project, the dev-side traefik issues only the `dev`/`test` certs; `stage` and `prod` terminate TLS at the ACM-backed elastic reverse proxy (see [cicl.md § Elastic TLS](../../cicl.md#elastic-tls)).
 
 ### Cert resolver name
 
 The resolver is always named `doctrine` — a fixed handle that `docex` references in the per-service traefik discovery labels emitted alongside each env-tier service. The container is configured with that exact name; service labels include `traefik.http.routers.<svc>.tls.certresolver=doctrine`. See [transfer_tables.md § Per-container (fixed)](../transfer_tables.md#per-container-fixed) for the label set.
 
-Decoupling the *handle* (`doctrine`) from the *implementation* (LE + DNS-01) lets the doctrine evolve the underlying mechanism without changing what env-tier compose files emit.
+Decoupling the *handle* (`doctrine`) from the *implementation* (LE + HTTP-01) lets the doctrine evolve the underlying mechanism without changing what env-tier compose files emit.
 
 ### Cert persistence across restarts
 
 The traefik container mounts a named docker volume `${project_name}-traefik-acme` at `/letsencrypt`. The volume holds traefik's `acme.json` (cert material + LE account key) and survives container restarts, image upgrades, and `./bin/docex projinfra down/up <side>` cycles. The volume is declared in the projinfra compose file, not in any env's compose file — it belongs to the project, not the env.
 
-LE rate limits (5 duplicate certs per week) only bite if the volume itself is destroyed and the certs are reissued from scratch within a week. `./bin/docex projinfra down <side>` does *not* destroy named volumes by default; the operator must `docker volume rm ${project_name}-traefik-acme` explicitly if they want to start cert state fresh.
+LE rate limits (notably the per-registered-domain weekly cert limit, plus a duplicate-certificate limit on identical reissues) are generous relative to a typical project's host count; they only bite if the volume itself is destroyed and every per-host cert is reissued from scratch within a week. `./bin/docex projinfra down <side>` does *not* destroy named volumes by default; the operator must `docker volume rm ${project_name}-traefik-acme` explicitly if they want to start cert state fresh.
 
 ## How Env-Tier Services Get Routed
 
 The compiled env-tier `compose.yml` files emit each `web`-network core service with traefik discovery labels (see [transfer_tables.md § Per-container (fixed)](../transfer_tables.md#per-container-fixed)) and have the service join the matching `${project}-${env}-web` external network. The project traefik, which already spans every `-web` network, picks the labels up via its docker provider and adds a router for the service. No manual routing config; no per-env traefik config file.
+
+The docker provider is **constrained to this project**: the traefik command carries `--providers.docker.constraints=Label(\`docex.project\`,\`${project_name}\`)`, and `docex` stamps a matching `docex.project=${project_name}` label on **every** container it emits (env-tier core and backing services, their OTel sidecars, and the traefik container itself). Without the constraint, the project traefik's docker provider would also see *other* projects' containers sharing the host-wide `docex-ingress` bridge — registering routers it can't reach and spamming ACME failures for foreign hosts on every reconcile. The constraint scopes the provider to this project's own labelled containers; routing remains internally identical, and the cross-project log noise disappears.
 
 Because traefik joins every `-web` network even on sides where the corresponding env won't run, a side change (e.g., moving the prod host to a new machine, or splitting a single-machine project into two machines) requires no reconfiguration of the traefik container — only that the relevant env starts running on the new side.
 
@@ -140,7 +143,7 @@ Projinfra refuses to run `down` if any env-tier infra is still attached to its n
 | Symptom | Probable cause | Where to look |
 | ------- | -------------- | ------------- |
 | 502/504 from clients, traefik logs show "no available servers" | Env-tier service is down or not on the expected `-web` network | `docker compose ps` on the env stack; confirm the service joined `${project}-${env}-web` |
-| Cert issuance fails | DNS-01 misconfigured or DNS provider creds missing | `docker logs ${project}-traefik`; check the LE resolver config and DNS provider env vars |
+| Cert issuance fails | HTTP-01 challenge can't complete — port 80 not reaching this traefik via the web_demux, or DNS for the service host not yet pointing at the host machine | `docker logs ${project}-traefik`; check the LE resolver config and that HAProxy is forwarding `:80` Host-header traffic for the service domain to this traefik |
 | New routes not appearing | Env-tier service compose labels malformed or container not running | `docker compose ps`; inspect labels with `docker inspect <container>` |
 | LE rate limit hit | acme volume was destroyed and certs reissued multiple times in a week | `docker volume inspect ${project}-traefik-acme` to confirm volume identity; check LE rate-limit page for the specific limit hit |
 | Traefik container won't start | Misconfigured command-line args or missing acme volume | `docker logs ${project}-traefik`; the rendered compose file is in `infra/output/project/<side>/` |

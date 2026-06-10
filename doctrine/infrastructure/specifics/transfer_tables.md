@@ -659,9 +659,13 @@ container_name: ${global_service_name}
 logging: *default-logging
 restart: unless-stopped
 networks: ${networks}
+labels:
+  - "docex.project=${project_name}"
 ```
 
-Additionally, services on the `web` network receive these Traefik discovery labels:
+The `docex.project` label is emitted on **every** container the compiler produces — core services, backing services, and OTel sidecars alike, not just `web` services. It scopes the per-project traefik's docker provider (which carries a matching `--providers.docker.constraints=Label(\`docex.project\`,…)`) to this project's own containers, so a project's traefik ignores other projects' containers sharing the host-wide `docex-ingress` bridge. See [projinfra/fixed_reverse_proxy.md § How Env-Tier Services Get Routed](./projinfra/fixed_reverse_proxy.md#how-env-tier-services-get-routed).
+
+Additionally, services on the `web` network receive these Traefik discovery labels (appended to the `docex.project` label above):
 
 ```yml
 labels:
@@ -675,7 +679,7 @@ labels:
 
 `${host_rule}` is the per-service host rule derived from [cicl.md § Domain](../cicl.md#domain) — `Host(\`${service}.${env}.${project}.${apex_domain}\`)`, with the additional bare-env / bare-project rules for the `domain_default_service` in prod.
 
-The literal resolver name `doctrine` is the prescribed handle for the project's traefik cert resolver — the per-project traefik (one per project, part of the project's compose stack) is configured with a resolver of that exact name, and docex emits labels referencing it. Decoupling the *name* (a doctrine handshake) from the *implementation* (currently Let's Encrypt + DNS-01, with HTTP-01 fallback) lets the doctrine evolve the underlying mechanism without changing the handle. See [networks.md § networks: [web]](./networks.md#networks-web) for how the per-project traefik connects to the host-wide `docex-ingress` network and is reached by the HAProxy web demux.
+The literal resolver name `doctrine` is the prescribed handle for the project's traefik cert resolver — the per-project traefik (one per project, part of the project's compose stack) is configured with a resolver of that exact name, and docex emits labels referencing it. Decoupling the *name* (a doctrine handshake) from the *implementation* (currently Let's Encrypt + HTTP-01) lets the doctrine evolve the underlying mechanism without changing the handle. See [networks.md § networks: [web]](./networks.md#networks-web) for how the per-project traefik connects to the host-wide `docex-ingress` network and is reached by the HAProxy web demux.
 
 ### Per-core-service env (both foundations)
 

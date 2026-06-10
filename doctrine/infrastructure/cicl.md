@@ -141,22 +141,23 @@ The "bare project" domain is useful for user URL ergonomics - `<project_name>.<a
 
 #### TLS Implications
 
-This complex and subdomain-heavy structure does have implications for SSL certificates. When wildcard certificates are available, the load is not too bad. The following covers all possible domains for a given project when DNS-01 is used and wildcards are available:
+This complex and subdomain-heavy structure does have implications for SSL certificates.
 
-1. Development Cert - Covers all domains on the development machine (both `test` and `dev` environments).
-	+ `*.dev.<project_name>.<apex_domain>`
-	+ `*.test.<project_name>.<apex_domain>`
-	+ `dev.<project_name>.<apex_domain>`
-	+ `test.<project_name>.<apex_domain>`
-2. Stage Cert - Covers all domains for the `stage` environment.
+##### Elastic TLS
+
+On `elastic` foundations, we use DNS-01. Wildcard certificates are available and the load is not too bad. The following covers all possible domains for a given project when DNS-01 is used. Note that we only include `stage` and `prod`, as `dev`/`test` are always fixed.
+
+1. Stage Cert - Covers all domains for the `stage` environment.
 	+ `*.stage.<project_name>.<apex_domain>`
 	+ `stage.<project_name>.<apex_domain>`
-3. Production Cert - Covers all domains needed for `prod`. Distinct cert from `stage` to keep production safely airgapped from development operations.
+2. Production Cert - Covers all domains needed for `prod`. Distinct cert from `stage` to keep production safely airgapped from development operations.
 	+ `*.prod.<project_name>.<apex_domain>`
 	+ `prod.<project_name>.<apex_domain>`
 	+ `<project_name>.<apex_domain>`
 
-When DNS-01 is not available and the HTTP-01 fallback is used, the same three certs are used with substantially more SANs - one for each endpoint, no wildcards. It's a little more clunky, but costs and limits are generally based on the *number of certs*, not the number of SANs.
+##### Fixed TLS
+
+On `fixed` foundations, DNS-01 is not available and HTTP-01 is used instead. We let traefik issue Let's Encrypt certs naturally per-host for each `web`-network service. This mechanism is far less cert-efficient (using one cert per `web`-network service per env), but works *simply* and *automatically*.
 
 ### Container Registry and Service Images
 
