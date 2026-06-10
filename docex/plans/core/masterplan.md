@@ -193,7 +193,7 @@ The `dev` and `test` environments are always fixed regardless of declared founda
 | ---- | ------ | ------- |
 | Container registry push/pull | `~/.docker/config.json` | `containerize`, `release` (fixed pull side is the *target host*'s config, not the operator's) |
 | AWS API access | `~/.aws/credentials` (or env vars / OIDC if present) | `bootstrap`, `release` (elastic), `containerize` (when ECR) |
-| SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts` | `release` (fixed) |
+| SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts` | `release` (fixed); `preinfra production` (fixed — probes the target host for registry creds) |
 | Git identity & remote push | `~/.gitconfig`, `~/.ssh/` | `merge`, `check` (worktree creation) |
 | Docker daemon | `/var/run/docker.sock` | every command that touches docker |
 

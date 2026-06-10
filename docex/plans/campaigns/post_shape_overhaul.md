@@ -118,6 +118,8 @@ docex source change. Possibly trivial — a single `try/except`-shaped check.
 
 ## Gap D — Empty-`dist/` chicken-and-egg on first `envinfra up dev`
 
+**Status: CLOSED.** Path 1 (below) is implemented and committed as `up.py::_ensure_initial_dev_build` — `docex envinfra up dev` pre-populates each core service's host `dist/` via a no-bind-mount build-stage one-shot before `compose up`, breaking the chicken-and-egg. Mod 050 added the residual polish: `docex build` now distinguishes a `Restarting`/`unhealthy` container from a genuinely-absent one (clearer diagnostic) rather than the generic "not running" refusal. The path-2 `--restarting-ok` ephemeral-build and the root-owned-`dist/` chown edge were considered and **deliberately left out** (not worth the complexity once path 1 closed the core issue); reopen only if the root-owned case bites in practice.
+
 ### Symptom
 
 First-time `docex envinfra up dev` against a fresh project tree crash-loops the web container with `python: can't open file '/service/dist/root.py': [Errno 2] No such file or directory`. The container restarts forever; `docex build` then refuses to populate `dist/` because the dev container "is not running" (it's restarting, which docker doesn't count as running for `compose exec` purposes).
