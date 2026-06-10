@@ -275,6 +275,10 @@ docker login registry.${base_domain}
 
 `docker login` writes the credential into `~/.docker/config.json` on that machine, encoded as base64. The credential persists until `docker logout registry.${base_domain}` is run. See [credentials.md § Fixed Container Registry](../credentials.md#fixed-container-registry) for the doctrine pointer.
 
+### Verification by `docex preinfra`
+
+`./bin/docex preinfra production` (fixed) verifies the credential is present on the production host at both paths the release playbook uses — `/home/deploy/.docker/config.json` (image pulls run as the `deploy` user) and `/root/.docker/config.json` (`docker compose up` runs under `become: true`). A missing credential fails the check with the resolution: run `docker login registry.${base_domain}` as both `deploy` and `root` on the host. This is a *presence* check on the operator-managed credential, not a check of registry reachability — registry availability still surfaces naturally at `./bin/docex containerize`.
+
 ## Garbage Collection
 
 The registry never deletes images on its own — every version pushed remains available for `./bin/docex rollback`. Disk usage grows linearly with version count, so on a long-lived host the operator may want to reclaim space by deleting old image tags and then running registry GC.
