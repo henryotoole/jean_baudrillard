@@ -87,18 +87,24 @@ Command does not fix or create preinfra. It only checks status.
 `./bin/docex projinfra <direction> <side>`
 Idempotently controls project-tier infrastructure. Direction can be "up" or "down"; "up" will construct required infrastructure and "down" will remove. Side can be "development" or "production"; "development" will select necessary development-side infrastructure for the project's foundation and "production" will select necessary production-side infrastructure.
 
+**Elastic `down production`** tears down the project tier (Route53 zone, ACM/ALB or EC2-traefik, ECR, IAM, state backend) via `tofu destroy` plus cleanup of SSM parameters and the state backend (S3 bucket + DynamoDB lock table). It **refuses if any env-tier resources for the project still exist** (probed per env) — tear envs down first with `./bin/docex envinfra down <env>`. A pre-flight scan refuses-and-reports on project-tier blockers (e.g. a non-empty ECR repo) rather than force-destroying; the operator clears them and re-runs. Full retirement sequence: `envinfra down prod` → `envinfra down stage` → `projinfra down production`.
+
 TODO write deeper specifics of behavior on `fixed` and `elastic`.
 TODO remark on the two-step nature of `elastic` when NS delegation is required of the operator.
 
 Command refuses to run with `direction="up"` if `./bin/docex preinfra <side>` fails.
 
 ### `envinfra` 
-`./bin/docex envinfra <direction> <env>`
-Brings up or tears down a `dev` or `test` environment locally via docker-compose, using the compiled config at `$pr/infra/output/${env}/docker-compose.yml`. Docker rebuilds any out-of-date images as a prerequisite, so containers always have fresh artifacts (the image's `build` stage invokes `build.sh` — see [cicd.md § Build Step](./cicd.md#build-step)). Most commonly invoked as `./bin/docex envinfra up dev` to start a working development environment. Not for use with `stage` or `prod`.
+`./bin/docex envinfra up <env>` — `dev`/`test` only.
+`./bin/docex envinfra down <env>` — any env.
 
-When tearing down, stops and removes containers and networks; named volumes are preserved so persistent data survives the teardown.
+**`up`** brings up a `dev` or `test` environment locally via docker-compose, using the compiled config at `$pr/infra/output/${env}/docker-compose.yml`. Docker rebuilds any out-of-date images as a prerequisite, so containers always have fresh artifacts (the image's `build` stage invokes `build.sh` — see [cicd.md § Build Step](./cicd.md#build-step)). Most commonly invoked as `./bin/docex envinfra up dev`. `up` is **not** valid for `stage`/`prod`: those are brought up by [`release`](#release) — an elastic env's ECS/RDS/etc. are created by the release `tofu apply`, which also requires a versioned build. Refuses with `direction="up"` if `./bin/docex preinfra development` fails.
 
-Command refuses to run with `direction="up"` if `./bin/docex preinfra development` fails.
+**`down`** tears down env-tier infrastructure for **any** environment:
+- `dev`/`test`, and `stage`/`prod` on **fixed**-foundation projects: stops and removes the compose stack's containers and networks; named volumes are preserved so persistent data survives the teardown.
+- `stage`/`prod` on **elastic**-foundation projects: `tofu destroy` against the env's `infra/output/${env}/main.tf` (its ECS/RDS/SG/records). A **pre-flight scan refuses before destroying anything** if any env resource is deletion-protected (e.g. an RDS with `deletion_protection=true`), reporting the full list — `docex` never disables a protection itself; the operator does so deliberately and re-runs.
+
+**The up/down asymmetry is intentional:** bringing an env *up* needs a versioned build (so `stage`/`prod` up is `release`'s job), but teardown is build-agnostic, so `down` is uniform across all envs. See [projinfra/overview.md](./specifics/projinfra/overview.md) for the teardown ordering (envs down before `projinfra down production`).
 
 ### `build`
 `./bin/docex build` to refresh `dist/` for all core services in the running dev environment.

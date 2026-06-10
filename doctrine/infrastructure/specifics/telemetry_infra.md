@@ -2,7 +2,18 @@
 
 This document covers the deterministic infrastructure `docex` emits to fulfill the application telemetry flow promised in [telemetry.md](../telemetry.md). The developer doesn't read this to *use* telemetry — they read it to diagnose when telemetry breaks. The operator and LLM agent read it to understand what `docex` is actually doing.
 
-Scope: how the OTel collector sidecar is shaped, configured, secured, and wired into each core service's runtime, per foundation. Out of scope: the observability backend itself (covered in [telemetry_preinfra.md](../preinfra/telemetry_preinfra.md)) and developer-facing OTel SDK practices (covered in [practices/logging.md § With Respect to Telemetry](../../practices/logging.md#with-respect-to-telemetry)).
+Scope: how the OTel collector sidecar is shaped, configured, secured, and wired into each core service's runtime, per foundation, plus the Class-2 container-stdout path to CloudWatch. Out of scope: the observability backend itself (covered in [telemetry_preinfra.md](../preinfra/telemetry_preinfra.md)) and developer-facing OTel SDK practices (covered in [practices/logging.md § With Respect to Telemetry](../../practices/logging.md#with-respect-to-telemetry)).
+
+## Container stdout/stderr (Class-2 Diagnostics)
+
+Two distinct classes of output leave a core service, and only the first flows through the OTel sidecar this document otherwise describes:
+
+- **Class 1 — SDK telemetry.** Structured logs, traces, and metrics the application emits through the OTel SDK → the paired collector sidecar → the observability backend. Everything below the `## Common` heading concerns this path.
+- **Class 2 — raw stdout/stderr.** Crash stacks, panics, output emitted *before* the SDK initializes, and shell scripts like `migrate.sh` — none of which can travel the OTLP path. This is captured separately, by the platform's native container-log mechanism: `docker logs` on **fixed** (the `json-file` driver, per the `x-logging` anchor in [transfer_tables.md](./transfer_tables.md#per-compose-file-fixed)), and on **elastic** by an `awslogs` `logConfiguration` on **every** container in each ECS task definition — the application container, the OTel sidecar, *and* the `_migrate` container.
+
+On elastic, `docex compile` emits a per-env `aws_cloudwatch_log_group` (`/<project>/<env>/<service>`, `retention_in_days = 30`, `managed_by = "doctrine"`), torn down with the env. The group is **tofu-created, not** `awslogs-create-group=true`: the task-execution role grants `logs:CreateLogStream` + `logs:PutLogEvents` but deliberately **not** `logs:CreateLogGroup` (see [elastic_iam.md](./projinfra/elastic_iam.md)), so group creation belongs to tofu — which is also where retention and tagging live.
+
+Class 2 is *diagnostics*, not queryable telemetry; it deliberately does **not** funnel through the sidecar (that would require a second log-router sidecar). Keeping the two paths separate is also why application code must **not** mirror its SDK telemetry to stdout — doing so would double Class-1 records into CloudWatch on top of the backend. See [practices/logging.md § With Respect to Telemetry](../../practices/logging.md#with-respect-to-telemetry).
 
 ## Common
 
