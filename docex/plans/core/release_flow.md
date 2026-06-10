@@ -105,10 +105,10 @@ The shim (`bin/docex`) bind-mounts all of these into the docex container so the 
 | Migration task exits non-zero with `dial tcp: lookup <host>:<port>:<port>: no such host` | DB host part returning `host:port` instead of host | `tables/roles/relational_db.yml` `provides.host.elastic` — mod 007 fixed this |
 | Migration uses stale env vars after a doctrine-side change | LATEST task-def revision is still previous release's | mod 008 fixed this — steady-state now runs pre-migrate targeted apply |
 | Release log says `ECS cluster ... not yet provisioned` on every steady-state release | First-release detector compared wrong name form | mod 007 fixed this — `apply_policy` on the probed name |
-| `tofu destroy` of project tier loops on ENI detach | RDS not yet deleted (it has `deletion_protection: true`) | smoke-project `teardown.sh` step 1 disables protection (open doctrine gap re: production retirement story) |
-| `RepositoryNotEmptyException` at project-tier destroy | ECR `force_delete = false` and images still present | `templates/project.tf.j2` ECR block (open gap — workaround in teardown.sh pre-purges images) |
+| `tofu destroy` of an env blocked by a deletion-protected RDS | RDS has `deletion_protection: true` | `docex envinfra down <env>` refuses-and-reports protected RDS up front (mod 052, Gap F) — disable protection deliberately and re-run; docex never disables it for you. The smoke `teardown.sh` does the disable automatically (smoke-only). |
+| `RepositoryNotEmptyException` would block project-tier destroy | ECR repo still holds images | `docex projinfra down production` refuses-and-reports non-empty ECR up front (mod 052, Gap F) — empty the repo and re-run. |
 
-A general rule of thumb: any error that surfaces inside an ECS task container is invisible by default — task definitions have no `logConfiguration` (a known gap; doctrine-side logging support is a planned addition). Until then, the debug technique is to hand-patch a new task-def revision with an `awslogs` log driver, RunTask it manually, and read CloudWatch.
+For ECS-container-level diagnostics: every container in a task definition emits an `awslogs` `logConfiguration` to a per-(env, service) CloudWatch log group `/<project>/<env>/<service>` (mod 052, Gap E — the app container, the OTel sidecar, and the `_migrate` container, distinguished by stream prefix). To debug a failing task — including a `migrate.sh` that exits non-zero — read that CloudWatch log group; no hand-patching required. (This is Class-2 diagnostic stdout/stderr; structured app telemetry still flows via the OTel sidecar to the observability backend.)
 
 ## Where to look when changing things
 
