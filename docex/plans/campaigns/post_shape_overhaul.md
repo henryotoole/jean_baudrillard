@@ -151,7 +151,11 @@ docex source change. No doctrine question.
 
 ---
 
+
+
 ## Gap E — ECS task definitions emit no `logConfiguration`
+
+**Status: design resolved (2026-06-10).** Approach settled in a pre-mod design discussion; see [§ Decision](#decision) and [§ Fix shape](#fix-shape) below. Ready to implement in its Mod 052 slot.
 
 ### Symptom
 
@@ -171,29 +175,51 @@ Already documented in `docex/plans/core/release_flow.md § Common failure modes`
 
 Hand-patch a task definition + RunTask + read CloudWatch when debugging. Aware that the workaround is real friction during outages.
 
+### Decision
+
+The driving reframe: there are **two classes** of container output, and only the second is Gap E's concern.
+
+- **Class 1 — SDK telemetry** (structured logs/traces/metrics the app emits through the OTel SDK). *Already handled* — app → OTLP `:4318` → collector sidecar → `otlphttp` → HyperDX. Untouched by this gap.
+- **Class 2 — raw stdout/stderr** (crash stacks, panics, pre-SDK-init output, and `migrate.sh` output, which is a shell script that never emits OTLP). Structurally invisible to the sidecar. **This is what Gap E is about.**
+
+Class 2 wants a simple, always-available sink that works even when the app and the sidecar are broken — so we do **not** funnel it through the OTel sidecar (that would mean a second FireLens/Fluent Bit sidecar: more per-task containers, more CPU/mem, compounding the Fargate-tier-rounding overhead in `transfer_tables.md`). The sink is **CloudWatch via the `awslogs` driver**. This is also the direction the doctrine has *already half-committed to*: `elastic_iam.md` grants the task-execution role `logs:CreateLogStream` + `logs:PutLogEvents` on `/<project>/<env>/*` and asserts the doctrine emits per-env log groups — but the emit layer never wired it (the drift this gap closes).
+
+**Class-1/Class-2 duplication, and why it's a non-issue (Option C).** `awslogs` captures the whole stdout stream indiscriminately — you can't split Class-1 from Class-2 at the driver without a log router (FireLens), which we're avoiding. So if the app mirrored its OTel telemetry to stdout, that Class-1 copy would *also* land in CloudWatch, duplicating what's already in HyperDX. The original design drafts called for such an app-stdout mirror "for developer convenience on fixed." **That mirror is unnecessary** and is dropped: `telemetry_infra.md`'s dev/test `debug` exporter already dumps every signal to the *sidecar's* stdout (`docker logs -f <svc>-otelcol`), which covers the dev-visibility need without an app-side echo. With no app-stdout mirror, elastic stdout carries Class-2 only and CloudWatch stays a clean diagnostics sink. (Note: the "mirror to stdout" pattern was never actually written into `logging.md` — that file is a stub — so there is nothing to *delete*; the work is to *author* the practice that says "don't do it.")
+
 ### Fix shape
 
-Emit a `log_configuration` block on every container definition that points at a per-env CloudWatch log group:
+1. **Emit `logConfiguration{awslogs}` on every container definition** — the main service container **and** the per-service migration task-def container (the migration-stdout case is this gap's headline example; covering only the main def would still lose it).
+2. **Emit an explicit `aws_cloudwatch_log_group` resource per (project, env)** — *not* `awslogs-create-group=true`. The execution role grants `CreateLogStream` + `PutLogEvents` but **not** `CreateLogGroup`, so the `create-group=true` snippet originally sketched here would fail at task launch. Letting tofu create the group (under the operator's broad apply-time creds) sidesteps that, and is where **retention** and `managed_by = "doctrine"` tagging live. The group is torn down with the env — dovetails with Gap F (`projinfra down production`).
+3. The task def points at the explicit group:
 
 ```hcl
 log_configuration = {
   logDriver = "awslogs"
   options = {
-    "awslogs-group"         = "/${project_dns_label}/${env}/${service}"
+    "awslogs-group"         = aws_cloudwatch_log_group.<svc>.name   # "/<project_dns_label>/<env>/<service>"
     "awslogs-region"        = "us-east-1"
     "awslogs-stream-prefix" = "ecs"
-    "awslogs-create-group"  = "true"
   }
 }
 ```
 
-The task-execution IAM role's inline policy already permits `logs:CreateLogStream` + `logs:PutLogEvents` on `arn:aws:logs:...:log-group:/<project>/<env>/*` (per `elastic_iam.md`), so no IAM change is required. Just the emit.
+**Fixed side: unchanged.** `docker logs` via the existing `x-logging` `json-file` anchor already captures Class-2; parity holds at the contract level ("container stdout is captured and readable"), not the sink level — which the doctrine's failure-mode tables already implicitly accept.
 
-Could also be paired with a doctrine-level decision on log retention (default 30 days? operator-tunable?).
+**Cross-artifact spread** (the five-layer alignment Mod 052 must keep in sync):
+
+| Layer | Change |
+| ----- | ------ |
+| `doctrine/.../telemetry_infra.md` | New subsection: Class-2 stdout → `awslogs`→CloudWatch on elastic; explicit per-env log group + retention; the Class-1/Class-2 split stated. |
+| `doctrine/.../practices/logging.md` | **Author** the `§ With Respect to Telemetry` section (resolves the dangling cross-ref `telemetry_infra.md` already makes to it); prescribe Option C — no app-stdout telemetry mirror, use the sidecar `debug` exporter in dev. Draw the Class-1/Class-2 line clearly enough that the existing `basicConfig`→stderr stub doesn't quietly reintroduce duplication. |
+| `doctrine/.../projinfra/elastic_iam.md` | Reconcile drift: it already claims per-env log groups are emitted and grants the log perms — make that true; confirm **no** `CreateLogGroup` is needed (tofu creates the group). |
+| `tables/` + `src/docex/emit/{templates/main.tf.j2, hcl.py::render_task_definition}` | Emit `logConfiguration` on both task-def families + the `aws_cloudwatch_log_group` resource. |
+| `tests/**` | Unit: HCL emit carries `logConfiguration` + log-group resource on both the main and migration task-def families. Integration: the Mod 052 smoke walk verifies CloudWatch actually receives stdout. |
+
+**Open sub-decision deferred to implementation:** retention value — fixed default (e.g. 30 days) vs. operator-tunable via a top-level `infra.yml` field. A field is more flexible but expands the CICL surface and needs a validation rule; lean toward a fixed default unless a tuning need is concrete.
 
 ### Ownership
 
-docex source change. Light doctrine touch (retention policy).
+docex source change **plus a non-trivial doctrine pass** across three files (`telemetry_infra.md` new subsection, `logging.md` new `§ With Respect to Telemetry`, `elastic_iam.md` drift reconciliation). Heavier than the "light doctrine touch" originally estimated, because it closes two dangling-reference / asserted-but-unimplemented drifts alongside the emit.
 
 ---
 
@@ -261,41 +287,12 @@ docex source change OR doctrine-doc change. Both could land at the same time.
 
 ---
 
-## Gap H — Fixed walk DNS records are operator-side
-
-### Symptom
-
-`PRE_CUT_CHECKLIST.md` A.4.1 requires the operator to hand-create 9 DNS records in the parent zone pointing at the dev machine's public IP (one per env subdomain + wildcard + bare-project). Without them, `docex stagetest` fails with NXDOMAIN.
-
-### Root cause
-
-The fixed-foundation walk uses the dev machine as the deploy target; per-env DNS records aren't managed by docex (docex doesn't know what zone or what IP). The doctrine treats this as operator-side.
-
-### Severity
-
-**Low**. The walker does it once per project. But it's friction every cut and the records can easily go stale if the dev machine's IP changes.
-
-### Workaround
-
-Walker creates records by hand via `aws route53 change-resource-record-sets` (per the smoke walk's actual flow — I scripted this once for the fixed walk).
-
-### Fix shape
-
-Either:
-
-1. `docex preinfra production` (fixed) takes an optional `--dev-ip` or reads `infra/preinfra/dev_machine_ip.txt` and verifies records exist for the project's env hosts pointing at it.
-2. `docex projinfra up production` (fixed) emits a Route53 record set (assumes operator has Route53 admin on the parent zone — which they often do but not always).
-3. Doctrine ships a documented script template at `infra/preinfra/setup_dns.sh` that the walker runs.
-
-Path 2 is cleanest if the assumption holds; path 1 + the script template is the safer fallback.
-
-### Ownership
-
-docex source change OR doctrine-doc change.
-
----
+## Gap H - Removed
+Removed.
 
 ## Gap I — `health_check_path` field emits a `curl`-based docker healthcheck
+
+NOTE: Let's investigate this one more deeply. Please pause to chat with me about this one when we reach it.
 
 ### Symptom
 
@@ -389,7 +386,7 @@ docex source change. Light.
 These gaps are mostly independent — there's no campaign-style ordering requirement like the original shape-and-tier mods had. Suggested grouping by mod:
 
 - **Mod 049** (one-shot polish, patch cut 1.0.4): Gaps **C** (`docex merge` no-origin), **J** (display strings), **K** (envinfra-up diagnostic). All small, all low-risk.
-- **Mod 050** (deploy-target ergonomics, minor cut 1.1.0): Gaps **G** (registry creds on deploy target), **H** (fixed-walk DNS), **D** (empty-dist chicken-and-egg). Touch the deploy path; collectively justify a minor.
+- **Mod 050** (deploy-target ergonomics, minor cut 1.1.0): Gaps **G** (registry creds on deploy target), **D** (empty-dist chicken-and-egg). Touch the deploy path; collectively justify a minor.
 - **Mod 051** (traefik UX, minor cut 1.2.0): Gaps **A** (ACME-provider creds), **B** (project-traefik network constraint), **I** (healthcheck convention). Three related traefik-shaped changes; tighter to land together.
 - **Mod 052** (elastic observability + lifecycle, minor cut 1.3.0): Gaps **E** (ECS logConfiguration), **F** (`projinfra down production` automated). Both elastic-only; both deserve test-walks.
 
