@@ -16,6 +16,7 @@ import sys
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import BuildFailed, EnvNotRunning
+from docex.naming import dns_label
 from docex.orchestrate._common import (
     assert_fixed_env,
     compose_file_for,
@@ -72,6 +73,51 @@ def _ensure_initial_dev_build(
         )
 
 
+# Per-state operator guidance for a partial bring-up. Keyed by the
+# coarse state ``compose_ps_status`` reports. ``running``/``created`` are
+# not failures and carry no diagnostic.
+_DIAGNOSTICS = {
+    "restarting": (
+        "container is restart-looping — check `docker logs {name}`; "
+        "common causes: missing env var, crash on startup."
+    ),
+    "unhealthy": (
+        "healthcheck never passed — verify the healthcheck "
+        "endpoint/tooling is present in the image."
+    ),
+    "exited": "container exited — check `docker logs {name}`.",
+}
+
+
+def _diagnose_unhealthy(
+    ctx: ProjectContext,
+    docker: DockerClient,
+    *,
+    env: str,
+    compose_file,
+    env_file,
+) -> None:
+    """Print one diagnostic line per non-running core service.
+
+    Diagnosis only — no auto-fix, no teardown (a half-up stack is what
+    the developer needs to debug). Called on a compose/migrate failure
+    where a partial or unhealthy stack is the likely culprit.
+    """
+    status = docker.compose_ps_status(compose_file, env_file=env_file)
+    if not status:
+        return
+    for svc in core_services(ctx):
+        key = compose_service_key(ctx, env, svc)
+        state = status.get(key)
+        diag = _DIAGNOSTICS.get(state) if state else None
+        if diag is None:
+            continue
+        print(
+            f"envinfra up: service {svc!r}: {diag.format(name=key)}",
+            file=sys.stderr,
+        )
+
+
 def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     """Bring up the ``<env>`` stack and run migrations.
 
@@ -106,6 +152,9 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
             f"error: 'docker compose up' failed (exit {rc}); stack left as-is.",
             file=sys.stderr,
         )
+        _diagnose_unhealthy(
+            ctx, docker, env=env, compose_file=compose_file, env_file=env_file
+        )
         return rc
 
     # 2. Migrations. dev/test migrations run inside the running container.
@@ -121,13 +170,16 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
                 "stack is up but migrations failed.",
                 file=sys.stderr,
             )
+            _diagnose_unhealthy(
+                ctx, docker, env=env, compose_file=compose_file, env_file=env_file
+            )
             return rc
 
     if ctx.infra is not None:
         apex_domain = ctx.infra.apex_domain
         # Canonical bare-env host per cicl.md § Domain:
         # <env>.<project>.<apex_domain>. Project segment is DNS-labeled.
-        project_seg = ctx.project.name.replace("_", "-").lower()
+        project_seg = dns_label(ctx.project.name)
         subdomain = f"{env}.{project_seg}.{apex_domain}"
     else:
         subdomain = "<unknown>"

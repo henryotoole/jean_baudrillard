@@ -37,6 +37,7 @@ from docex.cicl.transfer import EngineEntry, TransferTables
 from docex.cicl.validate import validate_document
 from docex.errors import ValidationError, ValidationIssue
 from docex.naming import NamingPolicy, apply_policy
+from docex.naming import dns_label as _dns_label
 
 
 _ENVS = ("dev", "test", "stage", "prod")
@@ -325,11 +326,6 @@ def _bare_project_subdomain(apex_domain: str, project: str) -> str:
     ergonomics, replacing the old ``www.<apex>`` convention. Project
     segment is DNS-labeled (see :func:`_env_subdomain`)."""
     return f"{_dns_label(project)}.{apex_domain}"
-
-
-def _dns_label(name: str) -> str:
-    """A service name as a DNS label (underscores → hyphens, lowercased)."""
-    return name.replace("_", "-").lower()
 
 
 def _web_hosts(

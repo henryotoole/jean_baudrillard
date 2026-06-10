@@ -103,6 +103,13 @@ class SubprocessGitClient:
     def fetch(self, cwd: Path, *, remote: str = "origin") -> int:
         return self._run(["fetch", remote], cwd=cwd)
 
+    def remote_exists(self, cwd: Path, remote: str = "origin") -> bool:
+        # ``git remote get-url <remote>`` exits 0 iff the remote is
+        # configured. _capture returns None on non-zero exit (remote
+        # absent) and the URL string otherwise.
+        res = self._capture(["remote", "get-url", remote], cwd=cwd)
+        return res is not None
+
     def rebase(self, cwd: Path, onto: str) -> int:
         return self._run(["rebase", onto], cwd=cwd)
 

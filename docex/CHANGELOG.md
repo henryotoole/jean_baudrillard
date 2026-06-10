@@ -12,6 +12,55 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+Changes accumulating toward a single `1.1.0` minor cut — mods 049–052 of
+the post-shape-overhaul polish campaign. Per-mod narratives live under
+`plans/modifications/049_*` … `052_*`; this section is consolidated and
+dated at cut time per `docex_process.md § Cutting a version`.
+
+### Added
+
+- **`GitClient.remote_exists` (Gap C).** New Protocol method (impl:
+  `git remote get-url <remote>` exit code) so `merge` can detect a
+  missing `origin`.
+- **`DockerClient.compose_ps_status` (Gap K).** New Protocol method
+  returning each service's coarse state (`running` / `restarting` /
+  `unhealthy` / `exited` / `created`) via `compose ps --all --format
+  json`, handling both the JSON-lines and JSON-array shapes compose v2
+  emits.
+- **`naming.dns_label` helper (Gap J).** Public single-source-of-truth
+  for the `underscores → hyphens, lowercased` DNS-label rule. `compile.py`'s
+  former module-private `_dns_label` now delegates to it.
+
+### Fixed
+
+- **`docex merge` hard-failed on a repo with no `origin` (Gap C).** The
+  unconditional `git fetch origin` / `git push origin` aborted before
+  the rebase/tag on remote-less repos (e.g. the test projects). `merge`
+  now detects a missing `origin`, skips fetch/push, rebases onto local
+  `main` (or seeds `main` when absent), and still tags — matching the
+  walker's manual `git merge --ff-only`. The remote feature-branch
+  delete is skipped when there's no origin; the local delete still runs.
+- **Display strings printed the raw underscored project name for
+  hyphenated DNS resources (Gap J).** Swept onto `naming.dns_label`:
+  - `src/docex/pipeline/bootstrap.py:181` — the Route53 hosted-zone name
+    in `_print_delegation_instructions` (`project_subdomain` at line
+    ~178) now prints e.g. `docex-smoke-elastic.luxrnd.tech`, matching
+    the emitted zone, instead of `docex_smoke_elastic.luxrnd.tech`.
+  - `src/docex/pipeline/stagetest.py:74` — `STAGING_URL` project segment
+    routed through `dns_label` instead of an inline `.replace`.
+  - `src/docex/orchestrate/up.py:130` — the "Stack up … Domain:" bare-env
+    host project segment routed through `dns_label` instead of an inline
+    `.replace`.
+  - Left raw on purpose: ECR-repo/SSM/IAM/DDB identifiers (e.g.
+    `rollback.py`, `release.py`), which legitimately keep underscores,
+    and the `project {project!r} fully bootstrapped` machine-name message.
+- **`docex envinfra up dev` surfaced no per-service diagnosis on a
+  partial bring-up (Gap K).** `run_up` now scans each core service's
+  container state after a failed `compose up` or migration and prints a
+  one-line diagnostic per `restarting` / `unhealthy` / `exited` service
+  (`docker logs` hint, env-var/healthcheck guidance). Diagnosis only —
+  no auto-fix, no teardown.
+
 ## [1.0.3] - 2026-06-09
 
 Patch cut bundling three runtime bugs surfaced during the post-1.0.2

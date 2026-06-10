@@ -205,6 +205,24 @@ def test_bootstrap_phase1_delegation_message_references_project_subdomain(
     assert "example.com" in out
 
 
+def test_delegation_message_hyphenates_underscored_project_name(
+    monkeypatch, capsys, tmp_path
+):
+    """Gap J: the zone-name display string must be DNS-labeled so it
+    matches the emitted Route53 zone — an underscored project name
+    (``docex_smoke_elastic``) must print as ``docex-smoke-elastic``."""
+    monkeypatch.setattr(
+        bootstrap_mod, "tofu_output", lambda *a, **kw: ["ns-1.example.net"]
+    )
+    bootstrap_mod._print_delegation_instructions(
+        tmp_path, "docex_smoke_elastic", "luxrnd.tech"
+    )
+    out = capsys.readouterr().out
+    assert "docex-smoke-elastic.luxrnd.tech" in out
+    # The underscored form must NOT appear as the zone name.
+    assert "docex_smoke_elastic.luxrnd.tech" not in out
+
+
 def test_bootstrap_phase2_runs_full_apply_when_zone_in_state(
     elastic_ctx_compiled, fake_aws, stub_tofu
 ):

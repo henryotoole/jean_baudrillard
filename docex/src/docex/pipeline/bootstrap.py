@@ -37,7 +37,7 @@ from docex import ELASTIC_REGION
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.errors import BootstrapFailed
-from docex.naming import apply_policy
+from docex.naming import apply_policy, dns_label
 from docex.opentofu.subprocess_runner import (
     tofu_apply,
     tofu_init,
@@ -174,8 +174,10 @@ def _print_delegation_instructions(
     """Print the zone's NS records and what the operator must do next."""
     # WHY: the zone covers `<project>.<apex_domain>`, not the bare apex —
     # the apex zone lives at the parent (registrar or parent Route53 zone)
-    # and is what we delegate FROM.
-    project_subdomain = f"{project}.{apex_domain}"
+    # and is what we delegate FROM. The project segment is DNS-labeled so
+    # this matches the zone name the HCL actually emitted (a Route53 zone
+    # rejects underscores).
+    project_subdomain = f"{dns_label(project)}.{apex_domain}"
     nameservers = tofu_output(project_dir, "zone_name_servers")
     print("")
     print(f"bootstrap: Route53 hosted zone for {project_subdomain!r} created.")

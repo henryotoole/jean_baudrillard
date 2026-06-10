@@ -44,6 +44,10 @@ class FakeDockerClient:
 
     available: bool = True
     ps_services: list[str] = field(default_factory=list)
+    # Scripted return for ``compose_ps_status``: service → coarse state.
+    # Default empty so existing tests (which never inspect it) are
+    # unaffected and the partial-bring-up diagnostic stays silent.
+    ps_status: dict[str, str] = field(default_factory=dict)
     exit_codes: dict[tuple, int] = field(default_factory=dict)
     default_exit: int = 0
     manifest_inspect_results: dict[str, bool] = field(default_factory=dict)
@@ -111,6 +115,12 @@ class FakeDockerClient:
                    project_dir: Path | None = None) -> list[str]:
         self.calls.append(("compose_ps", str(compose_file)))
         return list(self.ps_services)
+
+    def compose_ps_status(self, compose_file: Path, *,
+                          env_file: Path | None = None,
+                          project_dir: Path | None = None) -> dict[str, str]:
+        self.calls.append(("compose_ps_status", str(compose_file)))
+        return dict(self.ps_status)
 
     def build_image(self, context: Path, *, target: str, tag: str) -> int:
         key = ("build_image", str(context), target, tag)
@@ -279,6 +289,9 @@ class FakeGitClient:
     # empty remote set this to ``set()`` (or omit ``origin/main``); the
     # default models an established repo with a populated main.
     refs: set[str] = field(default_factory=lambda: {"origin/main", "main", "HEAD"})
+    # Whether an ``origin`` remote is configured. Default True so existing
+    # tests are unaffected; the no-remote merge path sets this False.
+    has_origin: bool = True
     exit_codes: dict[tuple, int] = field(default_factory=dict)
     default_exit: int = 0
     calls: list[tuple] = field(default_factory=list)
@@ -333,6 +346,10 @@ class FakeGitClient:
         key = ("fetch", remote)
         self.calls.append(("fetch", str(cwd), remote))
         return self.exit_codes.get(key, self.default_exit)
+
+    def remote_exists(self, cwd, remote="origin"):
+        self.calls.append(("remote_exists", str(cwd), remote))
+        return self.has_origin
 
     def rebase(self, cwd, onto):
         key = ("rebase", onto)

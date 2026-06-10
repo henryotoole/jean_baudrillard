@@ -12,7 +12,19 @@ from __future__ import annotations
 import pytest
 
 from docex.errors import TransferTableError
-from docex.naming import NamingPolicies, NamingPolicy, apply_policy, parse_policies
+from docex.naming import (
+    NamingPolicies,
+    NamingPolicy,
+    apply_policy,
+    dns_label,
+    parse_policies,
+)
+
+
+def test_dns_label_hyphenates_and_lowercases():
+    assert dns_label("docex_smoke_elastic") == "docex-smoke-elastic"
+    assert dns_label("MyProject") == "myproject"
+    assert dns_label("already-fine") == "already-fine"
 
 
 def test_apply_policy_hyphen_translates_underscores():

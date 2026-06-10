@@ -91,3 +91,49 @@ def test_merge_real_fast_forwards_and_tags(tmp_path: Path, monkeypatch):
     # Feature branch deleted locally + remotely.
     assert not _git_check_ref(work, "feature/bump")
     assert not _git_check_ref(origin, "refs/heads/feature/bump")
+
+
+def _init_repo_no_remote(tmp_path: Path) -> Path:
+    """A real git repo on ``main`` with a tagged HEAD and no remote —
+    mirrors the test-project layout the smoke walker uses."""
+    work = tmp_path / "work_no_remote"
+    shutil.copytree(_FIXTURE, work, dirs_exist_ok=False)
+    out = work / "infra" / "output"
+    if out.exists():
+        shutil.rmtree(out)
+
+    _git(work, "init", "-b", "main")
+    _git(work, "config", "user.email", "test@docex.test")
+    _git(work, "config", "user.name", "docex test")
+    _git(work, "add", ".")
+    _git(work, "commit", "-m", "initial: sample fixture")
+    return work
+
+
+@pytest.mark.integration
+def test_merge_real_no_origin_local_merge_and_tag(tmp_path: Path, monkeypatch):
+    """Gap C: a repo with no ``origin`` performs a local-only merge —
+    rebase onto local main, ff, tag — without any fetch/push."""
+    work = _init_repo_no_remote(tmp_path)
+    _git(work, "checkout", "-b", "feature/bump")
+    pyml = work / "project.yml"
+    pyml.write_text(pyml.read_text().replace('"0.1.0"', '"0.1.1"'))
+    (work / "core" / "api" / "src" / "marker.py").write_text("# gap C marker\n")
+    _git(work, "add", ".")
+    _git(work, "commit", "-m", "feat: bump + marker")
+
+    monkeypatch.setattr(merge_mod, "run_check", lambda *a, **kw: 0)
+
+    ctx = load_project_context(work)
+    docker = SubprocessDockerClient()
+    git = SubprocessGitClient()
+    rc = run_merge(ctx, docker, git)
+    assert rc == 0, "no-origin merge should succeed end-to-end"
+
+    # No remote was ever configured.
+    assert not git.remote_exists(work, "origin")
+    # main carries the feature commit, and the tag exists locally.
+    assert _git_check_ref(work, "main")
+    assert _git_check_ref(work, "v0.1.1")
+    # Local feature branch was deleted.
+    assert not _git_check_ref(work, "feature/bump")

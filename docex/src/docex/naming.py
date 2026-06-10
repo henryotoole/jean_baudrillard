@@ -114,6 +114,17 @@ def parse_policies(raw: dict) -> NamingPolicies:
     return NamingPolicies(by_name=by_name)
 
 
+def dns_label(name: str) -> str:
+    """A name as a DNS label (underscores → hyphens, lowercased).
+
+    Single source of truth for the rule that turns an underscored
+    project name (``docex_smoke_elastic``) into a DNS-valid label
+    (``docex-smoke-elastic``). Used both when emitting hostnames and
+    when *displaying* resource names so logs match what was emitted.
+    """
+    return name.replace("_", "-").lower()
+
+
 def apply_policy(name: str, policy: NamingPolicy) -> str:
     """Apply one naming policy to an assembled identifier.
 

@@ -118,6 +118,23 @@ class DockerClient(Protocol):
         ``project_dir`` — see :meth:`compose_up`."""
         ...
 
+    def compose_ps_status(
+        self,
+        compose_file: Path,
+        *,
+        env_file: Path | None = None,
+        project_dir: Path | None = None,
+    ) -> dict[str, str]:
+        """Map each service to a coarse state: one of
+        ``'running' | 'restarting' | 'unhealthy' | 'exited' | 'created'``.
+
+        Unlike :meth:`compose_ps` (running names only), this surfaces
+        *all* services and their state so a partial bring-up can be
+        diagnosed per-service. Empty dict means nothing is up.
+        ``project_dir`` — see :meth:`compose_up`.
+        """
+        ...
+
     def build_image(self, context: Path, *, target: str, tag: str) -> int:
         """Run ``docker build --target <target> -t <tag> <context>``.
 

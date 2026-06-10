@@ -62,6 +62,15 @@ class GitClient(Protocol):
         """``git fetch <remote>``. Returns exit code."""
         ...
 
+    def remote_exists(self, cwd: Path, remote: str = "origin") -> bool:
+        """True iff the named git remote is configured.
+
+        Lets ``merge`` take a no-remote path on repos with no ``origin``
+        (e.g. the test projects, which deliberately have no remote):
+        skip fetch/push and integrate against local ``main`` instead.
+        """
+        ...
+
     def ref_exists(self, cwd: Path, ref: str) -> bool:
         """Return True iff ``git rev-parse --verify`` resolves ``ref``.
 

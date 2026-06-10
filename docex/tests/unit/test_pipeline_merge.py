@@ -164,3 +164,66 @@ def test_merge_skips_remote_feature_delete_on_empty_origin(
     # Local delete happens; remote delete is skipped.
     assert any(c[3] is False for c in deletes), deletes
     assert not any(c[3] is True for c in deletes), deletes
+
+
+# --- Gap C: no-`origin` remote --------------------------------------
+
+
+def test_merge_no_origin_skips_fetch_and_push(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    """A repo with no ``origin`` performs a local-only merge: no fetch,
+    no push, rebase onto local ``main``, but the tag still lands."""
+    fake_git.branch = "feature/x"
+    fake_git.has_origin = False
+    # Local main exists (the test-project case); origin/main is irrelevant.
+    fake_git.refs = {"main", "HEAD"}
+
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+
+    methods = [c[0] for c in fake_git.calls]
+    assert "fetch" not in methods, fake_git.calls
+    assert "push" not in methods, fake_git.calls
+
+    # Rebase targets local ``main``, not ``origin/main``.
+    rebases = [c for c in fake_git.calls if c[0] == "rebase"]
+    assert len(rebases) == 1
+    assert rebases[0][2] == "main"
+
+    # Tag still happens.
+    assert "tag" in methods
+
+
+def test_merge_no_origin_deletes_local_branch_only(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    """No-origin merge deletes the local feature branch but never
+    attempts a remote delete (there is no remote)."""
+    fake_git.branch = "feature/x"
+    fake_git.has_origin = False
+    fake_git.refs = {"main", "HEAD"}
+
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+
+    deletes = [c for c in fake_git.calls if c[0] == "delete_branch"]
+    assert any(c[3] is False for c in deletes), deletes  # local
+    assert not any(c[3] is True for c in deletes), deletes  # no remote
+
+
+def test_merge_no_origin_seeds_main_when_local_main_absent(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    """No origin AND no local ``main`` → fall through to the seed path
+    (ff a fresh main to the feature tip), no rebase."""
+    fake_git.branch = "feature/x"
+    fake_git.has_origin = False
+    fake_git.refs = {"HEAD"}  # neither origin/main nor main exist
+
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+
+    assert not [c for c in fake_git.calls if c[0] == "rebase"]
+    assert [c for c in fake_git.calls if c[0] == "fast_forward"]
+    assert "tag" in [c[0] for c in fake_git.calls]

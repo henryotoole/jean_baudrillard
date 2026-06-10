@@ -294,6 +294,70 @@ class SubprocessDockerClient:
             return []
         return [line.strip() for line in res.stdout.splitlines() if line.strip()]
 
+    def compose_ps_status(
+        self,
+        compose_file: Path,
+        *,
+        env_file: Path | None = None,
+        project_dir: Path | None = None,
+    ) -> dict[str, str]:
+        import json
+        cmd = self._compose_base(compose_file, env_file, project_dir) + [
+            "ps", "--all", "--format", "json",
+        ]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return {}
+        if res.returncode != 0:
+            return {}
+        return self._parse_ps_status(res.stdout)
+
+    @staticmethod
+    def _parse_ps_status(stdout: str) -> dict[str, str]:
+        """Translate ``compose ps --format json`` into service → state.
+
+        Compose v2 emits this in two shapes across versions: one JSON
+        object per line (JSON-lines) or a single JSON array. Handle both.
+        Each record carries ``Service``, ``State`` and ``Health``; an
+        ``unhealthy`` Health overrides State so a never-healthy container
+        is reported as ``unhealthy`` rather than ``running``.
+        """
+        import json
+        text = stdout.strip()
+        if not text:
+            return {}
+        records: list[dict] = []
+        try:
+            parsed = json.loads(text)
+            records = parsed if isinstance(parsed, list) else [parsed]
+        except json.JSONDecodeError:
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        out: dict[str, str] = {}
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+            service = rec.get("Service")
+            if not service:
+                continue
+            if rec.get("Health") == "unhealthy":
+                out[service] = "unhealthy"
+            else:
+                out[service] = str(rec.get("State", "")).lower()
+        return out
+
     # ------------------------------------------------------------------
     # Mod 036: env-tier still-up detection used by ``projinfra down``.
     # ------------------------------------------------------------------

@@ -66,3 +66,60 @@ def test_up_short_circuits_on_compose_up_failure(sample_ctx, fake_docker):
         if c[0] == "compose_exec" and "migrate.sh" in " ".join(c[3])
     ]
     assert migrate_calls == []
+
+
+# --- Gap K: partial-bring-up diagnostics ----------------------------
+
+
+def test_up_diagnoses_unhealthy_core_service(sample_ctx, fake_docker, capsys):
+    """When compose up fails and a core service is unhealthy, emit a
+    per-service diagnostic naming the healthcheck cause."""
+    fake_docker.exit_codes[("exit", "compose_up")] = 5
+    fake_docker.ps_status = {"sample-dev-api": "unhealthy"}
+
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 5
+
+    err = capsys.readouterr().err
+    assert "envinfra up: service 'api'" in err
+    assert "healthcheck" in err
+    # No teardown — diagnosis only.
+    assert "compose_down" not in [c[0] for c in fake_docker.calls]
+
+
+def test_up_diagnoses_restarting_core_service(sample_ctx, fake_docker, capsys):
+    """A restart-looping core service gets the restart-loop diagnostic."""
+    fake_docker.exit_codes[("exit", "compose_up")] = 5
+    fake_docker.ps_status = {"sample-dev-api": "restarting"}
+
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 5
+
+    err = capsys.readouterr().err
+    assert "envinfra up: service 'api'" in err
+    assert "restart-looping" in err
+
+
+def test_up_diagnoses_on_migration_failure(sample_ctx, fake_docker, capsys):
+    """A migration failure also triggers the scan — a half-up stack is
+    the likely culprit."""
+    fake_docker.exit_codes[
+        ("exit", "compose_exec", "sample-dev-api", ("./migrate.sh",))
+    ] = 17
+    fake_docker.ps_status = {"sample-dev-api": "exited"}
+
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 17
+
+    err = capsys.readouterr().err
+    assert "envinfra up: service 'api'" in err
+    assert "exited" in err
+
+
+def test_up_no_diagnostic_when_all_running(sample_ctx, fake_docker, capsys):
+    """Happy path: every service running → no diagnostic lines."""
+    fake_docker.ps_status = {"sample-dev-api": "running"}
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "envinfra up: service" not in err

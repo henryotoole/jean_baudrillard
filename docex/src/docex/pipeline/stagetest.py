@@ -25,6 +25,7 @@ import sys
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import StageTesterBuildFailed
+from docex.naming import dns_label
 
 
 def _stage_tester_tag(project_name: str) -> str:
@@ -70,8 +71,8 @@ def run_stagetest(
             return 1
         # Canonical bare-env host per cicl.md § Domain:
         # <env>.<project>.<apex_domain>. The project segment must be
-        # DNS-labeled — see _dns_label in compile.py for the same rule.
-        project_seg = project_name.replace("_", "-").lower()
+        # DNS-labeled — shared rule in naming.dns_label.
+        project_seg = dns_label(project_name)
         staging_url = f"https://stage.{project_seg}.{apex_domain}"
 
     # 2. Build the stage tester image ----------------------------------

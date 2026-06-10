@@ -11,6 +11,12 @@ Per [docex.md § merge] and [cicd.md § Merge]:
   5. Push ``main`` and the new tag.
   6. Delete the feature branch locally and on the remote.
 
+When the repo has no ``origin`` remote, the fetch (step 2) and push
+(step 5) are skipped and the rebase integrates against local ``main``
+rather than ``origin/main``. The local merge + tag still happen, so a
+remote-less repo (e.g. the test projects) gets a real integration
+without a hand-driven ``git merge --ff-only``.
+
 If anything past the rebase fails, we leave the local branch in its
 rebased state. The operator can inspect ``git log`` and recover by
 hand — auto-unwinding is more dangerous than instructive.
@@ -55,22 +61,37 @@ def run_merge(
         )
         return 1
 
-    # 3. Fetch + decide between rebase-onto-trunk or seed-trunk -------
-    rc = git.fetch(project_root, remote="origin")
-    if rc != 0:
-        print(f"error: 'git fetch origin' exited {rc}.", file=sys.stderr)
-        return rc
-
-    empty_origin = not git.ref_exists(project_root, "origin/main")
-    if empty_origin:
-        # First release on an empty remote: there's no trunk to rebase
-        # onto. Seed it by fast-forwarding a freshly-created local main
-        # to the feature tip; the push at step 6 publishes it as
-        # origin/main. The defensive recheck above already passed in
-        # "first-release mode" (gates skipped), so we know the tree
-        # is otherwise valid.
+    # 3. Resolve the trunk ref, fetching only when origin exists ------
+    # On a repo with no ``origin`` remote (e.g. the test projects, which
+    # deliberately have none) there's nothing to fetch from or push to —
+    # we integrate against the *local* ``main`` instead, matching the
+    # walker's manual ``git merge --ff-only``.
+    has_origin = git.remote_exists(project_root, "origin")
+    if has_origin:
+        rc = git.fetch(project_root, remote="origin")
+        if rc != 0:
+            print(f"error: 'git fetch origin' exited {rc}.", file=sys.stderr)
+            return rc
+        trunk_ref = "origin/main"
+    else:
         print(
-            "merge: origin/main does not exist — seeding main from the "
+            "merge: no 'origin' remote — performing local merge only "
+            "(no fetch/push).",
+            file=sys.stderr,
+        )
+        trunk_ref = "main"
+
+    # 4. Decide between rebase-onto-trunk or seed-trunk ----------------
+    trunk_missing = not git.ref_exists(project_root, trunk_ref)
+    if trunk_missing:
+        # No trunk to rebase onto — either a first release on an empty
+        # remote (origin/main absent) or a no-remote repo with no local
+        # ``main`` yet. Seed it by fast-forwarding a freshly-created
+        # local main to the feature tip; with origin, the push at step 6
+        # publishes it. The defensive recheck above already passed in
+        # "first-release mode" (gates skipped), so the tree is valid.
+        print(
+            f"merge: {trunk_ref} does not exist — seeding main from the "
             f"current feature branch ({feature!r}).",
             file=sys.stderr,
         )
@@ -83,18 +104,18 @@ def run_merge(
             )
             return rc
     else:
-        rc = git.rebase(project_root, "origin/main")
+        rc = git.rebase(project_root, trunk_ref)
         if rc != 0:
             # Abort so we don't leave the working tree mid-rebase.
             git.rebase_abort(project_root)
             print(
-                f"error: 'git rebase origin/main' exited {rc}. Resolve the "
+                f"error: 'git rebase {trunk_ref}' exited {rc}. Resolve the "
                 "conflict on your feature branch and retry.",
                 file=sys.stderr,
             )
             return rc
 
-        # 4. Fast-forward main to the rebased tip --------------------------
+        # Fast-forward main to the rebased tip -------------------------
         rc = git.fast_forward(project_root, "main", feature)
         if rc != 0:
             print(
@@ -119,13 +140,16 @@ def run_merge(
         return rc
 
     # 6. Push main + the new tag --------------------------------------
-    rc = git.push(project_root, remote="origin", refs=["main", tag_name])
-    if rc != 0:
-        print(
-            f"error: 'git push origin main {tag_name}' exited {rc}.",
-            file=sys.stderr,
-        )
-        return rc
+    # Skipped on a no-remote repo; the one-line note at step 3 already
+    # told the operator this is a local-only merge.
+    if has_origin:
+        rc = git.push(project_root, remote="origin", refs=["main", tag_name])
+        if rc != 0:
+            print(
+                f"error: 'git push origin main {tag_name}' exited {rc}.",
+                file=sys.stderr,
+            )
+            return rc
 
     # 7. Delete feature branch (local then remote) --------------------
     # Local first: branch -D refuses if we're on it, so checkout main
@@ -138,10 +162,11 @@ def run_merge(
             "delete the local branch by hand if needed.",
             file=sys.stderr,
         )
-    # On an empty-origin seed there's no remote feature branch to delete
-    # (nothing was ever pushed). Skip the remote delete to avoid a
-    # noisy warning operators can't act on.
-    if not empty_origin:
+    # No remote feature branch to delete when there's no origin at all,
+    # or on an empty-origin seed (nothing was ever pushed). Skip the
+    # remote delete in those cases to avoid a warning operators can't
+    # act on.
+    if has_origin and not trunk_missing:
         rc_remote = git.delete_branch(project_root, feature, remote=True)
         if rc_remote != 0:
             print(
