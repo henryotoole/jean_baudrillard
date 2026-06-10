@@ -225,6 +225,119 @@ def test_check_happy_path_aggregates_all_passing(
     assert "all gates and tests passed" in out
 
 
+# ---------------------------------------------------------------------------
+# Gap I (mod 051): _gate_healthcheck_tooling unit tests.
+# ---------------------------------------------------------------------------
+
+
+def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False):
+    """Build a ProjectContext whose `api` web service declares
+    `health_check_path`. Optionally add a port-less, non-web worker that
+    must be skipped by the gate."""
+    from docex.context import load_project_context
+
+    root = tmp_path / "hcproj"
+    (root / "infra").mkdir(parents=True)
+    (root / "core" / "api").mkdir(parents=True)
+    (root / "bin").mkdir(parents=True)
+    (root / "project.yml").write_text(
+        'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
+    )
+    hc_line = "    health_check_path: /health\n" if web_with_hc else ""
+    worker_block = (
+        "  worker:\n"
+        "    role: web\n"
+        "    networks: [internal]\n"
+        "    resources:\n"
+        "      cpu: 0.5\n"
+        "      memory: 512MB\n"
+        "      disk: 1GB\n"
+    ) if extra_worker else ""
+    (root / "infra" / "infra.yml").write_text(
+        'cicl_version: "1"\n'
+        "foundation: fixed\n"
+        'apex_domain: "example.com"\n'
+        'container_registry: "registry.example.com"\n'
+        'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
+        "domain_default_service: api\n"
+        "core_services:\n"
+        "  api:\n"
+        "    role: web\n"
+        "    port: 8080\n"
+        "    networks: [web, internal]\n"
+        + hc_line +
+        "    resources:\n"
+        "      cpu: 1.0\n"
+        "      memory: 2GB\n"
+        "      disk: 20GB\n"
+        + worker_block
+    )
+    return load_project_context(root), root
+
+
+def test_hcgate_passes_when_curl_present(fake_docker, tmp_path):
+    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
+
+    ctx, root = _hc_ctx(tmp_path)
+    report = CheckReport()
+    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
+
+    res = next(r for r in report.results if r.name == "healthcheck_tooling")
+    assert res.passed, res.detail
+    # Gate built the api prod image and probed for curl.
+    assert ("build_image", str(root / "core" / "api"), "prod", "docex-hcgate-api:check") in fake_docker.calls
+    assert any(c[0] == "run_one_shot" and "command -v curl" in c[2][-1] for c in fake_docker.calls)
+
+
+def test_hcgate_fails_when_curl_absent(fake_docker, tmp_path):
+    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
+
+    ctx, root = _hc_ctx(tmp_path)
+    # Script the curl probe to fail.
+    tag = "docex-hcgate-api:check"
+    fake_docker.exit_codes[("run_one_shot", tag, ("sh", "-c", "command -v curl >/dev/null 2>&1"))] = 1
+    report = CheckReport()
+    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
+
+    res = next(r for r in report.results if r.name == "healthcheck_tooling")
+    assert not res.passed
+    assert "lacks curl" in res.detail
+    assert "Add curl to its Dockerfile" in res.detail
+
+
+def test_hcgate_skips_services_without_health_check_path(fake_docker, tmp_path):
+    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
+
+    # api stays on web but DECLARES NO health_check_path, plus a non-web
+    # worker — neither qualifies, so the gate passes without building.
+    ctx, root = _hc_ctx(tmp_path, web_with_hc=False, extra_worker=True)
+    report = CheckReport()
+    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
+
+    res = next(r for r in report.results if r.name == "healthcheck_tooling")
+    assert res.passed, res.detail
+    assert "nothing to check" in res.detail
+    # No image build attempted.
+    assert not any(c[0] == "build_image" for c in fake_docker.calls)
+
+
+def test_hcgate_reports_build_failure(fake_docker, tmp_path):
+    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
+
+    ctx, root = _hc_ctx(tmp_path)
+    fake_docker.exit_codes[
+        ("build_image", str(root / "core" / "api"), "prod", "docex-hcgate-api:check")
+    ] = 1
+    report = CheckReport()
+    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
+
+    res = next(r for r in report.results if r.name == "healthcheck_tooling")
+    assert not res.passed
+    assert "image build failed" in res.detail
+    # Build failed → no curl probe attempted.
+    assert not any(c[0] == "run_one_shot" for c in fake_docker.calls)
+
+
 def test_check_empty_origin_skips_trunk_gates(
     worktree_setup, fake_docker, stub_test_and_compile, capsys
 ):

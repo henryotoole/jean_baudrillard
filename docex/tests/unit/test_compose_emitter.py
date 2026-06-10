@@ -300,6 +300,50 @@ def test_core_service_compose_environment_carries_project_version(tmp_path: Path
         )
 
 
+def test_core_service_carries_docex_project_label(tmp_path: Path):
+    """Mod 051 (Gap B): every web core service appends the docex.project
+    label to its existing Traefik discovery labels (one labels key, not two)."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    api = _find_core_service_block(services, "api")
+    labels = api.get("labels") or []
+    assert "docex.project=sample" in labels, labels
+    # Discovery labels are still present alongside it — appended, not replaced.
+    assert "traefik.enable=true" in labels, labels
+
+
+def test_backing_service_carries_docex_project_label(tmp_path: Path):
+    """Mod 051 (Gap B): a non-web backing service gets a fresh labels list
+    with just the docex.project label."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    appdb = _find_core_service_block(services, "appdb")
+    labels = appdb.get("labels") or []
+    assert "docex.project=sample" in labels, labels
+    # A purely-internal backing service carries no Traefik discovery labels.
+    assert not any(l.startswith("traefik.enable") for l in labels), labels
+
+
+def test_sidecar_carries_docex_project_label(tmp_path: Path):
+    """Mod 051 (Gap B): the OTel sidecar carries the docex.project label too."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    sidecar = next(
+        (services[k] for k in services if k.endswith("-otelcol")), None
+    )
+    assert sidecar is not None, sorted(services)
+    assert "docex.project=sample" in (sidecar.get("labels") or []), sidecar.get("labels")
+
+
 def test_backing_service_compose_environment_lacks_project_version(tmp_path: Path):
     """Backing services do NOT receive PROJECT_VERSION — they run
     third-party software that doesn't consume it. Mod 011."""

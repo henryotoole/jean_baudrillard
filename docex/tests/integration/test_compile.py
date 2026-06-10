@@ -200,23 +200,35 @@ def test_project_tier_compose_declares_traefik_service(tmp_path: Path):
     acme_volume = f"{project}-traefik-acme"
     assert f"{acme_volume}:/letsencrypt" in volumes
 
-    # Command flags: cert resolver name 'doctrine', DNS-01 enabled,
-    # operator-supplied substitutions present.
+    # Command flags: cert resolver name 'doctrine', HTTP-01 enabled
+    # (mod 051 Gap A — no DNS-01, no DNS-provider cred), the project-scope
+    # constraint (mod 051 Gap B), and the LE account email substitution.
     command = svc.get("command", [])
     assert "--providers.docker=true" in command
     assert "--providers.docker.exposedbydefault=false" in command
     assert "--entrypoints.web.address=:80" in command
     assert "--entrypoints.websecure.address=:443" in command
     assert any(
-        "certificatesresolvers.doctrine.acme.dnschallenge=true" in c
+        "certificatesresolvers.doctrine.acme.httpchallenge=true" in c
+        for c in command
+    ), command
+    assert any(
+        "certificatesresolvers.doctrine.acme.httpchallenge.entrypoint=web" in c
         for c in command
     ), command
     assert any(
         "${TRAEFIK_ACME_EMAIL:-}" in c for c in command
     ), command
+    # The DNS-01 mechanism is gone entirely.
+    assert not any("dnschallenge" in c for c in command), command
+    assert not any("TRAEFIK_DNS_PROVIDER" in c for c in command), command
+    # Mod 051 Gap B: docker provider constrained to this project's label.
     assert any(
-        "${TRAEFIK_DNS_PROVIDER:-}" in c for c in command
+        c == f"--providers.docker.constraints=Label(`docex.project`,`{project}`)"
+        for c in command
     ), command
+    # And the traefik service itself carries the matching label.
+    assert f"docex.project={project}" in (svc.get("labels") or []), svc.get("labels")
 
     # Top-level acme volume declared.
     assert acme_volume in data.get("volumes", {}), data.get("volumes")

@@ -41,6 +41,13 @@ dated at cut time per `docex_process.md § Cutting a version`.
   `dns_label`, reusing `infra/deploy_creds/<env>` keys) and verifies the
   registry credential exists at `/home/deploy/.docker/config.json` and
   `/root/.docker/config.json`.
+- **`docex check` healthcheck-tooling gate (Gap I, mod 051).** New
+  `_gate_healthcheck_tooling` builds each `health_check_path`-declaring
+  web service's `prod`-target image and probes for `curl`
+  (`command -v curl`); on absence it fails the gate descriptively
+  (the Docker healthcheck would otherwise error, the container would be
+  marked `unhealthy`, and Traefik would silently drop the route). Turns
+  a silent unhealthy-route-death into a loud, early failure.
 
 ### Fixed
 
@@ -83,6 +90,28 @@ dated at cut time per `docex_process.md § Cutting a version`.
   (state + `docker logs` hint) rather than the generic "run 'docex up
   dev' first." (The chicken-and-egg core was already closed by
   `up.py::_ensure_initial_dev_build`.)
+- **Fixed-foundation project traefik couldn't issue Let's Encrypt certs
+  (Gap A, mod 051).** `emit_project_compose` configured the **DNS-01**
+  ACME challenge (`dnschallenge.provider=${TRAEFIK_DNS_PROVIDER:-}`),
+  which needs DNS-provider API credentials that never reached the
+  traefik container — so routers fell back to traefik's self-signed
+  default and stage tests rejected the cert. Switched fixed to
+  **HTTP-01** (`httpchallenge=true` + `httpchallenge.entrypoint=web`),
+  which proves control by serving a token on `:80` (already forwarded by
+  the HAProxy demux) and needs no DNS-provider creds. Per-host certs, no
+  wildcards on fixed; elastic keeps its ACM DNS-01 wildcards. The dead
+  `TRAEFIK_DNS_PROVIDER` reference is gone; `TRAEFIK_ACME_EMAIL` stays
+  (HTTP-01 still registers an LE account).
+- **Per-project traefik registered foreign routers / spammed ACME
+  failures (Gap B, mod 051).** The traefik docker provider had no
+  constraint, so it watched every `traefik.enable=true` container on the
+  shared `docex-ingress` bridge (other projects' preinfra and env
+  services). `emit_project_compose` now emits
+  `--providers.docker.constraints=Label(`docex.project`,`<label>`)`, and
+  every container docex emits on fixed — env-tier core + backing
+  services, their OTel sidecars, and the project traefik itself — carries
+  a matching `docex.project=<label>` label so the project traefik scopes
+  to its own project only.
 
 ## [1.0.3] - 2026-06-09
 

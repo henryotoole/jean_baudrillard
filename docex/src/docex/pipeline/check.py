@@ -429,6 +429,85 @@ def _gate_health_endpoints(
         )
 
 
+def _gate_healthcheck_tooling(
+    worktree: Path,
+    ctx: ProjectContext,
+    docker: DockerClient,
+    report: CheckReport,
+) -> None:
+    """Verify every ``health_check_path``-declaring web-service image carries
+    ``curl``.
+
+    Mod 051 (Gap I): ``web.yml``'s ``health_check_path`` field compiles to a
+    Docker healthcheck that probes ``/health`` with ``curl``. On a curl-less
+    base image (python-slim, alpine, distroless) the healthcheck errors on
+    every run, Docker marks the container ``unhealthy``, and Traefik 3.x's
+    docker provider drops the route — the service is silently unreachable with
+    no application-log signal. This gate turns that into a loud, early failure:
+    it builds each qualifying service's ``prod``-target image and runs
+    ``command -v curl`` inside it.
+
+    Scope is exactly the services on the ``web`` network that declare
+    ``health_check_path`` — a port-less worker with no healthcheck needs no
+    curl. See ``contracts.md § Health Checks`` and
+    ``infrastructure.md § Healthcheck Tooling Requirement``.
+    """
+    infra = ctx.infra
+    if infra is None:
+        report.add("healthcheck_tooling", True, "no infra.yml — skipped")
+        return
+
+    qualifying: list[str] = []
+    for name in sorted(infra.core_services):
+        svc = infra.core_services[name]
+        on_web = "web" in (svc.networks or [])
+        # ``extra="allow"`` on the model surfaces role fields like
+        # ``health_check_path`` as attributes; absent ⇒ None.
+        declares_hc = getattr(svc, "health_check_path", None) is not None
+        if on_web and declares_hc:
+            qualifying.append(name)
+
+    if not qualifying:
+        report.add(
+            "healthcheck_tooling",
+            True,
+            "no health_check_path-declaring web services — nothing to check",
+        )
+        return
+
+    problems: list[str] = []
+    for svc in qualifying:
+        svc_dir = worktree / "core" / svc
+        tag = f"docex-hcgate-{svc}:check"
+        build_rc = docker.build_image(svc_dir, target="prod", tag=tag)
+        if build_rc != 0:
+            # The build gate will also catch this; record + move on so the
+            # operator still sees the curl status of any other service.
+            problems.append(f"{svc}: image build failed")
+            continue
+        probe_rc = docker.run_one_shot(
+            tag,
+            ["sh", "-c", "command -v curl >/dev/null 2>&1"],
+            remove=True,
+        )
+        if probe_rc != 0:
+            problems.append(
+                f"service {svc!r} declares health_check_path but its image "
+                "lacks curl; the Docker healthcheck will fail and Traefik will "
+                "drop the route. Add curl to its Dockerfile "
+                "(apt-get/apk install curl)."
+            )
+
+    if problems:
+        report.add("healthcheck_tooling", False, "; ".join(problems))
+    else:
+        report.add(
+            "healthcheck_tooling",
+            True,
+            f"curl present in {len(qualifying)} web-service image(s)",
+        )
+
+
 def _gate_service_scripts(
     worktree: Path,
     ctx: ProjectContext,
@@ -625,6 +704,7 @@ def run_check(
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
         _gate_health_endpoints(worktree, worktree_ctx, contracts, report)
         _gate_service_scripts(worktree, worktree_ctx, report)
+        _gate_healthcheck_tooling(worktree, worktree_ctx, docker, report)
         _gate_observability_backend_url_reachable(worktree_ctx, report)
 
         # If any gate failed, surface aggregated report and stop.

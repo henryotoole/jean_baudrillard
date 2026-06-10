@@ -35,6 +35,21 @@ def _translate_runtime_refs(s: str) -> str:
     return _RUNTIME_RE.sub(lambda m: "${" + m.group(1) + "}", s)
 
 
+def _docex_project_label(project_dns_label: str) -> str:
+    """The ``docex.project=<label>`` label stamped on every container docex
+    emits on fixed.
+
+    Mod 051 (Gap B): the per-project traefik constrains its docker provider
+    to ``Label(`docex.project`,`<label>`)`` so it only registers routers for
+    *this* project's containers — not every ``traefik.enable=true`` container
+    reachable on the shared ``docex-ingress`` bridge. The label value MUST be
+    byte-identical to the constraint's value or the constraint matches
+    nothing. Emitted uniformly (every container, not just web services) so
+    the constraint is unambiguous.
+    """
+    return f"docex.project={project_dns_label}"
+
+
 def _translate_tree(node: Any) -> Any:
     """Translate all $[VAR] references throughout a YAML-shaped tree."""
     if isinstance(node, str):
@@ -205,6 +220,9 @@ def _sidecar_block(
             "OBSERVABILITY_BACKEND_URL": observability_backend_url,
             "TELEMETRY_API_KEY": "${TELEMETRY_API_KEY:-}",
         },
+        # Mod 051 (Gap B): stamped on the sidecar too, for label uniformity
+        # across every container docex emits on fixed.
+        "labels": [_docex_project_label(project_dns_label)],
         "deploy": {
             "resources": {"limits": {"cpus": "0.1", "memory": "128M"}}
         },
@@ -324,10 +342,18 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # container) gets Traefik discovery labels with its per-service
         # host(s). The machine-wide Traefik routes those subdomains to the
         # container over the docker network — no host port is published.
+        # Mod 051 (Gap B): every emitted container also carries the
+        # ``docex.project`` label so the project traefik's docker-provider
+        # constraint matches only this project's containers. Web services
+        # append it to the existing Traefik-label list; non-web services
+        # get a fresh labels list with just that one label.
+        project_label = _docex_project_label(compiled.project_dns_label)
         if svc.web_hosts:
             block["labels"] = _traefik_labels(
                 svc, compiled.project_dns_label, compiled.env,
-            )
+            ) + [project_label]
+        else:
+            block["labels"] = [project_label]
 
         services[svc.global_name] = block
 
@@ -473,10 +499,18 @@ def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
     Side-specific differences live elsewhere: HCL on elastic production,
     ansible artifacts when fixed prod is remote (deferred per mod 036).
 
-    The DNS-01 LE provider and operator email arrive via compose runtime
-    substitution from operator-supplied env vars; out-of-box LE issuance
-    fails until the operator wires them, which is accepted (the container
-    still starts and routing still works without certs).
+    Mod 051 (Gap A): cert issuance uses the HTTP-01 challenge (served on
+    the ``web`` entrypoint, :80, which the HAProxy demux already forwards
+    by Host header). HTTP-01 needs no DNS-provider credentials, so the only
+    operator-supplied value is ``TRAEFIK_ACME_EMAIL`` (LE account
+    registration). Out-of-box issuance works once the operator sets that.
+
+    Mod 051 (Gap B): the docker provider is constrained to
+    ``Label(`docex.project`,`<project_dns_label>`)`` so this traefik
+    registers routers only for its own project's containers — not every
+    ``traefik.enable=true`` container on the shared ``docex-ingress``
+    bridge. Every container docex emits on fixed carries the matching
+    ``docex.project`` label (see :func:`_docex_project_label`).
     """
     acme_volume = f"{project_dns_label}-traefik-acme"
     data: dict[str, Any] = {
@@ -514,16 +548,19 @@ def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
                 "command": [
                     "--providers.docker=true",
                     "--providers.docker.exposedbydefault=false",
+                    "--providers.docker.constraints="
+                    f"Label(`docex.project`,`{project_dns_label}`)",
                     "--entrypoints.web.address=:80",
                     "--entrypoints.websecure.address=:443",
                     "--certificatesresolvers.doctrine.acme.email="
                     "${TRAEFIK_ACME_EMAIL:-}",
                     "--certificatesresolvers.doctrine.acme.storage="
                     "/letsencrypt/acme.json",
-                    "--certificatesresolvers.doctrine.acme.dnschallenge=true",
-                    "--certificatesresolvers.doctrine.acme.dnschallenge"
-                    ".provider=${TRAEFIK_DNS_PROVIDER:-}",
+                    "--certificatesresolvers.doctrine.acme.httpchallenge=true",
+                    "--certificatesresolvers.doctrine.acme.httpchallenge"
+                    ".entrypoint=web",
                 ],
+                "labels": [_docex_project_label(project_dns_label)],
             },
         },
         "volumes": {acme_volume: {}},
