@@ -486,6 +486,12 @@ class FakeAWSClient:
     # list of subnet IDs. Default empty list when key absent.
     find_vpc_by_tags_result: str | None = "vpc-fake0001"
     find_subnet_ids_results: dict[tuple, list[str]] = field(default_factory=dict)
+    # Mod 052 (Gap F): teardown probe scripting. ``rds_protected_results``
+    # maps a prefix -> list of protected RDS identifiers (default empty,
+    # i.e. nothing protected). ``ecr_image_count_results`` maps a
+    # repository name -> image count (default 0, i.e. empty repo).
+    rds_protected_results: dict[str, list[str]] = field(default_factory=dict)
+    ecr_image_count_results: dict[str, int] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
     _task_counter: int = 0
 
@@ -510,6 +516,9 @@ class FakeAWSClient:
     ) -> None:
         self._record("ssm_put_parameter", name, value, overwrite=overwrite)
 
+    def ssm_delete_parameters(self, path_prefix: str) -> None:
+        self._record("ssm_delete_parameters", path_prefix)
+
     # -- S3 ------------------------------------------------------------
 
     def s3_bucket_exists(self, name: str) -> bool:
@@ -530,6 +539,10 @@ class FakeAWSClient:
     def s3_block_public_access(self, name: str) -> None:
         self._record("s3_block_public_access", name)
 
+    def s3_delete_bucket(self, name: str) -> None:
+        self._record("s3_delete_bucket", name)
+        self.bucket_exists = False
+
     # -- DynamoDB ------------------------------------------------------
 
     def ddb_table_exists(self, name: str) -> bool:
@@ -539,6 +552,20 @@ class FakeAWSClient:
     def ddb_create_locking_table(self, name: str) -> None:
         self._record("ddb_create_locking_table", name)
         self.table_exists = True
+
+    def ddb_delete_table(self, name: str) -> None:
+        self._record("ddb_delete_table", name)
+        self.table_exists = False
+
+    # -- Mod 052 (Gap F): teardown probes ------------------------------
+
+    def rds_protected_instances(self, prefix: str) -> list[str]:
+        self._record("rds_protected_instances", prefix)
+        return list(self.rds_protected_results.get(prefix, []))
+
+    def ecr_repository_image_count(self, repository: str) -> int:
+        self._record("ecr_repository_image_count", repository)
+        return self.ecr_image_count_results.get(repository, 0)
 
     # -- ECS -----------------------------------------------------------
 

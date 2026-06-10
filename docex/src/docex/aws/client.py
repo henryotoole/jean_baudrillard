@@ -50,6 +50,15 @@ class AWSClient(Protocol):
         """
         ...
 
+    def ssm_delete_parameters(self, path_prefix: str) -> None:
+        """Delete every SSM parameter whose name begins with ``path_prefix``.
+
+        Mod 052 (Gap F): teardown cleanup. ``path_prefix`` is a path like
+        ``/<project>/<env>/`` or ``/<project>/`` — every parameter under
+        it is removed. Idempotent: a prefix matching nothing is a no-op.
+        """
+        ...
+
     # ------------------------------------------------------------------
     # S3 (bootstrap)
     # ------------------------------------------------------------------
@@ -93,6 +102,45 @@ class AWSClient(Protocol):
     def ddb_create_locking_table(self, name: str) -> None:
         """Create the OpenTofu state-locking table (LockID/string PK,
         on-demand billing). Per elastic_bootstrap.md."""
+        ...
+
+    def ddb_delete_table(self, name: str) -> None:
+        """Delete a DynamoDB table. Mod 052 (Gap F): used to remove the
+        OpenTofu state-lock table during ``projinfra down production``.
+        A missing table is tolerated (idempotent teardown)."""
+        ...
+
+    # ------------------------------------------------------------------
+    # Mod 052 (Gap F): teardown probes / deletions
+    # ------------------------------------------------------------------
+
+    def rds_protected_instances(self, prefix: str) -> list[str]:
+        """Return the identifiers of RDS instances whose identifier begins
+        with ``prefix`` and which have ``DeletionProtection`` enabled.
+
+        Mod 052 (Gap F): the env-down safety gate. ``docex envinfra down
+        <elastic env>`` calls this with the env's instance prefix
+        (hyphenated ``<project_dns_label>-<env>-``); a non-empty result
+        means the env contains deletion-protected stateful resources, so
+        the command refuses-and-reports *before* destroying anything.
+        docex never disables a protection itself.
+        """
+        ...
+
+    def s3_delete_bucket(self, name: str) -> None:
+        """Empty and delete an S3 bucket. Mod 052 (Gap F): removes the
+        OpenTofu state-backend bucket during ``projinfra down production``
+        — the last thing torn down, once nothing tofu-managed remains. A
+        missing bucket is tolerated (idempotent teardown)."""
+        ...
+
+    def ecr_repository_image_count(self, repository: str) -> int:
+        """Return the number of images in an ECR repository.
+
+        Mod 052 (Gap F): the ``projinfra down production`` pre-flight. A
+        non-empty repo is surfaced as a blocker (the operator empties it
+        and re-runs). A missing repository returns 0 (nothing to block on).
+        """
         ...
 
     # ------------------------------------------------------------------

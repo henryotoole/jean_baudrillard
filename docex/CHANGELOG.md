@@ -48,6 +48,32 @@ dated at cut time per `docex_process.md § Cutting a version`.
   (the Docker healthcheck would otherwise error, the container would be
   marked `unhealthy`, and Traefik would silently drop the route). Turns
   a silent unhealthy-route-death into a loud, early failure.
+- **ECS container logs → CloudWatch (Gap E, mod 052).** Elastic ECS task
+  definitions now emit an `awslogs` `logConfiguration` on **every**
+  container — the application container, the OTel sidecar, and the
+  `_migrate` container — pointing at a new per-(env, service)
+  `aws_cloudwatch_log_group` (30-day retention, `managed_by` tag). The
+  three containers share the group, distinguished by
+  `awslogs-stream-prefix` (`app` / `otelcol` / `migrate`). The log-group
+  name's `/<project>/<env>/` prefix uses the raw, underscore-preserving
+  project form so it falls under the task-execution role's existing
+  `log-group:/<project>/<env>/*` IAM scope; `awslogs-create-group` is
+  not set (the role lacks `CreateLogGroup` — tofu owns the group).
+  Container stdout/stderr (crashes, a failing `migrate.sh`) is now
+  captured on elastic.
+- **Safe elastic teardown (Gap F, mod 052).** `docex envinfra down` now
+  tears down elastic `stage`/`prod` env-tier (`tofu destroy` of the env
+  `main.tf`) behind a deletion-protection pre-flight gate that **refuses
+  before destroying anything** if any RDS instance in the env is
+  deletion-protected (docex never disables a protection itself). `docex
+  envinfra up` stays dev/test-only. `docex projinfra down production`
+  automates the elastic project-tier teardown (`run_projinfra_elastic_down`,
+  the inverse of `run_bootstrap`): refuse-if-envs-up, ECR-emptiness
+  pre-flight, project-tier `tofu destroy`, then SSM + state-backend
+  (S3 bucket + DynamoDB lock table) cleanup — replacing the manual
+  `teardown.sh` path. New `tofu_destroy` runner plus narrow
+  `rds_protected_instances` / `ssm_delete_parameters` / `s3_delete_bucket`
+  / `ddb_delete_table` / `ecr_repository_image_count` `AWSClient` methods.
 
 ### Fixed
 

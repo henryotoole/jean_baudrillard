@@ -105,6 +105,36 @@ def tofu_apply(
     return res.returncode
 
 
+def tofu_destroy(
+    workdir: Path,
+    *,
+    auto_approve: bool = True,
+    targets: list[str] | None = None,
+) -> int:
+    """``tofu destroy`` in ``workdir``. Returns exit code.
+
+    Mirrors :func:`tofu_apply` for the teardown direction. ``docex
+    envinfra down`` (elastic stage/prod env-tier) and ``docex projinfra
+    down production`` (elastic project-tier) both run in a push-button
+    context, so ``auto_approve`` defaults to ``True`` here (the inverse
+    of ``tofu_apply``'s footgun-resistant default — a destroy is always
+    deliberately invoked by the operator, never as a side effect).
+
+    ``targets`` restricts the destroy to the given resource addresses
+    (each rendered as ``-target=<addr>``).
+    """
+    cmd: list[str] = ["tofu", f"-chdir={workdir}", "destroy", "-input=false"]
+    if auto_approve:
+        cmd.append("-auto-approve")
+    for addr in (targets or []):
+        cmd.append(f"-target={addr}")
+    try:
+        res = subprocess.run(cmd, check=False)  # noqa: S603
+    except FileNotFoundError:
+        return 127
+    return res.returncode
+
+
 def tofu_state_list(workdir: Path) -> list[str]:
     """``tofu state list`` in ``workdir``. Returns resource addresses.
 

@@ -308,7 +308,7 @@ def test_envinfra_down_not_gated_by_preinfra(
         called["preinfra"] = True
         return 1
 
-    def fake_run_down(ctx, docker, *, env):
+    def fake_run_down(ctx, docker, *, env, **kwargs):
         called["run_down"] = True
         return 0
 
@@ -329,7 +329,7 @@ def test_envinfra_down_dispatches_to_run_down(monkeypatch, sample_ctx):
 
     captured = {}
 
-    def fake_run_down(ctx, docker, *, env):
+    def fake_run_down(ctx, docker, *, env, **kwargs):
         captured["env"] = env
         captured["docker"] = docker
         return 0
@@ -343,11 +343,44 @@ def test_envinfra_down_dispatches_to_run_down(monkeypatch, sample_ctx):
 
 
 @pytest.mark.parametrize("env", ["stage", "prod"])
-def test_envinfra_refuses_stage_and_prod(env):
-    # argparse rejects stage/prod from the choices.
-    with pytest.raises(SystemExit) as excinfo:
-        _cmd_envinfra(["up", env])
-    assert excinfo.value.code == 2
+def test_envinfra_down_allows_stage_and_prod(monkeypatch, elastic_ctx, env):
+    """Mod 052 (Gap F): ``down`` now accepts stage/prod. The dispatcher
+    threads aws + the tofu runners through to ``run_down``."""
+    monkeypatch.chdir(elastic_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+    monkeypatch.setattr("docex.__main__._make_aws_client", lambda: object())
+
+    captured = {}
+
+    def fake_run_down(ctx, docker, *, env, aws=None, tofu_init=None,
+                      tofu_destroy=None):
+        captured["env"] = env
+        captured["aws"] = aws
+        captured["tofu_init"] = tofu_init
+        captured["tofu_destroy"] = tofu_destroy
+        return 0
+
+    monkeypatch.setattr("docex.orchestrate.down.run_down", fake_run_down)
+
+    rc = _cmd_envinfra(["down", env])
+    assert rc == 0
+    assert captured["env"] == env
+    assert captured["aws"] is not None
+    assert captured["tofu_init"] is not None
+    assert captured["tofu_destroy"] is not None
+
+
+@pytest.mark.parametrize("env", ["stage", "prod"])
+def test_envinfra_up_refuses_stage_and_prod(monkeypatch, capsys, sample_ctx, env):
+    """Mod 052 (Gap F): ``up`` stays dev/test-only — stage/prod up is
+    `release`'s job. The rejection is a clean exit-1 with a clear message
+    (not an argparse error, since `down` accepts stage/prod)."""
+    monkeypatch.chdir(sample_ctx.project_root)
+    rc = _cmd_envinfra(["up", env])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "docex release" in out
+    assert env in out
 
 
 def test_envinfra_rejects_unknown_direction():
@@ -426,26 +459,22 @@ def test_projinfra_elastic_up_production_refuses_when_preinfra_fails(
 
 
 @pytest.mark.parametrize(
-    "direction,side,routes_to_fixed",
+    "direction,side",
     [
         # Mod 048: elastic's DEVELOPMENT side (up + down) is mechanically
         # identical to fixed dev-side projinfra (same emit shape per
         # `projinfra/overview.md § Why all four web networks live on
         # every side`). Both directions route to the fixed-style code
         # path now — no longer stubs.
-        ("up", "development", True),
-        ("down", "development", True),
-        # `down production` on elastic remains operator-driven (run
-        # teardown.sh) — dispatcher prints a "no automated path yet"
-        # message and exits 0.
-        ("down", "production", False),
+        ("up", "development"),
+        ("down", "development"),
     ],
 )
 def test_projinfra_elastic_dev_side_routes_fixed_style(
-    monkeypatch, capsys, elastic_ctx, direction, side, routes_to_fixed,
+    monkeypatch, capsys, elastic_ctx, direction, side,
 ):
-    """Mod 048: elastic dev-side projinfra now dispatches to the
-    fixed-style runner. Production-side down still informs and exits."""
+    """Mod 048: elastic dev-side projinfra dispatches to the fixed-style
+    runner."""
     monkeypatch.chdir(elastic_ctx.project_root)
 
     called = {
@@ -487,18 +516,42 @@ def test_projinfra_elastic_dev_side_routes_fixed_style(
     rc = _cmd_projinfra([direction, side])
     assert rc == 0
     assert called["run_bootstrap"] is False
-    if routes_to_fixed:
-        # Up runs preinfra gate then fixed-style up; down runs only fixed-style down.
-        if direction == "up":
-            assert called["run_preinfra"] is True
-            assert called["run_projinfra_fixed_up"] is True
-        else:
-            assert called["run_projinfra_fixed_down"] is True
+    # Up runs preinfra gate then fixed-style up; down runs only fixed-style down.
+    if direction == "up":
+        assert called["run_preinfra"] is True
+        assert called["run_projinfra_fixed_up"] is True
     else:
-        # Elastic + down + production: fall-through message.
-        out = capsys.readouterr().out
-        assert "no automated path yet" in out
-        assert direction in out and side in out
+        assert called["run_projinfra_fixed_down"] is True
+
+
+def test_projinfra_elastic_down_production_dispatches_to_elastic_down(
+    monkeypatch, elastic_ctx,
+):
+    """Mod 052 (Gap F): elastic ``down production`` now dispatches to
+    ``run_projinfra_elastic_down`` (replacing the manual teardown stub),
+    threading the AWS client and tofu runners."""
+    monkeypatch.chdir(elastic_ctx.project_root)
+    aws_sentinel = object()
+    monkeypatch.setattr("docex.__main__._make_aws_client", lambda: aws_sentinel)
+
+    captured = {}
+
+    def fake_elastic_down(ctx, aws, *, tofu_init, tofu_destroy):
+        captured["aws"] = aws
+        captured["tofu_init"] = tofu_init
+        captured["tofu_destroy"] = tofu_destroy
+        return 0
+
+    monkeypatch.setattr(
+        "docex.pipeline.projinfra.run_projinfra_elastic_down",
+        fake_elastic_down,
+    )
+
+    rc = _cmd_projinfra(["down", "production"])
+    assert rc == 0
+    assert captured["aws"] is aws_sentinel
+    assert captured["tofu_init"] is not None
+    assert captured["tofu_destroy"] is not None
 
 
 @pytest.mark.parametrize(

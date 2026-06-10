@@ -20,6 +20,7 @@ import pytest
 
 from docex.cicl.compile import run_compile
 from docex.pipeline.projinfra import (
+    run_projinfra_elastic_down,
     run_projinfra_fixed_down,
     run_projinfra_fixed_up,
 )
@@ -167,3 +168,97 @@ def test_projinfra_fixed_down_missing_compose_file_warns_and_succeeds(
     assert not any(c[0] == "compose_down" for c in fake_docker.calls), (
         fake_docker.calls
     )
+
+
+# ---------------------------------------------------------------------------
+# Mod 052 (Gap F): elastic projinfra down production.
+# ---------------------------------------------------------------------------
+
+
+def _compile_project_tier(ctx):
+    """Compile so the project-tier main.tf exists for the destroy step."""
+    rc = run_compile(ctx)
+    assert rc == 0
+
+
+def test_projinfra_elastic_down_refuses_when_env_cluster_exists(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
+):
+    """Refuse-if-envs-up: any live env ECS cluster blocks the teardown.
+    Nothing is destroyed (no tofu, no cleanup)."""
+    _compile_project_tier(elastic_ctx)
+    # Default fake `cluster_exists=True` → both stage and prod read as live.
+    fake_aws.cluster_exists = True
+
+    rc = run_projinfra_elastic_down(
+        elastic_ctx, fake_aws,
+        tofu_init=fake_tofu_init, tofu_destroy=fake_tofu_apply,
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "env-tier resources still exist" in out
+    assert "envinfra down" in out
+    assert "Nothing was destroyed" in out
+    # No destroy, no cleanup.
+    assert fake_tofu_apply.calls == []
+    assert not any(c[0] == "ssm_delete_parameters" for c in fake_aws.calls)
+    assert not any(c[0] == "s3_delete_bucket" for c in fake_aws.calls)
+    assert not any(c[0] == "ddb_delete_table" for c in fake_aws.calls)
+
+
+def test_projinfra_elastic_down_refuses_on_nonempty_ecr(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
+):
+    """ECR pre-flight: a non-empty repo blocks the teardown. Nothing is
+    destroyed."""
+    _compile_project_tier(elastic_ctx)
+    fake_aws.cluster_exists = False  # envs are down
+    fake_aws.ecr_image_count_results["sample/api"] = 3
+
+    rc = run_projinfra_elastic_down(
+        elastic_ctx, fake_aws,
+        tofu_init=fake_tofu_init, tofu_destroy=fake_tofu_apply,
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "sample/api has 3 image(s)" in out
+    assert "Nothing was destroyed" in out
+    assert fake_tofu_apply.calls == []
+    assert not any(c[0] == "s3_delete_bucket" for c in fake_aws.calls)
+
+
+def test_projinfra_elastic_down_clean_path_orders_cleanup(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """Clean path: tofu destroy, then SSM delete, then state backend
+    (S3 bucket + DDB table) — in that order, state backend last."""
+    _compile_project_tier(elastic_ctx)
+    fake_aws.cluster_exists = False
+    # ECR empty by default (image count 0).
+
+    rc = run_projinfra_elastic_down(
+        elastic_ctx, fake_aws,
+        tofu_init=fake_tofu_init, tofu_destroy=fake_tofu_apply,
+    )
+    assert rc == 0
+
+    # tofu init + destroy ran against the project production dir.
+    assert len(fake_tofu_init.calls) == 1
+    assert len(fake_tofu_apply.calls) == 1
+    workdir = str(fake_tofu_apply.calls[0]["workdir"])
+    assert workdir.endswith("infra/output/project/production")
+
+    # Cleanup order: ssm_delete_parameters → s3_delete_bucket → ddb_delete_table.
+    cleanup = [
+        c[0] for c in fake_aws.calls
+        if c[0] in ("ssm_delete_parameters", "s3_delete_bucket", "ddb_delete_table")
+    ]
+    assert cleanup == ["ssm_delete_parameters", "s3_delete_bucket", "ddb_delete_table"]
+
+    # Cleanup targeted the right names.
+    ssm_call = next(c for c in fake_aws.calls if c[0] == "ssm_delete_parameters")
+    assert ssm_call[1] == ("/sample/",)
+    s3_call = next(c for c in fake_aws.calls if c[0] == "s3_delete_bucket")
+    assert s3_call[1] == ("sample-tofu-state",)
+    ddb_call = next(c for c in fake_aws.calls if c[0] == "ddb_delete_table")
+    assert ddb_call[1] == ("sample_tofu_locks",)

@@ -136,6 +136,36 @@ def _ssm_arn_literal(project: str, env: str, var: str) -> HCLLiteral:
     )
 
 
+def _log_configuration(
+    project: str, env: str, svc_name: str, stream_prefix: str
+) -> dict[str, Any]:
+    """Build an ``awslogs`` ``logConfiguration`` for an ECS container.
+
+    All three container kinds in a service's task definitions (app, OTel
+    sidecar, ``_migrate``) share one per-(env, service) CloudWatch log
+    group, distinguished only by ``awslogs-stream-prefix``.
+
+    WHY ``project`` (raw, underscore-preserving): the log-group ``name``
+    prefix ``/<project>/<env>/`` must match the task-execution role's IAM
+    ``log-group:/<ssm_path_project>/<env>/*`` scope. The ``ssm_path``
+    naming policy preserves underscores (matching the SSM ARN prefix in
+    :func:`_ssm_arn_literal`), so the group name must use the same raw
+    project form — *not* the dns-label form. ``awslogs-create-group`` is
+    deliberately omitted: the role lacks ``CreateLogGroup``; tofu owns the
+    group (see ``aws_cloudwatch_log_group`` emitted alongside).
+    """
+    return {
+        "logDriver": "awslogs",
+        "options": {
+            "awslogs-group": HCLLiteral(
+                f"aws_cloudwatch_log_group.{svc_name}.name"
+            ),
+            "awslogs-region": ELASTIC_REGION,
+            "awslogs-stream-prefix": stream_prefix,
+        },
+    }
+
+
 def _ssm_data_name(svc_name: str, key: str) -> str:
     """Form a deterministic data-source name for an SSM-backed value.
 
@@ -280,6 +310,10 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
         "name": svc.name,
         "image": body.get("image", ""),
         "essential": True,
+        # Mod 052 (Gap E): Class-2 diagnostic stdout/stderr → CloudWatch.
+        "logConfiguration": _log_configuration(
+            ctx.project, ctx.env, svc.name, "app"
+        ),
     }
     if svc.port is not None:
         container_def["portMappings"] = [
@@ -349,12 +383,34 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
                  "valueFrom": _ssm_arn_literal(
                      ctx.project, ctx.env, "TELEMETRY_API_KEY")},
             ],
+            # Mod 052 (Gap E): the sidecar's own stdout/stderr (startup,
+            # crashes, the dev `debug` exporter dump) → the shared group.
+            "logConfiguration": _log_configuration(
+                ctx.project, ctx.env, svc.name, "otelcol"
+            ),
         }
 
     project_tag = svc.body.get("tags", {}).get("project", "")
     env_tag = svc.body.get("tags", {}).get("env", "")
 
     out: list[str] = []
+    # Mod 052 (Gap E): one CloudWatch log group per (env, service). The
+    # app container, the OTel sidecar, and the `_migrate` container all
+    # write here, distinguished by `awslogs-stream-prefix`. The `name`'s
+    # `/<project>/<env>/` prefix uses the raw (underscore-preserving)
+    # project form so it falls under the task-execution role's IAM
+    # `log-group:/<ssm_path_project>/<env>/*` scope (the `ssm_path`
+    # naming policy preserves underscores — see _log_configuration).
+    out.append(f'resource "aws_cloudwatch_log_group" "{svc.name}" {{')
+    out.append(f'  name              = "/{ctx.project}/{ctx.env}/{svc.name}"')
+    out.append( '  retention_in_days = 30')
+    out.append(
+        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
+        f'service = "{svc.name}", role = "{svc.role}", '
+        f'managed_by = "doctrine" }}'
+    )
+    out.append("}")
+    out.append("")
     out.append(f'resource "aws_ecs_task_definition" "{svc.name}" {{')
     out.append(f'  family                   = "{svc.global_name}"')
     out.append( '  requires_compatibilities = ["FARGATE"]')
@@ -407,6 +463,11 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
             "image": body.get("image", ""),
             "essential": True,
             "command": ["/service/migrate.sh"],
+            # Mod 052 (Gap E): migration stdout is the headline Class-2
+            # case — a failing `migrate.sh` was previously invisible.
+            "logConfiguration": _log_configuration(
+                ctx.project, ctx.env, svc.name, "migrate"
+            ),
         }
         if env_entries:
             mig_container["environment"] = env_entries

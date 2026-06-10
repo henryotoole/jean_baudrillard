@@ -160,9 +160,14 @@ def _require_docker() -> "object":
 
 
 def _cmd_envinfra(args: list[str]) -> int:
-    """``docex envinfra <direction> <env>`` — bring up or tear down a
-    local dev / test environment. Dev/test only; stage/prod go via
-    `release`.
+    """``docex envinfra <direction> <env>`` — bring up or tear down an
+    environment.
+
+    ``up`` is **dev/test only**: bringing stage/prod up needs a
+    versioned build, which is ``docex release``'s job. ``down`` covers
+    **all** envs (Mod 052, Gap F): dev/test (and fixed stage/prod) tear
+    down their compose stack; elastic stage/prod ``tofu destroy`` the
+    env-tier HCL behind a deletion-protection pre-flight gate.
 
     Mod 042: ``up`` refuses when ``preinfra development`` fails;
     teardown is not gated (preinfra existence isn't required to remove
@@ -171,17 +176,25 @@ def _cmd_envinfra(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex envinfra", add_help=True)
     parser.add_argument("direction", choices=["up", "down"],
                         help="up | down")
-    parser.add_argument("env", choices=["dev", "test"],
-                        help="environment (dev or test)")
+    parser.add_argument("env", choices=["dev", "test", "stage", "prod"],
+                        help="environment (dev/test for up; any for down)")
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
 
     ctx = load_project_context(Path(os.getcwd()))
-    docker = _require_docker()
 
     if ns.direction == "up":
-        # envinfra is dev/test only — always development side, never
+        if ns.env not in ("dev", "test"):
+            print(
+                f"error: 'docex envinfra up {ns.env}' is not supported — "
+                f"stage/prod are brought up by `docex release` (an elastic "
+                f"env's ECS/RDS are created by the release `tofu apply`, "
+                f"which also requires a versioned build)."
+            )
+            return 1
+        docker = _require_docker()
+        # envinfra up is dev/test only — always development side, never
         # needs AWS even on elastic projects.
         from docex.pipeline.preinfra import run_preinfra
         rc = run_preinfra(ctx, docker, aws=None, side="development")
@@ -190,9 +203,19 @@ def _cmd_envinfra(args: list[str]) -> int:
             return rc
         from docex.orchestrate.up import run_up
         return run_up(ctx, docker, env=ns.env)
-    else:
-        from docex.orchestrate.down import run_down
-        return run_down(ctx, docker, env=ns.env)
+
+    # down — all envs. Elastic stage/prod need AWS + the tofu runners
+    # for the deletion-protection gate and `tofu destroy`; dev/test (and
+    # fixed stage/prod) only need docker. Thread all transports; the
+    # function dispatches on foundation/env.
+    docker = _require_docker()
+    from docex.opentofu import tofu_destroy, tofu_init
+    from docex.orchestrate.down import run_down
+    aws = _make_aws_client()
+    return run_down(
+        ctx, docker, env=ns.env,
+        aws=aws, tofu_init=tofu_init, tofu_destroy=tofu_destroy,
+    )
 
 
 def _cmd_preinfra(args: list[str]) -> int:
@@ -315,16 +338,27 @@ def _cmd_projinfra(args: list[str]) -> int:
             return rc
         return run_bootstrap(ctx, aws)
 
-    # Remaining case: elastic + down + production. Tearing down the
-    # production side of an elastic project still routes through the
-    # existing bootstrap-down path, which is the operator's manual
-    # `tofu destroy` per teardown.sh. No automated docex path yet.
+    # Remaining case: elastic + down + production (Mod 052, Gap F).
+    # Automated project-tier teardown: refuse-if-envs-up, then
+    # `tofu destroy` the project tier + ECR/SSM/state-backend cleanup.
+    if (ctx.infra is not None
+            and ctx.infra.foundation == "elastic"
+            and ns.direction == "down"
+            and ns.side == "production"):
+        from docex.opentofu import tofu_destroy, tofu_init
+        from docex.pipeline.projinfra import run_projinfra_elastic_down
+        aws = _make_aws_client()
+        return run_projinfra_elastic_down(
+            ctx, aws, tofu_init=tofu_init, tofu_destroy=tofu_destroy,
+        )
+
+    # Fallthrough: elastic + down + development is handled by the
+    # fixed-style branch above; nothing else should reach here.
     print(
         f"projinfra {ns.direction} {ns.side} on elastic foundation: "
-        f"no automated path yet for production-side down. Run "
-        f"`teardown.sh` manually to destroy elastic prod resources."
+        f"unsupported combination."
     )
-    return 0
+    return 1
 
 
 # ---------------------------------------------------------------------------

@@ -13,9 +13,10 @@ from __future__ import annotations
 
 from docex.opentofu.subprocess_runner import (
     tofu_apply,
+    tofu_destroy,
     tofu_init,
     tofu_plan,
     tofu_validate,
 )
 
-__all__ = ["tofu_apply", "tofu_init", "tofu_plan", "tofu_validate"]
+__all__ = ["tofu_apply", "tofu_destroy", "tofu_init", "tofu_plan", "tofu_validate"]

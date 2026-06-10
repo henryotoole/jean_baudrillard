@@ -104,6 +104,20 @@ class Boto3AWSClient:
             Overwrite=overwrite,
         )
 
+    def ssm_delete_parameters(self, path_prefix: str) -> None:
+        ssm = self._client("ssm")
+        paginator = ssm.get_paginator("describe_parameters")
+        names: list[str] = []
+        for page in paginator.paginate(
+            ParameterFilters=[
+                {"Key": "Name", "Option": "BeginsWith", "Values": [path_prefix]}
+            ]
+        ):
+            names.extend(p["Name"] for p in page.get("Parameters", []))
+        # DeleteParameters accepts at most 10 names per call.
+        for i in range(0, len(names), 10):
+            ssm.delete_parameters(Names=names[i : i + 10])
+
     # ------------------------------------------------------------------
     # S3
     # ------------------------------------------------------------------
@@ -168,6 +182,29 @@ class Boto3AWSClient:
             },
         )
 
+    def s3_delete_bucket(self, name: str) -> None:
+        s3 = self._client("s3")
+        try:
+            # Empty the bucket first — DeleteBucket fails on a non-empty
+            # one. The state backend is versioned, so delete object
+            # versions and delete-markers, not just current keys.
+            paginator = s3.get_paginator("list_object_versions")
+            for page in paginator.paginate(Bucket=name):
+                to_delete = [
+                    {"Key": o["Key"], "VersionId": o["VersionId"]}
+                    for o in page.get("Versions", []) + page.get("DeleteMarkers", [])
+                ]
+                if to_delete:
+                    s3.delete_objects(
+                        Bucket=name, Delete={"Objects": to_delete}
+                    )
+            s3.delete_bucket(Bucket=name)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code in ("404", "NoSuchBucket", "NotFound"):
+                return  # already gone — idempotent teardown
+            raise
+
     # ------------------------------------------------------------------
     # DynamoDB
     # ------------------------------------------------------------------
@@ -194,6 +231,43 @@ class Boto3AWSClient:
         # (or, more commonly, a re-run of bootstrap) don't race.
         waiter = ddb.get_waiter("table_exists")
         waiter.wait(TableName=name)
+
+    def ddb_delete_table(self, name: str) -> None:
+        ddb = self._client("dynamodb")
+        try:
+            ddb.delete_table(TableName=name)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+                return  # already gone — idempotent teardown
+            raise
+
+    # ------------------------------------------------------------------
+    # Mod 052 (Gap F): teardown probes / deletions
+    # ------------------------------------------------------------------
+
+    def rds_protected_instances(self, prefix: str) -> list[str]:
+        rds = self._client("rds")
+        protected: list[str] = []
+        paginator = rds.get_paginator("describe_db_instances")
+        for page in paginator.paginate():
+            for inst in page.get("DBInstances", []):
+                identifier = inst.get("DBInstanceIdentifier", "")
+                if identifier.startswith(prefix) and inst.get("DeletionProtection"):
+                    protected.append(identifier)
+        return sorted(protected)
+
+    def ecr_repository_image_count(self, repository: str) -> int:
+        ecr = self._client("ecr")
+        try:
+            count = 0
+            paginator = ecr.get_paginator("list_images")
+            for page in paginator.paginate(repositoryName=repository):
+                count += len(page.get("imageIds", []))
+            return count
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "RepositoryNotFoundException":
+                return 0  # missing repo — nothing to block on
+            raise
 
     # ------------------------------------------------------------------
     # ECS
