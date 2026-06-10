@@ -73,3 +73,33 @@ def test_build_returns_failure_exit_code_from_build_sh(sample_ctx, fake_docker):
     fake_docker.exit_codes[("exit", "compose_exec", "api", ("./build.sh",))] = 3
     rc = run_build(sample_ctx, fake_docker, service="api")
     assert rc == 3
+
+
+def test_build_diagnoses_restarting_container(sample_ctx, fake_docker):
+    """Gap D (mod 050): when the target service is not in the running set
+    but ``compose_ps_status`` reports it restarting, the refusal message
+    names the restarting state and points at logs — not the generic
+    'run docex up dev first'.
+
+    The env-running gate (``run_build``) only needs *something* up, so a
+    different service (``worker``) running keeps us past it while the
+    requested ``api`` is absent from the running-only view and crash-
+    looping in the all-states view."""
+    fake_docker.ps_services = ["worker"]  # env is up, but api is absent
+    fake_docker.ps_status = {"sample-dev-api": "restarting"}
+    with pytest.raises(EnvNotRunning) as excinfo:
+        run_build(sample_ctx, fake_docker, service="api")
+    msg = str(excinfo.value)
+    assert "restarting" in msg
+    assert "docker logs" in msg
+    assert "run 'docex up dev' first" not in msg
+
+
+def test_build_absent_container_keeps_generic_message(sample_ctx, fake_docker):
+    """When the service is genuinely absent (not in status either), the
+    original 'run docex up dev first' message stands."""
+    fake_docker.ps_services = ["worker"]  # env is up, but api is absent
+    fake_docker.ps_status = {}  # api not present at all
+    with pytest.raises(EnvNotRunning) as excinfo:
+        run_build(sample_ctx, fake_docker, service="api")
+    assert "run 'docex up dev' first" in str(excinfo.value)

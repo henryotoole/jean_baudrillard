@@ -675,3 +675,34 @@ def fake_tofu_apply() -> RecordingTofuRunner:
 @pytest.fixture
 def fake_tofu_plan() -> RecordingTofuRunner:
     return RecordingTofuRunner(name="tofu_plan")
+
+
+# ---------------------------------------------------------------------------
+# Fake SSH client (mod 050).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FakeSSHClient:
+    """Recording, scriptable stand-in for ``SSHClient``.
+
+    ``results`` maps a host to the exit code ``run`` should return for
+    that host (e.g. ``{"stage.sample.example.com": 0,
+    "sample.example.com": 1}``). Hosts not in the map fall back to
+    ``default_exit`` (0). Every invocation is recorded in ``calls`` so
+    tests can assert which hosts were (and weren't) probed.
+    """
+
+    results: dict[str, int] = field(default_factory=dict)
+    default_exit: int = 0
+    calls: list[tuple] = field(default_factory=list)
+
+    def run(self, host, key_path, command, *, user="deploy"):
+        self.calls.append(("run", host, str(key_path), command, user))
+        return self.results.get(host, self.default_exit)
+
+
+@pytest.fixture
+def fake_ssh() -> FakeSSHClient:
+    """Pytest fixture: fresh FakeSSHClient per test."""
+    return FakeSSHClient()

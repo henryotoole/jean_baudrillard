@@ -220,7 +220,13 @@ def _cmd_preinfra(args: list[str]) -> int:
         and ns.side == "production"
     )
     aws = _make_aws_client() if needs_aws else None
-    return run_preinfra(ctx, docker, aws, side=ns.side)
+    needs_ssh = (
+        ctx.infra is not None
+        and ctx.infra.foundation == "fixed"
+        and ns.side == "production"
+    )
+    ssh = _make_ssh_client() if needs_ssh else None
+    return run_preinfra(ctx, docker, aws, side=ns.side, ssh=ssh)
 
 
 def _cmd_projinfra(args: list[str]) -> int:
@@ -270,8 +276,16 @@ def _cmd_projinfra(args: list[str]) -> int:
         if ns.direction == "up":
             # Mod 042: precondition gate. Fixed-side preinfra needs
             # only docker, never AWS.
+            #
+            # Mod 050: the (fixed, production) preinfra branch probes the
+            # target host for the registry credential over SSH, so supply
+            # an SSH client for that case (lazy, mirroring aws).
             from docex.pipeline.preinfra import run_preinfra
-            rc = run_preinfra(ctx, docker, aws=None, side=ns.side)
+            needs_ssh = (
+                ctx.infra.foundation == "fixed" and ns.side == "production"
+            )
+            ssh = _make_ssh_client() if needs_ssh else None
+            rc = run_preinfra(ctx, docker, aws=None, side=ns.side, ssh=ssh)
             if rc != 0:
                 print(
                     f"error: preinfra {ns.side} failed; "
@@ -398,6 +412,18 @@ def _make_aws_client() -> "object":
     from docex.aws import Boto3AWSClient
 
     return Boto3AWSClient()
+
+
+def _make_ssh_client() -> "object":
+    """Construct a ``SubprocessSSHClient``.
+
+    Stateless and offline to construct — no connection is opened until
+    ``run`` is called. The dispatcher builds one for the fixed-
+    production preinfra branch (registry-cred probe).
+    """
+    from docex.ssh import SubprocessSSHClient
+
+    return SubprocessSSHClient()
 
 
 def _cmd_check(args: list[str]) -> int:

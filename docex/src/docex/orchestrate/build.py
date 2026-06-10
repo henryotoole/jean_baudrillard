@@ -97,6 +97,27 @@ def _build_one(
     # one whose suffix matches our simple name.
     matching = [s for s in running if s == svc or s.endswith(f"_{svc}") or s.endswith(f"-{svc}")]
     if not matching:
+        # ``compose_ps`` (above) lists only *running* services, so a
+        # crash-looping container reads as "not running" here. Consult
+        # the all-states view to tell a Restarting/unhealthy container
+        # apart from a genuinely-absent one and give the operator a
+        # diagnostic that points at the real problem. (Gap D, mod 050.)
+        status = docker.compose_ps_status(compose_file, env_file=env_file)
+        state = next(
+            (
+                st
+                for key, st in status.items()
+                if key == svc or key.endswith(f"_{svc}") or key.endswith(f"-{svc}")
+            ),
+            None,
+        )
+        if state in ("restarting", "unhealthy"):
+            raise EnvNotRunning(
+                f"dev container for service {svc!r} is {state}, not "
+                f"running — check `docker logs` for it. `docex build` "
+                f"needs a healthy dev container; fix the crash (often a "
+                f"missing env var or a failed prior build) and retry."
+            )
         raise EnvNotRunning(
             f"dev container for service {svc!r} is not running; "
             "run 'docex up dev' first."

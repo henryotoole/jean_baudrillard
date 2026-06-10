@@ -12,8 +12,13 @@ What gets checked, per (foundation, side):
     - The ``docex-ingress`` docker bridge network exists locally.
 
 - Fixed project, ``production`` side
-    - Same: the ``docex-ingress`` bridge exists locally (single-machine
+    - The ``docex-ingress`` bridge exists locally (single-machine
       fixed). Remote-host fixed prod is deferred multi-machine work.
+    - The target host carries the registry credential at both paths the
+      release playbook uses (``/home/deploy/.docker/config.json`` and
+      ``/root/.docker/config.json``), probed via SSH using the per-env
+      ``infra/deploy_creds/<env>`` keys. Catches the first-release 401
+      one tier before ``release`` instead of at ``docker compose pull``.
 
 - Elastic project, ``production`` side
     - In addition to ``docex-ingress``: the master VPC exists with the
@@ -28,8 +33,11 @@ What is intentionally NOT checked (per the design):
   docex-preinfra skill; no automation hook yet).
 - Observability backend URL reachability (per ``telemetry_infra.md``
   that's a ``docex check`` concern).
-- Container registry availability (``docex containerize`` surfaces
-  registry issues naturally).
+- Container registry *availability / reachability* — whether the
+  registry itself is up and serving (``docex containerize`` surfaces
+  that naturally). The fixed-production side does verify that the
+  target host carries the registry *credential* (see above); that is a
+  distinct concern from registry reachability.
 """
 
 from __future__ import annotations
@@ -37,6 +45,8 @@ from __future__ import annotations
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
+from docex.naming import dns_label
+from docex.ssh.client import SSHClient
 
 # Doctrine-prescribed master VPC tags. Must match the data-source
 # lookups in mod 041's project.tf.j2.
@@ -54,6 +64,7 @@ def run_preinfra(
     aws: AWSClient | None,
     *,
     side: str,
+    ssh: SSHClient | None = None,
 ) -> int:
     """Check prerequisite infrastructure for ``side``.
 
@@ -62,6 +73,11 @@ def run_preinfra(
     foundation is elastic and ``side`` is ``production``; callers
     (the dispatcher) construct it lazily for that case only so fixed-
     only operators don't need AWS creds to check the development side.
+
+    ``ssh`` is required iff the project's foundation is fixed and
+    ``side`` is ``production`` — the dispatcher constructs it lazily
+    for that case (mirroring ``aws``) so the registry-cred probe can
+    reach the target host. It stays ``None`` on every other branch.
     """
     failures: list[str] = []
 
@@ -74,6 +90,22 @@ def run_preinfra(
             f"not exist. Create it via the docex-preinfra skill: "
             f"`docker network create {_DOCEX_INGRESS_NETWORK}`."
         )
+
+    # Fixed + production: the target host's registry credential.
+    if (
+        ctx.infra is not None
+        and ctx.infra.foundation == "fixed"
+        and side == "production"
+    ):
+        if ssh is None:
+            # Defensive: the dispatcher is responsible for supplying an
+            # SSH client on this branch (mirrors the aws-None guard).
+            failures.append(
+                "fixed production side requires an SSH client but none "
+                "was provided (this is a dispatcher bug)."
+            )
+        else:
+            failures.extend(_check_fixed_registry_creds(ctx, ssh))
 
     # Elastic + production: master VPC and tagged subnets.
     if (
@@ -99,6 +131,61 @@ def run_preinfra(
         return 1
     print(f"preinfra {side} side: all checks passed.")
     return 0
+
+
+def _check_fixed_registry_creds(ctx: ProjectContext, ssh: SSHClient) -> list[str]:
+    """Verify both deploy hosts carry the registry credential at the two
+    paths the release playbook uses. Probes stage AND prod (the
+    'production side' covers both); for a single shared fixed host the
+    two probes harmlessly hit the same machine.
+
+    The release playbook pulls as ``deploy`` and runs ``compose up``
+    under ``become: true`` (root), so both ``~/.docker/config.json``
+    paths must exist. A local ``Path.is_file()`` can't read under the
+    mode-700 ``/root`` from the operator's non-root process, so we probe
+    over SSH exactly as release reaches the host.
+    """
+    failures: list[str] = []
+    registry = ctx.infra.container_registry or "<registry>"
+    label = dns_label(ctx.project.name)
+    # stage → stage.<label>.<apex>; prod → bare-project host <label>.<apex>
+    # (per release.md § Inventory).
+    hosts = {
+        "stage": f"stage.{label}.{ctx.infra.apex_domain}",
+        "prod": f"{label}.{ctx.infra.apex_domain}",
+    }
+    # One probe verifying both config paths: deploy's own and root's
+    # (the latter via passwordless sudo, which release already assumes).
+    probe = (
+        "test -f /home/deploy/.docker/config.json "
+        "&& sudo -n test -f /root/.docker/config.json"
+    )
+    for env in ("stage", "prod"):
+        key = ctx.project_root / "infra" / "deploy_creds" / env
+        if not key.is_file():
+            failures.append(
+                f"infra/deploy_creds/{env} missing — needed to reach the "
+                f"{env} host to verify registry creds."
+            )
+            continue
+        host = hosts[env]
+        rc = ssh.run(host, key, probe)
+        if rc == 0:
+            continue
+        if rc == 255:
+            failures.append(
+                f"could not reach {env} host {host!r} via "
+                f"infra/deploy_creds/{env} (SSH connect failed); cannot "
+                f"verify registry creds."
+            )
+        else:
+            failures.append(
+                f"registry credentials not found on {env} host {host!r} "
+                f"(checked /home/deploy/.docker/config.json and "
+                f"/root/.docker/config.json). Run `docker login {registry}` "
+                f"as both `deploy` and `root` on the host."
+            )
+    return failures
 
 
 def _check_elastic_master_vpc(aws: AWSClient) -> list[str]:

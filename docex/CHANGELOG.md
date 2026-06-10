@@ -30,6 +30,17 @@ dated at cut time per `docex_process.md § Cutting a version`.
 - **`naming.dns_label` helper (Gap J).** Public single-source-of-truth
   for the `underscores → hyphens, lowercased` DNS-label rule. `compile.py`'s
   former module-private `_dns_label` now delegates to it.
+- **`SSHClient` (Protocol + subprocess impl) (Gap G).** New three-place
+  client (`src/docex/ssh/`) exposing `run(host, key_path, command, *,
+  user="deploy") -> int` over `ssh -i <key> -o BatchMode=yes -o
+  StrictHostKeyChecking=accept-new -o ConnectTimeout=10`. Surfaces the
+  remote command's exit code (or SSH's own `255` on connect failure).
+- **Fixed-production registry-credential preinfra probe (Gap G).**
+  `run_preinfra` gains a lazy `ssh` param; the `(fixed, production)`
+  branch SSHes to both the stage and prod hosts (apex-derived via
+  `dns_label`, reusing `infra/deploy_creds/<env>` keys) and verifies the
+  registry credential exists at `/home/deploy/.docker/config.json` and
+  `/root/.docker/config.json`.
 
 ### Fixed
 
@@ -60,6 +71,18 @@ dated at cut time per `docex_process.md § Cutting a version`.
   one-line diagnostic per `restarting` / `unhealthy` / `exited` service
   (`docker logs` hint, env-var/healthcheck guidance). Diagnosis only —
   no auto-fix, no teardown.
+- **First fixed `docex release` failed at image pull with a registry
+  `401`, with nothing catching it earlier (Gap G).** `docex preinfra
+  production` (fixed) now verifies the target host carries the registry
+  credential before release, failing with a `docker login <registry>`
+  resolution at the preinfra tier instead of at `docker compose pull`.
+- **`docex build` couldn't distinguish a restarting dev container from
+  an absent one (Gap D).** When the requested service isn't in the
+  running set, `build` now consults `compose_ps_status`; a
+  `restarting` / `unhealthy` container yields a targeted diagnostic
+  (state + `docker logs` hint) rather than the generic "run 'docex up
+  dev' first." (The chicken-and-egg core was already closed by
+  `up.py::_ensure_initial_dev_build`.)
 
 ## [1.0.3] - 2026-06-09
 
