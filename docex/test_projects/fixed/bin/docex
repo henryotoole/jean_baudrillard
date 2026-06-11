@@ -65,6 +65,12 @@ MOUNTS=(
 # an empty root-owned dir on the host side.
 mkdir -p "$HOME/.docker"
 MOUNTS+=(-v "$HOME/.docker:$HOME/.docker")
+# F6 (mod 053): ansible writes local state (cp_local, fact cache, etc.)
+# under ~/.ansible during `release`. Mirror the ~/.docker treatment so
+# the bind has a real, writable source on the host instead of ansible
+# warning "Failed to create /home/<user>/.ansible".
+mkdir -p "$HOME/.ansible"
+MOUNTS+=(-v "$HOME/.ansible:$HOME/.ansible")
 [[ -d "$HOME/.aws" ]] && MOUNTS+=(-v "$HOME/.aws:$HOME/.aws:ro")
 [[ -f "$HOME/.gitconfig" ]] && MOUNTS+=(-v "$HOME/.gitconfig:$HOME/.gitconfig:ro")
 [[ -d "$HOME/.ssh" ]] && MOUNTS+=(-v "$HOME/.ssh:$HOME/.ssh:ro")

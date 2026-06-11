@@ -39,4 +39,5 @@ services:
     - /var/run/docker.sock:/var/run/docker.sock:ro
     - docex-smoke-fixed-traefik-acme:/letsencrypt
 volumes:
-  docex-smoke-fixed-traefik-acme: {}
+  docex-smoke-fixed-traefik-acme:
+    name: docex-smoke-fixed-traefik-acme

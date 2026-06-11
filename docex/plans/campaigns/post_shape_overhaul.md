@@ -1,8 +1,17 @@
 # Post-Shape-Overhaul Open Gaps
 
+> **Campaign status: CLOSED — cut as `docex 1.1.0` (2026-06-11).** Every gap
+> below (A–K; H was removed) was retired across the post-shape-overhaul polish
+> campaign, mods **049–053**, plus the pre-cut smoke-walk findings (mod 053,
+> F1–F18). Both test-project smoke walks were driven end-to-end against real
+> infrastructure per `PRE_CUT_CHECKLIST.md` (fixed + elastic), then re-walked
+> after mod 053 to confirm the fixes. Per-gap detail below is retained as the
+> historical roadmap; the authoritative per-mod narratives live under
+> `plans/modifications/049_*` … `053_*`.
+
 The 1.0.0 shape-and-tier campaign + the subsequent post-1.0.0 test-project re-inception + two smoke walks (fixed → mod 047; elastic → mod 048) surfaced a set of gaps that mods 046–048 did not fix in-band. They land here as a campaign-shaped roadmap so a future operator (or agent) can pick them up in priority order without having to re-derive them from changelogs and walk transcripts.
 
-Each gap entry follows the same shape: **Symptom → Root cause → Severity → Workaround → Fix shape**. The cut sequence the gaps belong to is open: a "post-shape-overhaul polish" campaign that retires them on whatever cadence the operator chooses.
+Each gap entry follows the same shape: **Symptom → Root cause → Severity → Workaround → Fix shape**. The cut sequence the gaps belonged to is now complete (see the campaign-status banner above).
 
 ---
 

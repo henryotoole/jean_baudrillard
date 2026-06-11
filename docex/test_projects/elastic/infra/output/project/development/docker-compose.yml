@@ -39,4 +39,5 @@ services:
     - /var/run/docker.sock:/var/run/docker.sock:ro
     - docex-smoke-elastic-traefik-acme:/letsencrypt
 volumes:
-  docex-smoke-elastic-traefik-acme: {}
+  docex-smoke-elastic-traefik-acme:
+    name: docex-smoke-elastic-traefik-acme
