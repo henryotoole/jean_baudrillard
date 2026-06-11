@@ -12,10 +12,12 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
-Changes accumulating toward a single `1.1.0` minor cut — mods 049–053 of
-the post-shape-overhaul polish campaign. Per-mod narratives live under
-`plans/modifications/049_*` … `053_*`; this section is consolidated and
-dated at cut time per `docex_process.md § Cutting a version`.
+## [1.1.0] - 2026-06-11
+
+The post-shape-overhaul polish campaign — mods 049–053. Per-mod narratives
+live under `plans/modifications/049_*` … `053_*`. Closes Gaps A–K plus the
+pre-cut smoke-walk findings (mod 053, F1–F18); validated by both
+test-project smoke walks per `PRE_CUT_CHECKLIST.md`.
 
 ### Added
 
