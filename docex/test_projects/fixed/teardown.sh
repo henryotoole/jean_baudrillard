@@ -86,11 +86,27 @@ for service in web worker; do
   done
 done
 
-# -- 5. Compiled output --------------------------------------------------
+# -- 5. Dev-side projinfra ------------------------------------------------
+# Mod 053 (F18): tear the dev-side projinfra (per-project traefik + four
+# `-web` networks) down BEFORE clearing infra/output — `projinfra down`
+# reads the compiled project compose file, so doing it after the rm would
+# no-op and orphan the traefik + networks (the source of the 24h-stale
+# traefik that broke a prior walk's `projinfra up`). With mod 053's
+# explicit `--project-name`, this down now also removes the four `-web`
+# networks, not just the traefik container. The step-2 stray sweep still
+# backstops any residue.
+if [[ -f "$PROJECT_ROOT/infra/output/project/development/docker-compose.yml" ]]; then
+  echo "-- projinfra down development"
+  (cd "$PROJECT_ROOT" && ./bin/docex projinfra down development) \
+    || echo "   (warning: projinfra down development had non-zero exit; continuing)"
+fi
+
+# -- 6. Compiled output --------------------------------------------------
 echo "-- compiled infra/output"
 rm -rf "$PROJECT_ROOT/infra/output/dev" \
        "$PROJECT_ROOT/infra/output/test" \
        "$PROJECT_ROOT/infra/output/stage" \
-       "$PROJECT_ROOT/infra/output/prod"
+       "$PROJECT_ROOT/infra/output/prod" \
+       "$PROJECT_ROOT/infra/output/project"
 
 echo "==> teardown complete. run verify_clean.sh to confirm."

@@ -72,9 +72,17 @@ ecr_repos="$(aws ecr describe-repositories \
 if [[ -n "$ecr_repos" ]]; then mark_fail "ECR repositories" "$ecr_repos"; else report_ok "ECR repositories"; fi
 
 # -- SSM parameters ------------------------------------------------------
-ssm_params="$(aws ssm describe-parameters \
-  --parameter-filters "Key=Name,Option=BeginsWith,Values=/${PROJECT_NAME}/" \
-  --query 'Parameters[*].Name' --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' || true)"
+# Mod 053 (F15): SSM parameter paths use the underscore project form
+# (`/${PROJECT_NAME}/…`, the `ssm_path` policy), but check the hyphenated
+# form too in case any path slipped through under the DNS-labeled name.
+ssm_params=""
+for prefix in "$PROJECT_NAME" "$PROJECT_AWS_PREFIX"; do
+  found="$(aws ssm describe-parameters \
+    --parameter-filters "Key=Name,Option=BeginsWith,Values=/${prefix}/" \
+    --query 'Parameters[*].Name' --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' || true)"
+  [[ -n "$found" ]] && ssm_params="${ssm_params}${found}"$'\n'
+done
+ssm_params="$(echo "$ssm_params" | grep -v '^$' | sort -u || true)"
 if [[ -n "$ssm_params" ]]; then mark_fail "SSM parameters" "$ssm_params"; else report_ok "SSM parameters"; fi
 
 # -- Route53 hosted zone -------------------------------------------------
@@ -90,9 +98,22 @@ certs="$(aws acm list-certificates \
 if [[ -n "$certs" ]]; then mark_fail "ACM certificates" "$certs"; else report_ok "ACM certificates"; fi
 
 # -- IAM execution role --------------------------------------------------
-iam_roles="$(aws iam list-roles \
-  --query "Roles[?starts_with(RoleName, \`${PROJECT_AWS_PREFIX}-\`)].RoleName" \
-  --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' || true)"
+# Mod 053 (F15): IAM role names are hyphenated (`${PROJECT_AWS_PREFIX}-…`),
+# but a prior walk left an *underscored* orphan
+# (`docex_smoke_elastic_task_execution`) that the hyphen-only query
+# reported "clean" — masking the orphan that then blocked the next walk's
+# projinfra phase-2 with EntityAlreadyExists. Scan BOTH forms so any
+# orphaned role is reported, not hidden.
+iam_roles=""
+for prefix in "$PROJECT_AWS_PREFIX" "$PROJECT_NAME"; do
+  for sep in "-" "_"; do
+    found="$(aws iam list-roles \
+      --query "Roles[?starts_with(RoleName, \`${prefix}${sep}\`)].RoleName" \
+      --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' || true)"
+    [[ -n "$found" ]] && iam_roles="${iam_roles}${found}"$'\n'
+  done
+done
+iam_roles="$(echo "$iam_roles" | grep -v '^$' | sort -u || true)"
 if [[ -n "$iam_roles" ]]; then mark_fail "IAM roles" "$iam_roles"; else report_ok "IAM roles"; fi
 
 # -- Tofu state backend --------------------------------------------------
@@ -106,6 +127,15 @@ if aws dynamodb describe-table --table-name "$STATE_LOCK_TABLE" >/dev/null 2>&1;
 else
   report_ok "Tofu lock table"
 fi
+
+# -- DynamoDB tables (underscored + hyphenated prefixes) -----------------
+# Mod 053 (F15): DynamoDB table names preserve underscores (the `ddb`
+# policy), so an orphaned table other than the known lock table would be
+# missed by the single-name check above. Scan the full table list for
+# either project-name form.
+ddb_tables="$(aws dynamodb list-tables --query 'TableNames[]' --output text 2>/dev/null \
+  | tr '\t' '\n' | grep -E "^(${PROJECT_NAME}|${PROJECT_AWS_PREFIX})[-_]" || true)"
+if [[ -n "$ddb_tables" ]]; then mark_fail "DynamoDB tables" "$ddb_tables"; else report_ok "DynamoDB tables"; fi
 
 if [[ "$remaining" != "0" ]]; then
   echo

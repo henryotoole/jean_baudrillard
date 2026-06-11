@@ -37,6 +37,7 @@ class DockerClient(Protocol):
         detach: bool = True,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
         """Run ``docker compose up`` for the given file.
 
@@ -45,10 +46,14 @@ class DockerClient(Protocol):
         so ``${VAR}`` substitutions in the compose file resolve from
         the project's ``infra/secrets/<env>.env`` (per doctrine).
         ``project_dir`` overrides the path compose uses as its working
-        directory (``--project-directory``); defaults to whatever the
-        ``bin/docex`` shim's ``COMPOSE_PROJECT_DIR`` env var carries
-        (the host project root). ``docex check`` overrides this with
-        the host path of its ephemeral worktree.
+        directory (``--project-directory``); defaults to the project
+        root derived from the compose file's location. ``docex check``
+        overrides this with the host path of its ephemeral worktree.
+        ``project_name`` sets compose's ``--project-name`` explicitly.
+        Like ``project_dir``, it MUST match between ``up`` and ``down``
+        (and any ``exec``/``ps`` in between) for compose to find its
+        own resources; ``None`` lets compose derive the name from the
+        project directory's basename (legacy behavior).
         """
         ...
 
@@ -59,13 +64,16 @@ class DockerClient(Protocol):
         preserve_volumes: bool = True,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
         """Run ``docker compose down`` for the given file.
 
         ``preserve_volumes=True`` is the default (dev env doctrine).
         ``preserve_volumes=False`` adds ``-v``, deleting named
-        volumes too (test env teardown). ``project_dir`` — see
-        :meth:`compose_up`.
+        volumes too (test env teardown). ``project_dir`` /
+        ``project_name`` — see :meth:`compose_up`. ``project_name``
+        must match the value used at ``up`` time or ``down`` will not
+        find (and therefore not remove) the stack's resources.
         """
         ...
 
@@ -78,12 +86,14 @@ class DockerClient(Protocol):
         env: dict[str, str] | None = None,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
         """Run a one-shot ``docker compose run --rm`` for a service.
 
         Used when a command needs a fresh container rather than the
         existing one (mostly future Phase 3 work; included here so
-        the protocol is stable). ``project_dir`` — see :meth:`compose_up`.
+        the protocol is stable). ``project_dir`` / ``project_name`` —
+        see :meth:`compose_up`.
         """
         ...
 
@@ -95,14 +105,15 @@ class DockerClient(Protocol):
         *,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
         """Run a command inside a *running* service container.
 
         This is the primary mechanism used by ``docex build``,
         ``docex migrate``, and the build-test step of ``docex test``.
-        ``project_dir`` — see :meth:`compose_up`. Must match whatever
-        value was used at ``compose_up`` time so compose finds the
-        same project name.
+        ``project_dir`` / ``project_name`` — see :meth:`compose_up`.
+        Both must match whatever values were used at ``compose_up``
+        time so compose finds the same project.
         """
         ...
 
@@ -112,10 +123,11 @@ class DockerClient(Protocol):
         *,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> list[str]:
         """Return the names of services currently running under this
         compose file. Empty list means nothing is up.
-        ``project_dir`` — see :meth:`compose_up`."""
+        ``project_dir`` / ``project_name`` — see :meth:`compose_up`."""
         ...
 
     def compose_ps_status(
@@ -124,6 +136,7 @@ class DockerClient(Protocol):
         *,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> dict[str, str]:
         """Map each service to a coarse state: one of
         ``'running' | 'restarting' | 'unhealthy' | 'exited' | 'created'``.
@@ -131,7 +144,7 @@ class DockerClient(Protocol):
         Unlike :meth:`compose_ps` (running names only), this surfaces
         *all* services and their state so a partial bring-up can be
         diagnosed per-service. Empty dict means nothing is up.
-        ``project_dir`` — see :meth:`compose_up`.
+        ``project_dir`` / ``project_name`` — see :meth:`compose_up`.
         """
         ...
 
@@ -239,10 +252,13 @@ class DockerClient(Protocol):
         """True iff any env-tier compose stack for ``project_name`` is
         currently up on the local docker daemon.
 
-        Env compose project names are ``${project}-${env}`` for env in
-        ``(dev, test, stage, prod)``. Implemented via
-        ``docker compose ls --format json --all`` and a name-match
-        filter. ``projinfra down`` refuses when this returns True.
+        Env compose project names are ``${dns_label(project)}-${env}``
+        for env in ``(dev, test, stage, prod)`` — the DNS-labeled form
+        matching what the orchestrate layer passes as ``--project-name``
+        (``orchestrate._common.env_compose_project``). ``project_name``
+        here is the raw project name; the implementation DNS-labels it.
+        Implemented via ``docker compose ls --format json --all`` and a
+        name-match filter. ``projinfra down`` refuses when True.
         """
         ...
 

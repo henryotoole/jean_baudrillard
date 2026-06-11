@@ -17,10 +17,25 @@ from pathlib import Path
 from docex.cicl.compile import run_compile
 from docex.context import ProjectContext
 from docex.errors import EnvNotSupported, InfraFileError
+from docex.naming import dns_label
 
 
 _FIXED_ENVS = ("dev", "test")
 _ALL_ENVS = ("dev", "test", "stage", "prod")
+
+
+def env_compose_project(ctx: ProjectContext, env: str) -> str:
+    """The explicit compose ``--project-name`` for an env-tier stack.
+
+    ``<dns_label(project)>-<env>`` — DNS-labeled (hyphenated, lowercased)
+    so the name is a valid, stable, data-plane-style identifier and is
+    project-scoped (no collision across projects on a shared dev host).
+    Passed at every env-tier compose call site so ``up``/``down``/
+    ``exec``/``ps`` all address the same compose project deterministically
+    rather than relying on compose's path-derived basename. This is also
+    the form ``any_env_compose_up`` matches against.
+    """
+    return f"{dns_label(ctx.project.name)}-{env}"
 
 
 def ensure_compiled(ctx: ProjectContext) -> None:

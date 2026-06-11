@@ -27,6 +27,7 @@ from docex.orchestrate._common import (
     compose_file_for,
     compose_service_key,
     ensure_compiled,
+    env_compose_project,
     env_file_for,
     services_with_schema,
 )
@@ -74,6 +75,7 @@ def run_migrate(
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, env)
     env_file = env_file_for(ctx, env)
+    project_name = env_compose_project(ctx, env)
     schema_owners = services_with_schema(ctx)
     if not schema_owners:
         print(
@@ -84,7 +86,10 @@ def run_migrate(
 
     for svc in schema_owners:
         key = compose_service_key(ctx, env, svc)
-        rc = docker.compose_exec(compose_file, key, ["./migrate.sh"], env_file=env_file)
+        rc = docker.compose_exec(
+            compose_file, key, ["./migrate.sh"], env_file=env_file,
+            project_dir=ctx.project_root, project_name=project_name,
+        )
         if rc != 0:
             print(
                 f"error: migrate.sh for {svc!r} in {env} exited {rc}.",

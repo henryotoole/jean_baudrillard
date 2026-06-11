@@ -21,15 +21,17 @@ def test_up_then_down_dev(fresh_project, docker_client):
         rc = run_up(ctx, docker_client, env="dev")
         assert rc == 0, "docex up dev should exit 0"
 
-        # Confirm a containerized service is running. We pass
-        # --project-directory so compose finds the same project as
-        # docex itself (which builds project name from the directory
-        # passed there, not from cwd).
+        # Confirm a containerized service is running. We pass the SAME
+        # explicit --project-name docex now uses (mod 053:
+        # <dns_label>-<env> = "sample-dev") so this probe addresses the
+        # stack docex actually brought up — Compose no longer derives the
+        # name from --project-directory's basename.
         compose_file = fresh_project / "infra" / "output" / "dev" / "docker-compose.yml"
         env_file = fresh_project / "infra" / "secrets" / "dev.env"
         out = subprocess.check_output(
             ["docker", "compose", "-f", str(compose_file),
              "--project-directory", str(fresh_project),
+             "--project-name", "sample-dev",
              "--env-file", str(env_file),
              "ps", "--services", "--status=running"],
             text=True,
@@ -45,6 +47,7 @@ def test_up_then_down_dev(fresh_project, docker_client):
             ["docker", "compose", "-f", str(
                 fresh_project / "infra" / "output" / "dev" / "docker-compose.yml"
             ), "--project-directory", str(fresh_project),
+             "--project-name", "sample-dev",
              "--env-file", str(fresh_project / "infra" / "secrets" / "dev.env"),
              "down", "-v"],
             check=False,

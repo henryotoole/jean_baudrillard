@@ -18,6 +18,18 @@ def test_up_rejects_prod(sample_ctx, fake_docker):
         run_up(sample_ctx, fake_docker, env="prod")
 
 
+def test_up_passes_env_tier_project_name(sample_ctx, fake_docker):
+    """Mod 053: ``up`` passes the explicit env-tier compose project name
+    (``<dns_label>-<env>``) to compose_up so the stack is named
+    deterministically and matches what ``any_env_compose_up`` looks for."""
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 0
+    name_calls = [
+        c for c in fake_docker.calls if c[0] == "compose_up_project_name"
+    ]
+    assert name_calls == [("compose_up_project_name", "sample-dev")]
+
+
 def test_up_calls_compose_up_then_migrate(sample_ctx, fake_docker):
     rc = run_up(sample_ctx, fake_docker, env="dev")
     assert rc == 0

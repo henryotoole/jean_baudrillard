@@ -183,8 +183,14 @@ def test_project_compose_networks_and_traefik_are_hyphenated(tmp_path: Path):
     traefik_key = "my-test-proj-traefik"
     assert traefik_key in doc["services"]
     assert doc["services"][traefik_key]["container_name"] == traefik_key
-    # ACME volume.
+    # ACME volume — declared with an explicit ``name:`` so the real
+    # docker volume is exactly ``<label>-traefik-acme`` (mod 053), not
+    # a Compose-prefixed derivative.
     assert "my-test-proj-traefik-acme" in doc["volumes"]
+    assert (
+        doc["volumes"]["my-test-proj-traefik-acme"]["name"]
+        == "my-test-proj-traefik-acme"
+    )
     # No buggy form.
     text = out.read_text()
     assert "my_test_proj-traefik" not in text

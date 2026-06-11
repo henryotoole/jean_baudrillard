@@ -307,3 +307,57 @@ def test_bootstrap_phase2_surfaces_tofu_apply_failure(
     assert rc == 1
     out = capsys.readouterr().out
     assert "delegat" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# Mod 053 (Cluster 3): elastic projinfra UX (F13, F14).
+# ---------------------------------------------------------------------------
+
+
+def test_phase2_failure_points_at_real_error_with_ns_secondary(
+    elastic_ctx_compiled, fake_aws, stub_tofu, monkeypatch, capsys
+):
+    """F14: on phase-2 failure the message points at the actual tofu error
+    (streamed above) as the primary cause; the NS-delegation hint is present
+    but demoted to a conditional secondary note, not the headline."""
+    stub_tofu["state"] = ["aws_route53_zone.project"]
+    monkeypatch.setattr(
+        bootstrap_mod, "tofu_apply",
+        lambda *a, **kw: 1,
+    )
+    rc = run_bootstrap(elastic_ctx_compiled, fake_aws)
+    assert rc == 1
+    out = capsys.readouterr().out
+    # Primary: point at the error above.
+    assert "error above" in out.lower()
+    # Secondary: NS hint is conditional ("if ... ACM ..."), not asserted
+    # as the cause.
+    lower = out.lower()
+    assert "if that error" in lower
+    assert "acm" in lower
+    # F13: the re-run instruction is the current command.
+    assert "projinfra up production" in out
+
+
+def test_no_operator_facing_bootstrap_command_strings():
+    """F13: no operator-facing string in bootstrap.py instructs the stale
+    `docex bootstrap`. (Module docstring and code comments are allowed to
+    keep the historical name; only printed/raised strings must not.)"""
+    import ast
+    import inspect
+
+    src = inspect.getsource(bootstrap_mod)
+    tree = ast.parse(src)
+    # The module docstring is the first statement; its constant is the only
+    # permitted carrier of the historical "docex bootstrap" name.
+    docstring_node = None
+    if (tree.body and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, ast.Constant)):
+        docstring_node = tree.body[0].value
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and node is not docstring_node
+                and "docex bootstrap" in node.value):
+            offenders.append(node.value)
+    assert offenders == [], offenders

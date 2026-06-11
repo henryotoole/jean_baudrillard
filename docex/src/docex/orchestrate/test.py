@@ -26,6 +26,7 @@ from docex.orchestrate._common import (
     compose_service_key,
     core_services,
     ensure_compiled,
+    env_compose_project,
     env_file_for,
     services_with_schema,
 )
@@ -40,6 +41,7 @@ def run_test(
     *,
     project_dir: "Path | None" = None,
     env_file_override: "Path | None" = None,
+    project_name: "str | None" = None,
 ) -> int:
     """Run the full build-test cycle. Returns process exit code.
 
@@ -50,10 +52,17 @@ def run_test(
     resolves build contexts and bind-mounts to the worktree, and the
     main project's ``infra/secrets/test.env`` as ``env_file_override``
     so compose's ``${VAR}`` substitutions resolve cleanly.
+
+    ``project_name`` overrides the compose ``--project-name``; ``docex
+    check`` passes a worktree-unique name so its throwaway ``test`` stack
+    can't collide with (or get torn down alongside) a real ``test`` env
+    stack on the same host. Defaults to the standard env-tier name.
     """
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, _TEST_ENV)
     env_file = env_file_override if env_file_override is not None else env_file_for(ctx, _TEST_ENV)
+    if project_name is None:
+        project_name = env_compose_project(ctx, _TEST_ENV)
 
     first_failure: int = 0
     try:
@@ -61,6 +70,7 @@ def run_test(
         rc = docker.compose_up(
             compose_file, build=True, detach=True,
             env_file=env_file, project_dir=project_dir,
+            project_name=project_name,
         )
         if rc != 0:
             print(
@@ -75,6 +85,7 @@ def run_test(
             rc = docker.compose_exec(
                 compose_file, key, ["./migrate.sh"],
                 env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
             )
             if rc != 0:
                 print(
@@ -91,6 +102,7 @@ def run_test(
             rc = docker.compose_exec(
                 compose_file, key, ["./test.sh"],
                 env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
             )
             if rc != 0:
                 print(
@@ -105,6 +117,7 @@ def run_test(
         td_rc = docker.compose_down(
             compose_file, preserve_volumes=False,
             env_file=env_file, project_dir=project_dir,
+            project_name=project_name,
         )
         if td_rc != 0 and first_failure == 0:
             # Don't mask a real test failure with a teardown failure,

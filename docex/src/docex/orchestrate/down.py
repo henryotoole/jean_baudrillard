@@ -31,6 +31,7 @@ from docex.naming import apply_policy
 from docex.orchestrate._common import (
     compose_file_for,
     ensure_compiled,
+    env_compose_project,
     env_file_for,
 )
 
@@ -80,7 +81,11 @@ def run_down(
     # Fixed-style teardown (dev/test, or fixed stage/prod).
     compose_file = compose_file_for(ctx, env)
     env_file = env_file_for(ctx, env)
-    return docker.compose_down(compose_file, preserve_volumes=True, env_file=env_file)
+    return docker.compose_down(
+        compose_file, preserve_volumes=True, env_file=env_file,
+        project_dir=ctx.project_root,
+        project_name=env_compose_project(ctx, env),
+    )
 
 
 def _down_elastic(

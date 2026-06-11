@@ -24,17 +24,12 @@ import httpx
 STAGING_URL = os.environ["STAGING_URL"]
 PROJECT_VERSION = os.environ["PROJECT_VERSION"]
 
-# WHY verify=False: docex's per-project traefik emit (mod 036) doesn't
-# propagate AWS credentials (or any other DNS-provider creds) to the
-# traefik container, so the ACME DNS-01 challenge configured by the
-# doctrine never has the creds it needs to actually issue a Let's
-# Encrypt cert. Traefik falls back to its self-signed default cert,
-# which httpx (correctly) rejects with CERTIFICATE_VERIFY_FAILED.
-# Bypassing verification here lets the smoke walk validate every other
-# part of the deployment shape; the underlying doctrine gap is tracked
-# in mod 047. When docex passes AWS creds to the project traefik and a
-# real LE cert is in place, remove the verify=False below.
-_client = httpx.Client(verify=False, timeout=10)
+# TLS is verified (the default). Gap A (mod 051) switched fixed certs to
+# the HTTP-01 challenge, which needs no DNS-provider creds, so the project
+# traefik now issues a real Let's Encrypt cert out of the box — the
+# mod-036 `verify=False` workaround (and its mod-047 tracking note) is
+# obsolete and was removed in mod 053 (F7).
+_client = httpx.Client(timeout=10)
 
 
 def test_health_endpoint() -> None:

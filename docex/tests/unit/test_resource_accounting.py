@@ -100,6 +100,26 @@ def test_rounding_notice_printed_when_tier_bumps(
     ) in captured
 
 
+def test_rounding_notice_printed_once_per_compile_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    """F17 (mod 053): the elastic fixture's `api` compiles for both the
+    stage and prod env passes within a single ``run_compile``. Before the
+    dedup the rounding notice printed once per elastic env (and run_compile
+    itself can run multiple times per command, compounding it). Now each
+    unique notice prints exactly once per compile run.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+    captured = capsys.readouterr().out
+    occurrences = captured.count("note: core service 'api'")
+    assert occurrences == 1, (
+        f"expected the rounding notice once per compile run, "
+        f"saw {occurrences}:\n{captured}"
+    )
+
+
 def test_rounding_notice_not_printed_when_no_rounding(
     capsys: pytest.CaptureFixture[str],
 ):

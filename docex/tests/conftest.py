@@ -70,20 +70,26 @@ class FakeDockerClient:
 
     def compose_up(self, compose_file: Path, *, build: bool = True, detach: bool = True,
                    env_file: Path | None = None,
-                   project_dir: Path | None = None) -> int:
+                   project_dir: Path | None = None,
+                   project_name: str | None = None) -> int:
         key = ("compose_up", str(compose_file), build, detach)
         self.calls.append(key)
         if project_dir is not None:
             self.calls.append(("compose_up_project_dir", str(project_dir)))
+        if project_name is not None:
+            self.calls.append(("compose_up_project_name", project_name))
         return self.exit_codes.get(key, self._fallback("compose_up"))
 
     def compose_down(self, compose_file: Path, *, preserve_volumes: bool = True,
                      env_file: Path | None = None,
-                     project_dir: Path | None = None) -> int:
+                     project_dir: Path | None = None,
+                     project_name: str | None = None) -> int:
         key = ("compose_down", str(compose_file), preserve_volumes)
         self.calls.append(key)
         if project_dir is not None:
             self.calls.append(("compose_down_project_dir", str(project_dir)))
+        if project_name is not None:
+            self.calls.append(("compose_down_project_name", project_name))
         return self.exit_codes.get(key, self._fallback("compose_down"))
 
     def compose_run_one_off(
@@ -95,6 +101,7 @@ class FakeDockerClient:
         env: dict[str, str] | None = None,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
         key = ("compose_run_one_off", str(compose_file), service, tuple(command))
         self.calls.append(key)
@@ -102,24 +109,33 @@ class FakeDockerClient:
 
     def compose_exec(self, compose_file: Path, service: str, command: list[str],
                      *, env_file: Path | None = None,
-                     project_dir: Path | None = None) -> int:
+                     project_dir: Path | None = None,
+                     project_name: str | None = None) -> int:
         key = ("compose_exec", str(compose_file), service, tuple(command))
         self.calls.append(key)
         if project_dir is not None:
             self.calls.append(("compose_exec_project_dir", str(project_dir)))
+        if project_name is not None:
+            self.calls.append(("compose_exec_project_name", project_name))
         # Allow scripting failure for ("compose_exec", svc, cmd_tuple).
         return self.exit_codes.get(key, self._fallback("compose_exec", service, tuple(command)))
 
     def compose_ps(self, compose_file: Path, *,
                    env_file: Path | None = None,
-                   project_dir: Path | None = None) -> list[str]:
+                   project_dir: Path | None = None,
+                   project_name: str | None = None) -> list[str]:
         self.calls.append(("compose_ps", str(compose_file)))
+        if project_name is not None:
+            self.calls.append(("compose_ps_project_name", project_name))
         return list(self.ps_services)
 
     def compose_ps_status(self, compose_file: Path, *,
                           env_file: Path | None = None,
-                          project_dir: Path | None = None) -> dict[str, str]:
+                          project_dir: Path | None = None,
+                          project_name: str | None = None) -> dict[str, str]:
         self.calls.append(("compose_ps_status", str(compose_file)))
+        if project_name is not None:
+            self.calls.append(("compose_ps_status_project_name", project_name))
         return dict(self.ps_status)
 
     def build_image(self, context: Path, *, target: str, tag: str) -> int:

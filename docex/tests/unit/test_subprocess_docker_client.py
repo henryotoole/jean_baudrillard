@@ -29,16 +29,74 @@ def test_compose_base_passes_project_directory_from_explicit_override(tmp_path):
 
 
 def test_compose_base_derives_project_directory_from_compose_file(tmp_path):
-    """With no explicit override, --project-directory is derived from the
-    compose file's location: <root>/infra/output/<env>/docker-compose.yml.
-    Under DooD the shim mirrors the host path inside the container, so
-    this derived value is simultaneously a valid in-container path (for
-    compose's client reads) and a valid host path (for the daemon's
-    bind-mount resolution)."""
+    """With no explicit override and no project.yml above the compose file,
+    --project-directory falls back to the historical env-tier derivation:
+    <root>/infra/output/<env>/docker-compose.yml → <root> (the "up 4")."""
     client = SubprocessDockerClient()
     cmd = client._compose_base(_compose_file(tmp_path), env_file=None, project_dir=None)
     assert "--project-directory" in cmd
     assert cmd[cmd.index("--project-directory") + 1] == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Mod 053 (Cluster 1): --project-directory resolves to the true project
+# root for BOTH env-tier and project-tier compose paths (the off-by-one
+# fix), and --project-name is threaded explicitly.
+# ---------------------------------------------------------------------------
+
+
+def _make_project(tmp_path: Path) -> Path:
+    """Create a project root with a project.yml so _resolve_project_dir's
+    walk-up finds it (instead of the historical parent-count fallback)."""
+    (tmp_path / "project.yml").write_text('name: sample\nversion: "0.0.1"\n')
+    return tmp_path
+
+
+def test_resolve_project_dir_env_tier_resolves_to_project_root(tmp_path):
+    """An env-tier compose path (<root>/infra/output/<env>/...) resolves
+    to <root> by walking up to project.yml."""
+    root = _make_project(tmp_path)
+    compose_file = root / "infra" / "output" / "dev" / "docker-compose.yml"
+    client = SubprocessDockerClient()
+    assert client._resolve_project_dir(compose_file, None) == str(root)
+
+
+def test_resolve_project_dir_project_tier_resolves_to_project_root(tmp_path):
+    """Regression for the off-by-one: a project-tier compose path
+    (<root>/infra/output/project/<side>/...) nests one level deeper than
+    env-tier. The old fixed "up 4" landed on <root>/infra (compose name
+    'infra'); walking up to project.yml resolves to the true <root>."""
+    root = _make_project(tmp_path)
+    compose_file = (
+        root / "infra" / "output" / "project" / "development" / "docker-compose.yml"
+    )
+    client = SubprocessDockerClient()
+    resolved = client._resolve_project_dir(compose_file, None)
+    assert resolved == str(root)
+    # The off-by-one bug would have produced <root>/infra.
+    assert resolved != str(root / "infra")
+
+
+def test_compose_base_includes_project_name_when_passed(tmp_path):
+    client = SubprocessDockerClient()
+    cmd = client._compose_base(
+        _compose_file(tmp_path), env_file=None, project_dir=Path("/x"),
+        project_name="sample-dev",
+    )
+    assert "--project-name" in cmd
+    assert cmd[cmd.index("--project-name") + 1] == "sample-dev"
+    # --project-name must precede the subcommand (none here) and sit after
+    # --project-directory per the v2 CLI; just assert it's before any 'up'.
+    assert cmd.index("--project-name") > cmd.index("--project-directory")
+
+
+def test_compose_base_omits_project_name_when_none(tmp_path):
+    client = SubprocessDockerClient()
+    cmd = client._compose_base(
+        _compose_file(tmp_path), env_file=None, project_dir=Path("/x"),
+        project_name=None,
+    )
+    assert "--project-name" not in cmd
 
 
 # ---------------------------------------------------------------------------
@@ -71,3 +129,30 @@ def test_manifest_inspect_returns_false_when_docker_missing(monkeypatch):
 
     monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", boom)
     assert client.manifest_inspect("anything") is False
+
+
+# ---------------------------------------------------------------------------
+# Mod 053: any_env_compose_up DNS-labels the project name so its targets
+# match the explicit env-tier --project-name form (<dns_label>-<env>).
+# ---------------------------------------------------------------------------
+
+
+def test_any_env_compose_up_matches_dns_labeled_env_stack(monkeypatch):
+    """An underscored project name (docex_smoke_elastic) must match a
+    running stack named by the DNS-labeled env form
+    (docex-smoke-elastic-dev), not the underscored form."""
+    client = SubprocessDockerClient()
+    import json
+    payload = json.dumps([{"Name": "docex-smoke-elastic-dev", "Status": "running"}])
+    fake_run = MagicMock(return_value=MagicMock(returncode=0, stdout=payload, stderr=""))
+    monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", fake_run)
+    assert client.any_env_compose_up("docex_smoke_elastic") is True
+
+
+def test_any_env_compose_up_false_when_no_matching_stack(monkeypatch):
+    client = SubprocessDockerClient()
+    import json
+    payload = json.dumps([{"Name": "some-other-project-dev", "Status": "running"}])
+    fake_run = MagicMock(return_value=MagicMock(returncode=0, stdout=payload, stderr=""))
+    monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", fake_run)
+    assert client.any_env_compose_up("docex_smoke_elastic") is False

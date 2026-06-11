@@ -23,6 +23,7 @@ from docex.orchestrate._common import (
     compose_service_key,
     core_services,
     ensure_compiled,
+    env_compose_project,
     env_file_for,
     services_with_schema,
 )
@@ -103,7 +104,12 @@ def _diagnose_unhealthy(
     the developer needs to debug). Called on a compose/migrate failure
     where a partial or unhealthy stack is the likely culprit.
     """
-    status = docker.compose_ps_status(compose_file, env_file=env_file)
+    status = docker.compose_ps_status(
+        compose_file,
+        env_file=env_file,
+        project_dir=ctx.project_root,
+        project_name=env_compose_project(ctx, env),
+    )
     if not status:
         return
     for svc in core_services(ctx):
@@ -128,6 +134,7 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
 
     compose_file = compose_file_for(ctx, env)
     env_file = env_file_for(ctx, env)
+    project_name = env_compose_project(ctx, env)
 
     # 1a. Dev only: pre-populate the host dist/ for each core service
     # before bringing the stack up. The dev stage Dockerfile's
@@ -146,7 +153,10 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
 
     # 1b. Compose up. Compose itself handles "rebuild if Dockerfile or
     # context changed" so we don't add caching on top.
-    rc = docker.compose_up(compose_file, build=True, detach=True, env_file=env_file)
+    rc = docker.compose_up(
+        compose_file, build=True, detach=True, env_file=env_file,
+        project_dir=ctx.project_root, project_name=project_name,
+    )
     if rc != 0:
         print(
             f"error: 'docker compose up' failed (exit {rc}); stack left as-is.",
@@ -163,7 +173,10 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
         # Compose's service key is the project-scoped global name, not
         # the simple service name from infra.yml.
         key = compose_service_key(ctx, env, svc)
-        rc = docker.compose_exec(compose_file, key, ["./migrate.sh"], env_file=env_file)
+        rc = docker.compose_exec(
+            compose_file, key, ["./migrate.sh"], env_file=env_file,
+            project_dir=ctx.project_root, project_name=project_name,
+        )
         if rc != 0:
             print(
                 f"error: migrate.sh for service {svc!r} exited {rc}; "

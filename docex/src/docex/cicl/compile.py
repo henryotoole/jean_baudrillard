@@ -134,7 +134,8 @@ _FARGATE_DISK_MAX_GIB = 200  # AWS Fargate ceiling.
 
 
 def _resources_to_elastic(
-    res: Resources, *, service_name: str, is_core: bool = False
+    res: Resources, *, service_name: str, is_core: bool = False,
+    notes_seen: "set[str] | None" = None,
 ) -> dict[str, Any]:
     """Translate a Resources block into Fargate task-definition HCL fields.
 
@@ -153,7 +154,20 @@ def _resources_to_elastic(
     the overhead. A one-line notice is printed to stdout when the
     overhead bumps the request into a higher Fargate tier than the
     bare-core request alone would have.
+
+    Mod 053 (F17): ``notes_seen`` dedupes the rounding notice across a
+    single ``run_compile`` run. The same service compiles once per env
+    (stage + prod for elastic) and ``run_compile`` may itself run several
+    times per command, so the same notice would otherwise print 2-4×.
+    When a set is supplied, each unique notice prints at most once; when
+    ``None`` (direct callers / unit tests), the notice always prints.
     """
+    def _emit_note(message: str) -> None:
+        if notes_seen is not None:
+            if message in notes_seen:
+                return
+            notes_seen.add(message)
+        print(message)
     # Sidecar overhead: every core service runs a paired otelcol sidecar at
     # 0.1 vCPU / 128 MiB. The task-level totals must accommodate both
     # containers; the core container still receives the requested resources
@@ -198,7 +212,7 @@ def _resources_to_elastic(
             cpu_units > bare_cpu_tier or memory_mib > bare_mem_tier
         )
         if has_rounding and project_caused_rounding and sidecar_caused_bump:
-            print(
+            _emit_note(
                 f"note: core service {service_name!r}: resources rounded "
                 f"to Fargate tier (request {req_cpu_units} -> {cpu_units} "
                 f"vCPU units, {req_mem_mib} -> {memory_mib} MiB). "
@@ -207,7 +221,7 @@ def _resources_to_elastic(
                 f"tiered to ({bare_cpu_tier}, {bare_mem_tier})."
             )
         elif has_rounding and sidecar_caused_bump:
-            print(
+            _emit_note(
                 f"note: core service {service_name!r}: sidecar overhead "
                 f"pushed task to next Fargate tier "
                 f"({bare_cpu_tier} -> {cpu_units} vCPU units, "
@@ -216,7 +230,7 @@ def _resources_to_elastic(
                 f"the task-level totals carry the overhead."
             )
         elif has_rounding and project_caused_rounding:
-            print(
+            _emit_note(
                 f"note: core service {service_name!r}: resources rounded "
                 f"to Fargate tier ({req_cpu_units} -> {cpu_units} vCPU "
                 f"units, {req_mem_mib} -> {memory_mib} MiB). Fargate "
@@ -444,8 +458,14 @@ def compile_env(
     env: str,
     project_name: str,
     project_version: str,
+    notes_seen: "set[str] | None" = None,
 ) -> CompiledEnv:
-    """Compile a single environment in-memory."""
+    """Compile a single environment in-memory.
+
+    ``notes_seen`` (mod 053 / F17) is an optional dedup set for the
+    Fargate-tier rounding notice; ``run_compile`` passes one shared set
+    across all env passes so each unique notice prints once per run.
+    """
     foundation = _env_foundation(doc.foundation, env)
     subdomain = _env_subdomain(doc.apex_domain, project_name, env)
     bare_project = _bare_project_subdomain(doc.apex_domain, project_name)
@@ -601,7 +621,8 @@ def compile_env(
                     env=env, foundation=foundation,
                 )
                 body = _deep_merge(body, _resources_to_elastic(
-                    svc.resources, service_name=name, is_core=True
+                    svc.resources, service_name=name, is_core=True,
+                    notes_seen=notes_seen,
                 ))
                 if svc.command is not None:
                     body["command"] = svc.command
@@ -826,6 +847,10 @@ def run_compile(ctx: Any) -> int:
 
     files_written = 0
     compiled_envs: list[CompiledEnv] = []
+    # F17: dedup the Fargate-tier rounding notice across all env passes of
+    # this single compile run (the same service compiles for stage AND prod
+    # on elastic) so each unique notice prints once, not per-env.
+    notes_seen: set[str] = set()
 
     for env in _ENVS:
         env_dir = output_root / env
@@ -837,6 +862,7 @@ def run_compile(ctx: Any) -> int:
             env=env,
             project_name=ctx.project.name,
             project_version=ctx.project.version,
+            notes_seen=notes_seen,
         )
         compiled_envs.append(compiled)
 

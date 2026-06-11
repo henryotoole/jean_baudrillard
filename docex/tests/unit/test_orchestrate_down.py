@@ -21,6 +21,12 @@ def test_down_calls_compose_down_with_preserve_volumes(sample_ctx, fake_docker):
     assert len(down_calls) == 1
     # (method, compose_file_str, preserve_volumes)
     assert down_calls[0][2] is True
+    # Mod 053: down passes the same env-tier project name as up so compose
+    # finds and removes the right stack.
+    name_calls = [
+        c for c in fake_docker.calls if c[0] == "compose_down_project_name"
+    ]
+    assert name_calls == [("compose_down_project_name", "sample-dev")]
 
 
 def test_down_fixed_stage_uses_compose_down(sample_ctx, fake_docker):

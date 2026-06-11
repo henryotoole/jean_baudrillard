@@ -55,7 +55,10 @@ def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
     Returns process exit code (0 on success).
     """
     if ctx.infra is not None and ctx.infra.foundation == "fixed":
-        print("docex bootstrap is a no-op for fixed-foundation projects.")
+        print(
+            "projinfra up production is a no-op for fixed-foundation "
+            "projects (handled by the fixed-style compose path)."
+        )
         return 0
 
     project = ctx.project.name
@@ -117,7 +120,8 @@ def _apply_project_tier(ctx: ProjectContext) -> int:
     if not main_tf.is_file():
         raise BootstrapFailed(
             f"{main_tf} is missing — run `docex compile` before "
-            "`docex bootstrap` so the project-tier HCL exists."
+            "`./bin/docex projinfra up production` so the project-tier HCL "
+            "exists."
         )
 
     rc = tofu_init(project_dir, backend=True)
@@ -149,15 +153,23 @@ def _apply_project_tier(ctx: ProjectContext) -> int:
     print("bootstrap: phase 2 — applying full project-tier HCL.")
     rc = tofu_apply(project_dir, auto_approve=True)
     if rc != 0:
-        # The most likely cause is the ACM cert validation hanging on a
-        # missing NS delegation. Give the operator a concrete next step.
+        # F14: tofu streams its real error to the terminal (inherited
+        # stdio), so point the operator at THAT as the primary cause
+        # rather than asserting NS delegation unconditionally — the canned
+        # NS message misdirected debugging when the real failure was an IAM
+        # conflict. The NS hint is demoted to a conditional secondary note.
+        # F13: the command is `docex projinfra up production`, not the
+        # stale `docex bootstrap`.
         print(
             "\n"
-            "bootstrap: phase 2 `tofu apply` failed.\n"
-            "  Most common cause: the parent zone has not been NS-delegated "
-            "to the project zone yet. ACM cert validation blocks until the "
-            "delegation propagates.\n"
-            "  Re-run `docex bootstrap` once the NS records are live."
+            f"projinfra up production: phase 2 `tofu apply` exited {rc}.\n"
+            "  See the tofu error above for the actual cause.\n"
+            "  (If that error is an ACM/certificate validation timeout, the "
+            "likely cause is the parent zone not yet NS-delegated to the "
+            "project zone — the delegation must propagate before ACM "
+            "validates.)\n"
+            "  Fix the cause shown above, then re-run "
+            "`./bin/docex projinfra up production`."
         )
         return rc
 
@@ -197,9 +209,9 @@ def _print_delegation_instructions(
         f"by setting NS records\n"
         f"  in the parent zone ({apex_domain!r}) at your registrar or parent "
         "Route53 hosted zone.\n"
-        "  After the delegation propagates, re-run `docex bootstrap` to apply "
-        "the rest of\n"
-        f"  the project-tier infrastructure ({project} VPC, subnets, ACM "
-        "certs, ECR repositories)."
+        "  After the delegation propagates, re-run "
+        "`./bin/docex projinfra up production` to apply\n"
+        f"  the rest of the project-tier infrastructure ({project} VPC, "
+        "subnets, ACM certs, ECR repositories)."
     )
     print("")

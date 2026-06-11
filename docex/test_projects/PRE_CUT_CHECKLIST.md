@@ -47,7 +47,8 @@ The post-1.0.0 doctrine separates preinfra (machine-/account-wide), projinfra (p
 
 - [ ] **HAProxy `web_demux`** is installed and running on the dev machine, listening on `:443` (SNI pass-through) and `:80` (HTTP host routing). HAProxy parses the request domain and forwards to the project traefik container named `${project_dns_label}-traefik` on the `docex-ingress` network — `project_dns_label` is the underscored project name with underscores translated to hyphens and lowercased (e.g. `docex_smoke_fixed` → `docex-smoke-fixed`). See [`fixed_master_network.md`](../../doctrine/infrastructure/preinfra/fixed_master_network.md).
 - [ ] **`docex-ingress`** docker bridge network exists on the dev machine. `docker network ls | grep docex-ingress` returns one entry. Created with `docker network create docex-ingress` if absent.
-- [ ] **Operator-side traefik env vars** for DNS-01 ACME: `TRAEFIK_DNS_PROVIDER` and `TRAEFIK_ACME_EMAIL` exported in the shell session that will run `projinfra up development`. Without them, the project traefik comes up but cannot issue Let's Encrypt certs.
+
+No traefik env vars are required. Fixed-foundation certs use the **HTTP-01** ACME challenge (Gap A / mod 051), served on the `web` entrypoint (`:80`) that the HAProxy demux already forwards by Host header — there is **no** `TRAEFIK_DNS_PROVIDER` prerequisite (HTTP-01 needs no DNS-provider credentials). `TRAEFIK_ACME_EMAIL` is **optional**: Let's Encrypt registers fine with no contact email; setting it only enables LE expiry-reminder emails. (Threading it through docex is a deferred future option — mod 053 / F2 decision A.)
 
 `./bin/docex preinfra development` (run from either test-project root, since it checks dev-side machine state which is project-agnostic) probes the bridge + HAProxy and exits 0 only when both are present.
 
@@ -170,7 +171,8 @@ Run this audit *once per cut*, against each project independently.
 ### C.1 Preinfra + Projinfra
 
 - [ ] `./bin/docex preinfra development` — exits 0. (HAProxy + `docex-ingress` present per A.3.1.)
-- [ ] `./bin/docex projinfra up development` — brings up the four `${project_dns_label}-{dev,test,stage,prod}-web` networks and the per-project traefik container. The traefik joins all four `-web` networks plus `docex-ingress`. Operator's `TRAEFIK_DNS_PROVIDER` / `TRAEFIK_ACME_EMAIL` env vars must be set or the traefik comes up with cert provisioning disabled.
+- [ ] `./bin/docex projinfra up development` — brings up the four `${project_dns_label}-{dev,test,stage,prod}-web` networks and the per-project traefik container. The traefik joins all four `-web` networks plus `docex-ingress`. No traefik env vars are required: fixed certs use HTTP-01 (Gap A), and `TRAEFIK_ACME_EMAIL` is optional (see A.3.1).
+  - **Ordering:** this must run *after* C.2's `docex compile`, since `projinfra up development` reads the compiled `infra/output/project/development/docker-compose.yml`. The numbered C.1/C.2 order here is presentational; in practice run `compile` first (compile is also idempotent and re-run defensively by most commands).
 - [ ] For single-machine fixed (dev box also hosts prod): `./bin/docex projinfra up production` — idempotent no-op since dev and prod converge on the same host.
 
 ### C.2 Compile
@@ -192,7 +194,9 @@ Run this audit *once per cut*, against each project independently.
 
 ### C.6 Check + Containerize
 
-- [ ] `./bin/docex check` — exits 0. Runs gate checks against an ephemeral worktree.
+> **Feature-branch prerequisite (mod 053 / F8).** `check` and `merge` require a real feature-branch shape: `main` must sit at the **prior** release, and the **new** version (bumped `project.yml`) must live on a **feature branch** checked out now. `check` creates an ephemeral worktree merging the feature branch with `origin/main` and runs the gate checks (including "version bumped" and "version not yet released") against that merge. On a single-commit `main` with no feature branch the version-bump gate has nothing to compare against. Restructure the seed's git history to this shape by hand before C.6 if it isn't already (this is the by-hand restructure the smoke walk performs).
+
+- [ ] `./bin/docex check` — exits 0. Runs gate checks against an ephemeral worktree (feature branch ⊕ `origin/main`).
 - [ ] `./bin/docex containerize` — succeeds; both `registry.luxrnd.tech/docex_smoke_fixed/web:<v>` and `registry.luxrnd.tech/docex_smoke_fixed/worker:<v>` push successfully. (ECR repo names preserve project-segment underscores per mod 030's structural emitter — this is correct.)
 
 ### C.7 Release stage
@@ -272,6 +276,8 @@ Elastic production-side projinfra applies in two phases separated by an operator
 - [ ] `./bin/docex test` — exits 0.
 
 ### D.8 Check + Containerize
+
+> **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.7 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`.
 
 - [ ] `./bin/docex check` — exits 0.
 - [ ] `./bin/docex containerize` — succeeds; images push to the project ECR (`<account>.dkr.ecr.us-east-1.amazonaws.com/docex_smoke_elastic/{web,worker}:<v>`). Authenticates against ECR via `aws ecr get-login-password` per invocation.

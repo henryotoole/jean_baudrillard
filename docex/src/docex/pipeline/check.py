@@ -38,6 +38,7 @@ from docex.context import ProjectContext, load_project_context
 from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
+from docex.naming import dns_label
 from docex.orchestrate._common import core_services, services_with_schema
 from docex.pipeline._worktree import (
     cleanup_worktree,
@@ -735,10 +736,18 @@ def run_check(
         # so build contexts and bind-mounts resolve against the
         # worktree tree, not the main project tree.
         compose_path = compose_file_for(worktree_ctx, "test")
+        # Worktree-unique compose project name so this throwaway `test`
+        # stack can't collide with — or get torn down alongside — a real
+        # `test` env stack on the same host. Folds in the worktree slug
+        # (``check-<short_sha>``) so concurrent checks don't clash either.
+        check_project_name = f"{dns_label(worktree_ctx.project.name)}-{worktree.name}"
         # Use compose_up with build=True then immediately down; we want
         # to confirm `docker build` succeeds without leaving containers
         # around. Easier: a dedicated compose build step.
-        rc = _compose_build(docker, compose_path, env_file, worktree)
+        rc = _compose_build(
+            docker, compose_path, env_file, worktree,
+            project_name=check_project_name,
+        )
         if rc != 0:
             print(
                 f"error: 'docker compose build' against worktree exited {rc}.",
@@ -753,6 +762,7 @@ def run_check(
             worktree_ctx, docker,
             project_dir=worktree,
             env_file_override=env_file,
+            project_name=check_project_name,
         )
         if rc != 0:
             print(
@@ -775,6 +785,8 @@ def _compose_build(
     compose_file: Path,
     env_file: Path | None,
     project_dir: Path | None = None,
+    *,
+    project_name: str | None = None,
 ) -> int:
     """Trigger ``docker compose build`` via the DockerClient abstraction.
 
@@ -782,7 +794,9 @@ def _compose_build(
     method, but ``compose_up(build=True, detach=True)`` followed by
     ``compose_down`` accomplishes the same: it builds everything and
     then tears down. We use that pattern so all docker invocations
-    still go through the abstraction.
+    still go through the abstraction. ``project_name`` keeps this
+    throwaway build stack isolated from any real ``test`` env stack on
+    the same host (and the matching ``down`` only removes this stack).
     """
     rc = docker.compose_up(
         compose_file,
@@ -790,11 +804,13 @@ def _compose_build(
         detach=True,
         env_file=env_file,
         project_dir=project_dir,
+        project_name=project_name,
     )
     # Down regardless — we just wanted the build step.
     docker.compose_down(
         compose_file, preserve_volumes=False,
         env_file=env_file, project_dir=project_dir,
+        project_name=project_name,
     )
     return rc
 

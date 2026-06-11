@@ -12,9 +12,9 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
-Changes accumulating toward a single `1.1.0` minor cut — mods 049–052 of
+Changes accumulating toward a single `1.1.0` minor cut — mods 049–053 of
 the post-shape-overhaul polish campaign. Per-mod narratives live under
-`plans/modifications/049_*` … `052_*`; this section is consolidated and
+`plans/modifications/049_*` … `053_*`; this section is consolidated and
 dated at cut time per `docex_process.md § Cutting a version`.
 
 ### Added
@@ -138,6 +138,73 @@ dated at cut time per `docex_process.md § Cutting a version`.
   services, their OTel sidecars, and the project traefik itself — carries
   a matching `docex.project=<label>` label so the project traefik scopes
   to its own project only.
+- **Compose project identity was wrong, unscoped, and unstable (mod 053,
+  F11/F12).** docex never passed `--project-name`, letting Compose derive
+  it from the basename of `--project-directory`; `_resolve_project_dir`'s
+  fixed "up 4 levels" was correct for env-tier files but **off-by-one**
+  for project-tier files (one level deeper), so every projinfra stack ran
+  under the generic name `infra`. Consequences: `projinfra up development`
+  aborted on a Docker name conflict when a prior traefik existed (not
+  idempotent), and `projinfra down development` left the four `-web`
+  networks behind (their project label ≠ `infra`), emitting `not created
+  for project` warnings. Fix: `_resolve_project_dir` now walks up to
+  `project.yml` (true root for both tiers); `_compose_base` takes an
+  explicit `project_name`; every env/project compose call site passes a
+  stable, DNS-labeled, project-scoped name — env-tier
+  `<dns_label>-<env>`, project-tier `<dns_label>-projinfra-<side>`, and a
+  worktree-unique `<dns_label>-check-<sha>` for `check`'s throwaway
+  stack. `any_env_compose_up` now DNS-labels the project name so its
+  refuse-if-envs-up targets match the real stack names.
+- **ACME named volume diverged from the doctrine name (mod 053).**
+  `emit_project_compose` declared the volume without an explicit `name:`,
+  so Compose prefixed it (e.g. `infra_…-traefik-acme`), diverging from the
+  `${project_dns_label}-traefik-acme` name `fixed_reverse_proxy.md`
+  prescribes. Now emitted with an explicit `name:` (matching the env-tier
+  volume pattern).
+- **Fargate-tier rounding notice printed 2–4× per command (mod 053,
+  F17).** The "resources rounded to Fargate tier" note printed once per
+  elastic env pass (stage + prod) and `run_compile` runs several times per
+  command. `run_compile` now threads a per-run dedup set so each unique
+  notice prints once.
+- **Elastic `projinfra up production` phase-2 failure misdirected
+  debugging (mod 053, F13/F14).** On a phase-2 `tofu apply` failure docex
+  printed a canned "NS delegation not propagated" cause and told the
+  operator to re-run the stale `docex bootstrap`. Now it points at the
+  real tofu error (streamed above) as the primary cause, demotes the NS
+  hint to a conditional secondary note, and names the current command
+  (`./bin/docex projinfra up production`). All operator-facing
+  `docex bootstrap` strings replaced.
+- **`release` (fixed) warned it couldn't create `~/.ansible` (mod 053,
+  F6).** The `bin/docex` shim now `mkdir -p "$HOME/.ansible"` and mounts
+  it (mirroring the existing `~/.docker` handling) so ansible's local
+  state has a real, writable host source.
+- **`preinfra production` (fixed) printed a known_hosts warning (mod 053,
+  F3).** docex's SSH probe wrote to the read-only `~/.ssh` mount. The
+  `SubprocessSSHClient` now passes `-o UserKnownHostsFile=/dev/null`
+  alongside `accept-new`, so the short-lived probe has a throwaway
+  writable sink and the noise is gone.
+
+### Test-project seeds (mod 053)
+
+- **Teardown ordering (F18).** `test_projects/{fixed,elastic}/teardown.sh`
+  now run `projinfra down development` **before** clearing `infra/output`
+  (the down reads the compiled project compose file), so the dev-side
+  traefik + four `-web` networks are removed rather than orphaned. With
+  the compose-identity fix above, the `-web` networks now actually get
+  removed. Both teardowns also clear `infra/output/project`.
+- **`verify_clean` underscore coverage (F15).** `elastic/verify_clean.sh`
+  now checks both the hyphenated and underscored project-name forms for
+  IAM roles, SSM parameters, and DynamoDB tables, so an orphaned
+  underscored resource (e.g. `docex_smoke_elastic_task_execution`) is
+  reported instead of masked.
+- **Stage-test TLS verification (F7).** `fixed/infra/stage/tests/
+  test_smoke.py` drops the stale `verify=False` (Gap A made HTTP-01 real
+  certs work); the client now verifies the real LE cert, aligning with the
+  already-verifying elastic stage test.
+- **`PRE_CUT_CHECKLIST.md` (F1/F2/F8).** Removed the `TRAEFIK_DNS_PROVIDER`
+  prerequisite and documented `TRAEFIK_ACME_EMAIL` as optional (fixed
+  certs use HTTP-01); documented that `check`/`merge` require a feature
+  branch and that `compile` must precede `projinfra up`.
 
 ## [1.0.3] - 2026-06-09
 

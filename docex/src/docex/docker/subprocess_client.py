@@ -30,13 +30,24 @@ class SubprocessDockerClient:
           1. Explicit ``project_dir`` argument (caller knows best — e.g.
              ``docex check`` overrides this to the path of an ephemeral
              worktree).
-          2. Derived from the compose file's location:
-             ``compose_file.parent.parent.parent.parent`` matches the
-             standard layout
+          2. Derived from the compose file's location by walking up to
+             the directory that contains ``project.yml`` (mirrors
+             ``context._find_project_root``).
+          3. Fallback when no ``project.yml`` is found on the way up:
+             ``compose_file.parent.parent.parent.parent``, the historical
+             "up 4" assumption for the env-tier layout
              ``<root>/infra/output/<env>/docker-compose.yml``.
 
+        WHY walk up rather than count parents: the fixed "up 4" was
+        correct for env-tier files (``infra/output/<env>/…``) but
+        off-by-one for project-tier files, which nest one level deeper
+        (``infra/output/project/<side>/…`` → "up 4" lands on
+        ``<root>/infra``, giving every projinfra stack the bogus,
+        non-project-scoped compose name ``infra``). Walking up to
+        ``project.yml`` resolves to the true project root for both tiers.
+
         Under DooD the ``bin/docex`` shim mirrors the host project root
-        as the same path inside docex's container, so the derived path
+        as the same path inside docex's container, so the resolved path
         is simultaneously a valid in-container path (for compose's
         client-side reads) and a valid host path (for the daemon's
         bind-mount resolution). No env-var lookup needed.
@@ -48,7 +59,16 @@ class SubprocessDockerClient:
         """
         if project_dir is not None:
             return str(project_dir)
-        # compose_file = <project_root>/infra/output/<env>/docker-compose.yml
+        here = compose_file.resolve().parent
+        while True:
+            if (here / "project.yml").is_file():
+                return str(here)
+            if here.parent == here:
+                break
+            here = here.parent
+        # Fallback: the historical env-tier "up 4" derivation. Reached
+        # only when no project.yml exists above the compose file (e.g.
+        # in a bare tmp_path test fixture).
         return str(compose_file.parent.parent.parent.parent)
 
     # ------------------------------------------------------------------
@@ -76,19 +96,28 @@ class SubprocessDockerClient:
         compose_file: Path,
         env_file: Path | None,
         project_dir: Path | None,
+        project_name: str | None = None,
     ) -> list[str]:
         # ``-f`` is the compose file. ``--project-directory`` tells
         # compose where to resolve relative paths (build contexts and
         # bind-mount sources) — it must be a host path the docker
         # daemon can find, since the daemon lives on the host. See
-        # ``_resolve_project_dir`` for precedence. ``--env-file`` must
-        # come before the subcommand per the v2 CLI.
+        # ``_resolve_project_dir`` for precedence. ``--project-name``,
+        # when supplied, fixes the compose project name explicitly
+        # rather than letting compose derive it from the project
+        # directory's basename — the derived value is wrong, not
+        # project-scoped, and unstable across docex versions for the
+        # project tier (see ``_resolve_project_dir``). ``--env-file``
+        # and ``--project-name`` must come before the subcommand per
+        # the v2 CLI.
         project_dir_str = self._resolve_project_dir(compose_file, project_dir)
         cmd = [
             self._docker, "compose",
             "-f", str(compose_file),
             "--project-directory", project_dir_str,
         ]
+        if project_name is not None:
+            cmd.extend(["--project-name", project_name])
         if env_file is not None:
             cmd.extend(["--env-file", str(env_file)])
         return cmd
@@ -101,8 +130,11 @@ class SubprocessDockerClient:
         detach: bool = True,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
-        cmd = self._compose_base(compose_file, env_file, project_dir) + ["up"]
+        cmd = self._compose_base(
+            compose_file, env_file, project_dir, project_name
+        ) + ["up"]
         if build:
             cmd.append("--build")
         if detach:
@@ -116,8 +148,11 @@ class SubprocessDockerClient:
         preserve_volumes: bool = True,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
-        cmd = self._compose_base(compose_file, env_file, project_dir) + ["down"]
+        cmd = self._compose_base(
+            compose_file, env_file, project_dir, project_name
+        ) + ["down"]
         if not preserve_volumes:
             cmd.append("-v")
         return self._run(cmd)
@@ -131,8 +166,11 @@ class SubprocessDockerClient:
         env: dict[str, str] | None = None,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
-        cmd = self._compose_base(compose_file, env_file, project_dir) + ["run", "--rm"]
+        cmd = self._compose_base(
+            compose_file, env_file, project_dir, project_name
+        ) + ["run", "--rm"]
         for key, val in (env or {}).items():
             cmd.extend(["-e", f"{key}={val}"])
         cmd.append(service)
@@ -147,10 +185,13 @@ class SubprocessDockerClient:
         *,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> int:
         # ``-T`` disables pseudo-tty allocation so this works when
         # called non-interactively (e.g. from CI).
-        cmd = self._compose_base(compose_file, env_file, project_dir) + ["exec", "-T", service] + command
+        cmd = self._compose_base(
+            compose_file, env_file, project_dir, project_name
+        ) + ["exec", "-T", service] + command
         return self._run(cmd)
 
     # ------------------------------------------------------------------
@@ -279,8 +320,11 @@ class SubprocessDockerClient:
         *,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> list[str]:
-        cmd = self._compose_base(compose_file, env_file, project_dir) + ["ps", "--services", "--status=running"]
+        cmd = self._compose_base(
+            compose_file, env_file, project_dir, project_name
+        ) + ["ps", "--services", "--status=running"]
         try:
             res = subprocess.run(  # noqa: S603
                 cmd,
@@ -300,9 +344,12 @@ class SubprocessDockerClient:
         *,
         env_file: Path | None = None,
         project_dir: Path | None = None,
+        project_name: str | None = None,
     ) -> dict[str, str]:
         import json
-        cmd = self._compose_base(compose_file, env_file, project_dir) + [
+        cmd = self._compose_base(
+            compose_file, env_file, project_dir, project_name
+        ) + [
             "ps", "--all", "--format", "json",
         ]
         try:
@@ -366,7 +413,16 @@ class SubprocessDockerClient:
         # WHY: --all surfaces both fully-running and partially-up stacks
         # (some containers exited, others up). Either case means projinfra
         # down would orphan something; we want to refuse on both.
+        #
+        # ``project_name`` is the raw project name; we DNS-label it here so
+        # the targets match the explicit env-tier compose project name the
+        # orchestrate layer now passes (``<dns_label>-<env>`` — see
+        # ``orchestrate._common.env_compose_project``). Before mod 053 this
+        # built ``{project_name}-{env}`` from the underscored name, which
+        # never matched real stacks named by the path-derived basename — a
+        # latent mismatch in the refuse-if-envs-up gate.
         import json
+        from docex.naming import dns_label
         cmd = [
             self._docker, "compose", "ls",
             "--format", "json",
@@ -386,8 +442,9 @@ class SubprocessDockerClient:
             return False
         if not isinstance(entries, list):
             return False
+        label = dns_label(project_name)
         targets = {
-            f"{project_name}-{env}" for env in ("dev", "test", "stage", "prod")
+            f"{label}-{env}" for env in ("dev", "test", "stage", "prod")
         }
         for entry in entries:
             if not isinstance(entry, dict):

@@ -17,14 +17,17 @@ services:
     command:
     - --providers.docker=true
     - --providers.docker.exposedbydefault=false
+    - --providers.docker.constraints=Label(`docex.project`,`docex-smoke-elastic`)
     - --entrypoints.web.address=:80
     - --entrypoints.websecure.address=:443
     - --certificatesresolvers.doctrine.acme.email=${TRAEFIK_ACME_EMAIL:-}
     - --certificatesresolvers.doctrine.acme.storage=/letsencrypt/acme.json
-    - --certificatesresolvers.doctrine.acme.dnschallenge=true
-    - --certificatesresolvers.doctrine.acme.dnschallenge.provider=${TRAEFIK_DNS_PROVIDER:-}
+    - --certificatesresolvers.doctrine.acme.httpchallenge=true
+    - --certificatesresolvers.doctrine.acme.httpchallenge.entrypoint=web
     container_name: docex-smoke-elastic-traefik
     image: traefik:v3.6@sha256:cc1799c50550f730f686df9b368e690f9199542787db8d1dd328a7c3779f6eea
+    labels:
+    - docex.project=docex-smoke-elastic
     networks:
     - docex-smoke-elastic-dev-web
     - docex-smoke-elastic-test-web

@@ -26,6 +26,7 @@ from docex.orchestrate._common import (
     compose_file_for,
     core_services,
     ensure_compiled,
+    env_compose_project,
     env_file_for,
 )
 
@@ -56,8 +57,12 @@ def run_build(
         )
 
     env_file = env_file_for(ctx, _BUILD_ENV)
+    project_name = env_compose_project(ctx, _BUILD_ENV)
     # Verify dev is running by asking compose what services are up.
-    running = set(docker.compose_ps(compose_file, env_file=env_file))
+    running = set(docker.compose_ps(
+        compose_file, env_file=env_file,
+        project_dir=ctx.project_root, project_name=project_name,
+    ))
     if not running:
         raise EnvNotRunning(
             "dev env is not running; run 'docex up dev' first."
@@ -75,7 +80,10 @@ def run_build(
         targets = [service]
 
     for svc in targets:
-        rc = _build_one(ctx, docker, compose_file, svc, running=running, env_file=env_file)
+        rc = _build_one(
+            ctx, docker, compose_file, svc, running=running,
+            env_file=env_file, project_name=project_name,
+        )
         if rc != 0:
             return rc
     return 0
@@ -89,6 +97,7 @@ def _build_one(
     *,
     running: set[str],
     env_file: Path | None,
+    project_name: str,
 ) -> int:
     """Run the full dev-iteration build path for a single service."""
     # The compose service key is the project-scoped name (e.g.
@@ -102,7 +111,10 @@ def _build_one(
         # the all-states view to tell a Restarting/unhealthy container
         # apart from a genuinely-absent one and give the operator a
         # diagnostic that points at the real problem. (Gap D, mod 050.)
-        status = docker.compose_ps_status(compose_file, env_file=env_file)
+        status = docker.compose_ps_status(
+            compose_file, env_file=env_file,
+            project_dir=ctx.project_root, project_name=project_name,
+        )
         state = next(
             (
                 st
@@ -138,7 +150,10 @@ def _build_one(
         dist_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 3: invoke build.sh inside the running container.
-    rc = docker.compose_exec(compose_file, service_key, ["./build.sh"], env_file=env_file)
+    rc = docker.compose_exec(
+        compose_file, service_key, ["./build.sh"], env_file=env_file,
+        project_dir=ctx.project_root, project_name=project_name,
+    )
     if rc != 0:
         print(
             f"error: build.sh for service {svc!r} exited {rc}.",

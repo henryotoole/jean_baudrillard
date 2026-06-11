@@ -34,7 +34,8 @@ def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monk
     assert (dist / "stale.txt").is_file()
 
     # Have the compose_exec callback simulate build.sh writing a new file.
-    def _exec_side_effect(compose_file, service, command, *, env_file=None):
+    def _exec_side_effect(compose_file, service, command, *, env_file=None,
+                          project_dir=None, project_name=None):
         # build.sh writes to dist/
         if "./build.sh" in command:
             (dist / "fresh.py").write_text("print('hi')")

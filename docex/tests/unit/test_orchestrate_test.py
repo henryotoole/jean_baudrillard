@@ -11,7 +11,13 @@ def test_test_runs_migrate_then_test_then_teardown(sample_ctx, fake_docker):
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 0
 
-    methods = [c[0] for c in fake_docker.calls]
+    # Filter out the metadata entries (``*_project_dir`` / ``*_project_name``)
+    # the fake appends after each primary call so the ordering assertions
+    # read against real docker operations.
+    methods = [
+        c[0] for c in fake_docker.calls
+        if not c[0].endswith("_project_dir") and not c[0].endswith("_project_name")
+    ]
     # compose_up, then exec migrate.sh, then exec test.sh, then compose_down.
     assert methods[0] == "compose_up"
     assert methods[-1] == "compose_down"
@@ -54,12 +60,14 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
     original_exec = fake_docker.compose_exec
     boom_token = object()
 
-    def _raising_exec(compose_file, service, command, *, env_file=None, project_dir=None):
+    def _raising_exec(compose_file, service, command, *, env_file=None,
+                      project_dir=None, project_name=None):
         if command and command[0] == "./test.sh":
             raise RuntimeError(boom_token)
         return original_exec(
             compose_file, service, command,
             env_file=env_file, project_dir=project_dir,
+            project_name=project_name,
         )
 
     fake_docker.compose_exec = _raising_exec  # type: ignore[method-assign]

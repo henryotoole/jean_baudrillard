@@ -33,11 +33,19 @@ class SubprocessSSHClient:
         # still refuses a *changed* one; ``ConnectTimeout`` bounds the
         # probe. ssh surfaces the remote command's exit code, or 255 on
         # its own connection failure.
+        #
+        # F3 (mod 053): the docex shim mounts ~/.ssh read-only, so with a
+        # real known_hosts file ssh prints "Failed to add the host to the
+        # list of known_hosts" on every probe — harmless but alarming
+        # noise. Point known_hosts at /dev/null so accept-new has a
+        # throwaway, writable sink; this is a short-lived probe/deploy
+        # connection, not a session where host-key persistence matters.
         args = [
             self._ssh,
             "-i", str(key_path),
             "-o", "BatchMode=yes",
             "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "UserKnownHostsFile=/dev/null",
             "-o", "ConnectTimeout=10",
             f"{user}@{host}",
             command,

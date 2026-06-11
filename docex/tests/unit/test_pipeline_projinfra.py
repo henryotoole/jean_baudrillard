@@ -52,6 +52,13 @@ def test_projinfra_fixed_up_runs_compose_up(sample_ctx, fake_docker, side):
     # build=False (no build context at project tier); detached.
     assert build is False
     assert detach is True
+    # Mod 053: an explicit, project-scoped --project-name is passed so
+    # the projinfra stack (traefik + four -web networks) lives under a
+    # stable name, not the bogus path-derived 'infra'.
+    name_calls = [
+        c for c in fake_docker.calls if c[0] == "compose_up_project_name"
+    ]
+    assert name_calls == [("compose_up_project_name", f"sample-projinfra-{side}")]
 
 
 def test_projinfra_fixed_up_missing_compose_file_errors(
@@ -146,6 +153,14 @@ def test_projinfra_fixed_down_proceeds_when_env_clean(
         sample_ctx.project_root
         / "infra" / "output" / "project" / "production" / "docker-compose.yml"
     )
+    # Mod 053: down must pass the SAME project name as up so it removes
+    # the traefik AND the four -web networks.
+    name_calls = [
+        c for c in fake_docker.calls if c[0] == "compose_down_project_name"
+    ]
+    assert name_calls == [
+        ("compose_down_project_name", "sample-projinfra-production")
+    ]
 
 
 def test_projinfra_fixed_down_missing_compose_file_warns_and_succeeds(

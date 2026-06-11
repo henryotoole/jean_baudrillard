@@ -207,7 +207,20 @@ fi
 aws s3api delete-bucket --bucket "$STATE_BUCKET" >/dev/null 2>&1 || true
 aws dynamodb delete-table --table-name "$STATE_LOCK_TABLE" >/dev/null 2>&1 || true
 
-# -- 7. Compiled output -------------------------------------------------
+# -- 7. Dev-side projinfra ----------------------------------------------
+# Mod 053 (F18): an elastic project's DEVELOPMENT side is a fixed-style
+# docker compose stack (per-project traefik + four `-web` networks) on the
+# local daemon — the AWS destroys above touch only the production side.
+# Tear it down BEFORE clearing infra/output/project, since `projinfra
+# down` reads the compiled dev-side project compose file. After mod 053's
+# explicit `--project-name`, this removes the four `-web` networks too.
+if [[ -f "$PROJECT_ROOT/infra/output/project/development/docker-compose.yml" ]]; then
+  echo "-- projinfra down development"
+  (cd "$PROJECT_ROOT" && ./bin/docex projinfra down development) \
+    || echo "   (warning: projinfra down development had non-zero exit; continuing)"
+fi
+
+# -- 8. Compiled output -------------------------------------------------
 echo "-- compiled infra/output"
 rm -rf "$PROJECT_ROOT/infra/output/dev" \
        "$PROJECT_ROOT/infra/output/test" \
@@ -215,17 +228,23 @@ rm -rf "$PROJECT_ROOT/infra/output/dev" \
        "$PROJECT_ROOT/infra/output/prod" \
        "$PROJECT_ROOT/infra/output/project"
 
-# -- 8. Local docker artifacts for dev/test envs ------------------------
+# -- 9. Local docker artifacts for dev/test envs ------------------------
 # `dev`/`test` envs compile to fixed compose stacks even on elastic
-# projects; sweep up any local containers/networks/volumes too.
-for container in $(docker ps -aq --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
-  docker rm -f "$container" >/dev/null || true
-done
-for network in $(docker network ls -q --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
-  docker network rm "$network" >/dev/null 2>&1 || true
-done
-for volume in $(docker volume ls -q --filter "name=${PROJECT_NAME}" 2>/dev/null || true); do
-  docker volume rm "$volume" >/dev/null 2>&1 || true
+# projects; sweep up any local containers/networks/volumes too. Loop over
+# both name forms — docex's data-plane names hyphenate the underscore
+# project name (`docex-smoke-elastic-…`), so the underscore filter alone
+# misses them (mod 053).
+PROJECT_NAME_HYPHEN="${PROJECT_NAME//_/-}"
+for pattern in "$PROJECT_NAME" "$PROJECT_NAME_HYPHEN"; do
+  for container in $(docker ps -aq --filter "name=${pattern}" 2>/dev/null || true); do
+    docker rm -f "$container" >/dev/null || true
+  done
+  for network in $(docker network ls -q --filter "name=${pattern}" 2>/dev/null || true); do
+    docker network rm "$network" >/dev/null 2>&1 || true
+  done
+  for volume in $(docker volume ls -q --filter "name=${pattern}" 2>/dev/null || true); do
+    docker volume rm "$volume" >/dev/null 2>&1 || true
+  done
 done
 
 echo "==> teardown complete. run verify_clean.sh to confirm."

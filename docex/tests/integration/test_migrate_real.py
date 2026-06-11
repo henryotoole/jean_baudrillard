@@ -28,9 +28,13 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
         # We exec into the appdb container.
         env_file = fresh_project / "infra" / "secrets" / "dev.env"
         # Find appdb service's project-scoped global name.
+        # Mod 053: match docex's explicit env-tier --project-name
+        # (<dns_label>-<env> = "sample-dev") so these probes address the
+        # stack docex brought up.
         ps_out = subprocess.check_output(
             ["docker", "compose", "-f", str(compose_file),
              "--project-directory", str(fresh_project),
+             "--project-name", "sample-dev",
              "--env-file", str(env_file),
              "ps", "--services", "--status=running"],
             text=True,
@@ -45,6 +49,7 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
             [
                 "docker", "compose", "-f", str(compose_file),
                 "--project-directory", str(fresh_project),
+                "--project-name", "sample-dev",
                 "--env-file", str(env_file),
                 "exec", "-T", db_key,
                 "psql", "-U", "sample", "-d", "appdb",
@@ -63,6 +68,7 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
         subprocess.run(
             ["docker", "compose", "-f", str(compose_file),
              "--project-directory", str(fresh_project),
+             "--project-name", "sample-dev",
              "--env-file", str(fresh_project / "infra" / "secrets" / "dev.env"),
              "down", "-v"],
             check=False,

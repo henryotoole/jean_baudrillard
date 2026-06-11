@@ -21,7 +21,7 @@ from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import TofuApplyFailed
-from docex.naming import apply_policy
+from docex.naming import apply_policy, dns_label
 
 
 TofuRunner = Callable[..., int]
@@ -36,6 +36,18 @@ def _project_compose_path(ctx: ProjectContext, side: str) -> Path:
         ctx.project_root
         / "infra" / "output" / "project" / side / "docker-compose.yml"
     )
+
+
+def _project_compose_project(ctx: ProjectContext, side: str) -> str:
+    """The explicit compose ``--project-name`` for a project-tier stack.
+
+    ``<dns_label(project)>-projinfra-<side>`` — project-scoped, DNS-labeled,
+    and stable across docex versions. Passed at both ``up`` and ``down`` so
+    compose owns and can remove the per-project traefik AND the four ``-web``
+    networks (which previously leaked under the bogus path-derived name
+    ``infra``, per mod 053 / Cluster 1).
+    """
+    return f"{dns_label(ctx.project.name)}-projinfra-{side}"
 
 
 def run_projinfra_fixed_up(
@@ -58,7 +70,11 @@ def run_projinfra_fixed_up(
     # WHY: build=False — the project-tier compose has no build context;
     # the traefik image is pulled from a registry by digest. Passing
     # --build is harmless but noisy.
-    rc = docker.compose_up(compose_file, build=False, detach=True)
+    rc = docker.compose_up(
+        compose_file, build=False, detach=True,
+        project_dir=ctx.project_root,
+        project_name=_project_compose_project(ctx, side),
+    )
     if rc != 0:
         print(
             f"error: `docker compose up` failed with exit code {rc} "
@@ -90,7 +106,11 @@ def run_projinfra_fixed_down(
             f"warning: {compose_file} not found — nothing to tear down."
         )
         return 0
-    return docker.compose_down(compose_file, preserve_volumes=True)
+    return docker.compose_down(
+        compose_file, preserve_volumes=True,
+        project_dir=ctx.project_root,
+        project_name=_project_compose_project(ctx, side),
+    )
 
 
 def run_projinfra_elastic_down(
