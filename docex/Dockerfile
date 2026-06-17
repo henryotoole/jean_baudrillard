@@ -92,7 +92,6 @@ COPY pyproject.toml ./
 COPY src/ ./src/
 COPY tables/ /opt/docex/tables/
 COPY doctrine_excerpts/ /opt/docex/doctrine_excerpts/
-COPY ansible/ /opt/docex/ansible/
 
 # Install docex itself with the [test] extra so the in-container test
 # loop (``docker run --entrypoint pytest docex /opt/docex/tests``)

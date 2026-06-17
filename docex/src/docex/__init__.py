@@ -1,6 +1,6 @@
 """docex — the executor of the doctrine."""
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 # The single region the elastic foundation supports (CICL simplification).
 # Shared by the compiler, the containerize ECR path, and the boto3 client so

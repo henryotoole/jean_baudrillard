@@ -12,6 +12,24 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-06-17
+
+### Removed
+
+- Dockerfile: dropped the vestigial `COPY ansible/ /opt/docex/ansible/` line.
+  The top-level `ansible/` directory was always empty, nothing in the image
+  ever read `/opt/docex/ansible/`, and the fixed-release playbook template
+  actually lives at `src/docex/emit/templates/playbook.yml.j2` (bundled via
+  the `src/` copy). Removed the now-deleted empty directory.
+
+### Changed
+
+- `plans/core/masterplan.md`: corrected the repo-structure tree (removed the
+  `ansible/` entry) and the "Bundled" list so the playbook-template reference
+  points at its real home under `src/docex/emit/templates/` rather than a
+  separate top-level `ansible/` directory. Resolves the doctrine/code drift
+  between the masterplan, the Dockerfile, and `src/`.
+
 ## [1.1.0] - 2026-06-11
 
 The post-shape-overhaul polish campaign — mods 049–053. Per-mod narratives

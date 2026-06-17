@@ -134,7 +134,7 @@ A few commands compose others rather than duplicate logic:
 **Bundled (lives in the image):**
 - The Python CLI: command dispatcher, CICL compiler, all orchestration code.
 - The canonical [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md) (`/opt/docex/tables/`).
-- The Ansible playbook template used by fixed-foundation releases (rendered per project by `compile`).
+- The Ansible playbook template used by fixed-foundation releases, rendered per project by `compile` (lives with the other emit templates under `src/docex/emit/templates/`, bundled into the image via the `src/` copy).
 - CLI dependencies: `docker`, `tofu`, `ansible`, `aws`, `git`, `jq`, plus the Python runtime.
 - Doctrine prose excerpts that back `docex why`.
 
@@ -247,7 +247,6 @@ jean_baudrillard/docex/
 │       ├── bootstrap/       (elastic state-backend setup)
 │       └── describe/        (describe + why)
 ├── tables/                  (canonical transfer tables, copied to /opt/docex/tables/)
-├── ansible/                 (playbook template rendered by compile for fixed releases)
 ├── doctrine_excerpts/       (data feeding `docex why`)
 ├── bin/                     (the project-installed shim, sourced from here)
 └── tests/
