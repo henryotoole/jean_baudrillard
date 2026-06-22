@@ -1,0 +1,19 @@
+{
+  "skill_name": "docex-edit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to add a new subcommand to docex called `doctor` that runs a set of local health probes (docker reachable, project.yml present, etc.) and prints a report. Walk me through exactly where the new code goes and how the CLI gets wired up to dispatch `docex doctor` to it. Be specific about file paths, the function names and signatures docex expects, how dispatch actually happens, what else has to be touched for the command to show up correctly, and what the docex development process requires me to keep in sync when I make this change.",
+      "expected_output": "A correct answer adds a handler function `_cmd_doctor(args: list[str]) -> int` in src/docex/__main__.py that builds its own argparse.ArgumentParser and lazily imports a run_doctor(...) entry point from a new subpackage module (the implementation living under a purpose-named subpackage such as src/docex/pipeline/doctor.py or a sibling, NOT a per-command package and NOT src/docex/doctor/), registers `doctor` in the _build_handler_table() dict (the hand-rolled dispatch mechanism — not argparse subparsers, not click/typer), and adds entries to _HELP_TEXT and the appropriate _GROUPS tuple so it renders in --help. It should also note the docex five-artifact alignment discipline from docex_process.md (doctrine prose first, then plans/core, tables, src, tests) and that tests must be added.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): States that dispatch is a hand-maintained dict[str, Callable[[list[str]], int]] built by `_build_handler_table()` in src/docex/__main__.py, and that registering the command means adding a \"doctor\": _cmd_doctor entry there — NOT defining an argparse subparser via add_subparsers(), and NOT using click/typer decorators",
+        "DELTA DRIVER (doctrine-specific, not inferable): Specifies the handler convention — a module-level `_cmd_doctor(args: list[str]) -> int` in __main__.py that constructs its OWN argparse.ArgumentParser(prog=\"docex doctor\") for just this command's args, then LAZILY imports the real implementation entry function named `run_doctor(...)` from a subpackage (lazy import inside the handler, mirroring every existing _cmd_* handler)",
+        "DELTA DRIVER (doctrine-specific, not inferable): Places the implementation in a PURPOSE-named subpackage (e.g. src/docex/pipeline/ for pipeline-style commands, src/docex/orchestrate/ for env/dev orchestration, src/docex/cicl/ for compiler work) as a <command>.py module — explicitly NOT a new top-level src/docex/doctor/ package-per-command (note: the masterplan repo diagram is stale and lists compile/, bootstrap/, describe/ as folders; the real layout on disk is cicl/compile.py, pipeline/bootstrap.py, etc.)",
+        "DELTA DRIVER (doctrine-specific, not inferable): Notes that for the command to appear correctly in `docex --help`, two more manual edits are required in __main__.py — add a one-line entry to the _HELP_TEXT dict and add the command name to the correct tuple in _GROUPS",
+        "DELTA DRIVER (doctrine-specific, not inferable): Invokes the docex five-artifact alignment rule — doctrine prose is the rule of record and changes FIRST (ask the operator before editing doctrine wording), then plans/core docs, tables/roles, src/docex, and tests must be kept in lockstep; and there is no manual-test pause in a docex mod cycle",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): The new command should ship with tests and return an int exit code (0 success / non-zero failure), consistent with normal CLI hygiene",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): The handler should fail loudly with a clear message rather than silently when a precondition (e.g. docker not reachable) is unmet"
+      ]
+    }
+  ]
+}

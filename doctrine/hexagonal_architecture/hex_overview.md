@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Hexagonal Module
 
 This guide goes over conventions and details of architecting projects with the "hexagonal architecture" model. This guide is designed to work **alongside** hexagonal best practices - not to replace them.
@@ -37,10 +41,10 @@ Modules are constructed by a single, project-wide composition root. The composit
 
 Dependency inversion should always be practiced within a module's import structure.
 
-When one hex module needs to call another in-process, the consuming module imports the target module's driving port and accepts a dependency of that type. At runtime, the composite root injects the relevant alogic application logic service instance for that driving port.
+When one hex module needs to call another in-process, the consuming module imports the target module's driving port and accepts a dependency of that type. At runtime, the composition root injects the relevant alogic application logic service instance for that driving port.
 
 ### Shared Clients
-This is a concept without a clear, well established name in hexagonal architecture circles. This section deserves special attention here because it is nuanced and not clearly defined in the original sources for hexagonal.
+This is a concept without a clear, well-established name in hexagonal architecture circles. This section deserves special attention here because it is nuanced and not clearly defined in the original sources for hexagonal.
 
 When two or more hexagonal modules end up needing to interact with the same external resource, there's a temptation to create a "shared" adapter that can be re-used as needed. However, this is dangerous because a truly shared adapter forces all consuming modules to share a single interpretation of the external system, coupling their domains together and defeating the purpose of keeping bounded contexts independent.
 
@@ -102,7 +106,7 @@ Here's an overview of some of the folders in this structure and their purpose.
 | `hex` | This folder contains hexagonal modules that have been built for this project. In the above example, it contains only `sample_module`; however in a real project it would likely contain several. |
 | `root.py` | The [composition root](#module-construction) for the project. |
 | `sample_module` | Is an example hexagonal module. In a real project, it would be named differently. See "hexagonal module structure" below for more information on module filestructure. |
-| `shared` | This folder is for shared clients. Client interfaces go in `interfaces` and their implementations go in `client`. |
+| `shared` | This folder is for shared clients. Client interfaces go in `interfaces` and their implementations go in `clients`. |
 | `util` | A discouraged escape hatch for genuinely-generic helpers that defy module placement. See "util" section. Use should be avoided. |
 
 ### Util
@@ -124,7 +128,7 @@ All the below categories of tests are [service tests](../infrastructure/tests.md
 
 1. Domain Tests
 
-Pure unit tests — no mocks, no I/O. Domain components by definition won't need ports and can't import application logic, so tests will be straightforwards.
+Pure unit tests — no mocks, no I/O. Domain components by definition won't need ports and can't import application logic, so tests will be straightforward.
 
 2. Alogic Tests
 
@@ -195,7 +199,7 @@ Every hexagonal module has these folders and purposes:
 
 | Folder or File Name | Purpose |
 | ------------------- | ------- |
-| `adapters` | Contains both drivign and driven adapter implementations for the module. |
+| `adapters` | Contains both driving and driven adapter implementations for the module. |
 | `ports` | Contains the interface definitions for all adapters. It contains both driving and driven port definitions.
 | `alogic` | Short for "application logic". This contains the code that actually uses the domain and driven adapters to achieve meaningful work. |
 | `domain` | Contains the domain components — entities, value objects, domain services, and any pure business logic that operates on them. |
@@ -206,9 +210,9 @@ The below list summarizes what sorts of things belong in the domain.
 
 1. Value objects — immutable, identityless, defined by their values (Money, EmailAddress, DateRange). Encapsulate validation and operations on a primitive concept.
 2. Entities - things with identity that change over time (Order, User). Can contain:
-    2. Invariants — rules that must hold for an entity/value to be valid; enforced at construction or mutation, not by callers.
-    3. State transitions — methods that change entity state in domain-meaningful ways (order.cancel(), order.fulfill()) and enforce which transitions are legal.
-    4. Pure calculations — business math that doesn't depend on infrastructure (order.calculate_tax(), trip.is_within_business_hours()).
+    1. Invariants — rules that must hold for an entity/value to be valid; enforced at construction or mutation, not by callers.
+    2. State transitions — methods that change entity state in domain-meaningful ways (order.cancel(), order.fulfill()) and enforce which transitions are legal.
+    3. Pure calculations — business math that doesn't depend on infrastructure (order.calculate_tax(), trip.is_within_business_hours()).
 3. Domain services — operations that span multiple entities and don't belong on any one of them. The defining test: no port dependencies. If it needs a repo, it's alogic.
 4. Domain events — immutable records of meaningful state changes.
 

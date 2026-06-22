@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Infrastructure
 
 This document provides a high level overview of infrastructure, what it's formed of, and how we do it.
@@ -46,7 +50,7 @@ Project infrastructure tends to be shared across all environments whereas enviro
 
 Of the three tiers, environment infrastructure is by far the least deterministic. It's designed for the project in `infra.yml` and will vary greatly from project to project. Project infrastructure is more constrained; it's configured by top-level `infra.yml` fields but most of the details are worked out deterministically by the [CICL compiler](./cicl.md). Prerequisite infrastructure is not even described by the compiled output, as it by definition can not be controlled from within project scope. `docex` can, however, perform proactive checks on prerequisite infrastructure to check whether or not it exists in the needed form.
 
-NOTE: Sometimes the word **stack** is used informally to describe a set of environment infrastructure components. "Restart the  dev stack" would translate to "restart all services for the `dev` environment".
+NOTE: Sometimes the word **stack** is used informally to describe a set of environment infrastructure components. "Restart the dev stack" would translate to "restart all services for the `dev` environment".
 
 ### Infrastructure Sides
 
@@ -90,7 +94,7 @@ For egress, we adopt a completely centralized model. Projects sharing infra spac
 
 ## CI/CD Pipeline
 
-Code built with the `doctrine` all use one standard way to move code from development into production. This way is a CI/CD pipeline, and all projects will use it for build, release, and deployment. An overview of the pipeline is given below to establish standard terminology and indicate the flow of code through our infrastructure. Deeper info can be found [here](./cicd.md).
+Code built with the `doctrine` all uses one standard way to move code from development into production. This way is a CI/CD pipeline, and all projects will use it for build, release, and deployment. An overview of the pipeline is given below to establish standard terminology and indicate the flow of code through our infrastructure. Deeper info can be found [here](./cicd.md).
 
 The code follows the usual process of:
 `source` --(build)--> `build artifact` --(containerize)--> `build image` --(release)--> `release`
@@ -179,7 +183,7 @@ Core services go in the `core` folder. Each is given a name (like `web`) that wi
 + `tests` - contains all the tests that `test.sh` will run.
 + `migrations` - contains all migrations that `migrate.sh` will run.
 + `build.sh` - the [build script](./cicd.md#build-step).
-+ `test.sh` - the [test script](./cicd.md#build-testing).
++ `test.sh` - the [test script](./cicd.md#build-test-step).
 + `migrate.sh` - the [migrate script](./cicd.md#migrate-step).
 + `Dockerfile` - the dockerfile which configures the container.
 
@@ -226,11 +230,7 @@ Dockerfiles will all describe multi-stage builds. The following list of stages m
 
 `build.sh` is the canonical build entry point and is invoked by the `build` stage during `docker build`. See [Build Step](./cicd.md#build-step) for how `build.sh` is shared between the formal and dev-iteration paths.
 
-#### Healthcheck Tooling Requirement
-
-A core service that declares `health_check_path` (i.e. every `web`-network core service — see [contracts.md § Health Checks](./contracts.md#health-checks)) compiles to a Docker healthcheck that probes `/health` with **`curl`**. That healthcheck runs *inside* the container, so the service's image **must contain `curl`** in its runnable stages (`dev`, `prod`, `test` — the `build` stage never runs as a container). On `debian`/`ubuntu` bases this is one line (`RUN apt-get install -y curl`); on `alpine`, `apk add curl`. Curl-less bases (distroless, `scratch`) must `COPY` a static `curl` in or they cannot satisfy this requirement.
-
-The cost of a missing `curl` is severe and non-obvious: the healthcheck errors on every run, Docker marks the container `unhealthy`, and the reverse proxy (Traefik) drops the route — the service is unreachable with no error in the application logs. To make this a loud, early failure instead, [`./bin/docex check`](./cicd.md#check-step) verifies that every `health_check_path`-declaring service's image carries `curl` and fails the gate descriptively if it does not.
+Any core service that declares a `health_check_path` must carry `curl` in its image. Dockerfiles for such services should be written to install `curl`. The [`./bin/docex check`](./cicd.md#check-step) gate check will fail if `curl` is omitted.
 
 ### Contracts
 
@@ -250,7 +250,7 @@ Provider services have a contract which is stored at `$pr/infra/contracts/${serv
 + `web` has contract `web.openapi.yml` because it is driven by a request-based interface.
 + `worker` has contract `worker.asyncapi.yml` because it is driven by a queue system.
 
-See [contracts](./contracts.md) for more info on formmats, requirements, and the like.
+See [contracts](./contracts.md) for more info on formats, requirements, and the like.
 
 Every core service which is a provider *must* have a contract to pass CI checks.
 

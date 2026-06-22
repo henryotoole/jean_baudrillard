@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic IAM
 
 This file describes the IAM resources created on the production side of every elastic-foundation project. The doctrine keeps the IAM surface deliberately minimal: one task-execution role per project, shared across stage and prod ECS services, with a small set of resource-scoped permissions.

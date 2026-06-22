@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Migrations
 
 This file describes how database schema migrations — changes applied to a service's owned database — are invoked by `docex` at well-defined points in the lifecycle. The mechanism is foundation-aware in implementation but identical in contract: every core service that owns a database schema provides a `migrate.sh` shim that `docex` runs against the right database at the right time.

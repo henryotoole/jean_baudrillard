@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # CICL
 
 Overview of the *Clausewitzian Infrastructure Configuration Language* format and compiler.
@@ -91,7 +95,7 @@ The table below lists all standard fields for services.
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
 | schema_owned_by | sometimes | backing | Required for database roles (e.g. `relational_db`) to denote which core service owns the database schema and drives migrations. |
 
-Note that core services do **not** declare an `image` field. Image references are derived deterministically by the compiler from the top-level [`container_registry`](#container-registry), the project name and version (from `project.yml`), and the service name. See [Container Registry](#container-registry) for the full format.
+Note that core services do **not** declare an `image` field. Image references are derived deterministically by the compiler from the top-level [`container_registry`](#container-registry-and-service-images), the project name and version (from `project.yml`), and the service name. See [Container Registry](#container-registry-and-service-images) for the full format.
 
 The values for these fields can have "magic refs" like ${backing_services.object_store.name} which reference service [provided fields](#provided-fields) and are filled with the correct interpolated values when `infra.yml` is converted to docker-compose or OpenTofu config files.
 
@@ -114,7 +118,7 @@ Two fields define a core service's container environmental variables. `env:` hol
 We define some arbitrary but hard rules for these infra files in order to reduce complexity.
 
 1. Service names are interpolated into a globally unique name when used as variables.
-	+ For example, a core service needs a bucket name. This name will interpolated from the object store backing service name, the environment name, and the project name.
+	+ For example, a core service needs a bucket name. This name will be interpolated from the object store backing service name, the environment name, and the project name.
 2. Services communicate over URLs, and those URLs are built from provided fields (host, port, etc.) at startup.
 
 ### Domain
@@ -195,7 +199,7 @@ The default is for networks to be internal and closed, such that only services o
 
 Network names are defined in `infra.yml` with simple names e.g. `web`, `internal`, etc. for developer convenience. However, in practice the compiler will create networks scoped by "simple name", project, and environment. A REST API service on the `web` network will be placed on a Docker network with a name something like `${project_name}-${env_name}-${network_definition_name}` (or a similar SG in `elastic`).
 
-Network names in practice **always** use hyphens. If an input (like a project name) has underscore it will be converted when the network name is formed.
+Network names in practice **always** use hyphens. If an input (like a project name) has an underscore it will be converted when the network name is formed.
 
 Details on networks, how they are evaluated, and how they compile out can be found [here](./specifics/networks.md).
 
@@ -232,9 +236,9 @@ resources:
 The relationships between services defined by the `depends_on` block serve several roles:
 1. It provides the DAG needed for the compiler to produce infrastructure config which brings infrastructure online in the right order.
 2. It describes the [provider / consumer](./infrastructure.md#contracts) relationship between core services. This allows the compiler to ensure these relationships are defined properly; [CI/CD](./cicd.md) `docex` checks rely on this relationship.
-3. It defines a dependency chain which let's us check which services are "downstream" in the chain from others.
+3. It defines a dependency chain which lets us check which services are "downstream" in the chain from others.
 
-Furthermore, if Service A reference's Service B's information via magic ref, then A depends on B. If that relationship doesn't actually show up in A's `depends_on` field, the compiler will trip an error.
+Furthermore, if Service A references Service B's information via magic ref, then A depends on B. If that relationship doesn't actually show up in A's `depends_on` field, the compiler will trip an error.
 
 ### Reverse Proxy
 
@@ -280,7 +284,7 @@ For example, many software projects need a relational database. The transfer tab
 
 These tables are formatted in plain YAML. The `doctrine` maintains transfer tables which ought to cover most cases. To provide flexibility, projects can also provide their own project-specific transfer tables in the `infra/transfer_tables` folder. These will be deep merged with the `doctrine` ones when the compiler runs. However, **care should be taken** when choosing design that calls upon this additional complexity. Most projects won't need it.
 
-When adding project-specific transfer tables, always load the `docex-transfer-table` skill.
+When adding project-specific transfer tables, always load the `infra-compile` skill.
 
 ### Compiler Output
 
@@ -337,7 +341,7 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 1. All required fields must be present on relevant services.
 2. All roles must either be defined in the standard transfer tables or the project-local ones.
 3. All "magic refs" must resolve.
-4. Engines must be known and engines must match foundation (e.g. minio for `elastic` foundation.)
+4. Engines must be known and engines must match foundation (e.g. minio for `fixed` foundation, S3 for `elastic`).
 5. Names must be unique across services.
 6. Cyclic dependency chains with `depends_on` are not allowed.
 7. Magic refs which imply dependency between services must be matched by a corresponding `depends_on` block between services.

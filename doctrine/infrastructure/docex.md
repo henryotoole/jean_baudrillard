@@ -1,6 +1,10 @@
+---
+stratum: conditional
+---
+
 # `docex` Overview
 
-`docex` is the executor of the [doctrine](../doctrine/overview.md). It is a single, versioned container image that bundles all deterministic doctrine-shipped tooling - the [CICL](./cicl.md) compiler, [CI/CD](./cicd.md) actions, and any future glue - into one cohesive command-line surface. Each project pins one `docex` version, gets one `./bin/docex` shim, and never carries doctrine source code in its own repository.
+`docex` is the executor of the [doctrine](../overview.md). It is a single, versioned container image that bundles all deterministic doctrine-shipped tooling - the [CICL](./cicl.md) compiler, [CI/CD](./cicd.md) actions, and any future glue - into one cohesive command-line surface. Each project pins one `docex` version, gets one `./bin/docex` shim, and never carries doctrine source code in its own repository.
 
 This file clearly documents all `docex` usage and commands for two purposes:
 1. To act as the source of truth for the development of the `docex` project itself.

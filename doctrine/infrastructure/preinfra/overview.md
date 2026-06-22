@@ -1,6 +1,10 @@
+---
+stratum: conditional
+---
+
 # Overview
 
-This folder `preinfra` contains information for *setting up* and *maintaining* prerequisite infrastructure. All this is outside of project scope and is not part of the mainline doctrine - these are details only to be consulted when the are needed by an operator or LLM agent to work with prerequisite infra.
+This folder `preinfra` contains information for *setting up* and *maintaining* prerequisite infrastructure. All this is outside of project scope and is not part of the mainline doctrine - these are details only to be consulted when they are needed by an operator or LLM agent to work with prerequisite infra.
 
 This directory is not exhaustive. Instructions currently exist for:
 1. [The Observability Backend](./telemetry_preinfra.md) - HyperDX.

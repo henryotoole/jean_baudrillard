@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Secrets
 
 This file describes how runtime secrets — database passwords, API keys, and other env-tier values that shouldn't be committed — flow from the operator's machine into running services across both foundations. The `.env`-as-source-of-truth model is uniform; the materialization mechanism is foundation-aware.
@@ -57,7 +61,7 @@ The compiler enforces this at compile time: a magic ref that would embed a secre
 
 ## Doctrine-Injected Secrets
 
-A small set of secrets are added by the doctrine itself rather than by project services. These appear in `example.env` for the envs that need them, and the operator fills them in like any other secret:
+A small set of secrets is added by the doctrine itself rather than by project services. These appear in `example.env` for the envs that need them, and the operator fills them in like any other secret:
 
 | Secret | Required envs | Source | Consumer |
 | ------ | ------------- | ------ | -------- |

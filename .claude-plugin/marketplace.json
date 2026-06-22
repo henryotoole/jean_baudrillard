@@ -1,0 +1,12 @@
+{
+  "name": "jean-local",
+  "description": "Local-only marketplace for the Jean Baudrillard doctrine plugin. Not published; registered by setup against the on-disk repo.",
+  "owner": { "name": "Josh Reed", "email": "josh.reed@luxedo.com" },
+  "plugins": [
+    {
+      "name": "jean-baudrillard",
+      "source": ".",
+      "description": "Jean Baudrillard doctrine: resident-stratum loader hook + conditional-stratum skills."
+    }
+  ]
+}

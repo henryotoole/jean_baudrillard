@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Networks
 
 This file describes **env-tier per-service network attachment** — which docker networks a container joins on fixed, which security groups a service joins on elastic, and how the `internal` default behaves. It is intentionally narrow: the project-tier `-web` network surface (and the reverse proxy that spans those networks) lives in [`projinfra/`](./projinfra/overview.md); the master networks live in [`preinfra/`](../preinfra/overview.md).

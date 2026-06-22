@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic ECR
 
 This file describes the ECR (Elastic Container Registry) repositories created on the production side of every elastic-foundation project. They hold the build images that `./bin/docex containerize` pushes and `./bin/docex release` pulls.

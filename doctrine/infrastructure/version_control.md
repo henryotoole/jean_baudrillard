@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Version Control
 
 This document describes best practices for performing version control on software projects.

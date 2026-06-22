@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Comments
 
 This file details best-practices for commenting code.

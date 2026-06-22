@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Modifications
 
 This documents the standard modification process for designing and implementing changes into the codebase of a project.
@@ -9,7 +13,7 @@ This process is **intentionally agnostic to release cycles, branching, and versi
 The process is performed by the LLM agent as follows:
 1. Ensure that the current branch is **not** `main`.
 	1. If the codebase *is* on `main`, alert the operator and do not proceed.
-2. Create a new [modification folder](./docs.md) in the modification documentation at $pr/plans/modifications, and adds an `overview.md` file outlining the change at a design level.
+2. Create a new [modification folder](./docs.md) in the modification documentation at $pr/plans/modifications, and add an `overview.md` file outlining the change at a design level.
 	1. Iterate on the `overview.md` plan with the operator, working through ramifications and details.
 3. Design is complete - time to create implementation steps.
 	1. LLM agent creates `implementation.md` with implementation steps based on the current codebase. The implementation document should be written such that it can be handed to a fresh context.

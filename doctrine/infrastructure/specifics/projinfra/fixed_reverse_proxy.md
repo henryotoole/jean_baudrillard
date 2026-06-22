@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Fixed Reverse Proxy (Per-Project Traefik)
 
 This file describes the per-project Traefik container — the project-tier reverse proxy for any side that uses docker-compose to host envs. That covers:
@@ -136,7 +140,7 @@ When the operator runs `./bin/docex projinfra down <side>`:
 - The four `-web` networks are removed (they're owned by the projinfra compose file, declared with no external owner).
 - The `${project_name}-traefik-acme` named volume is **preserved** by default (docker compose's default behavior; the volume is not part of the `down` action unless `--volumes` is passed).
 
-Projinfra refuses to run `down` if any env-tier infra is still attached to its networks — see [overview.md § `./bin/docex projinfra <direction> <side>`](./overview.md#binbindocex-projinfra-direction-side).
+Projinfra refuses to run `down` if any env-tier infra is still attached to its networks — see [overview.md § `./bin/docex projinfra <direction> <side>`](./overview.md#bindocex-projinfra-direction-side).
 
 ## Failure Modes
 

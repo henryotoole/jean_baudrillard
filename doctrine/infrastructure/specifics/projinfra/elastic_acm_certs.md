@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic ACM Certs
 
 This file describes the ACM certificates created on the production side of every elastic-foundation project that uses the default `reverse_proxy: alb` variant. Projects using `ec2_traefik_eip` or `ec2_traefik_pip` skip ACM entirely — their certs are issued by traefik's built-in Let's Encrypt client; see [`ec2_traefik.md`](./ec2_traefik.md).

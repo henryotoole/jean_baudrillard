@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Logging
 
 This file covers logging practices for within a core service container.

@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # CI/CD
 
 This file describes the details of our handling of CI/CD. 
@@ -49,11 +53,13 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	3. `project.yml` version was bumped.
 	4. `project.yml` version has not yet been released.
 	5. No merge conflicts
-	6. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml` [depends-on](./cicl.md#depends-on-relationships) relationships.
-	7. Contracts for core services on the `web` network have the mandatory [health check](./contracts.md#health-checks) endpoints.
-	8. All core services contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
-3. Ensure build doesn't fail.
-4. Run build test
+3. Perform core service checks:
+	1. All core services contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
+	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml` [depends-on](./cicl.md#depends-on-relationships) relationships.
+	3. Contracts for core services on the `web` network have the mandatory [health check](./contracts.md#health-checks) endpoints.
+	4. Every `health_check_path`-declaring service's image carries `curl`.
+4. Ensure build doesn't fail.
+5. Run build test
 
 If any steps fail, the repo is reverted back to its original state.
 
@@ -171,7 +177,7 @@ Depending on the target environment, `migrate.sh` will be run a little different
 
 #### Process
 1. Run the `migrate.sh` script for every core service that has one. `migrate.sh` will:
-	1. Determine database connection from the same env vars that the service are available.
+	1. Determine database connection from the same env vars the service uses at runtime.
 	2. Fire the migration against the database.
 	3. Return non-0 if a problem occurs.
 

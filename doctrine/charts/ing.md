@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 ELASTIC FOUNDATION                             ┌────────────┐                                                 
 Network Ingress / Egress Model                 │  Internet  │                                                 
                                                └────┬───▲───┘                                                 

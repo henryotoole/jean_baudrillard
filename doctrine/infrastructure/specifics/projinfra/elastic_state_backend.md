@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic State Backend
 
 This file describes the OpenTofu state backend — the S3 bucket and DynamoDB lock table — that every elastic-foundation project requires. It is a project-tier resource (one backend per project, shared across stage and prod) but its existence is a precondition for any other project-tier or env-tier Tofu apply, so `./bin/docex projinfra up production` provisions it directly via the AWS API before any `tofu init` can run.

@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Telemetry and Observability
 
 This document provides an overview of how telemetry and observability infrastructure works under the doctrine.
@@ -26,7 +30,7 @@ Practices are discussed [here](../practices/logging.md). The rest of this docume
 
 ## Design vs Doctrine
 
-When it comes to telemetry, *what gets reported* is a design concern and *how it gets there* is a deterministic `docex` concern. It is the project developer's responsibility to setup logging practices and SDK's within core service code in accordance with doctrine guidelines. The infrastructure side is almost entirely deterministic. It is described in this document, but actually implemented with `./bin/docex compile` in a systematic way. Limited configuration is expected in `infra.yml`.
+When it comes to telemetry, *what gets reported* is a design concern and *how it gets there* is a deterministic `docex` concern. It is the project developer's responsibility to set up logging practices and SDKs within core service code in accordance with doctrine guidelines. The infrastructure side is almost entirely deterministic. It is described in this document, but actually implemented with `./bin/docex compile` in a systematic way. Limited configuration is expected in `infra.yml`.
 
 ## Signal Standards
 
@@ -38,7 +42,7 @@ Signals also have an "origin" which denotes how the signal was produced:
 1. **Application-Origin** signals originate in application code. This could be a handled exception or a log line.
 2. **Infrastructure-Origin** signals originate within an infrastructure component. This might be an ECS-reported `RunningTaskCount` metric or load balancer access logs.
 
-The following table gives some example of each signal type across each origin:
+The following table gives some examples of each signal type across each origin:
 |   | Metrics | Logs | Traces |
 | - | ------- | ---- | ------ |
 | **Application code** | Request duration histogram; Error rate counter | Structured app log lines | Inbound HTTP handler spans; Outbound DB spans |
@@ -74,7 +78,7 @@ Application-origin telemetry signals flow like this:
 *Core Services -> Collector Sidecars -> Observability Backend*
 
 #### Within Core Services
-Application code runs in core service containers. Each container's code is given the OTel SDK for whatever language it is written in. The SDK should be configured for traces, metrics, and logs. It will likely be tied into key features of the language e.g. python's `logging` module. The SDK will emit signals over localhost to an OTel Collector (`otelcol` for short) sidecar. Logging, specifically, should also be configured to emit a redundant `stdout` stream for developer debugging convenience. 
+Application code runs in core service containers. Each container's code is given the OTel SDK for whatever language it is written in. The SDK should be configured for traces, metrics, and logs. It will likely be tied into key features of the language e.g. python's `logging` module. The SDK will emit signals over localhost to an OTel Collector (`otelcol` for short) sidecar.
 
 #### Collector Sidecar
 The telemetry signals hit the OTel Collector sidecar. This sidecar is a dedicated container running `otelcol`; there is one per core service container. The sidecar runs in a special subgroup with its parent container - in ECS this is a "task".
@@ -82,7 +86,7 @@ The telemetry signals hit the OTel Collector sidecar. This sidecar is a dedicate
 #### Observability Backend
 Each collector forwards signals to the project-wide observability backend. This backend will always be [prerequisite infrastructure](./infrastructure.md#infrastructure-tiers), both on `fixed` and `elastic` foundations. It will be centrally configured for each project with the `observability_backend_url` field and all sidecars will forward application telemetry to that URL.
 
-This backend is the endpoint of all signals. It indexes and stores them, and makes them available to a human investigator via a webapp and to LLM agent's via a REST API.
+This backend is the endpoint of all signals. It indexes and stores them, and makes them available to a human investigator via a webapp and to LLM agents via a REST API.
 
 The preferred observability backend of the doctrine is HyperDX. This software is available both as a managed cloud service and in self-hosted form. The general plan for this backend is to start all projects off aimed at a self-hosted HyperDX server. This backend is prerequisite infrastructure and therefore maintained outside of project scope for many different projects. This self-hosted HyperDX is cheap and simple, but will suffer occasional downtime and outages.
 
@@ -90,7 +94,7 @@ Any project which begins to see heavy use and scale in production should get swi
 
 ### Authentication
 
-Telemetry signals need authentication for transmission between the collector sidecar and the observability. The standard way is to give the sidecars an API key which will be included as an HTTP header in signal requests. This API key will be delivered to the sidecars with the doctrine's standard env var / secret delivery mechanisms. It will be set in the relevant `secrets/<env>.env` file for `stage` and `prod`, always as `TELEMETRY_API_KEY`.
+Telemetry signals need authentication for transmission between the collector sidecar and the observability backend. The standard way is to give the sidecars an API key which will be included as an HTTP header in signal requests. This API key will be delivered to the sidecars with the doctrine's standard env var / secret delivery mechanisms. It will be set in the relevant `secrets/<env>.env` file for `stage` and `prod`, always as `TELEMETRY_API_KEY`.
 
 It unfortunately falls to the developer to log into the relevant HyperDX instance for the project, create or select the relevant team, and retrieve the team's ingestion API key. It's acceptable to share API keys across many projects. Scoping (both per project and per env) is achieved with resource attributes.
 
@@ -104,23 +108,21 @@ Under the doctrine, telemetry signals are treated as near-ephemeral. They are ge
 
 ## Resource Attributes and Env Vars
 
-Resource attributes form a critical part of telemetry. These identify the signals, their origins, and other information. They are setup by `docex` infrastructure and the developer should not have to set them manually. An overview of these attributes is below, however, so that the developer knows what to expect when observing telemetry reports.
+Resource attributes form a critical part of telemetry. These identify the signals, their origins, and other information. They are set up by `docex` infrastructure and the developer should not have to set them manually. An overview of these attributes is below, however, so that the developer knows what to expect when observing telemetry reports.
 
 A handful of environmental variables are injected into each core service to aid the OTel SDKs:
 1. OTEL_SERVICE_NAME - Simply the name of the service in `infra.yml`. OTel SDK will automatically include this as the `service.name` resource attribute.
-2. OTEL_EXPORTER_OTLP_ENDPOINT - Tells the SDK the sidecar's URL, foundation dependent.
+2. OTEL_EXPORTER_OTLP_ENDPOINT - Tells the SDK the sidecar's URL.
 3. OTEL_EXPORTER_OTLP_PROTOCOL - Protocol to use for transmitting to sidecar. Fixed to `http/protobuf`.
 4. OTEL_RESOURCE_ATTRIBUTES - Additional attributes the SDK will automatically set. `docex` will use: `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name}`.
 
 ## During Development
 
-Telemetry is less useful during development. Metrics aren't very useful and logs are viewed more conveniently on the redundant `stdout` of each container. Traces alone provide uniquely useful feedback during development.
-
 When `docex` implements the telemetry infrastructure, it will treat the `dev` and `test` environments differently from `stage` and `prod` (the function of which is described accurately by the rest of this document).
 
 In `dev` and `test`, the sidecars are still emitted, but they are configured such that their exporter writes to the sidecar's `stdout` instead of forwarding to the observability backend.
 
-Developers and LLMs can still view trace output by tailing sidecars e.g. `docker compose logs <svc>-otelcol`
+Developers and LLMs can still view trace and log output by tailing sidecars e.g. `docker compose logs <svc>-otelcol`. This is the correct way to view logs and traces when developing.
 
 ## Planned but NOT Implemented
 

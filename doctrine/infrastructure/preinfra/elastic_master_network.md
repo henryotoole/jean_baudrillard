@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic Master Network
 
 On elastic, we use the "centralized egress" model for AWS. There will also be one "master" VPC which all projects, the NAT gateway, and main IGW live within.

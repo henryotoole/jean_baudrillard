@@ -1,0 +1,17 @@
+{
+  "skill_name": "inception",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm starting a brand-new project that follows a strict in-house engineering doctrine. All I have right now is a finished masterplan.md describing the project's name, objectives, foundation, domain, the two core services (`web` and `worker`), and the planned hexagonal modules. Nothing else exists yet — no repo, no code. Lay out the exact ordered sequence of phases I should follow to take this from just-the-masterplan all the way to being ready for normal development, and be specific about what concretely happens in each phase. In particular I want to know: at what point do I actually write the application source code for the services, and what has to be true about the project BEFORE I write that code. Keep it to the procedure — I don't need a tutorial on git or Docker.",
+      "expected_output": "The doctrine inception sequence: PART I repo/structure setup -> PART II design of core planning docs -> PART III infrastructure smoke test (stub services + dev env up/down) -> PART IV first-draft code via mod cycles -> PART V first production release. Crucially, application source code is NOT written until PART IV, AFTER the infrastructure has been smoke-tested in PART III using empty/placeholder services (empty build.sh, test.sh, empty src/tests, placeholder Dockerfiles) and a dev environment that successfully comes up and is then taken back down.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): application source code is written LAST among the build phases — only in PART IV (first draft), AFTER infrastructure is proven. The smoke-test phase (PART III) precedes any application code being written.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the PART III infrastructure smoke test is performed with STUB/placeholder services — empty `build.sh` and `test.sh` (must merely exist), empty `src`/`tests` folders, and placeholder Dockerfiles that don't need to be correct — and consists of bringing the `dev` environment up to confirm it comes up without error and then taking it back down.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the design phase (PART II) — filling out the core planning docs / architecture & module docs under plans/core — comes BEFORE writing infra.yml and before any infrastructure is stood up, and the whole sequence is the fixed five-part order: Setup -> Design -> Infrastructure Smoke Test -> First Draft -> First Production Release.",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): the very first step is creating/cloning a private git repo and scaffolding base project structure (project.yml, README, CHANGELOG, .gitignore, the core/infra/plans folders) and installing docex.",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): the final phase is the first production release (writing stage/prod secrets, standing up production infra, running the CI/CD pipeline)."
+      ]
+    }
+  ]
+}

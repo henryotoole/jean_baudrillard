@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Contracts
 
 This file describes contracts and what the `doctrine` requires of them.

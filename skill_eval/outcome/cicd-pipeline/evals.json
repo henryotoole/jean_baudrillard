@@ -1,0 +1,18 @@
+{
+  "skill_name": "cicd-pipeline",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "We follow a strict in-house engineering doctrine. We just shipped version 1.5.2 to prod about 20 minutes ago and it's badly broken — users are seeing 500s. I need to get prod back to the last known-good release, which was 1.4.3, right now. Walk me through exactly what our tooling does when I trigger this emergency revert: what it checks before it touches prod, what it does and does NOT touch (code? infra? the database?), and any limits on how far back I'm allowed to go. Then tell me what I do afterward to actually ship a real fix. Don't give me generic devops advice — give me what our doctrine specifically prescribes.",
+      "expected_output": "A description of the doctrine rollback flow driven by `./bin/docex rollback prod 1.4.3`: it checks preconditions (on main / clean tree except infra/output, the v1.4.3 tag exists, target is within one minor version of current, images for 1.4.3 exist in the registry), then recompiles output from an ephemeral worktree checked out at the v1.4.3 tag and applies it via the standard release machinery WITH MIGRATIONS SKIPPED. It rolls back code and infrastructure definitions but NOT the database schema (which is safe because migrations are backward-compatible). 1.4.3 is allowed because it's within one minor version of 1.5.2. The working tree, project.yml, and main are left untouched. Afterward the operator fix-forwards: bump project.yml past 1.5.2 on main and ship a corrected build through the normal pipeline.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): rollback SKIPS the migrate step / does NOT roll back or reverse the database schema — only code and infrastructure definitions are reverted (fixed: ansible with --skip-tags migrate; elastic: no migration RunTask)",
+        "DELTA DRIVER (doctrine-specific, not inferable): rollback is only permitted to go back at most ONE MINOR VERSION (target must be >= current-minus-one-minor; e.g. from 1.5.2 the target must satisfy >= 1.4.0, so 1.4.3 is allowed), and this is checked as a precondition that aborts if violated",
+        "DELTA DRIVER (doctrine-specific, not inferable): the rollback recompiles infra/output from an EPHEMERAL WORKTREE checked out at the v<target> git tag using the CURRENT docex, and leaves the operator's working tree, project.yml, and main UNTOUCHED (it does not check out or revert main)",
+        "DELTA DRIVER (doctrine-specific, not inferable): the precondition that the working tree must be clean EXCEPT for changes under infra/output/, which are tolerated because release recompiles them anyway",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): rollback verifies preconditions before touching prod, including that the target version's container images exist in the registry and the v<target> tag exists",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): afterward the operator should fix-forward — bump the version past the broken one and ship a corrected build through the normal pipeline, rather than staying on the rolled-back version"
+      ]
+    }
+  ]
+}

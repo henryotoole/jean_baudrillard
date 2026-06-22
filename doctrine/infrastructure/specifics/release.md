@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Release Mechanism
 
 This file describes how `./bin/docex release <env>` pushes a built release out to a target environment. It covers the **operation itself** — push semantics, credential handling, idempotency, ansible/tofu execution flow — and cross-references the projinfra and envinfra resources the operation touches rather than re-describing them.
@@ -19,7 +23,7 @@ The control node needs **credentials** for the target. The exact form differs by
 
 `./bin/docex release <env>` refuses to run unless the target's prerequisite and project-tier infrastructure are in place:
 
-1. **Preinfra exists.** `./bin/docex preinfra production` must pass — the master VPC (elastic) or the production host's HAProxy + `docex-ingress` (fixed) must already be set up via the `docex-preinfra` skill.
+1. **Preinfra exists.** `./bin/docex preinfra production` must pass — the master VPC (elastic) or the production host's HAProxy + `docex-ingress` (fixed) must already be set up via the `preinfra-setup` skill.
 2. **Projinfra is applied.** `./bin/docex projinfra up production` must have completed — the project's reverse proxy, web networks, ECR repos, etc. must exist before any env-tier resources can attach to them. See [`projinfra/overview.md`](./projinfra/overview.md).
 
 If either check fails, `release` exits with a clear error pointing at the missing precondition. The operator brings the missing tier up first, then re-runs release.
@@ -42,7 +46,7 @@ Each task uses an idempotent Ansible module (`community.docker.docker_image`, `t
 
 ### Host Preinfra Assumed
 
-The playbook does *not* set up the machine-wide HAProxy web demux or the `docex-ingress` bridge network — both are [prerequisite infrastructure](../shape2.md#fixed-foundation) on the host, shared across every fixed-foundation project. `./bin/docex preinfra production` verifies these exist before release; if it fails, set them up via the `docex-preinfra` skill before running release.
+The playbook does *not* set up the machine-wide HAProxy web demux or the `docex-ingress` bridge network — both are [prerequisite infrastructure](../shape2.md#fixed-foundation) on the host, shared across every fixed-foundation project. `./bin/docex preinfra production` verifies these exist before release; if it fails, set them up via the `preinfra-setup` skill before running release.
 
 ### SSH Credentials
 
@@ -100,7 +104,7 @@ Each env has its own state key (`stage/terraform.tfstate`, `prod/terraform.tfsta
 
 ### Master VPC Preinfra Assumed
 
-Like the fixed-side HAProxy, the master VPC and its associated resources (NAT gateway, IGW, public/private subnets, VPC endpoints) are prerequisite infrastructure not managed by release. `./bin/docex preinfra production` verifies their existence before release; if it fails, set them up via the `docex-preinfra` skill before running release.
+Like the fixed-side HAProxy, the master VPC and its associated resources (NAT gateway, IGW, public/private subnets, VPC endpoints) are prerequisite infrastructure not managed by release. `./bin/docex preinfra production` verifies their existence before release; if it fails, set them up via the `preinfra-setup` skill before running release.
 
 ## Why Symmetric Push
 

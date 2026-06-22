@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Infrastructure Shape
 
 This file provides a description of the shape infrastructure will tend to take in `fixed` and `elastic` foundations across the various environments.
@@ -10,7 +14,7 @@ The "shape" of a project's infrastructure is the fixed topology of a deployed st
 
 The general shape of an infrastructure is similar, but not identical, from foundation to foundation. There are both symmetries and asymmetries. In the below description, the following notation is used to indicate a distinct infrastructural resource: [resource].
 
-In these sections, [service] is shorthand for "[core_service]s and [backing_service]s. Both [web_network] and [internal_network] are forms of [network].
+In these sections, [service] is shorthand for "[core_service]s and [backing_service]s". Both [web_network] and [internal_network] are forms of [network].
 
 **Runtime Shape** - HTTP requests are routed to a [network] in order to interact with the codebase. [dns] routes a request by domain to the relevant project [network]. [network] machinery and a [reverse_proxy] then work together to terminate TLS with [cert_manager] and route the request to the correct [service] in a specific environment. Within an environment, many different [service]s work together by communicating over one or more [network]s. Any environment may have multiple different [core_service]s or [backing_service]s; but all environments have the same set of roles. `prod` environments may also have multiple [core_service] containers running in parallel, and in this case the [reverse_proxy] doubles as a load balancer. [service]s can communicate directly with each other, so long as they are in the same [network] and environment; [service_discovery] lets them find each other. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
 
@@ -18,7 +22,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 ### Fixed-Foundation
 
-**Runtime Shape** - [registrar] sets [dns]; [dns] routes requests by domain to the [host_machine]. Here [web_demux] picks up 443/80 requests and forwards them to the relevant project [reverse_proxy] on the basis of domain, where TLS will be terminated with [cert_manager]. [web_demux] and project [reverse_proxy] lives on the machine's [master_network], allowing them to communicate. [reverse_proxy] then routes requests to the correct [web_network] and [service] container unencrypted. Core and backing services are all docker containers. In `prod`, there might be multiple of the same [service] (e.g. multiple workers) per environment - [reverse_proxy] load balances in this case. [service]s communicate with each other over shared environment [internal_network]s. [service_discovery] is handled implicitly by docker network DNS. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
+**Runtime Shape** - [registrar] sets [dns]; [dns] routes requests by domain to the [host_machine]. Here [web_demux] picks up 443/80 requests and forwards them to the relevant project [reverse_proxy] on the basis of domain, where TLS will be terminated with [cert_manager]. [web_demux] and project [reverse_proxy] live on the machine's [master_network], allowing them to communicate. [reverse_proxy] then routes requests to the correct [web_network] and [service] container unencrypted. Core and backing services are all docker containers. In `prod`, there might be multiple of the same [service] (e.g. multiple workers) per environment - [reverse_proxy] load balances in this case. [service]s communicate with each other over shared environment [internal_network]s. [service_discovery] is handled implicitly by docker network DNS. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
 
 **Network Egress** - Outbound requests reach the internet via the host machine's Docker-managed `iptables` config. This handles address translation and requires no effort on behalf of the developer or `docex` - it *just works*.
 
@@ -63,7 +67,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | master_network | prerequisite | AWS VPC | A master VPC shared by all projects. Contains centralized IGW, NAT, and four subnets: a public-private pair in the default AZ and a redundant public-private pair in a secondary AZ. The redundant pair is included only to satisfy the two-AZ requirement. |
 | nat_gateway | prerequisite | AWS NAT | Centralized NAT gateway shared by all projects. |
 | reverse_proxy | project | AWS ALB or EC2-with-traefik | Each project gets its own reverse proxy. This is project-configured either as an ALB or a small EC2 instance with traefik. Terminates TLS via [cert_manager] and forwards to [service]s. Doubles as a load balancer for replicated [core_service]s in `prod`. |
-| cert_manager | project | AWS ACM certificate (ALB) or traefik (EC2) | ALB: Uses ACM certs. Traefik: Uses built-in Lets Encrypt; enabled with config. Both employ DNS-01 and the two cert system defined [here](./cicl.md#elastic-tls) |
+| cert_manager | project | AWS ACM certificate (ALB) or traefik (EC2) | ALB: Uses ACM certs. Traefik: Uses built-in Let's Encrypt; enabled with config. Both employ DNS-01 and the two cert system defined [here](./cicl.md#elastic-tls) |
 | dns | project | AWS Route53 | DNS handling which project can drive. `docex` creates one hosted zone per project for its `apex_domain:`; the operator NS-delegates to it from the parent. |
 | container_registry | project | AWS ECR | The project's container registry, holding [build_image]s. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |

@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Dependency Rules
 
 This document describes the hard and fast rules that govern the nature of internal imports within a hexagonal module.

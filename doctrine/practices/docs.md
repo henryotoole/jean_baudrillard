@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Documentation
 
 This provides an overview of different forms of documentation and where they belong in the standard project structure.

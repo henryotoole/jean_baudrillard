@@ -1,7 +1,8 @@
 # Agents
 
-It has just occurred to me that the way to think of an "agent" is a subset of markdown files that are always loaded with the @file command. 
+**What is an agent?**
 
-## Automated Tests
+This question is more nuanced than I'd expected, Originally, I figured an agent is really just a subset of markdown files that are loaded into context. And while from a graph theory perspective this *is true*, that mechanism is neither scalable nor portable.
 
-It might be possible to perform 'automated' tests on an agent by asking it to look at a codebase with known faults, and evaluating whether it can assess those known faults. We can also evaluate different LLM power. 
+TODO define what I mean by scaling problem.
+TODO write about how "skills" solve this problem, but only partially and with a different sort of scaling problem.

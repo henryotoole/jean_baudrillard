@@ -1,3 +1,7 @@
+---
+stratum: resident
+---
+
 # Languages
 
 The doctrine attempts to be language-agnostic. However, it does commit to certain libraries and packages. These restrict what languages can be used in practice. The full list is:

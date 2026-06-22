@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Inception
 
 This module describes the opening acts of creating a project from nothing. The inception process covers all the setup steps from "all we have is a rough idea in the form of a [masterplan](./docs.md#the-masterplan) document" to "the project is ready for regular [mod](./modifications.md) cycles and production releases".
@@ -21,14 +25,14 @@ This flow is handled by an LLM.
 
 __PART I__: Setup
 1. Read the `masterplan.md`. If the operator has not indicated where this is, ask them.
-2. Determine the project's machine-readable name from its plain text name. It should be in snake_case, and will be immutable after the project is setup. We'll refer to this as `${project_name}`.
+2. Determine the project's machine-readable name from its plain text name. It should be in snake_case, and will be immutable after the project is set up. We'll refer to this as `${project_name}`.
 3. Create a git repository for the project with the available credentials.
 	+ Most of the time, the git host will be 'github' and the `gh` command can be used to achieve this.
 	+ The repo should **always** be private - if it can not be made private, do not proceed.
 4. Clone the new repository into the "projects" directory. The folder created by the clone operation will be the "project root" or `$pr`. All further work will happen out of this directory.
 5. Change directory into the project folder e.g. `cd ${project_name}`
 6. Create a branch called "inception_and_first_draft" and switch to it.
-7. Setup some basic structure for the project:
+7. Set up some basic structure for the project:
 	1. Create or update `.gitignore` file with the [default](#gitignore-defaults) below.
 	2. Add the critical `project.yml` file from the [default](#projectyml-default) below.
 	3. Add a `README.md` with a brief couple of sentences that describe the project.
@@ -44,7 +48,7 @@ __PART I__: Setup
 9. Make a commit with the message "Inception Part I: setup complete".
 
 __PART II__: Design
-The project has now been setup. Basic structure exists and the `masterplan.md` is in the defined place. Everything from this point on goes wherever the `doctrine` prescribes.
+The project has now been set up. Basic structure exists and the `masterplan.md` is in the defined place. Everything from this point on goes wherever the `doctrine` prescribes.
 
 Pause here to ask the operator whether they wish to design the architecture:
 A) Entirely by themselves
@@ -58,7 +62,7 @@ All these core planning docs are driven by `masterplan.md`. They "unpack" those 
 __PART III__: Infrastructure Smoke Test
 1. Make a commit with the message "Inception Part II: design complete."
 2. Verify development preinfra exists with `./bin/docex preinfra development`
-	+ If it doesn't exist or is broken, load the `docex-preinfra` skill and create / fix needed resources.
+	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
 3. Write `infra.yml` to reflect the needs of the core planning docs.
 4. Create the core service folders in `$pr/core` and the infrastructural concerns within each:
 	1. A Dockerfile that defines the environment.
@@ -79,7 +83,7 @@ __PART III__: Infrastructure Smoke Test
 9. Make a commit with the message "Inception Part III: infrastructure smoke tested"
 
 __PART IV__: First Draft
-The project has been setup and has a `dev` and `test` env that work. The next step is the "first draft" of the project where the initial design state is implemented. This will be done in one or more [modification](./modifications.md) cycles.
+The project has been set up and has a `dev` and `test` env that work. The next step is the "first draft" of the project where the initial design state is implemented. This will be done in one or more [modification](./modifications.md) cycles.
 
 The process is roughly:
 1. Perform one or more mod cycles to build the first draft of the project.
@@ -88,7 +92,7 @@ The process is roughly:
 The first of these cycles is very important. It must do the following very well:
 1. Write the contents of `build.sh` and `test.sh` for the first time for each core service.
 2. Adjust each core service's Dockerfile for the specifics of the service it will be running.
-3. Core services which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database will need to write the initial migration file(s) which setup the database and the `migrate.sh` script which runs it.
+3. Core services which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database will need to write the initial migration file(s) which set up the database and the `migrate.sh` script which runs it.
 4. Write the first drafts of [contracts](../infrastructure/contracts.md) for "provider" core services.
 
 The files in the above list will likely be edited again in future mods. However, this first one is terribly important because it establishes the conventions that future mods will follow. Care should be taken to get them right.
@@ -100,7 +104,7 @@ Much time may separate __PART IV__ and __PART V__. The operator may wish to keep
 2. The `stage.env` and `prod.env` files must be written with the relevant secrets. Some of these may have to come from the operator.
 3. The `$pr/infra/stage` resources will need to be created. These are described in detail [here](../infrastructure/tests.md#staging-tests).
 4. Verify production preinfra exists with `./bin/docex preinfra production`
-	+ If it doesn't exist or is broken, load the `docex-preinfra` skill and create / fix needed resources.
+	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
 5. Setup production project infrastructure with `./bin/docex projinfra up production`. There may need to be an operator NS-delegation step at the parent registrar if it has not been done before for the project domain.
 6. The LLM should carefully proceed along the CI/CD pipeline. See [CI/CD Pipeline](../infrastructure/cicd.md#the-pipeline) and run each step in order.
 

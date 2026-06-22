@@ -6,7 +6,12 @@
 #   - jean's settings are the source of truth for keys it defines.
 #   - Existing keys in ~/.claude/settings.json that jean doesn't touch are preserved.
 #   - Arrays (e.g. permissions.allow) are unioned, not replaced.
-#   - Safe to run multiple times.
+#   - Installs & enables the jean plugin via the official `claude plugin` CLI:
+#     it adds the local-only "jean-local" marketplace from this on-disk repo,
+#     then installs the plugin (which copies it into the version-keyed plugin
+#     cache and enables it). The CLI owns the enabledPlugins / extraKnownMarket-
+#     places settings keys, so they are NOT hand-merged here.
+#   - Safe to run multiple times (the merge and both CLI calls are idempotent).
 #
 # This script can be run from anywhere; it only requires that the jean
 # directory itself lives at ~/.claude/jean_baudrillard.
@@ -46,7 +51,30 @@ fi
 
 mkdir -p "${CLAUDE_DIR}"
 
-# --- 2. Merge -----------------------------------------------------------------
+# --- 2. Ensure the jean plugin is installed & enabled -------------------------
+
+# The resident-stratum loader ships as a SessionStart hook inside the jean
+# plugin. Enabling it requires the plugin to be INSTALLED (copied into the
+# version-keyed plugin cache) — declaring settings keys alone does not trigger
+# that. So we drive the official, idempotent CLI: `marketplace add` registers
+# the local-only jean-local marketplace against this repo (writing
+# extraKnownMarketplaces), and `install` caches + enables the plugin (writing
+# enabledPlugins). Both are safe to re-run. The cache is keyed by plugin.json
+# version, so each version bump yields an independent snapshot.
+#
+# Runs before the settings merge so the merge's "already up to date" early-exit
+# can never skip it.
+if command -v claude >/dev/null 2>&1; then
+  claude plugin marketplace add "${JEAN_DIR}" \
+    || echo "Warning: 'claude plugin marketplace add' failed; the plugin may not load." >&2
+  claude plugin install "jean-baudrillard@jean-local" \
+    || echo "Warning: 'claude plugin install' failed; the plugin may not load." >&2
+else
+  echo "Warning: 'claude' CLI not on PATH; skipping plugin install." >&2
+  echo "  Run later: claude plugin marketplace add \"${JEAN_DIR}\" && claude plugin install jean-baudrillard@jean-local" >&2
+fi
+
+# --- 3. Merge -----------------------------------------------------------------
 
 # Recursive merge: jean's values win on scalar conflicts; arrays are unioned and
 # de-duplicated; objects are merged key-by-key all the way down.
@@ -81,7 +109,7 @@ merged="$(jq -n \
   --slurpfile jean_arr "${JEAN_SETTINGS}" \
   "${MERGE_FILTER}")"
 
-# --- 3. Idempotency: only write if the result actually differs ----------------
+# --- 4. Idempotency: only write if the result actually differs ----------------
 
 if [[ -f "${TARGET_FILE}" ]] && \
    diff <(jq -S . "${TARGET_FILE}") <(echo "${merged}" | jq -S .) >/dev/null 2>&1; then

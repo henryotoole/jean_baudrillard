@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic Route53 Zone
 
 This file describes the Route53 hosted zone created on the production side of every elastic-foundation project, and the NS-delegation step that necessitates `projinfra up production`'s two-phase apply.
@@ -68,7 +72,7 @@ The project's `main.tf` declares the following outputs, all consumed by env-tier
 | `zone_id` | Env-tier resources that add A-records or other records to the zone |
 | `zone_name_servers` | The operator (via `terraform output`) when re-checking delegation |
 
-The zone itself is never destroyed by `./bin/docex projinfra down production` *if any env still has resources in the zone* — the down command refuses to proceed in that case, matching the general projinfra-vs-envinfra layering rule from [overview.md](./overview.md#binbindocex-projinfra-direction-side).
+The zone itself is never destroyed by `./bin/docex projinfra down production` *if any env still has resources in the zone* — the down command refuses to proceed in that case, matching the general projinfra-vs-envinfra layering rule from [overview.md](./overview.md#bindocex-projinfra-direction-side).
 
 ## Out of Scope
 

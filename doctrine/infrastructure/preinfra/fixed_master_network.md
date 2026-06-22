@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Fixed Master Network
 
 On `fixed` foundations, the per-machine "master network" is two pieces working together: the `web_demux` HAProxy container that owns host :443 and :80, and the `docex-ingress` Docker bridge network it shares with every project's traefik container. Together they're the operator-managed prerequisite that lets multiple projects coexist on a single host without colliding on the public ports.

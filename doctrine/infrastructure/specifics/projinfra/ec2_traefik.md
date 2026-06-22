@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # EC2-with-Traefik Reverse Proxy
 
 This file describes the elastic-foundation `ec2_traefik` reverse-proxy option — the project-tier alternative to the default [`elastic_alb.md`](./elastic_alb.md). It is one of two mutually-exclusive choices for an elastic project's production-side reverse proxy, selected via `reverse_proxy:` in `infra.yml`.

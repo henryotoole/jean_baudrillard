@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Telemetry Infrastructure Maintenance
 
 This document goes over the standards and practices needed by the LLM agent or operator to setup and maintain the prerequisite portion of doctrine-prescribed telemetry infrastructure. This is entirely out of the scope of a specific project.
@@ -6,7 +10,7 @@ The only prerequisite infrastructure component is the [observability backend](..
 
 ## Setup
 
-The shape of the self-hosted HyperDX is pretty similar whether on fixed or common. The main difference is whether HyperDX is built on an EC2 instance or a `fixed` server.
+The shape of the self-hosted HyperDX is pretty similar whether on fixed or elastic. The main difference is whether HyperDX is built on an EC2 instance or a `fixed` server.
 
 `fixed`: A dedicated directory is chosen on the main fixed server. The HyperDX directory is cloned into it and run as a stack of containers with docker-compose. Per [fixed_master_network.md § Adding Preinfra To Machine](./fixed_master_network.md#adding-preinfra-to-machine), HyperDX is treated as its own "project" — alongside the HyperDX stack, a dedicated `traefik` container is brought up that joins HyperDX's internal network and the host's `docex-ingress` bridge network. The host's HAProxy `web_demux` routes inbound 443/80 traffic to that traefik by SNI/Host header; the traefik terminates TLS and forwards to HyperDX. Data is stored onto mounted volumes.
 
@@ -79,11 +83,11 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
 
    The OTLP HTTP path-prefix `/v1/` is OTel-standard (`/v1/traces`, `/v1/logs`, `/v1/metrics`). Same hostname, path-based routing splits UI traffic from ingestion. Traefik priorities favour the longer rule (the UI router's `Host(...)` rule is shorter than OTLP's `Host(...) && PathPrefix(/v1/)`), so `/v1/*` routes to OTLP and everything else to the UI.
 
-5. **Configure storage retention** to match the doctrine's commits in [telemetry.md § Storage Window](../telemetry.md#storage-window):
+5. **Configure storage retention.** The doctrine commits to the retention windows in [telemetry.md § Storage Window](../telemetry.md#storage-window) — logs and traces at 7 days, metrics at 90 days. HyperDX additionally maintains a `hyperdx_sessions` signal table the doctrine makes no commitment about; retain it at 7 days alongside logs and traces.
 
    - Logs: 7 days
    - Traces: 7 days
-   - Sessions: 7 days
+   - Sessions: 7 days (HyperDX-specific; not a doctrine commitment)
    - Metrics: 90 days
 
    HyperDX stores all signals in ClickHouse. Retention is enforced via per-table TTLs.

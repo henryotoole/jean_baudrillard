@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Transfer Tables
 
 The compiler's job is to turn `infra.yml` — written in foundation-agnostic terms — into concrete provider-ready output. To do this it relies on a body of doctrinal knowledge encoded in **transfer tables**: YAML files that define what each abstract role means, how each engine is configured per foundation, what variables get substituted where, and which invariants apply universally to every emitted resource.
@@ -48,7 +52,7 @@ The following variables are always available inside a transfer table entry:
 | Variable | Refers to |
 | -------- | --------- |
 | `${name}` | The simple service name from `infra.yml` (e.g., `database`). |
-| `${global_service_name}` | The globally-unique form of the service name (see [Naming Conventions](#naming-conventions)). |
+| `${global_service_name}` | The globally-unique form of the service name (see [Naming Policies](#naming-policies)). |
 | `${port}` | The service's `port` field from `infra.yml`. |
 | `${networks}` | The list of networks the service belongs to. |
 | `${project_name}` | From `project.yml`. |
@@ -107,7 +111,7 @@ naming_policies:
 
 Default rule, expressed once: **anything name-resolvable on the data plane** — Docker containers/networks/volumes, ECS cluster/service/task-def identifiers, ECS Service Connect names, ALB/target-group names, S3 buckets, RDS identifiers, hostnames — **uses hyphens**, so a service's compiled name is identical on fixed Docker and elastic ECS. **Underscores are preserved only for inert identifiers** that AWS uses as record keys but applications never name in DNS or compose: IAM roles, SSM path segments, and DynamoDB tables.
 
-**ECR repo names are a separate case.** The image-reference form `${container_registry}/${project_name}/${service_name}:${version}` declared in [cicl.md § Container Registry and Service Images](../../cicl.md#container-registry-and-service-images) requires a literal `/` between the project segment and the service segment, with each segment's own underscores preserved. The single-separator naming-policy machinery cannot express "join with `/`, preserve `_` inside each segment" — `separator: hyphen` mangles intra-segment underscores; `separator: underscore` produces the wrong joiner. ECR repo naming is therefore not handled by a policy entry; it is emitted directly by the structural emitter — see [§ How structural emitters reference a policy](#how-structural-emitters-reference-a-policy).
+**ECR repo names are a separate case.** The image-reference form `${container_registry}/${project_name}/${service_name}:${version}` declared in [cicl.md § Container Registry and Service Images](../cicl.md#container-registry-and-service-images) requires a literal `/` between the project segment and the service segment, with each segment's own underscores preserved. The single-separator naming-policy machinery cannot express "join with `/`, preserve `_` inside each segment" — `separator: hyphen` mangles intra-segment underscores; `separator: underscore` produces the wrong joiner. ECR repo naming is therefore not handled by a policy entry; it is emitted directly by the structural emitter — see [§ How structural emitters reference a policy](#how-structural-emitters-reference-a-policy).
 
 ### How engines reference a policy
 
@@ -566,7 +570,7 @@ At runtime, `web` reads `SIDECAR_HOST=<project>-<env>-probe` and `SIDECAR_PORT=8
 
 ### Worked example: stateful container backing
 
-Goal: a `analytics_db` role with a `clickhouse` engine. Stateful — needs durable storage. Project opts into backups for the production data.
+Goal: an `analytics_db` role with a `clickhouse` engine. Stateful — needs durable storage. Project opts into backups for the production data.
 
 **`infra/transfer_tables/clickhouse.yml`:**
 

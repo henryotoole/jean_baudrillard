@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Ingress and Egress
 
 ## Centralized v Decentralized
@@ -25,16 +29,16 @@ The solution is to allow a different resource to plug into the reverse proxy slo
 
 ### Centralized Egress (Why)
 
-Decentralized egress is very expensive. It involves giving each project its own NAT, which consumes both an EIP (finite resource) and costs about $400 / yr.
+Centralized egress is preferable because the alternative (decentralized egress) is very expensive. Centralized egress spreads egress costs across many projects.
 
 ### Decentralized Egress (Why Not)
 
-Decentralized egress is simply too costly. It requires a NAT gateway for each project, which is pretty expensive.
+Decentralized egress is simply too costly. It involves giving each project its own NAT, which consumes both an EIP (finite resource) and costs about $400 / yr.
 
 ### Decentralized Project Networks
 
 AWS VPC's aren't costly, but connecting them to a Transit Gateway (and then to a NAT) is almost as expensive as a NAT itself. The solution is one big "master network"; a main VPC with a NAT and all projects in its scope.
 
-## Elastic AZ's.
+## Elastic AZ's
 
 To reduce complexity and costs, we operate with only one AZ. This makes us vulnerable to an outage within an AZ - this is an acceptable price to pay.

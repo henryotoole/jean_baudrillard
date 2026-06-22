@@ -10,5 +10,5 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_SETUP_DIR="${SCRIPT_DIR}/setup/claude"
 
 bash "${CLAUDE_SETUP_DIR}/settings.sh"
+bash "${CLAUDE_SETUP_DIR}/gen_resident.sh"
 bash "${CLAUDE_SETUP_DIR}/jeanlink.sh"
-bash "${CLAUDE_SETUP_DIR}/skills.sh"

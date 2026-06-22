@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Credentials
 
 This file provides a general overview of how secrets and deploy credentials are handled under doctrine infrastructure.
@@ -37,7 +41,7 @@ How these keys are used is described more deeply in the [release](./specifics/re
 #### Fixed Container Registry
 Both the push side (development machine) and pull side (production machine) of a `fixed`-foundation project need credentials to access the container registry.
 
-These are placed in` ~/.docker/config.json` on both machines. 
+These are placed in `~/.docker/config.json` on both machines. 
 
 ### Elastic
 

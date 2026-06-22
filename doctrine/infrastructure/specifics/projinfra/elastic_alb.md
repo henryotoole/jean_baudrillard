@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Elastic ALB
 
 This file describes the project ALB — the default reverse-proxy variant on elastic-foundation production sides (`reverse_proxy: alb` in `infra.yml`, the default). Projects that opt into the alternative [`ec2_traefik_eip` / `ec2_traefik_pip`](./ec2_traefik.md) variants do *not* get this resource; the two paths are mutually exclusive at the project tier.

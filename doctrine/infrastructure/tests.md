@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Tests
 
 This document describes the different kinds of automated tests which ship with a project, where they belong, and when they are supposed to be run.
@@ -13,7 +17,7 @@ Service tests are written in whatever language, and with whatever tooling, that 
 Unit, integration, and contract tests should all be run by the [standard service test script](./cicd.md#build-test-step)
 
 ### Unit Tests
-These are very fast tests which test a piece of code in isolation. Dependencies are mocked. The purpose is to determine if the units internal logic is correct.
+These are very fast tests which test a piece of code in isolation. Dependencies are mocked. The purpose is to determine if the unit's internal logic is correct.
 
 ### Integration Tests
 These tests verify that multiple pieces work *together*. Tests might fire against real backing service containers (in a `test` env) rather than mocked ones.

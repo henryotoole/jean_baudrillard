@@ -1,0 +1,17 @@
+{
+  "skill_name": "telemetry-design",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm building a project under a strict in-house engineering doctrine. It has a single core service called `web` — a Python HTTP API. I want full observability: I need to be able to see logs, traces, and metrics for it once it's deployed to production, and I want to debug it locally too. Walk me through how to wire up observability for this service: what the application code should do to emit signals, how those signals get from the container to wherever they're stored and viewed, and what configuration or environment the service needs. Be concrete about the moving parts.",
+      "expected_output": "A telemetry design where the `web` application emits logs/traces/metrics exclusively through the OpenTelemetry SDK (NOT mirrored to stdout/stderr), the SDK auto-discovers doctrine-injected OTEL_* env vars and exports over localhost to a dedicated per-service OTel Collector sidecar (`web-otelcol`), and the sidecar forwards to a project-wide observability backend (HyperDX). The app never holds the backend URL or API key — those are sidecar-scoped.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): application telemetry (logs, traces, metrics) is emitted ONLY through the OTel SDK and must NOT be additionally mirrored/echoed to stdout or stderr — stdout/stderr is reserved for Class-2 diagnostics (crashes, pre-SDK-init output, shell scripts). A baseline model typically recommends a stdout log handler in addition to the SDK; the doctrine forbids it.",
+        "DELTA DRIVER (doctrine-specific, not inferable): signals do not go directly to the backend — each core service gets its OWN paired OTel Collector sidecar (one `otelcol` container per core service, named `web-otelcol`), and the SDK exports to it over localhost (OTEL_EXPORTER_OTLP_ENDPOINT = http://localhost:4318), with the sidecar then forwarding to the backend.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the application requires no manual OTel configuration in code — docex injects OTEL_* env vars (OTEL_SERVICE_NAME, OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf, OTEL_RESOURCE_ATTRIBUTES) which the SDK auto-discovers; and the backend URL (OBSERVABILITY_BACKEND_URL) and credential (TELEMETRY_API_KEY) are scoped to the sidecar, never seen by application code.",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): recommends using OpenTelemetry (OTel) as the instrumentation/telemetry standard for the three signal types.",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): in local development, telemetry can be viewed by tailing the sidecar's output (e.g. docker logs/compose logs on the otelcol container) rather than requiring the production backend."
+      ]
+    }
+  ]
+}

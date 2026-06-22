@@ -1,0 +1,17 @@
+{
+  "skill_name": "preinfra-setup",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm setting up a brand-new bare-metal Linux box that will be the single host for all of my team's projects, which follow a strict in-house engineering doctrine. These are fixed-foundation projects (no cloud — everything runs as containers on this one machine, and many projects plus their dev/test stacks will coexist here). Before I can bring up any individual project's own infrastructure on this box, what shared prerequisite infrastructure has to already exist on the machine, and what is each piece actually made of (the specific software/components and their role)? Also: where on the host filesystem does this shared prerequisite infrastructure conventionally get installed? Be concrete and concise.",
+      "expected_output": "An enumeration of the fixed-host prerequisite infrastructure: (1) the per-host master network = an HAProxy `web_demux` container that owns host :443/:80 and SNI/Host-routes by project name to per-project traefik containers, PLUS the `docex-ingress` Docker bridge network that links web_demux to those traefiks; (2) a self-hosted Docker Registry V2 container serving all fixed projects; (3) the self-hosted HyperDX observability backend; all conventionally installed under /opt/docex-preinfra on the host, and all classified as prerequisite/outside any single project's scope.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): identifies the per-host master network as two named pieces — an HAProxy container called `web_demux` that binds host ports 443/80 and routes by SNI/Host header to per-project traefik containers, AND a Docker bridge network named `docex-ingress` that web_demux shares with every project's `${project}-traefik`",
+        "DELTA DRIVER (doctrine-specific, not inferable): names the container registry as a self-hosted Docker Registry V2 (registry:2) container, ONE instance serving every fixed project on the host (not AWS ECR, which is the elastic-foundation choice)",
+        "DELTA DRIVER (doctrine-specific, not inferable): names HyperDX as the self-hosted observability backend that must exist as preinfra, and states preinfra conventionally installs under the host path /opt/docex-preinfra",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): characterizes this shared infrastructure as prerequisite / outside the scope of any single project, required before bringing a project's own infra up",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): notes that only one process can own host :443/:80, which is why a single shared reverse-proxy/demux layer is needed for multiple coexisting projects"
+      ]
+    }
+  ]
+}

@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Container Registry
 
 For `fixed`-foundation projects, the [doctrine](../shape2.md#fixed-foundation) commits to a self-hosted container registry as prerequisite infrastructure. One registry instance serves every `fixed` project on the host: each project's `infra.yml` simply points its `container_registry` field at the registry's URL, and the `containerize` step pushes images to a project-namespaced path within it.
@@ -12,7 +16,7 @@ The registry is treated as its own "project" per [fixed_master_network.md § Add
 
 Key choices:
 
-1. **Auth: htpasswd basic auth.** Single shared credential, written to a bcrypt htpasswd file on the host and mounted into the registry container. Operators that need to push or pull `docker login registry.${base_domain}` from their machine, which writes the credential into that machine's `~/.docker/config.json` (per [credentials.md § Fixed Container Registry](../credentials.md#fixed-container-registry)). Token-based auth was considered and rejected as overkill for the doctrine's solo-operator assumption.
+1. **Auth: htpasswd basic auth.** Single shared credential, written to a bcrypt htpasswd file on the host and mounted into the registry container. Operators that need to push or pull must run `docker login registry.${base_domain}` from their machine, which writes the credential into that machine's `~/.docker/config.json` (per [credentials.md § Fixed Container Registry](../credentials.md#fixed-container-registry)). Token-based auth was considered and rejected as overkill for the doctrine's solo-operator assumption.
 2. **Storage: local volume on the host.** Image blobs land in a docker-named volume mounted at the registry's standard storage path (`/var/lib/registry`). Backups are the operator's responsibility and follow whatever scheme they use for the host. S3 storage was considered and rejected — it would drag AWS credentials into what's meant to be a self-contained `fixed` host.
 3. **No retention policy.** Every image version pushed to the registry is kept indefinitely so [`./bin/docex rollback`](../cicd.md#rollback) can always resolve an old version. The registry grows unboundedly with version count; the operator runs [garbage collection](#garbage-collection) manually if and when host disk pressure demands it.
 4. **HTTP-only inside the container.** TLS is terminated at the dedicated traefik; the registry itself listens on plain HTTP on its internal network. Identical to the HyperDX pattern.

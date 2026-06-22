@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Projinfra Overview
 
 This folder describes **project-tier infrastructure**: the resources shared by every environment of a project, controlled at the project scope. It mirrors the per-resource layout of [`preinfra/`](../../preinfra/overview.md) — one file per resource, foundation-split where the foundations genuinely diverge — and exists for the same reason: an operator setting up, debugging, or extending the project tier benefits from per-resource pages they can land on directly, not a single monolithic file.

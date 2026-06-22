@@ -1,0 +1,17 @@
+{
+  "skill_name": "contracts",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm building a project that follows a strict in-house engineering doctrine. It has two core services: `web` — an HTTP REST API that accepts POST /pings and is the public entry point — and `worker` — a background service that consumes jobs from a task queue. `web` enqueues jobs that `worker` processes. I need the provider contract for the `web` service. Produce the complete contract file contents and tell me the exact repo path it should live at. Keep it focused.",
+      "expected_output": "An OpenAPI contract for the web service that includes the doctrine-mandated health endpoints — its own /health and /health/worker for the downstream dependency, both returning the {\"version\": \"x.x.x\"} shape — at infra/contracts/web.openapi.yml.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): the /health response carries the service version in the mandated shape {\"version\": \"x.x.x\"}",
+        "DELTA DRIVER (doctrine-specific, not inferable): defines a GET /health/worker endpoint for the downstream worker dependency that ALSO returns the {\"version\": \"x.x.x\"} shape — the mandatory downstream health check, and the core non-inferable /health/<dependency> signature",
+        "Defines a GET /health endpoint at all (prerequisite; partially inferable from common convention)",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): the contract is an OpenAPI document (web is HTTP-driven), not AsyncAPI",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): states the file path as infra/contracts/web.openapi.yml (or an equivalent <service>.openapi.yml under infra/contracts/)"
+      ]
+    }
+  ]
+}

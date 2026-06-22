@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Telemetry Specifics
 
 This document covers the deterministic infrastructure `docex` emits to fulfill the application telemetry flow promised in [telemetry.md](../telemetry.md). The developer doesn't read this to *use* telemetry — they read it to diagnose when telemetry breaks. The operator and LLM agent read it to understand what `docex` is actually doing.

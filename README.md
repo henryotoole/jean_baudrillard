@@ -2,6 +2,6 @@
 
 Contains tools and *doctrine* for working with AI to write software.
 
-Words now have more power than perhaps ever before in history. The text in this repo is like a bonzai tree - carefully chosen for maximum impact and pruned to elegant simplicity.
+Words now have more power than perhaps ever before in history. The text in this repo is like a bonsai tree - carefully chosen for maximum impact and pruned to elegant simplicity.
 
 "Build no more fortresses; build railways" - von Moeltke the Elder
