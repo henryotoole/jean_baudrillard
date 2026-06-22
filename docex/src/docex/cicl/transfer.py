@@ -85,6 +85,7 @@ EMIT_DESTINATIONS: dict[str, frozenset[str]] = {
         "elasticache_cluster",
         "s3_bucket",
         "efs_file_system",  # Mod 015
+        "scheduled_task",  # Mod 055
     }),
 }
 

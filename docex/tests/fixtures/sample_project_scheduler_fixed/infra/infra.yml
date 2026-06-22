@@ -1,0 +1,48 @@
+cicl_version: "1"
+foundation: fixed
+apex_domain: "example.com"
+observability_backend_url: "https://hyperdx.example.com"
+container_registry: registry.example.com
+domain_default_service: api
+
+core_services:
+  # A long-running web service alongside the scheduler — proves the
+  # scheduler emit does not disturb ordinary services (sidecar, traefik).
+  api:
+    role: web
+    port: 8080
+    networks: [web, internal]
+    depends_on: [appdb]
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+    resources:
+      cpu: 1.0
+      memory: 2GB
+
+  nightly_cleanup:
+    role: scheduler
+    schedule: "0 3 * * 1-5"
+    command: ["python", "-m", "jobs.cleanup"]
+    networks: [internal]
+    depends_on: [appdb]
+    env:
+      # DATABASE_HOST resolves to a literal -> inlined into the INI.
+      DATABASE_HOST: ${backing_services.appdb.host}
+      # DATABASE_USER / _PASSWORD resolve to $[VAR] secrets -> sourced
+      # from the mounted env file, NOT inlined.
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+    resources:
+      cpu: 0.25
+      memory: 512MB
+
+backing_services:
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    port: 5432
+    networks: [internal]
+    schema_owned_by: api

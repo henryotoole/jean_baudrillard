@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from docex import OTEL_COLLECTOR_IMAGE, TRAEFIK_IMAGE
+from docex import OFELIA_IMAGE, OTEL_COLLECTOR_IMAGE, TRAEFIK_IMAGE
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
@@ -28,6 +28,11 @@ from docex.emit.otelcol import render_otelcol_config
 
 # Runtime-ref pattern matches $[VAR_NAME].
 _RUNTIME_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
+
+# Full-match form of the runtime-ref pattern: an env value that is a bare
+# $[VAR] (a secret), as opposed to a literal or a composed string. The
+# parts-only rule (compile.py) guarantees a secret value is exactly this.
+_RUNTIME_FULL_RE = re.compile(r"^\$\[([A-Z_][A-Z0-9_]*)\]$")
 
 
 def _translate_runtime_refs(s: str) -> str:
@@ -231,6 +236,127 @@ def _sidecar_block(
     }
 
 
+# Shell-safe characters that never need quoting in a command argument.
+_SHELL_SAFE_RE = re.compile(r"^[A-Za-z0-9_./:=@%+-]+$")
+
+
+def _shell_quote(arg: str) -> str:
+    """POSIX single-quote a shell argument so it survives the ``sh -c``
+    wrapper unmodified — but only when it actually needs quoting, so the
+    common ``python -m jobs.cleanup`` case stays human-readable. Embedded
+    single quotes use the ``'\\''`` idiom.
+    """
+    if arg and _SHELL_SAFE_RE.match(arg):
+        return arg
+    return "'" + arg.replace("'", "'\\''") + "'"
+
+
+def _wrapped_job_command(command: Any, env_file_target: str) -> str:
+    """Build the ofelia ``command =`` value for a scheduler job.
+
+    The one-off job container must see the env's secrets, which ofelia
+    cannot deliver itself (it spawns the container outside Compose, so
+    Compose's ``.env`` interpolation never reaches it). Mirroring the
+    fixed migrate one-off, secrets arrive via a mounted env file that the
+    command sources before exec'ing the real job:
+    ``sh -c '. <env_file> && exec <cmd>'``. Non-secret env is inlined
+    separately into the INI ``environment`` list, so the two sets compose
+    into the full env surface (scheduler.md § Env and secret delivery).
+
+    ``command`` is the model's ``str | list[str]`` form; a list is joined
+    with shell quoting, a string is passed through verbatim.
+    """
+    if isinstance(command, list):
+        cmd = " ".join(_shell_quote(str(c)) for c in command)
+    else:
+        cmd = str(command)
+    return f"sh -c '. {env_file_target} && exec {cmd}'"
+
+
+def _ofelia_ini(
+    svc: CompiledService, project_dns_label: str, env: str,
+    env_file_host_path: str, env_file_target: str,
+) -> str:
+    """Render the ofelia INI for one scheduler service.
+
+    One ``[job-run "<svc>"]`` section: the translated 6-field ofelia
+    schedule, the service's image, the job's docker network (its first
+    non-``web`` network — a scheduler is never on ``web``), ``delete =
+    true`` to auto-remove the one-off container, the NON-secret env
+    inlined into ``environment``, the secret-sourcing command wrapper,
+    and the env-file mount. See scheduler.md § Fixed Foundation.
+    """
+    from docex.cicl.cron import to_ofelia_cron
+
+    image = svc.body.get("image", "")
+    # The job's docker network: the service's first non-web network,
+    # rendered to its project-scoped data-plane name. Schedulers are never
+    # on `web`, so a non-web network is expected; fall back gracefully.
+    job_nets = [n for n in svc.networks if n != "web"]
+    network_name = (
+        f"{project_dns_label}-{env}-{job_nets[0]}" if job_nets else ""
+    )
+
+    # Env/secret split: a bare $[VAR] value is a secret (delivered via the
+    # sourced env file); everything else is a non-secret literal inlined
+    # into `environment`. The two sets are disjoint per the parts-only rule.
+    env_pairs: list[str] = []
+    for key in sorted(svc.env):
+        val = svc.env[key]
+        if isinstance(val, str) and _RUNTIME_FULL_RE.match(val):
+            continue  # secret — arrives via the sourced env file
+        # HCLLiteral never appears on fixed; treat any non-secret value as
+        # a literal string for inlining.
+        env_pairs.append(f"{key}={val}")
+    environment_list = "[" + ", ".join(
+        '"' + p.replace('"', '\\"') + '"' for p in env_pairs
+    ) + "]"
+
+    schedule = to_ofelia_cron(svc.schedule) if svc.schedule else ""
+    command = _wrapped_job_command(svc.body.get("command", ""), env_file_target)
+    volume = f'["{env_file_host_path}:{env_file_target}:ro"]'
+
+    lines = [
+        f'[job-run "{svc.name}"]',
+        f"schedule = {schedule}",
+        f"image = {image}",
+        f"network = {network_name}",
+        "delete = true",
+        f"environment = {environment_list}",
+        f"command = {command}",
+        f"volume = {volume}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _ofelia_block(
+    svc: CompiledService, project_dns_label: str, env: str, config_key: str,
+) -> dict[str, Any]:
+    """Render the ofelia scheduler container for one scheduler service.
+
+    The container reads its INI from compose's top-level ``configs:``
+    block (the same delivery mechanism the OTel sidecar uses) and mounts
+    the docker socket read-only so it can spawn the job's one-off
+    container (the DooD-adjacent pattern the project traefik also uses).
+    No traefik labels (a scheduler is never web-facing); it carries the
+    ``docex.project`` label and ``restart: unless-stopped`` like every
+    emitted container. See scheduler.md § Fixed Foundation.
+    """
+    name = f"{project_dns_label}-{env}-{svc.name}-scheduler"
+    return {
+        "image": OFELIA_IMAGE,
+        "container_name": name,
+        "command": ["daemon", "--config=/etc/ofelia/config.ini"],
+        "restart": "unless-stopped",
+        "volumes": ["/var/run/docker.sock:/var/run/docker.sock:ro"],
+        "configs": [
+            {"source": config_key, "target": "/etc/ofelia/config.ini"},
+        ],
+        "labels": [_docex_project_label(project_dns_label)],
+        "logging": _LoggingAnchor(),
+    }
+
+
 def _logging_anchor_representer(dumper: yaml.SafeDumper, _data: Any) -> yaml.Node:
     # Emit ``*default-logging`` as an alias reference. PyYAML represents
     # aliases via Anchor handles; here we render as a plain scalar that
@@ -284,6 +410,14 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     }
     for name in sorted(compiled.services):
         svc = compiled.services[name]
+
+        # Mod 055: a scheduler service does not run as a long-running
+        # container. Its job is launched by a paired ofelia container
+        # (emitted below) as a one-off container on each fire, so we skip
+        # the normal service block for the job itself.
+        if svc.role == "scheduler":
+            continue
+
         block = _service_block(svc)
 
         # Phase 2: dev compose gets bind mounts on core services so
@@ -376,6 +510,11 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         svc = compiled.services[name]
         if not svc.is_core:
             continue
+        # Mod 055: scheduler services have no long-running container to
+        # share a netns with, so no paired sidecar (consistent with the
+        # elastic side). Job-level SDK telemetry is deferred.
+        if svc.role == "scheduler":
+            continue
         # WHY: project/env/svc joiners and the `-otelcol` suffix all use
         # hyphens per the unified data-plane naming rule (mod 030 flipped
         # joiners; mod 032 flipped the suffix). Docker container names.
@@ -438,11 +577,50 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     # verbatim; doubling `$` → `$$` makes compose pass through a single
     # literal `$` to the sidecar. Elastic is unaffected (ECS does not
     # interpolate `$`).
-    if any(s.is_core for s in compiled.services.values()):
+    configs: dict[str, Any] = {}
+    if any(
+        s.is_core and s.role != "scheduler"
+        for s in compiled.services.values()
+    ):
         content = render_otelcol_config(compiled.env).replace("$", "$$")
-        body_doc["configs"] = {
-            "otelcol_config": {"content": content},
-        }
+        configs["otelcol_config"] = {"content": content}
+
+    # Mod 055: ofelia scheduler containers + their rendered INI configs.
+    # Each scheduler service gets one ofelia container and one INI config
+    # entry. The INI is delivered inline via compose's `configs.content`
+    # (self-contained, the same mechanism the otelcol sidecar config uses)
+    # so the compose file travels to the deploy host without a sidecar
+    # file.
+    #
+    # Env-file path (judgment call, scheduler.md § Env and secret delivery):
+    # the job sources the env's `.env` for its secrets. On dev/test that is
+    # the operator's `infra/secrets/<env>.env`. ofelia spawns the job via
+    # the docker socket (DooD), so the host side of the mount is a path the
+    # docker daemon resolves — the project-relative `infra/secrets/<env>.env`
+    # the operator runs compose from, mirroring where the fixed migrate
+    # one-off reads its env. The container side is the doctrine-fixed
+    # `/run/job.env`.
+    env_file_host_path = f"infra/secrets/{compiled.env}.env"
+    env_file_target = "/run/job.env"
+    for name in sorted(compiled.services):
+        svc = compiled.services[name]
+        if svc.role != "scheduler":
+            continue
+        ofelia_name = (
+            f"{compiled.project_dns_label}-{compiled.env}-{svc.name}-scheduler"
+        )
+        config_key = f"ofelia_{svc.name}"
+        services[ofelia_name] = _ofelia_block(
+            svc, compiled.project_dns_label, compiled.env, config_key,
+        )
+        ini = _ofelia_ini(
+            svc, compiled.project_dns_label, compiled.env,
+            env_file_host_path, env_file_target,
+        )
+        configs[config_key] = {"content": ini}
+
+    if configs:
+        body_doc["configs"] = configs
 
     header = (
         "# Generated by `docex compile`. Do not edit by hand.\n"

@@ -196,6 +196,11 @@ class _RenderCtx:
     env: str
     alb_policy: NamingPolicy
     priorities: dict[str, int]  # service_name -> ALB listener_rule.priority
+    # Mod 055: IAM naming policy, used to name the per-scheduler-service
+    # EventBridge-Scheduler invocation role. Optional with a None default so
+    # unit tests constructing a ctx by hand keep working; real compiles
+    # thread it through from the transfer tables' naming policies.
+    iam_policy: NamingPolicy | None = None
     # Mod 018: sidecar exporter target. Defaults to empty for unit tests
     # constructing a ctx by hand; real compiles thread it through from
     # `compiled.observability_backend_url`.
@@ -360,8 +365,15 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # would block the core container indefinitely. The OTel SDK's
     # default batch queue (2048 spans, 5 s flush) absorbs anything
     # emitted in the brief sidecar-start → OTLP-listening window.
+    # Mod 055: the sidecar pairs only with long-running services — those
+    # that also emit `ecs_service`. A one-shot task (scheduler RunTask, and
+    # implicitly the `_migrate` task below) has no place for it: nothing
+    # stays up to share the netns and flush the batch, and a non-essential
+    # sidecar on a RunTask just lingers after the job exits. Consistent
+    # with the fixed side, where the one-off job container has no sidecar.
+    has_ecs_service = "ecs_service" in svc.emits.get("elastic", [])
     sidecar_def: dict[str, Any] | None = None
-    if svc.is_core:
+    if svc.is_core and has_ecs_service:
         container_def["dependsOn"] = [
             {"containerName": f"{svc.name}-otelcol", "condition": "START"},
         ]
@@ -754,6 +766,113 @@ def render_efs_file_system(svc: CompiledService, ctx: _RenderCtx) -> str:
     return "\n".join(out)
 
 
+def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit the EventBridge-Scheduler trigger for a ``scheduler`` service:
+    an ``aws_scheduler_schedule`` invoking ECS ``RunTask`` on the reused
+    task definition, plus a per-service scheduler-invocation IAM role and
+    its inline policy. Mod 055.
+
+    No ``ecs_service`` is emitted — a scheduler runs nothing continuously.
+    The schedule's ``schedule_expression`` is the translated 6-field AWS
+    cron form; the network placement mirrors :func:`render_ecs_service`
+    (primary private subnet + the service's non-``web`` SGs).
+    """
+    from docex.cicl.cron import to_aws_cron_expression
+
+    if svc.schedule is None:
+        # Defensive: validation guarantees a scheduler service has a
+        # schedule, so this is unreachable in a successful compile.
+        return f"# scheduler service {svc.name!r} has no schedule; no HCL emitted"
+
+    schedule_expr = to_aws_cron_expression(svc.schedule)
+    role_name = (
+        apply_policy(f"{svc.global_name}_scheduler", ctx.iam_policy)
+        if ctx.iam_policy is not None
+        else f"{svc.global_name}_scheduler"
+    )
+
+    # A scheduler is never on `web`; place the RunTask on its non-web SGs,
+    # exactly as render_ecs_service places the long-running service.
+    nets = sorted(n for n in svc.networks if n != "web")
+    sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in nets)
+
+    project_tag = svc.body.get("tags", {}).get("project", "")
+    env_tag = svc.body.get("tags", {}).get("env", "")
+
+    out: list[str] = []
+    # Invocation role: trusted by EventBridge Scheduler, granting RunTask
+    # on this service's task-def family and PassRole on the project task-
+    # execution role (so the spawned task can pull images / read SSM).
+    out.append(f'resource "aws_iam_role" "{svc.name}_scheduler" {{')
+    out.append(f'  name = "{role_name}"')
+    out.append("  assume_role_policy = jsonencode({")
+    out.append('    Version = "2012-10-17"')
+    out.append("    Statement = [{")
+    out.append('      Effect    = "Allow"')
+    out.append('      Principal = { Service = "scheduler.amazonaws.com" }')
+    out.append('      Action    = "sts:AssumeRole"')
+    out.append("    }]")
+    out.append("  })")
+    out.append(
+        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
+        f'service = "{svc.name}", role = "{svc.role}", '
+        f'managed_by = "doctrine" }}'
+    )
+    out.append("}")
+    out.append("")
+    out.append(f'resource "aws_iam_role_policy" "{svc.name}_scheduler" {{')
+    out.append(f'  name = "{role_name}"')
+    out.append(f'  role = aws_iam_role.{svc.name}_scheduler.id')
+    out.append("  policy = jsonencode({")
+    out.append('    Version = "2012-10-17"')
+    out.append("    Statement = [")
+    out.append("      {")
+    out.append('        Effect   = "Allow"')
+    out.append('        Action   = "ecs:RunTask"')
+    out.append(f"        Resource = aws_ecs_task_definition.{svc.name}.arn")
+    out.append("      },")
+    out.append("      {")
+    out.append('        Effect   = "Allow"')
+    out.append('        Action   = "iam:PassRole"')
+    out.append(
+        "        Resource = [data.terraform_remote_state.project.outputs"
+        ".task_execution_role_arn]"
+    )
+    out.append("      },")
+    out.append("    ]")
+    out.append("  })")
+    out.append("}")
+    out.append("")
+    out.append(f'resource "aws_scheduler_schedule" "{svc.name}" {{')
+    out.append(f'  name = "{svc.global_name}"')
+    out.append("  flexible_time_window {")
+    out.append('    mode = "OFF"')
+    out.append("  }")
+    out.append(f'  schedule_expression          = "{schedule_expr}"')
+    out.append('  schedule_expression_timezone = "UTC"')
+    out.append("  target {")
+    out.append("    arn      = aws_ecs_cluster.cluster.arn")
+    out.append(f"    role_arn = aws_iam_role.{svc.name}_scheduler.arn")
+    out.append("    ecs_parameters {")
+    out.append(
+        f"      task_definition_arn = aws_ecs_task_definition.{svc.name}.arn"
+    )
+    out.append('      launch_type         = "FARGATE"')
+    out.append("      task_count          = 1")
+    out.append("      network_configuration {")
+    out.append(
+        "        subnets          = [data.terraform_remote_state.project"
+        ".outputs.primary_private_subnet_id]"
+    )
+    out.append(f"        security_groups  = [{sg_refs}]")
+    out.append("        assign_public_ip = false")
+    out.append("      }")
+    out.append("    }")
+    out.append("  }")
+    out.append("}")
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -767,6 +886,7 @@ _DESTINATION_RENDERERS: dict[str, Callable[[CompiledService, _RenderCtx], str]] 
     "elasticache_cluster": render_elasticache_cluster,
     "s3_bucket": render_s3_bucket,
     "efs_file_system": render_efs_file_system,  # Mod 015
+    "scheduled_task": render_scheduled_task,  # Mod 055
 }
 
 
@@ -995,12 +1115,14 @@ def emit_hcl(
     ddb_p = naming_policies.get("ddb")
     alb_p = naming_policies.get("alb")
     ecs_p = naming_policies.get("ecs")
+    iam_p = naming_policies.get("iam")
 
     ctx = _RenderCtx(
         project=compiled.project,
         env=compiled.env,
         alb_policy=alb_p,
         priorities=priorities,
+        iam_policy=iam_p,
         observability_backend_url=compiled.observability_backend_url,
         reverse_proxy=compiled.reverse_proxy,
     )

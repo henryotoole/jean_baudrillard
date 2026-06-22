@@ -33,3 +33,15 @@ TRAEFIK_IMAGE = (
     "traefik:v3.6"
     "@sha256:cc1799c50550f730f686df9b368e690f9199542787db8d1dd328a7c3779f6eea"
 )
+
+# Ofelia job-scheduler image for the fixed-foundation `scheduler` role.
+# Pinned by digest for the same reason as the images above. docex emits
+# one ofelia container per scheduler service; it spawns the job as a
+# one-off container on each fire. Resolve a new digest with:
+#     docker pull mcuadros/ofelia:v0.3.7 && \
+#     docker inspect --format '{{index .RepoDigests 0}}' mcuadros/ofelia:v0.3.7
+# See doctrine/infrastructure/specifics/scheduler.md § Fixed Foundation.
+OFELIA_IMAGE = (
+    "mcuadros/ofelia:v0.3.7"
+    "@sha256:21082a58c3d0d5d5b8615ac7d1ac5d039074728735879c76baf876c4358cbc3e"
+)

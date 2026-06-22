@@ -14,6 +14,20 @@ first post-`0.4.0` overhaul.
 
 ### Added
 
+- New bundled **`scheduler` role** — a core service that runs the project's image
+  + `command` on a 5-field cron `schedule`, then exits (a cron job in the
+  project's image). Fixed: a per-service `mcuadros/ofelia` container launches the
+  job as a one-off container (`job-run`, auto-removed) on schedule, configured via
+  a rendered INI; non-secret env is inlined while secrets arrive through a mounted
+  `.env` sourced by the command. Elastic: an `aws_scheduler_schedule` (EventBridge
+  Scheduler) invokes ECS `RunTask` on a reused task definition, with a per-service
+  scheduler-invocation IAM role; no `ecs_service`. The compiler translates the
+  5-field cron to AWS `cron(...)` (6-field, `?`-day rule, day-of-week 0–6→1–7
+  remap) and to ofelia's seconds-prefixed form, validating it at compile time. New
+  `src/docex/cicl/cron.py`; new `scheduled_task` emit destination. Scheduler tasks
+  carry no OTel sidecar on either foundation (sidecars pair only with long-running
+  services); job-level SDK telemetry is deferred. Mod 055.
+
 - `preinfra development` now verifies every `dev` `web`-service hostname
   resolves in public DNS, failing the check (before `envinfra up dev`) when one
   doesn't. Bringing `dev` up fires Let's Encrypt HTTP-01 challenges; unresolved

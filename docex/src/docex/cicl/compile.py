@@ -434,6 +434,13 @@ class CompiledService:
     # ``{"mount_path": "/var/lib/clickhouse"}``). None when the engine
     # doesn't declare it. Mod 015.
     persistent_storage: dict[str, Any] | None = None
+    # Mod 055: the scheduler role's 5-field cron expression, carried
+    # verbatim from infra.yml. None for every non-scheduler service. The
+    # value needs procedural cron translation (see docex.cicl.cron), so —
+    # unlike ordinary role-specific fields — it is carried directly rather
+    # than routed through a transfer-table translation body. The fixed
+    # (ofelia) and elastic (scheduled_task) emitters translate it.
+    schedule: str | None = None
 
 
 @dataclass
@@ -594,6 +601,12 @@ def compile_env(
             if fname in ("version", "schema_owned_by"):
                 # `version` is a field; `schema_owned_by` is structural.
                 pass
+            if fname == "schedule":
+                # Mod 055: the scheduler `schedule` field is carried onto
+                # the compiled service (below) and translated procedurally
+                # by the emitters; its transfer-table translation body is
+                # an empty marker, so routing it here is a no-op. Skip it.
+                continue
             translated = engine.field_translation(fname, foundation)
             if translated is None:
                 # Unknown role-specific field on this engine/foundation —
@@ -641,8 +654,17 @@ def compile_env(
                     doc.container_registry, project_name, name, project_version,
                     env=env, foundation=foundation,
                 )
+                # Mod 055: only long-running services (those that emit an
+                # `ecs_service`) carry a paired OTel sidecar, so only they
+                # need the sidecar's resource overhead folded into the
+                # task-level totals. A one-shot scheduler RunTask has no
+                # sidecar — accounting for one would over-allocate Fargate
+                # and emit a misleading rounding note.
+                has_sidecar = "ecs_service" in (engine.emits or {}).get(
+                    "elastic", []
+                )
                 body = _deep_merge(body, _resources_to_elastic(
-                    svc.resources, service_name=name, is_core=True,
+                    svc.resources, service_name=name, is_core=has_sidecar,
                     notes_seen=notes_seen,
                 ))
                 if svc.command is not None:
@@ -743,6 +765,11 @@ def compile_env(
             persistent_storage=(
                 dict(engine.persistent_storage)
                 if engine.persistent_storage
+                else None
+            ),
+            schedule=(
+                str(sched)
+                if (sched := (svc.model_extra or {}).get("schedule")) is not None
                 else None
             ),
         )

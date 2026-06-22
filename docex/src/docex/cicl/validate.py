@@ -88,6 +88,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_service_name_blacklist(doc))
     issues.extend(_validate_reverse_proxy_field(doc))
     issues.extend(_validate_reverse_proxy_role_removed(doc))
+    issues.extend(_validate_scheduler_services(doc))
     return issues
 
 
@@ -806,6 +807,57 @@ def _validate_reverse_proxy_field(doc: CICLDocument) -> list[ValidationIssue]:
             where="reverse_proxy",
         )]
     return []
+
+
+# ---------------------------------------------------------------------------
+# Mod 055 — scheduler role field rules.
+# ---------------------------------------------------------------------------
+
+
+def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
+    """Mod 055: a ``scheduler`` core service must declare both ``schedule``
+    and ``command``, and ``schedule`` must be a well-formed 5-field cron.
+
+    ``schedule`` on a *non*-scheduler service is already rejected by
+    rule 4 (``tt_rule_4_undeclared_field``) since only ``scheduler/
+    container`` declares it as a role-specific field. Here we add the
+    scheduler-side requirements and surface a malformed cron at compile
+    time rather than at apply / job-run time.
+    """
+    from docex.cicl.cron import cron_validation_issue
+
+    issues: list[ValidationIssue] = []
+    for name, svc in sorted(doc.core_services.items()):
+        if svc.role != "scheduler":
+            continue
+        schedule = (svc.model_extra or {}).get("schedule")
+        if not isinstance(schedule, str) or not schedule.strip():
+            issues.append(ValidationIssue(
+                rule="rule_scheduler_schedule_required",
+                message=(
+                    f"scheduler service {name!r} must declare a non-empty "
+                    f"`schedule` (a 5-field cron expression)"
+                ),
+                where=f"core_services.{name}.schedule",
+            ))
+        else:
+            issue = cron_validation_issue(
+                schedule, where=f"core_services.{name}.schedule"
+            )
+            if issue is not None:
+                issues.append(issue)
+        cmd = svc.command
+        if cmd is None or (isinstance(cmd, (str, list)) and not cmd):
+            issues.append(ValidationIssue(
+                rule="rule_scheduler_command_required",
+                message=(
+                    f"scheduler service {name!r} must declare a non-empty "
+                    f"`command` (the job entrypoint — there is no sensible "
+                    f"default)"
+                ),
+                where=f"core_services.{name}.command",
+            ))
+    return issues
 
 
 def _validate_reverse_proxy_role_removed(
