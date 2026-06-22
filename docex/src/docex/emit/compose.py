@@ -677,9 +677,10 @@ def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
     here is a docker container/network/volume identifier and therefore a
     data-plane resolvable name; underscored project names (e.g.
     ``docex_smoke_elastic``) must hyphenate here. The HAProxy web demux
-    reconstructs the project traefik's container name from the request
-    domain via ``domain.split('.')[-2]``, which produces the DNS-labeled
-    form — so the traefik container's name must match. Mod 046.
+    parses the project segment out of the request domain (PSL-aware, so
+    multi-label TLDs like ``.co.uk`` work — mod 058) and forwards to a
+    container named ``<project>-traefik``; that parsed segment is the
+    DNS-labeled form, so the traefik container's name must match. Mod 046.
 
     Both the development and production sides emit this same body shape
     (single-machine fixed projects converge on the same docker daemon).

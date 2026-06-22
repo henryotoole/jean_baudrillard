@@ -38,6 +38,17 @@ first post-`0.4.0` overhaul.
   real nameservers and ignores `/etc/hosts` — it sees what LE sees. New
   `docex.dns` client seam (`DnsResolver` protocol + `DnspythonResolver`). Mod 054.
 
+### Fixed
+
+- Fixed-foundation `web_demux` (HAProxy) now routes projects on **multi-label
+  TLDs** (`.co.uk`, `.com.au`, …). The SNI/Host → project parse was 3rd-from-last
+  label, correct only for single-label TLDs; it is now Public Suffix List-aware
+  (loads the PSL, derives the apex as public-suffix + 1 label, takes the label to
+  its left), so any TLD parses. Doctrine-side change (the demux is
+  operator-managed preinfra in `fixed_master_network.md`: new PSL-aware
+  `project_resolver.lua`, a mounted `public_suffix_list.dat`, and a PSL download
+  step); `docex` carries only a comment fix in `emit/compose.py`. Mod 058.
+
 ### Changed
 
 - `.gitignore` defaults (inception flow) extended with `.docex/`, a Python

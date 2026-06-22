@@ -4,9 +4,9 @@ stratum: conditional
 
 # Fixed Master Network
 
-On `fixed` foundations, the per-machine "master network" is two pieces working together: the `web_demux` HAProxy container that owns host :443 and :80, and the `docex-ingress` Docker bridge network it shares with every project's traefik container. Together they're the operator-managed prerequisite that lets multiple projects coexist on a single host without colliding on the public ports.
+On `fixed` foundations, the per-machine `master_network` is a single Docker bridge — `docex-ingress` — shared by every project's traefik container. It can't route traffic on its own: paired with it is the `web_demux` HAProxy container that owns host :443 and :80 and forwards inbound requests onto the bridge by domain. This file covers both — the `docex-ingress` bridge itself and the `web_demux` tooling it depends on — since together they're the operator-managed prerequisite that lets multiple projects coexist on a single host without colliding on the public ports.
 
-This file applies to **every machine that hosts at least one doctrine project's env stack** — that's typically the operator's dev machine and (separately) any remote prod host. Each gets its own copy of the master network; they're independent.
+This file applies to **every machine that hosts at least one doctrine project's env stack** — that's typically the operator's dev machine and (separately) any remote prod host. Each gets its own copy of both; they're independent.
 
 ## The `web_demux` Resource
 
@@ -63,6 +63,13 @@ Suggested directory layout:
 ```bash
 sudo mkdir -p /opt/docex-preinfra/web_demux/haproxy
 cd /opt/docex-preinfra/web_demux
+
+# Fetch the Public Suffix List the project resolver uses to find each
+# request's TLD (so .co.uk-style multi-label apexes parse correctly).
+# Slow-changing data — refresh it occasionally (e.g. when adding a project
+# on a TLD published after this was last fetched), not on every stand-up.
+curl -fsSL https://publicsuffix.org/list/public_suffix_list.dat \
+  -o haproxy/public_suffix_list.dat
 ```
 
 2. Write `docker-compose.yml`:
@@ -82,6 +89,7 @@ services:
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - ./haproxy/project_resolver.lua:/usr/local/etc/haproxy/project_resolver.lua:ro
+      - ./haproxy/public_suffix_list.dat:/usr/local/etc/haproxy/public_suffix_list.dat:ro
 
 networks:
   docex-ingress:
@@ -99,27 +107,89 @@ networks:
 --   <env>.<project>.<apex_domain>
 --   <project>.<apex_domain>
 --
--- Returns the project segment regardless of which form arrived. The
--- apex is assumed to be a single-label TLD (.com, .tech, .org, .net).
--- Multi-label TLDs (.co.uk, .com.au) need the PSL-aware variant below
--- — currently an open TODO; document the limitation here until a real
--- multi-TLD operator scenario forces the fix.
+-- Returns the project segment regardless of which form arrived, for ANY
+-- TLD. The apex (registrable domain the operator owns) is the public
+-- suffix plus one label; the project is the label immediately to its
+-- left. We find the public suffix with the Public Suffix List, so this
+-- works identically for single-label TLDs (`.com`, `.tech`) and
+-- multi-label ones (`.co.uk`, `.com.au`). The PSL is mounted into the
+-- container and loaded once at startup (see docker-compose.yml + the
+-- download step in the setup instructions).
 --
 -- See doctrine/infrastructure/preinfra/fixed_master_network.md.
 
+local PSL_PATH = "/usr/local/etc/haproxy/public_suffix_list.dat"
+
+-- PSL rules loaded at init. Plain rules ("co.uk") and the two special
+-- rule kinds: wildcards ("*.ck" -> key "ck") and exceptions ("!www.ck"
+-- -> key "www.ck"). Exceptions win over wildcards per the PSL algorithm.
+local psl_rules, psl_wildcards, psl_exceptions = {}, {}, {}
+
+local function load_psl(path)
+    local f = io.open(path, "r")
+    if not f then
+        core.Alert("project_resolver: cannot open PSL at " .. path)
+        return
+    end
+    for line in f:lines() do
+        line = line:gsub("%s+$", "")
+        -- Skip blanks and `//` comments. Unicode rules are irrelevant to
+        -- our ASCII doctrine domains; they load harmlessly as plain keys.
+        if line ~= "" and line:sub(1, 2) ~= "//" then
+            if line:sub(1, 1) == "!" then
+                psl_exceptions[line:sub(2)] = true
+            elseif line:sub(1, 2) == "*." then
+                psl_wildcards[line:sub(3)] = true
+            else
+                psl_rules[line] = true
+            end
+        end
+    end
+    f:close()
+end
+
+load_psl(PSL_PATH)
+
+-- Number of labels in the public suffix of the label array `parts`,
+-- per the PSL algorithm (exceptions win; else longest matching plain or
+-- wildcard rule; else the default `*` rule = one label).
+local function public_suffix_label_count(parts)
+    local n = #parts
+    -- Exceptions first, longest candidate (i=1) to shortest.
+    for i = 1, n do
+        if psl_exceptions[table.concat(parts, ".", i, n)] then
+            -- public suffix = the exception rule minus its leftmost label
+            return (n - i + 1) - 1
+        end
+    end
+    local best = 0
+    for i = 1, n do
+        local labels_in = n - i + 1
+        if psl_rules[table.concat(parts, ".", i, n)] then
+            if labels_in > best then best = labels_in end
+        elseif i < n and psl_wildcards[table.concat(parts, ".", i + 1, n)] then
+            -- "*.<rest>" matches: the label at i is the wildcard.
+            if labels_in > best then best = labels_in end
+        end
+    end
+    if best == 0 then best = 1 end   -- default rule "*"
+    return best
+end
+
 local function project_from_host(host)
     if not host or host == "" then return nil end
-    -- Strip any trailing dot (FQDN form) before splitting.
-    host = host:gsub("%.$", "")
-    -- Split on '.'
+    -- Strip any trailing dot (FQDN form), lowercase, split on '.'.
+    host = host:gsub("%.$", ""):lower()
     local parts = {}
     for p in string.gmatch(host, "[^.]+") do
         table.insert(parts, p)
     end
-    -- We need at least <project>.<apex_sld>.<apex_tld> (3 labels).
-    if #parts < 3 then return nil end
-    -- The project segment is always 3rd-from-last for a single-label TLD.
-    return parts[#parts - 2]
+    local n = #parts
+    -- apex (registrable domain) = public suffix + 1 label; project is the
+    -- label immediately to its left.
+    local project_index = n - (public_suffix_label_count(parts) + 1)
+    if project_index < 1 then return nil end
+    return parts[project_index]
 end
 
 -- TCP path (https, SNI). Fetched as a string returning the resolved
