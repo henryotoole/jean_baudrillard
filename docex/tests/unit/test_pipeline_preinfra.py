@@ -65,20 +65,24 @@ def _script_healthy_master_vpc(
 
 
 def test_preinfra_dev_passes_when_bridge_exists(
-    sample_ctx, fake_docker, capsys,
+    sample_ctx, fake_docker, fake_dns, capsys,
 ):
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
-    rc = run_preinfra(sample_ctx, fake_docker, aws=None, side="development")
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
     assert rc == 0
     out = capsys.readouterr().out
     assert "all checks passed" in out
 
 
 def test_preinfra_dev_fails_when_bridge_missing(
-    sample_ctx, fake_docker, capsys,
+    sample_ctx, fake_docker, fake_dns, capsys,
 ):
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = False
-    rc = run_preinfra(sample_ctx, fake_docker, aws=None, side="development")
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
     assert rc == 1
     out = capsys.readouterr().out
     assert _DOCEX_INGRESS_NETWORK in out
@@ -86,17 +90,119 @@ def test_preinfra_dev_fails_when_bridge_missing(
 
 
 def test_preinfra_dev_does_not_call_aws(
-    sample_ctx, fake_docker, fake_aws,
+    sample_ctx, fake_docker, fake_aws, fake_dns,
 ):
     """Even when aws is provided, dev side never invokes AWS methods —
     the foundation+side gate short-circuits."""
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
-    rc = run_preinfra(sample_ctx, fake_docker, aws=fake_aws, side="development")
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=fake_aws, side="development",
+        dns=fake_dns,
+    )
     assert rc == 0
     # No AWS call recorded.
     aws_method_names = [c[0] for c in fake_aws.calls]
     assert "find_vpc_by_tags" not in aws_method_names
     assert "find_subnet_ids" not in aws_method_names
+
+
+# ---------------------------------------------------------------------------
+# Development side — dev-web-hostname DNS check (mod 054)
+# ---------------------------------------------------------------------------
+
+
+# The sample fixture: project `sample`, apex `example.com`, `api` is the
+# web + domain_default_service. So `dev` web hosts are the per-service host
+# plus the bare-env host (api is the default service).
+_DEV_HOSTS = ["api.dev.sample.example.com", "dev.sample.example.com"]
+
+
+def test_preinfra_dev_dns_all_resolve_passes(
+    sample_ctx, fake_docker, fake_dns, capsys,
+):
+    """Every dev web host resolves → no DNS failure; resolver was asked
+    about exactly the dev hosts (never test/stage/prod)."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    fake_dns.default = True
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
+    assert rc == 0
+    assert "all checks passed" in capsys.readouterr().out
+    assert set(fake_dns.asked) == set(_DEV_HOSTS)
+
+
+def test_preinfra_dev_dns_unresolved_host_fails(
+    sample_ctx, fake_docker, fake_dns, capsys,
+):
+    """A non-resolving dev host → that host enumerated as a failure and
+    run_preinfra returns 1."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    fake_dns.results = {"api.dev.sample.example.com": False}
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "api.dev.sample.example.com" in out
+    assert "does not resolve in public DNS" in out
+
+
+def test_preinfra_dev_dns_only_asks_about_dev_hosts(
+    sample_ctx, fake_docker, fake_dns,
+):
+    """The resolver is only ever asked about `dev` hosts — no `test`,
+    `stage`, or `prod` hostnames leak into the check."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
+    for host in fake_dns.asked:
+        assert ".dev.sample.example.com" in host or host == "dev.sample.example.com"
+        for env in ("test", "stage", "prod"):
+            assert f".{env}.sample" not in host
+
+
+def test_preinfra_dev_dns_skipped_when_infra_absent(
+    sample_ctx, fake_docker, fake_dns,
+):
+    """With no infra.yml (ctx.infra is None) the DNS check is skipped
+    entirely — resolver never called (the inception-step-3 no-op)."""
+    sample_ctx.infra = None
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
+    assert rc == 0
+    assert fake_dns.asked == []
+
+
+def test_preinfra_dev_dns_resolver_error_surfaced_not_crashed(
+    sample_ctx, fake_docker, fake_dns, capsys,
+):
+    """A resolver that raises is surfaced as a 'could not check' failure,
+    not propagated as a crash."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    fake_dns.raise_on = {"api.dev.sample.example.com"}
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "could not check DNS" in out
+    assert "api.dev.sample.example.com" in out
+
+
+def test_preinfra_dev_dns_none_resolver_reports_bug(
+    sample_ctx, fake_docker, capsys,
+):
+    """The dispatcher must supply a resolver on the development side; if
+    it doesn't, preinfra surfaces it as an explicit bug (mirrors aws/ssh)."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    rc = run_preinfra(sample_ctx, fake_docker, aws=None, side="development")
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "dispatcher bug" in out
 
 
 # ---------------------------------------------------------------------------

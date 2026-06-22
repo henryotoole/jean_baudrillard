@@ -19,6 +19,12 @@ dependencies = [
     # AWS SDK release cadence.
     "boto3==1.34.144",
     "botocore==1.34.144",
+    # Mod 054: public-DNS resolution for the development-side preinfra
+    # check. The *only* dependency permitted to import dns/dnspython —
+    # see src/docex/dns/dnspython_resolver.py. Chosen over stdlib
+    # getaddrinfo because it queries configured nameservers and ignores
+    # /etc/hosts, so the check sees what Let's Encrypt sees.
+    "dnspython>=2.6",
 ]
 
 [project.optional-dependencies]

@@ -347,8 +347,17 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # constraint matches only this project's containers. Web services
         # append it to the existing Traefik-label list; non-web services
         # get a fresh labels list with just that one label.
+        # Mod 054: the `test` env is excluded from web routing entirely —
+        # it is exercised in-container over the internal network and never
+        # browsed to, so its web services get NO traefik discovery labels
+        # (no router, no `tls`, no certresolver). This stops the project
+        # traefik from firing LE HTTP-01 challenges for `test` hostnames
+        # that nobody will ever reach, which would otherwise burn the
+        # failed-authorization rate limit. They keep the ``docex.project``
+        # label (still harmless) and remain on the `-web` network. See
+        # cicl.md § TLS Implications / fixed_reverse_proxy.md.
         project_label = _docex_project_label(compiled.project_dns_label)
-        if svc.web_hosts:
+        if svc.web_hosts and compiled.env != "test":
             block["labels"] = _traefik_labels(
                 svc, compiled.project_dns_label, compiled.env,
             ) + [project_label]

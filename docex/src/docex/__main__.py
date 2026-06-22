@@ -196,8 +196,12 @@ def _cmd_envinfra(args: list[str]) -> int:
         docker = _require_docker()
         # envinfra up is dev/test only — always development side, never
         # needs AWS even on elastic projects.
+        from docex.dns.dnspython_resolver import DnspythonResolver
         from docex.pipeline.preinfra import run_preinfra
-        rc = run_preinfra(ctx, docker, aws=None, side="development")
+        rc = run_preinfra(
+            ctx, docker, aws=None, side="development",
+            dns=DnspythonResolver(),
+        )
         if rc != 0:
             print("error: preinfra development failed; aborting envinfra up.")
             return rc
@@ -233,6 +237,7 @@ def _cmd_preinfra(args: list[str]) -> int:
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
+    from docex.dns.dnspython_resolver import DnspythonResolver
     from docex.pipeline.preinfra import run_preinfra
 
     ctx = load_project_context(Path(os.getcwd()))
@@ -249,7 +254,10 @@ def _cmd_preinfra(args: list[str]) -> int:
         and ns.side == "production"
     )
     ssh = _make_ssh_client() if needs_ssh else None
-    return run_preinfra(ctx, docker, aws, side=ns.side, ssh=ssh)
+    # The DNS resolver is cheap to construct and only consulted on the
+    # development branch; pass it unconditionally (mod 054).
+    dns = DnspythonResolver()
+    return run_preinfra(ctx, docker, aws, side=ns.side, ssh=ssh, dns=dns)
 
 
 def _cmd_projinfra(args: list[str]) -> int:
@@ -303,12 +311,18 @@ def _cmd_projinfra(args: list[str]) -> int:
             # Mod 050: the (fixed, production) preinfra branch probes the
             # target host for the registry credential over SSH, so supply
             # an SSH client for that case (lazy, mirroring aws).
+            from docex.dns.dnspython_resolver import DnspythonResolver
             from docex.pipeline.preinfra import run_preinfra
             needs_ssh = (
                 ctx.infra.foundation == "fixed" and ns.side == "production"
             )
             ssh = _make_ssh_client() if needs_ssh else None
-            rc = run_preinfra(ctx, docker, aws=None, side=ns.side, ssh=ssh)
+            # Mod 054: this branch handles `projinfra up development` too,
+            # where run_preinfra's dev-DNS check needs a resolver.
+            rc = run_preinfra(
+                ctx, docker, aws=None, side=ns.side, ssh=ssh,
+                dns=DnspythonResolver(),
+            )
             if rc != 0:
                 print(
                     f"error: preinfra {ns.side} failed; "

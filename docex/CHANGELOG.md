@@ -12,6 +12,26 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- `preinfra development` now verifies every `dev` `web`-service hostname
+  resolves in public DNS, failing the check (before `envinfra up dev`) when one
+  doesn't. Bringing `dev` up fires Let's Encrypt HTTP-01 challenges; unresolved
+  hostnames fail every challenge and trip LE's failed-authorization rate limit,
+  which then blocks legitimate issuance. Surfacing missing dev DNS as a preinfra
+  gap turns a silent rate-limit lockout into an actionable error. Resolution
+  uses `dnspython` (new dependency) rather than `getaddrinfo`, so it queries
+  real nameservers and ignores `/etc/hosts` — it sees what LE sees. New
+  `docex.dns` client seam (`DnsResolver` protocol + `DnspythonResolver`). Mod 054.
+
+### Changed
+
+- The `test` env is no longer routed by traefik: its `web`-network services emit
+  no traefik discovery labels (no router, no `tls`, no `certresolver`), so the
+  project traefik never requests LE certs for `test` hostnames nobody browses
+  to. `test` services keep the `docex.project` label and stay on the `-web`
+  network. `dev`/`stage`/`prod` are unchanged. Mod 054.
+
 ## [1.1.1] - 2026-06-17
 
 ### Removed

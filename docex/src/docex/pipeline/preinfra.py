@@ -10,6 +10,11 @@ What gets checked, per (foundation, side):
 
 - Any project, ``development`` side
     - The ``docex-ingress`` docker bridge network exists locally.
+    - Each ``dev`` web hostname resolves in public DNS (mod 054). `dev`
+      is brought up with HTTP-01 cert issuance; an unresolved hostname
+      fails the challenge and burns Let's Encrypt's failed-authorization
+      rate limit. Skipped when ``infra.yml`` is absent (e.g. the
+      inception-step-3 standalone run before infra.yml exists).
 
 - Fixed project, ``production`` side
     - The ``docex-ingress`` bridge exists locally (single-machine
@@ -44,6 +49,7 @@ from __future__ import annotations
 
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
+from docex.dns.client import DnsResolver
 from docex.docker.client import DockerClient
 from docex.naming import dns_label
 from docex.ssh.client import SSHClient
@@ -65,6 +71,7 @@ def run_preinfra(
     *,
     side: str,
     ssh: SSHClient | None = None,
+    dns: DnsResolver | None = None,
 ) -> int:
     """Check prerequisite infrastructure for ``side``.
 
@@ -78,6 +85,10 @@ def run_preinfra(
     ``side`` is ``production`` — the dispatcher constructs it lazily
     for that case (mirroring ``aws``) so the registry-cred probe can
     reach the target host. It stays ``None`` on every other branch.
+
+    ``dns`` is required on the ``development`` side (mod 054); the
+    dispatcher always supplies it there so the dev-web-hostname DNS
+    check can run. Unused on the production side.
     """
     failures: list[str] = []
 
@@ -90,6 +101,19 @@ def run_preinfra(
             f"not exist. Create it via the docex-preinfra skill: "
             f"`docker network create {_DOCEX_INGRESS_NETWORK}`."
         )
+
+    # Development side: every `dev` web hostname must resolve publicly
+    # before `envinfra up dev` fires LE HTTP-01. Guarded on `ctx.infra`
+    # so the inception-step-3 standalone run (before infra.yml exists)
+    # is a no-op — matching every other infra-dependent check here.
+    if side == "development" and ctx.infra is not None:
+        if dns is None:
+            failures.append(
+                "development side requires a DNS resolver but none was "
+                "provided (this is a dispatcher bug)."
+            )
+        else:
+            failures.extend(_check_dev_dns(ctx, dns))
 
     # Fixed + production: the target host's registry credential.
     if (
@@ -131,6 +155,40 @@ def run_preinfra(
         return 1
     print(f"preinfra {side} side: all checks passed.")
     return 0
+
+
+def _check_dev_dns(ctx: ProjectContext, dns: DnsResolver) -> list[str]:
+    """Verify every ``dev`` web hostname resolves in public DNS.
+
+    ``dev`` is brought up with HTTP-01 cert issuance; unresolved
+    hostnames trip LE's failed-authorization limit. We check ``dev``
+    only — ``test`` is no longer routed/TLS'd (mod 054), and stage/prod
+    resolve at release time.
+    """
+    from docex.cicl.compile import web_hostnames_for_env
+
+    hosts = web_hostnames_for_env(ctx.infra, ctx.project.name, "dev")
+    failures: list[str] = []
+    for host in hosts:
+        try:
+            ok = dns.resolves(host)
+        except Exception as exc:  # noqa: BLE001 — surface, don't crash
+            # A transient/network resolver error is "couldn't check",
+            # which is distinct from a confirmed non-resolution.
+            failures.append(
+                f"could not check DNS for dev host {host!r} ({exc}); "
+                f"resolve transient resolver issues and re-run."
+            )
+            continue
+        if not ok:
+            failures.append(
+                f"dev host {host!r} does not resolve in public DNS. "
+                f"Route it to the dev machine (registrar or Route53) "
+                f"before `envinfra up dev` — unresolved dev hosts trip "
+                f"Let's Encrypt's failed-authorization rate limit. See "
+                f"inception.md PART III."
+            )
+    return failures
 
 
 def _check_fixed_registry_creds(ctx: ProjectContext, ssh: SSHClient) -> list[str]:

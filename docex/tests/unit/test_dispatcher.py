@@ -93,7 +93,7 @@ def test_preinfra_dev_dispatches_to_run_preinfra_without_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
         captured["ctx"] = ctx
         captured["docker"] = docker
         captured["aws"] = aws
@@ -129,7 +129,7 @@ def test_preinfra_fixed_prod_dispatches_without_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
         captured["aws"] = aws
         return 0
 
@@ -158,7 +158,7 @@ def test_preinfra_elastic_prod_dispatches_with_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
         captured["aws"] = aws
         captured["side"] = side
         return 0
@@ -190,7 +190,7 @@ def test_preinfra_elastic_dev_dispatches_without_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
         captured["aws"] = aws
         return 0
 
@@ -210,7 +210,7 @@ def test_preinfra_propagates_nonzero(monkeypatch, sample_ctx):
     _patch_docker_ok(monkeypatch)
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
     )
     rc = _cmd_preinfra(["development"])
     assert rc == 1
@@ -258,7 +258,7 @@ def test_envinfra_up_dispatches_to_run_up(monkeypatch, sample_ctx):
     # so this test stays focused on the ``run_up`` dispatch.
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 0,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 0,
     )
 
     rc = _cmd_envinfra(["up", "dev"])
@@ -284,7 +284,7 @@ def test_envinfra_up_refuses_when_preinfra_fails(
     monkeypatch.setattr("docex.orchestrate.up.run_up", fake_run_up)
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
     )
 
     rc = _cmd_envinfra(["up", "dev"])
@@ -304,7 +304,7 @@ def test_envinfra_down_not_gated_by_preinfra(
 
     called = {"preinfra": False, "run_down": False}
 
-    def fake_preinfra(ctx, docker, aws, *, side, ssh=None):
+    def fake_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
         called["preinfra"] = True
         return 1
 
@@ -407,7 +407,7 @@ def test_projinfra_elastic_up_production_runs_bootstrap(
     # this test stays focused on the bootstrap dispatch.
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 0,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 0,
     )
 
     captured = {}
@@ -439,7 +439,7 @@ def test_projinfra_elastic_up_production_refuses_when_preinfra_fails(
     )
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
     )
 
     called = {"bootstrap": False}
@@ -496,7 +496,7 @@ def test_projinfra_elastic_dev_side_routes_fixed_style(
         called["run_projinfra_fixed_down"] = True
         return 0
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
         called["run_preinfra"] = True
         return 0
 
@@ -599,7 +599,7 @@ def test_projinfra_fixed_all_invocations_dispatch_to_real_runners(
     # sides. Stub it to pass so this test stays focused on dispatch.
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 0,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 0,
     )
 
     rc = _cmd_projinfra([direction, side])
@@ -639,7 +639,7 @@ def test_projinfra_fixed_up_refuses_when_preinfra_fails(
     )
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
     )
 
     rc = _cmd_projinfra(["up", "development"])

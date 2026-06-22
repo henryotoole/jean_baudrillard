@@ -370,6 +370,27 @@ def _web_hosts(
     return [per_service]
 
 
+def web_hostnames_for_env(
+    doc: CICLDocument, project_name: str, env: str
+) -> list[str]:
+    """Every public web hostname for ``env``, order-stable + deduped.
+
+    Reuses the exact host derivation the compiler uses for routing
+    (:func:`_web_hosts` over :func:`_env_subdomain` /
+    :func:`_bare_project_subdomain`), so the preinfra DNS check and the
+    emitted traefik routers never drift. Mod 054.
+    """
+    subdomain = _env_subdomain(doc.apex_domain, project_name, env)
+    bare_project = _bare_project_subdomain(doc.apex_domain, project_name)
+    hosts: list[str] = []
+    for name, svc in sorted(doc.all_services().items()):
+        hosts.extend(_web_hosts(
+            name, svc.networks, subdomain, doc.domain_default_service,
+            env=env, bare_project=bare_project,
+        ))
+    return list(dict.fromkeys(hosts))
+
+
 # ---------------------------------------------------------------------------
 # Compiled representation
 # ---------------------------------------------------------------------------

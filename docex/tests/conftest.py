@@ -749,3 +749,40 @@ class FakeSSHClient:
 def fake_ssh() -> FakeSSHClient:
     """Pytest fixture: fresh FakeSSHClient per test."""
     return FakeSSHClient()
+
+
+# ---------------------------------------------------------------------------
+# Fake DNS resolver (mod 054).
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FakeDnsResolver:
+    """Recording, scriptable stand-in for ``DnsResolver``.
+
+    - ``results`` maps a hostname to the verdict ``resolves`` returns for
+      it. Hosts not in the map fall back to ``default`` (True), so a test
+      only has to script the hosts it cares about.
+    - ``raise_on`` is a set of hostnames for which ``resolves`` raises —
+      models a transient/network resolver error (distinct from a
+      confirmed NXDOMAIN, which is ``results[host] = False``).
+    - ``asked`` records every hostname queried, in order, so tests can
+      assert *which* hosts were probed (e.g. only ``dev`` ones).
+    """
+
+    results: dict[str, bool] = field(default_factory=dict)
+    default: bool = True
+    raise_on: set[str] = field(default_factory=set)
+    asked: list[str] = field(default_factory=list)
+
+    def resolves(self, hostname: str) -> bool:
+        self.asked.append(hostname)
+        if hostname in self.raise_on:
+            raise RuntimeError(f"resolver blew up for {hostname}")
+        return self.results.get(hostname, self.default)
+
+
+@pytest.fixture
+def fake_dns() -> FakeDnsResolver:
+    """Pytest fixture: fresh FakeDnsResolver per test."""
+    return FakeDnsResolver()

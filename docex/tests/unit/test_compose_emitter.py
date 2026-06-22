@@ -315,6 +315,34 @@ def test_core_service_carries_docex_project_label(tmp_path: Path):
     assert "traefik.enable=true" in labels, labels
 
 
+def test_test_env_web_service_has_no_traefik_labels(tmp_path: Path):
+    """Mod 054: a `test`-env web service keeps the docex.project label but
+    carries NO traefik.* discovery labels (no router, no tls, no
+    certresolver) — `test` is excluded from web routing entirely so its
+    bring-up never fires an LE HTTP-01 challenge. dev/stage/prod keep the
+    full traefik label set."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    # `test`: docex.project present, but no traefik labels at all.
+    test_api = _find_core_service_block(_compose_services(root, "test"), "api")
+    test_labels = test_api.get("labels") or []
+    assert "docex.project=sample" in test_labels, test_labels
+    assert not any(l.startswith("traefik.") for l in test_labels), test_labels
+
+    # dev/stage/prod: full traefik discovery set still present alongside
+    # the docex.project label.
+    for env in ("dev", "stage", "prod"):
+        api = _find_core_service_block(_compose_services(root, env), "api")
+        labels = api.get("labels") or []
+        assert "docex.project=sample" in labels, (env, labels)
+        assert "traefik.enable=true" in labels, (env, labels)
+        assert any(l.endswith(".tls.certresolver=doctrine") for l in labels), (
+            env, labels,
+        )
+
+
 def test_backing_service_carries_docex_project_label(tmp_path: Path):
     """Mod 051 (Gap B): a non-web backing service gets a fresh labels list
     with just the docex.project label."""
