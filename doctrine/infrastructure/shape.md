@@ -162,7 +162,7 @@ HCL files describing:
 **Environment infrastructure:**
 - 2 SGs in the master VPC: `myproject-prod-web`, `myproject-prod-internal`
 - 1 ECS cluster + 1 ECS service for `api`, in the master VPC's primary-AZ private subnet, attached to both SGs
-- 1 ALB target group for the prod `api` service, plus 2 listener rules on the project ALB: `Host: myproject.example.com` and `Host: *.myproject.example.com` → that target group
+- 1 ALB target group for the prod `api` service, plus 1 listener rule on the project ALB whose host-header condition matches the explicit set `api.prod.myproject.example.com`, `prod.myproject.example.com`, and `myproject.example.com` pointed at that target group.
 - 1 RDS instance for `database` (identifier `myproject-prod-database`), in the master VPC's primary-AZ private subnet, attached only to the `internal` SG. The RDS subnet group references both private subnets (primary and secondary AZ) to satisfy AWS's multi-AZ requirement; the instance is pinned to the primary AZ.
 - 5 Route53 A-records (alias) in the project's zone:
     - `<project>.<apex_domain>` (bare project)

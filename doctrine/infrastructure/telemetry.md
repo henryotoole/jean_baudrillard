@@ -15,7 +15,7 @@ Observability is our ability to infer the project system's internal state from t
 
 ## Practices v. Infrastructure
 
-Good telemetry is composed of both *practices* which effect code:
+Good telemetry is composed of both *practices* which affect code:
 + Structuring logs
 + Choosing what metrics to count
 + Catching errors in effective places

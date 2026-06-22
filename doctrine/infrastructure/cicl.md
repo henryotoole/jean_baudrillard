@@ -27,7 +27,7 @@ apex_domain: "example.com"
 domain_default_service: api  # the web service mapped to the bare <env>.<project>.<apex_domain>
 container_registry: "registry.example.com"  # required for fixed; optional for elastic (defaults to project ECR)
 repo_url: "https://github.com/owner_account/project_name"
-observability_backend_url: "hyperdx.example.com"
+observability_backend_url: "https://hyperdx.example.com"
 # Defines reverse proxy choice. Elastic foundations only.
 # reverse_proxy: alb # or ec2_traefik_eip or ec2_traefik_pip
 
@@ -37,7 +37,7 @@ core_services:
 		role: web
 		port: 8080
 		env:
-			BUCKET_NAME:  ${backing_services.bucket.name}
+			BUCKET_NAME:  ${backing_services.bucket.bucket_name}
 			DATABASE_HOST: ${backing_services.database.host}
 			DATABASE_PORT: ${backing_services.database.port}
 			DATABASE_NAME: ${backing_services.database.db}
@@ -97,7 +97,7 @@ The table below lists all standard fields for services.
 
 Note that core services do **not** declare an `image` field. Image references are derived deterministically by the compiler from the top-level [`container_registry`](#container-registry-and-service-images), the project name and version (from `project.yml`), and the service name. See [Container Registry](#container-registry-and-service-images) for the full format.
 
-The values for these fields can have "magic refs" like ${backing_services.object_store.name} which reference service [provided fields](#provided-fields) and are filled with the correct interpolated values when `infra.yml` is converted to docker-compose or OpenTofu config files.
+The values for these fields can have "magic refs" like ${backing_services.object_store.bucket_name} which reference service [provided fields](#provided-fields) and are filled with the correct interpolated values when `infra.yml` is converted to docker-compose or OpenTofu config files.
 
 Some services will have additional fields. These are role specific, and will be translated with the [transfer tables](#cicl-transfer-tables) during compilation.
 
@@ -224,7 +224,7 @@ resources:
 | `gpu.count` | `deploy.resources.reservations.devices` (NVIDIA) | **unsupported** — compile error |
 
 **Notes:**
-- Memory and disk accept `MB` and `GB` (decimal). Binary units (`MiB`/`GiB`) are not supported in v1 — units are an authoring convenience, not an exactness contract.
+- Memory and disk accept `MB` and `GB` (decimal). Units are an authoring convenience, not an exactness contract.
 - GPU support is v1-minimal: `count` only. Architecture or VRAM hints are deferred.
 - **Elastic + GPU is not supported.** The doctrine commits to Fargate for elastic, and Fargate does not run GPU workloads. Listed under [infrastructure.md § Deferred](./infrastructure.md#deferred).
 - The `disk` translation is asymmetric: on elastic, `ephemeral_storage` bounds the whole writable layer; on fixed, the compiler sizes a tmpfs at `/tmp` and the container's overlay layer remains unbounded (a limitation of the overlay2 storage driver). Apps that respect the [12-factor app](https://12factor.net/) ephemeral-storage principle write temp files to `/tmp` and are unaffected.

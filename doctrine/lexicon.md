@@ -38,5 +38,5 @@ This guide defines special words and phrases that have unique context for all ma
 | Stratum | "strata" (pl.) | A classification of doctrine *information* by when it is needed. There are three: the resident, conditional, and executor strata. See [overview](./doctrine.md#strata). |
 | Resident Stratum |  | The stratum of doctrine information needed to write any line of code; always resident in context, never gated behind a skill. |
 | Conditional Stratum |  | The stratum of doctrine information needed only for a specific activity (e.g. a release); broken into thread skills loaded when the agent undertakes that activity. |
-| Executor Stratum |  | The stratum of doctrine encoded as action-taking code (`docex` and its shim); consumed by skills, never wrapped in one. |
+| Executor Stratum |  | The stratum of doctrine encoded as action-taking code (`docex` and its shim); used by doctrine-following agents. |
 | Thread Skill |  | A skill which ties a set of conditional stratum documents together into a package based around and triggered by an action. Acts as a router and orienting info to "thread" doctrine files together. |

@@ -41,7 +41,7 @@ Doctrine content falls into three **strata**, distinguished by *when* the inform
 
 2. **Conditional Stratum** - Information needed only when performing a specific *activity*: cutting a release, debugging preinfra, designing telemetry, authoring a transfer table. This stratum is loaded into context with **skills**. Each skill is scoped to an activity and loaded when the agent undertakes it. Skills avoid replicating doctrine knowledge; rather they hold a set of links to relevant doctrine files. Conditional stratum info ranges from *general* (shorter, orienting, "what") to *specific* (longer, detailed, "how").
 
-3. **Executor Stratum** - Action encoded as code. `docex` and its shim are in the Executor stratum. The executor takes the literal actions the other strata describe; it is consumed *by* skills to do work and is never itself wrapped in a skill.
+3. **Executor Stratum** - Action encoded as code. `docex` and its shim are in the Executor stratum. The executor takes the literal actions the other strata describe; it is used *by* doctrine-following agents to do work. "Product" documentation describing how to *use* executor-stratum code could be considered resident or conditional; however the code itself is neither.
 
 ## Skills
 

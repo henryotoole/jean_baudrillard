@@ -238,7 +238,7 @@ The rollback feature is designed for emergency situations where a serious proble
 
 This "narrow window" rollback philosophy dodges many of the numerous problems associated with rollbacks. Rolling back rolls infrastructure definitions back, which could delete newly-added services with persistent memory. If it's only been a few minutes since release, little to no data will have time to accrue in a new database.
 
-Rollbacks are only intended to go back one minor version. They effect code and infrastructure definitions, but not database schemas. We can pull this trick because database migrations are supposed to be [backwards compatible](./specifics/migrations.md#backward-compatibility-requirement).
+Rollbacks are only intended to go back one minor version. They affect code and infrastructure definitions, but not database schemas. We can pull this trick because database migrations are supposed to be [backwards compatible](./specifics/migrations.md#backward-compatibility-requirement).
 
 #### Process
 

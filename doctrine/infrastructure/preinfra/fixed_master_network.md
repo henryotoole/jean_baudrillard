@@ -305,7 +305,7 @@ In practice this bridge gets stood up once per host and lives indefinitely.
 
 ### Adding Preinfra To Machine
 
-Some prerequisite infrastructure (like the HyperDX observability backend) must be added to a fixed-foundation host machine and be accessed over HTTP/HTTPS. It has to fit into our `web_demux` structure. The simplest way to do this is to treat preinfra as just another project. It gets setup on its own docker network with a `traefik` container that spans its network and `docex-ingress`. Naming conventions for the `traefik` instance match those of any other project, so `web_demux` routing *just works*.
+Some prerequisite infrastructure (like the HyperDX observability backend) must be added to a fixed-foundation host machine and be accessed over HTTP/HTTPS. It has to fit into our `web_demux` structure. The simplest way to do this is to treat preinfra as just another project. It gets set up on its own docker network with a `traefik` container that spans its network and `docex-ingress`. Naming conventions for the `traefik` instance match those of any other project, so `web_demux` routing *just works*.
 
 The only drawback of this plan is that preinfra names might collide with project names. In practice this is unlikely, as preinfra names tend to be very specific, like `hyperdx`.
 
