@@ -14,6 +14,25 @@ first post-`0.4.0` overhaul.
 
 ### Added
 
+- **Resource tagging standard** — every elastic resource docex emits now carries
+  one of three tag blocks (preinfra / projinfra / envinfra) per the operator's
+  `cicl.md § Naming and Tagging`: `managed_by`, `infra_tier`, `shape_name`,
+  `descriptor`, and a console-only `Name`, plus `project`/`env`/`service`/`role`
+  where the tier defines them. New single-source helper `src/docex/emit/tags.py`
+  (`standard_tags` + `render_hcl_tags`, also a Jinja global) feeds every emit site
+  (`emit/hcl.py`, `cicl/compile.py`, `templates/{project,main}.tf.j2`) and the
+  bootstrap state-backend API path (S3 bucket + DynamoDB table now tagged via
+  boto3). Env-scoped resources (ECS cluster, Service Connect namespace, network
+  SGs) keep all tag keys with `service=etc`/`role=etc` and a descriptor-based
+  `Name` fallback so Names stay unique. **Breaking:** the master-VPC
+  data-source/precondition lookup moved off `Name=docex-master-vpc` +
+  `managed_by=docex-preinfra` onto the semantic tags `managed_by=doctrine-operator`
+  + `infra_tier=prerequisite` + `shape_name=master_network` — existing master
+  networks must be re-tagged (see `elastic_master_network.md § Migration`). Drops
+  the ACM `env=` tag, the traefik SG `purpose=ec2_traefik` tag, the ECR `service=`
+  tag, and the network SG `network=` tag (now the descriptor); keeps the load-
+  bearing `purpose=ec2_traefik_acme` on the ACME EBS. Mod 060.
+
 - New bundled **`scheduler` role** — a core service that runs the project's image
   + `command` on a 5-field cron `schedule`, then exits (a cron job in the
   project's image). Fixed: a per-service `mcuadros/ofelia` container launches the

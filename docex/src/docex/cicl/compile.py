@@ -648,7 +648,11 @@ def compile_env(
                 if svc.port is not None and "web" not in svc.networks:
                     body.setdefault("ports", []).append(f"{svc.port}:{svc.port}")
         else:  # elastic
-            body = _apply_elastic_invariants(body, svc, ctx)
+            body = _apply_elastic_invariants(
+                body, svc, ctx,
+                is_core=isinstance(svc, CoreService),
+                elastic_dests=list((engine.emits or {}).get("elastic", [])),
+            )
             if isinstance(svc, CoreService):
                 body["image"] = _image_ref(
                     doc.container_registry, project_name, name, project_version,
@@ -838,19 +842,51 @@ def _apply_fixed_invariants(
     return out
 
 
+# Mod 060: which elastic emit destination drives the per-service body
+# tags' shape_name/descriptor. A backing service emits exactly one of
+# these (postgres→RDS, redis→cache, object_store→S3); a core service's
+# body tags carry the ECS-service descriptor. The body tags are consumed
+# by the destination renderers that pass `body` through `_hcl_block_body`
+# (RDS / ElastiCache / S3); other resources tag via the standard_tags
+# helper directly in the emitter.
+_BODY_TAG_DESCRIPTOR: dict[str, str] = {
+    "rds_instance": "RDS",
+    "elasticache_cluster": "cache",
+    "s3_bucket": "S3",
+    "ecs_service": "ecs-svc",
+}
+
+
 def _apply_elastic_invariants(
-    body: dict[str, Any], svc: Any, ctx: dict[str, Any]
+    body: dict[str, Any], svc: Any, ctx: dict[str, Any], *, is_core: bool,
+    elastic_dests: list[str],
 ) -> dict[str, Any]:
-    """Apply per-resource elastic invariants (tags + identifier)."""
+    """Apply per-resource elastic invariants (tags + identifier).
+
+    The ``tags`` dict is built via :func:`docex.emit.tags.standard_tags`
+    so it carries the full envinfra block (cicl.md § Naming and Tagging):
+    shape_name (``core_service``/``backing_service`` by ``is_core``) and a
+    per-resource descriptor picked from the engine's elastic destinations.
+    """
+    from docex.emit.tags import standard_tags
+
     out = dict(body)
     out["identifier"] = ctx["global_service_name"]
-    out["tags"] = {
-        "project": ctx["project_name"],
-        "env": ctx["env_name"],
-        "service": ctx["name"],
-        "role": ctx["role_name"],
-        "managed_by": "doctrine",
-    }
+    shape_name = "core_service" if is_core else "backing_service"
+    descriptor = next(
+        (_BODY_TAG_DESCRIPTOR[d] for d in elastic_dests
+         if d in _BODY_TAG_DESCRIPTOR),
+        "task-def",
+    )
+    out["tags"] = standard_tags(
+        "environment",
+        shape_name=shape_name,
+        descriptor=descriptor,
+        project=ctx["project_name"],
+        env=ctx["env_name"],
+        service=ctx["name"],
+        role=ctx["role_name"],
+    )
     return out
 
 

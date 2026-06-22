@@ -10,7 +10,7 @@ This is documentation for the implementer of `docex` and the curious developer; 
 
 ## Resource
 
-One hosted zone per project, covering `<project>.<apex_domain>` (e.g., `myproject.example.com`). Tags follow the doctrine-wide pattern from [transfer_tables.md § Per-resource (elastic)](../transfer_tables.md#per-resource-elastic).
+One hosted zone per project, covering `<project>.<apex_domain>` (e.g., `myproject.example.com`). Tags follow the **projinfra** block of the doctrine-wide standard in [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) (`shape_name=dns`, `descriptor=zone`); the projinfra block carries no `env`/`service`/`role` — those are envinfra-only.
 
 The zone is created by `./bin/docex projinfra up production`. Once it exists, it owns all of the project's DNS records:
 - The project ACM cert validation records (`_acme-challenge.*` CNAMEs) — populated when [`elastic_acm_certs.md`](./elastic_acm_certs.md) applies.

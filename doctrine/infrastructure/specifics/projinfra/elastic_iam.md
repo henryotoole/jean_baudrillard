@@ -17,6 +17,8 @@ This is documentation for the implementer of `docex` and the curious developer; 
 
 The role uses the `iam` naming policy (underscore-separated, case-preserving, max length 64) from [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies). For a project named `myproject`, the role is `myproject_task_execution`.
 
+Tags follow the **projinfra** block of the doctrine-wide standard in [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging). No shape applies, so `shape_name=etc` and `descriptor=exec-role`; the projinfra block carries no `env`/`service`/`role`.
+
 The role's trust policy allows the ECS tasks service (`ecs-tasks.amazonaws.com`) to assume it. No other principals — no operator users, no cross-account access, no inline `aws sts assume-role` paths.
 
 ## What ECS Uses the Role For

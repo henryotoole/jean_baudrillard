@@ -446,11 +446,14 @@ def test_preinfra_elastic_prod_with_none_aws_reports_bug(
 
 
 def test_master_vpc_tag_scheme_matches_doctrine():
-    """Mod 041's project.tf.j2 data sources filter on these exact tags.
-    Drift here would break the elastic prod data-source lookup."""
+    """Mod 060: project.tf.j2's `data "aws_vpc" "master"` filters on these
+    exact semantic tags (cicl.md § Naming and Tagging preinfra block) — NOT
+    the redundant `Name`. Drift here would break the elastic prod
+    data-source lookup."""
     assert _MASTER_VPC_TAGS == {
-        "Name": "docex-master-vpc",
-        "managed_by": "docex-preinfra",
+        "managed_by": "doctrine-operator",
+        "infra_tier": "prerequisite",
+        "shape_name": "master_network",
     }
     assert _PRIMARY_AZ == "us-east-1a"
     assert _DOCEX_INGRESS_NETWORK == "docex-ingress"

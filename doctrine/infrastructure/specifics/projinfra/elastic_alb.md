@@ -31,6 +31,8 @@ A complete ALB projinfra set consists of:
 
 The ALB SG (`aws_security_group.project_alb`) is referenced by env-tier `${project}-${env}-web` SGs as their ingress source — that's how env-tier services accept ALB-originated traffic and only ALB-originated traffic.
 
+Tags follow the **projinfra** block of the doctrine-wide standard in [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging): both resources carry `shape_name=reverse_proxy` (`descriptor=ALB` for the load balancer, `ALB-SG` for the security group). The projinfra block carries no `env`/`service`/`role`.
+
 ## Naming
 
 The ALB and its SG follow the doctrine's general naming pattern from [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies):

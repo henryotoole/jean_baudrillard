@@ -276,10 +276,14 @@ def test_project_main_tf_uses_master_vpc_data_sources(compiled_elastic_project: 
     The per-project VPC stack (VPC, IGW, public/private subnets, NAT, EIPs,
     route tables) is deleted entirely."""
     tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
-    # Data sources present with the doctrine-prescribed tags.
+    # Mod 060: data source filters on the semantic preinfra identity tags
+    # (cicl.md § Naming and Tagging), NOT the redundant console-only Name.
     assert 'data "aws_vpc" "master"' in tf
-    assert 'Name       = "docex-master-vpc"' in tf
-    assert 'managed_by = "docex-preinfra"' in tf
+    assert 'managed_by = "doctrine-operator"' in tf
+    assert 'infra_tier = "prerequisite"' in tf
+    assert 'shape_name = "master_network"' in tf
+    assert "docex-master-vpc" not in tf
+    assert "docex-preinfra" not in tf
     assert 'data "aws_subnets" "public"' in tf
     assert 'data "aws_subnets" "private"' in tf
     assert 'data "aws_subnet" "primary_private"' in tf
@@ -378,6 +382,134 @@ def test_project_main_tf_emits_outputs(compiled_elastic_project: Path):
     assert "value = data.aws_subnets.public.ids" in tf
     assert "value = data.aws_subnets.private.ids" in tf
     assert "value = data.aws_subnet.primary_private.id" in tf
+
+
+# ---------------------------------------------------------------------------
+# Mod 060 — three-block tagging standard (cicl.md § Naming and Tagging).
+# ---------------------------------------------------------------------------
+
+
+def _block(tf: str, header: str) -> str:
+    """Return the text of the resource block starting at ``header`` up to
+    the next top-level `resource`/`data`/`output` declaration."""
+    start = tf.find(header)
+    assert start != -1, f"missing {header!r}"
+    nxt = min(
+        (p for p in (
+            tf.find("\nresource ", start + 1),
+            tf.find("\ndata ", start + 1),
+            tf.find("\noutput ", start + 1),
+        ) if p != -1),
+        default=len(tf),
+    )
+    return tf[start:nxt]
+
+
+def test_projinfra_tags_route53_zone(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_route53_zone" "project"')
+    assert 'infra_tier = "project"' in blk
+    assert 'shape_name = "dns"' in blk
+    assert 'descriptor = "zone"' in blk
+    assert 'managed_by = "doctrine"' in blk
+    # Projinfra carries no env / service / role.
+    assert "env " not in blk
+    assert "service " not in blk
+    assert "role " not in blk
+
+
+def test_projinfra_tags_acm_certs_no_env(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    stage = _block(tf, 'resource "aws_acm_certificate" "stage"')
+    prod = _block(tf, 'resource "aws_acm_certificate" "prod"')
+    assert 'shape_name = "cert_manager"' in stage
+    assert 'descriptor = "stage-cert"' in stage
+    assert 'descriptor = "prod-cert"' in prod
+    # Mod 060 dropped the old `env = "stage"|"prod"` projinfra tag.
+    assert 'env        = "stage"' not in stage
+    assert 'env        = "prod"' not in prod
+    assert 'env = "stage"' not in stage
+    assert 'env = "prod"' not in prod
+
+
+def test_projinfra_tags_ecr_descriptor_is_service_name(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_ecr_repository" "api"')
+    assert 'shape_name = "container_registry"' in blk
+    assert 'descriptor = "api"' in blk
+    # The old `service = "api"` projinfra tag is gone (rides in descriptor).
+    assert 'service    = "api"' not in blk
+    assert 'service = "api"' not in blk
+
+
+def test_projinfra_tags_task_exec_role(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_iam_role" "task_execution"')
+    assert 'shape_name = "etc"' in blk
+    assert 'descriptor = "exec-role"' in blk
+
+
+def test_envinfra_tags_ecs_cluster_env_scoped(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_ecs_cluster" "cluster"')
+    assert 'infra_tier = "environment"' in blk
+    assert 'shape_name = "etc"' in blk
+    assert 'descriptor = "ecs-cluster"' in blk
+    assert 'service = "etc"' in blk
+    assert 'role = "etc"' in blk
+    # Decision 2: env-scoped Name falls back to the descriptor.
+    assert 'Name = "sample_prod_ecs-cluster"' in blk
+
+
+def test_envinfra_tags_network_sg_descriptor_carries_short(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_security_group" "web"')
+    assert 'shape_name = "network"' in blk
+    assert 'descriptor = "web"' in blk
+    assert 'service = "etc"' in blk
+    # Mod 060 replaced the bespoke `network = "web"` tag with descriptor.
+    assert 'network    = "web"' not in blk
+    assert 'network = "web"' not in blk
+
+
+def test_envinfra_tags_service_connect_namespace(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_service_discovery_private_dns_namespace" "env"')
+    assert 'shape_name = "service_discovery"' in blk
+    assert 'descriptor = "namespace"' in blk
+    assert 'service = "etc"' in blk
+
+
+def test_envinfra_tags_rds_backing_service(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_db_instance" "appdb"')
+    assert 'infra_tier = "environment"' in blk
+    assert 'shape_name = "backing_service"' in blk
+    assert 'descriptor = "RDS"' in blk
+    assert 'service = "appdb"' in blk
+    # Per-service Name uses the service segment.
+    assert 'Name = "sample_prod_appdb"' in blk
+
+
+def test_envinfra_tags_ecs_service_core(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_ecs_service" "api"')
+    assert 'infra_tier = "environment"' in blk
+    assert 'shape_name = "core_service"' in blk
+    assert 'descriptor = "ecs-svc"' in blk
+    assert 'service = "api"' in blk
+
+
+def test_envinfra_tags_log_group_and_task_def(compiled_elastic_project: Path):
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    lg = _block(tf, 'resource "aws_cloudwatch_log_group" "api"')
+    assert 'shape_name = "core_service"' in lg
+    assert 'descriptor = "logs"' in lg
+    td = _block(tf, 'resource "aws_ecs_task_definition" "api"')
+    assert 'shape_name = "core_service"' in td
+    assert 'descriptor = "task-def"' in td
+    mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
+    assert 'descriptor = "migrate-task-def"' in mig
 
 
 def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):

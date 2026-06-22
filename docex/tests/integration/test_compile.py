@@ -783,9 +783,12 @@ def test_env_tier_sg_name_uses_hyphen_form(tmp_path: Path):
         # Both env-tier SGs (web, internal) carry the hyphenated name.
         assert f'name        = "docex-smoke-elastic-{env}-web"' in tf
         assert f'name        = "docex-smoke-elastic-{env}-internal"' in tf
-        # Old literal-underscore form must not leak through.
-        assert f'"docex_smoke_elastic_{env}_web"' not in tf
-        assert f'"docex_smoke_elastic_{env}_internal"' not in tf
+        # Old literal-underscore form must not leak through the resource
+        # `name` attribute. (Mod 060: the SG's console-ergonomic `Name`
+        # *tag* does use the project's underscore form per cicl.md's
+        # standard — that's a different field and is expected.)
+        assert f'name        = "docex_smoke_elastic_{env}_web"' not in tf
+        assert f'name        = "docex_smoke_elastic_{env}_internal"' not in tf
 
 
 def test_bootstrap_state_backend_matches_project_tier(tmp_path: Path):
@@ -1276,8 +1279,12 @@ def test_mod044_traefik_ebs_volume_tagged_for_attach_discovery(tmp_path: Path):
     if vol_end == -1:
         vol_end = tf.find('resource "aws_eip"', vol_start)
     vol_block = tf[vol_start:vol_end]
-    assert 'purpose    = "ec2_traefik_acme"' in vol_block
-    assert 'project    = "sample"' in vol_block
+    # Mod 060: standard projinfra block PLUS the load-bearing `purpose` tag
+    # (the IAM AttachVolume grant is conditioned on purpose + project).
+    assert 'purpose = "ec2_traefik_acme"' in vol_block
+    assert 'project = "sample"' in vol_block
+    assert 'shape_name = "reverse_proxy"' in vol_block
+    assert 'descriptor = "acme-ebs"' in vol_block
 
 
 def test_mod044_traefik_user_data_renders_project_name(tmp_path: Path):

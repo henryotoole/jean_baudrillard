@@ -734,13 +734,19 @@ Every Tofu resource emitted for a service receives:
 ```hcl
 identifier = "${global_service_name}"
 tags = {
+	managed_by = "doctrine"
+	infra_tier = "environment"
+	shape_name = "${shape_name}"   # core_service | backing_service
+	descriptor = "${descriptor}"   # e.g. RDS, S3, ecs-svc, task-def
 	project    = "${project_name}"
 	env        = "${env_name}"
 	service    = "${name}"
 	role       = "${role_name}"
-	managed_by = "doctrine"
+	Name       = "${project_name}_${env_name}_${name}"
 }
 ```
+
+This is the **envinfra** tag block. It is one of three tag blocks (preinfra, projinfra, envinfra) that together form the doctrine-wide tagging standard — see [`cicl.md § Naming and Tagging`](../cicl.md#naming-and-tagging) for the full standard and the pre-/projinfra blocks. `shape_name` is `core_service` or `backing_service` per the service's tier; `descriptor` differentiates the per-service resources (RDS/S3/ecs-svc/task-def/logs/EFS/…).
 
 (The `identifier` field shown above is doctrinal shorthand — different AWS resource types use different names for the field that holds the resource's primary name, e.g. RDS uses `identifier`, ECS uses `name`, S3 uses `bucket`. The compiler maps `${global_service_name}` to the appropriate field per resource type.)
 

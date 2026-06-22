@@ -38,6 +38,7 @@ from docex import ELASTIC_REGION, OTEL_COLLECTOR_IMAGE
 from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
+from docex.emit.tags import render_hcl_tags, standard_tags
 from docex.naming import NamingPolicies, NamingPolicy, apply_policy
 
 
@@ -402,8 +403,10 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
             ),
         }
 
-    project_tag = svc.body.get("tags", {}).get("project", "")
-    env_tag = svc.body.get("tags", {}).get("env", "")
+    # Mod 060: shape_name distinguishes the per-service tier; the task
+    # definition's own resources (log group, task-def, _migrate) carry
+    # core_service/backing_service per `svc.is_core`.
+    td_shape = "core_service" if svc.is_core else "backing_service"
 
     out: list[str] = []
     # Mod 052 (Gap E): one CloudWatch log group per (env, service). The
@@ -416,11 +419,10 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(f'resource "aws_cloudwatch_log_group" "{svc.name}" {{')
     out.append(f'  name              = "/{ctx.project}/{ctx.env}/{svc.name}"')
     out.append( '  retention_in_days = 30')
-    out.append(
-        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
-        f'service = "{svc.name}", role = "{svc.role}", '
-        f'managed_by = "doctrine" }}'
-    )
+    out.append(render_hcl_tags(standard_tags(
+        "environment", shape_name=td_shape, descriptor="logs",
+        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+    )))
     out.append("}")
     out.append("")
     out.append(f'resource "aws_ecs_task_definition" "{svc.name}" {{')
@@ -452,11 +454,10 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     if sidecar_def is not None:
         out.append(f"    {_hcl_value(sidecar_def, indent=4)},")
     out.append("  ])")
-    out.append(
-        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
-        f'service = "{svc.name}", role = "{svc.role}", '
-        f'managed_by = "doctrine" }}'
-    )
+    out.append(render_hcl_tags(standard_tags(
+        "environment", shape_name=td_shape, descriptor="task-def",
+        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+    )))
     out.append("}")
 
     # Migration task definition: same image as main, but command runs
@@ -495,11 +496,11 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append("  container_definitions = jsonencode([")
         out.append(f"    {_hcl_value(mig_container, indent=4)},")
         out.append("  ])")
-        out.append(
-            f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
-            f'service = "{svc.name}", role = "migrate", '
-            f'managed_by = "doctrine" }}'
-        )
+        out.append(render_hcl_tags(standard_tags(
+            "environment", shape_name="core_service",
+            descriptor="migrate-task-def",
+            project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+        )))
         out.append("}")
 
     return "\n".join(out)
@@ -558,6 +559,10 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append(f'    container_name   = "{svc.name}"')
         out.append(f'    container_port   = {svc.port or 80}')
         out.append("  }")
+    # Mod 060: the ECS service's envinfra tags ride on `svc.body["tags"]`,
+    # populated at compile time with shape_name=core_service / descriptor
+    # ecs-svc (see compile._apply_elastic_invariants).
+    out.append(render_hcl_tags(svc.body.get("tags", {})))
     out.append("}")
     return "\n".join(out)
 
@@ -728,20 +733,16 @@ def render_efs_file_system(svc: CompiledService, ctx: _RenderCtx) -> str:
     sg_nets = [n for n in sorted(svc.networks) if n != "web"]
     sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in sg_nets)
 
-    project_tag = svc.body.get("tags", {}).get("project", "")
-    env_tag = svc.body.get("tags", {}).get("env", "")
-
     out: list[str] = []
     out.append(f'resource "aws_efs_file_system" "{svc.name}" {{')
     out.append(f'  creation_token   = "{svc.global_name}"')
     out.append( '  encrypted        = true')
     out.append( '  performance_mode = "generalPurpose"')
     out.append( '  throughput_mode  = "bursting"')
-    out.append(
-        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
-        f'service = "{svc.name}", role = "{svc.role}", '
-        f'managed_by = "doctrine" }}'
-    )
+    out.append(render_hcl_tags(standard_tags(
+        "environment", shape_name="backing_service", descriptor="EFS",
+        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+    )))
     out.append("}")
 
     # AWS Backup default plan — project-opt-in via the `backups` field.
@@ -796,9 +797,6 @@ def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
     nets = sorted(n for n in svc.networks if n != "web")
     sg_refs = ", ".join(f"aws_security_group.{n}.id" for n in nets)
 
-    project_tag = svc.body.get("tags", {}).get("project", "")
-    env_tag = svc.body.get("tags", {}).get("env", "")
-
     out: list[str] = []
     # Invocation role: trusted by EventBridge Scheduler, granting RunTask
     # on this service's task-def family and PassRole on the project task-
@@ -813,11 +811,10 @@ def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append('      Action    = "sts:AssumeRole"')
     out.append("    }]")
     out.append("  })")
-    out.append(
-        f'  tags = {{ project = "{project_tag}", env = "{env_tag}", '
-        f'service = "{svc.name}", role = "{svc.role}", '
-        f'managed_by = "doctrine" }}'
-    )
+    out.append(render_hcl_tags(standard_tags(
+        "environment", shape_name="core_service", descriptor="scheduler-role",
+        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+    )))
     out.append("}")
     out.append("")
     out.append(f'resource "aws_iam_role_policy" "{svc.name}_scheduler" {{')
@@ -994,6 +991,9 @@ def emit_hcl_project(
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
+    # Mod 060: templates call standard_tags() instead of hand-writing the
+    # three doctrine tag blocks (cicl.md § Naming and Tagging).
+    env.globals["standard_tags"] = standard_tags
     tpl = env.get_template("project.tf.j2")
     svc_entries = [
         {"name": name, "hcl_id": _hcl_id(name)}
@@ -1086,6 +1086,9 @@ def emit_hcl(
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
+    # Mod 060: templates call standard_tags() instead of hand-writing the
+    # three doctrine tag blocks (cicl.md § Naming and Tagging).
+    env.globals["standard_tags"] = standard_tags
     tpl = env.get_template("main.tf.j2")
 
     # Order: backing services first, then core services. Alphabetical

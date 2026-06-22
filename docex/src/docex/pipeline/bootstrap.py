@@ -36,6 +36,7 @@ from pathlib import Path
 from docex import ELASTIC_REGION
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
+from docex.emit.tags import standard_tags
 from docex.errors import BootstrapFailed
 from docex.naming import apply_policy, dns_label
 from docex.opentofu.subprocess_runner import (
@@ -70,10 +71,21 @@ def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
     bucket = apply_policy(f"{project}_tofu_state", policies.get("s3"))
     table = apply_policy(f"{project}_tofu_locks", policies.get("ddb"))
 
+    # Mod 060: the state backend is created directly via boto3 (tofu can't
+    # manage it before it exists), so the projinfra tag block is applied
+    # through the API rather than HCL. shape_name=etc (no shape applies);
+    # descriptors differentiate the bucket from the lock table.
+    bucket_tags = standard_tags(
+        "project", shape_name="etc", descriptor="tofu-state", project=project
+    )
+    table_tags = standard_tags(
+        "project", shape_name="etc", descriptor="tofu-locks", project=project
+    )
+
     try:
         # ----- Step 1: state backend (boto3) ----------------------------
         if not aws.s3_bucket_exists(bucket):
-            aws.s3_create_bucket(bucket, region=ELASTIC_REGION)
+            aws.s3_create_bucket(bucket, region=ELASTIC_REGION, tags=bucket_tags)
             print(f"bootstrap: created S3 bucket {bucket}")
         else:
             print(f"bootstrap: S3 bucket {bucket} already exists")
@@ -85,7 +97,7 @@ def run_bootstrap(ctx: ProjectContext, aws: AWSClient) -> int:
         aws.s3_block_public_access(bucket)
 
         if not aws.ddb_table_exists(table):
-            aws.ddb_create_locking_table(table)
+            aws.ddb_create_locking_table(table, tags=table_tags)
             print(f"bootstrap: created DynamoDB table {table}")
         else:
             print(f"bootstrap: DynamoDB table {table} already exists")

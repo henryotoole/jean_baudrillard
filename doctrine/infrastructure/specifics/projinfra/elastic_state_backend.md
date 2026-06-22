@@ -41,6 +41,10 @@ Each env's `main.tf` declares its own backend key; the project-tier `main.tf` us
 
 OpenTofu's S3 backend writes a lock record to this table when `tofu apply` starts and removes it when finished. Concurrent applies see the lock and either wait or fail loudly, preventing two operators from corrupting state simultaneously.
 
+### Tags
+
+Both the bucket and the table carry the **projinfra** tag block from [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging). Because the backend is created directly through the AWS API (not `tofu apply` — tofu can't manage the thing it stores its own state in), `docex` applies the tags via the create/`put_bucket_tagging` API path rather than HCL. No shape applies, so `shape_name=etc`; the `descriptor` differentiates the two (`tofu-state` for the bucket, `tofu-locks` for the table). The projinfra block carries no `env`/`service`/`role`.
+
 ## How `projinfra` Provisions It
 
 `./bin/docex projinfra up production` checks for the backend's existence as its first step:

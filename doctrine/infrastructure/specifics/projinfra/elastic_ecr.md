@@ -33,6 +33,8 @@ Per-repository defaults emitted by `docex`:
 | `encryption_configuration.encryption_type` | `AES256` | Default; explicit for clarity in diffs. |
 | `force_delete` | `false` | Repositories with images can't be destroyed casually — `./bin/docex projinfra down production` will fail loudly rather than silently nuking image history. |
 
+Tags follow the **projinfra** block of the doctrine-wide standard in [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) with `shape_name=container_registry`. The repo is per-service, but the projinfra block has no `service` tag — the service name rides in `descriptor` (`descriptor=${service_name}`) and the derived `Name` (`${project}_container_registry_${service}`).
+
 The doctrine does **not** emit lifecycle policies by default — no auto-deletion of old image versions. Image storage is cheap; preserving history makes rollback to old versions trivial. Projects that need cleanup can add a policy via project-local extension.
 
 ## Image Naming

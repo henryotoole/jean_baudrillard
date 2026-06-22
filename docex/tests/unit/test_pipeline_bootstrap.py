@@ -108,6 +108,31 @@ def test_bootstrap_creates_bucket_and_table_when_absent(
     assert names.index("s3_create_bucket") < names.index("s3_enable_versioning")
 
 
+def test_bootstrap_state_backend_carries_projinfra_tags(
+    elastic_ctx_compiled, fake_aws, stub_tofu
+):
+    """Mod 060: the boto3-created state backend is tagged through the API
+    with the projinfra `etc` block (descriptors tofu-state / tofu-locks),
+    since tofu can't manage it before it exists."""
+    fake_aws.bucket_exists = False
+    fake_aws.table_exists = False
+    rc = run_bootstrap(elastic_ctx_compiled, fake_aws)
+    assert rc == 0
+    project = elastic_ctx_compiled.project.name
+    bucket_call = next(c for c in fake_aws.calls if c[0] == "s3_create_bucket")
+    table_call = next(
+        c for c in fake_aws.calls if c[0] == "ddb_create_locking_table"
+    )
+    bucket_tags = bucket_call[2]["tags"]
+    table_tags = table_call[2]["tags"]
+    assert bucket_tags["infra_tier"] == "project"
+    assert bucket_tags["shape_name"] == "etc"
+    assert bucket_tags["descriptor"] == "tofu-state"
+    assert bucket_tags["project"] == project
+    assert table_tags["descriptor"] == "tofu-locks"
+    assert table_tags["shape_name"] == "etc"
+
+
 def test_bootstrap_is_idempotent_when_resources_exist(
     elastic_ctx_compiled, fake_aws, stub_tofu
 ):

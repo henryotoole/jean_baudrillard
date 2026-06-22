@@ -68,7 +68,9 @@ class AWSClient(Protocol):
         owned by the caller. Used for idempotent bootstrap."""
         ...
 
-    def s3_create_bucket(self, name: str, *, region: str) -> None:
+    def s3_create_bucket(
+        self, name: str, *, region: str, tags: dict[str, str] | None = None
+    ) -> None:
         """Create a new S3 bucket in the given region.
 
         The doctrine pins ``us-east-1``; the ``region`` argument is
@@ -76,6 +78,9 @@ class AWSClient(Protocol):
         the implementation requires. In ``us-east-1`` the CreateBucket
         call must omit the LocationConstraint (a long-standing AWS
         quirk); the implementation handles this.
+
+        ``tags`` (Mod 060) carries the projinfra tag block for the tofu
+        state bucket; applied via ``put_bucket_tagging`` after create.
         """
         ...
 
@@ -99,9 +104,15 @@ class AWSClient(Protocol):
         """Return True iff a DynamoDB table with this name exists."""
         ...
 
-    def ddb_create_locking_table(self, name: str) -> None:
+    def ddb_create_locking_table(
+        self, name: str, *, tags: dict[str, str] | None = None
+    ) -> None:
         """Create the OpenTofu state-locking table (LockID/string PK,
-        on-demand billing). Per elastic_bootstrap.md."""
+        on-demand billing). Per elastic_bootstrap.md.
+
+        ``tags`` (Mod 060) carries the projinfra tag block for the tofu
+        lock table; passed as ``Tags=[…]`` on ``create_table``.
+        """
         ...
 
     def ddb_delete_table(self, name: str) -> None:

@@ -136,7 +136,9 @@ class Boto3AWSClient:
                 return False
             raise
 
-    def s3_create_bucket(self, name: str, *, region: str) -> None:
+    def s3_create_bucket(
+        self, name: str, *, region: str, tags: dict[str, str] | None = None
+    ) -> None:
         s3 = self._client("s3")
         # us-east-1 quirk: CreateBucket rejects LocationConstraint for
         # us-east-1 specifically. Every other region requires it.
@@ -146,6 +148,15 @@ class Boto3AWSClient:
             s3.create_bucket(
                 Bucket=name,
                 CreateBucketConfiguration={"LocationConstraint": region},
+            )
+        # Mod 060: S3 has no create-time tagging — apply the projinfra tag
+        # block in a separate idempotent put_bucket_tagging call.
+        if tags:
+            s3.put_bucket_tagging(
+                Bucket=name,
+                Tagging={"TagSet": [
+                    {"Key": k, "Value": v} for k, v in tags.items()
+                ]},
             )
 
     def s3_enable_versioning(self, name: str) -> None:
@@ -219,13 +230,20 @@ class Boto3AWSClient:
                 return False
             raise
 
-    def ddb_create_locking_table(self, name: str) -> None:
+    def ddb_create_locking_table(
+        self, name: str, *, tags: dict[str, str] | None = None
+    ) -> None:
         ddb = self._client("dynamodb")
+        # Mod 060: DynamoDB supports create-time tagging.
+        kwargs: dict = {}
+        if tags:
+            kwargs["Tags"] = [{"Key": k, "Value": v} for k, v in tags.items()]
         ddb.create_table(
             TableName=name,
             AttributeDefinitions=[{"AttributeName": "LockID", "AttributeType": "S"}],
             KeySchema=[{"AttributeName": "LockID", "KeyType": "HASH"}],
             BillingMode="PAY_PER_REQUEST",
+            **kwargs,
         )
         # Block until the table is ACTIVE so subsequent operations
         # (or, more commonly, a re-run of bootstrap) don't race.

@@ -54,11 +54,16 @@ from docex.docker.client import DockerClient
 from docex.naming import dns_label
 from docex.ssh.client import SSHClient
 
-# Doctrine-prescribed master VPC tags. Must match the data-source
-# lookups in mod 041's project.tf.j2.
+# Doctrine-prescribed master VPC tags (Mod 060). Must match the
+# `data "aws_vpc" "master"` filter in project.tf.j2. The lookup is on the
+# semantic preinfra identity tags (cicl.md § Naming and Tagging), NOT the
+# redundant console-only `Name`. The master network is operator-managed
+# preinfra, so `managed_by=doctrine-operator`. Subnet lookups still match
+# the resource-local `tier=public|private` tags (unchanged).
 _MASTER_VPC_TAGS: dict[str, str] = {
-    "Name": "docex-master-vpc",
-    "managed_by": "docex-preinfra",
+    "managed_by": "doctrine-operator",
+    "infra_tier": "prerequisite",
+    "shape_name": "master_network",
 }
 _DOCEX_INGRESS_NETWORK = "docex-ingress"
 _PRIMARY_AZ = "us-east-1a"

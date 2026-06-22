@@ -541,8 +541,10 @@ class FakeAWSClient:
         self._record("s3_bucket_exists", name)
         return self.bucket_exists
 
-    def s3_create_bucket(self, name: str, *, region: str) -> None:
-        self._record("s3_create_bucket", name, region=region)
+    def s3_create_bucket(
+        self, name: str, *, region: str, tags: dict[str, str] | None = None
+    ) -> None:
+        self._record("s3_create_bucket", name, region=region, tags=tags)
         # After create, subsequent existence checks should see it.
         self.bucket_exists = True
 
@@ -565,8 +567,10 @@ class FakeAWSClient:
         self._record("ddb_table_exists", name)
         return self.table_exists
 
-    def ddb_create_locking_table(self, name: str) -> None:
-        self._record("ddb_create_locking_table", name)
+    def ddb_create_locking_table(
+        self, name: str, *, tags: dict[str, str] | None = None
+    ) -> None:
+        self._record("ddb_create_locking_table", name, tags=tags)
         self.table_exists = True
 
     def ddb_delete_table(self, name: str) -> None:

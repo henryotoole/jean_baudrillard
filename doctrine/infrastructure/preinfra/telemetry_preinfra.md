@@ -295,7 +295,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
 
 The following describes how to setup HyperDX for elastic-foundation projects.
 
-1. **Double check that there's not already an EC2 instance setup that does this.** The easiest way is to check for infrastructure components with the tag `prerequisite-infrastructure-telemetry`. If a HyperDX instance has already been setup, don't create a redundant duplicate! Alert the operator and await instruction.
+1. **Double check that there's not already an EC2 instance setup that does this.** The easiest way is to look for an instance carrying the observability-backend preinfra tags — `shape_name=observability_backend` and `managed_by=doctrine-operator`. If a HyperDX instance has already been setup, don't create a redundant duplicate! Alert the operator and await instruction.
 
 2. **Requisition the server.** An EC2 instance (4GB RAM or more: `t3a.medium`) is needed with the current stable release of Ubuntu Server and an elastic IP assigned to it. The instance should be setup to be accessed via SSH so that developers have terminal access. Docker and Docker Compose shall be installed on it.
 
@@ -303,7 +303,7 @@ The following describes how to setup HyperDX for elastic-foundation projects.
 
    Total costs will be about $35/mo (at time of writing).
 
-   The instance and EBS volume should both be tagged with `prerequisite-infrastructure-telemetry`.
+   The instance and EBS volume both carry the **preinfra** tag block from [`cicl.md § Naming and Tagging`](../cicl.md#naming-and-tagging) with `shape_name=observability_backend`: `managed_by=doctrine-operator`, `infra_tier=prerequisite`, `shape_name=observability_backend`, `descriptor=EC2` (instance) / `descriptor=EBS` (volume), and `Name=observability_backend_EC2` / `Name=observability_backend_EBS`. The `shape_name`+`managed_by` pair is what the duplicate-instance guard above looks for.
 
    The instance's security group must allow inbound traffic on:
    - `22` from the operator's IP (or a sane CIDR) for SSH

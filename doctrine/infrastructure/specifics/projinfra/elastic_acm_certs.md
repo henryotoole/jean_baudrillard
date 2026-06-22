@@ -34,6 +34,8 @@ ACM issues the two wildcard certs from [cicl.md § Elastic TLS](../../cicl.md#el
 
 Dev/test certs aren't emitted by ACM because those envs are always fixed-style per [shape.md § Shape and Environment](../../shape.md#shape-and-environment) — they never reach the AWS ALB. The traefik that handles them issues per-host HTTP-01 certs per [Fixed TLS](../../cicl.md#fixed-tls); there is no single wildcard "development cert".
 
+Both certs carry the **projinfra** tag block from [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) with `shape_name=cert_manager`. The stage/prod distinction lives in the `descriptor` (`stage-cert` / `prod-cert`), **not** in an `env` tag — the projinfra block has no `env`/`service`/`role` (a cert is project-tier, shared independent of env).
+
 ## DNS-01 Validation
 
 The certs use DNS-01 validation against the project's Route53 zone (see [`elastic_route53_zone.md`](./elastic_route53_zone.md)). DNS-01 is mandatory because the certs include wildcards (`*.stage.<project>...`, `*.prod.<project>...`), which ACM only issues via DNS-01 — HTTP-01 doesn't support wildcards.
