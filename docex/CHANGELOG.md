@@ -930,7 +930,7 @@ existing `provides:` model.
   elastic. Closes the structural gap where consumer-of-container-
   backing magic refs (`SIDECAR_HOST: ${backing_services.sidecar.host}`)
   evaluated to a name that didn't resolve to anything. Doctrine:
-  `shape2.md` § Elastic-Foundation table. Mod 014.
+  `shape.md` § Elastic-Foundation table. Mod 014.
 
 ### Changed
 
@@ -1355,7 +1355,7 @@ apply time.
 
 - **`docex` creates the project's Route53 hosted zone.** Previously
   ambiguous in the doctrine; now explicit per
-  [`shape2.md`](../doctrine/infrastructure/shape2.md) and
+  [`shape.md`](../doctrine/infrastructure/shape.md) and
   [`elastic_bootstrap.md`](../doctrine/infrastructure/specifics/elastic_bootstrap.md):
   the zone is project-tier, `docex` provisions it, and the operator
   performs the NS delegation between the two bootstrap phases.
@@ -1404,7 +1404,7 @@ ports, and core-service `secrets:`.
   and composes its own connection handle at startup. The same `infra.yml` now
   resolves to an identical container env surface on fixed and elastic,
   restoring fixed↔elastic portability. Doctrine: `transfer_tables.md`,
-  `cicl.md` (new "Provided Fields" section), `shape2.md`, `release_mechanism.md`.
+  `cicl.md` (new "Provided Fields" section), `shape.md`, `release_mechanism.md`.
 - Elastic ECS `secrets[]` entries are now named after the **consumer's** env
   key (e.g. `DATABASE_USER`), with `valueFrom` pointing at the underlying
   secret's SSM path (e.g. `/<project>/<env>/POSTGRES_USER`). Previously elastic
@@ -1462,7 +1462,7 @@ ports, and core-service `secrets:`.
   at the bare `<env>.<domain>` (so `www.<domain>` → the frontend). New
   validation: `domain_default_service` must name a web service, and every
   web-network service must declare a `port`. Doctrine: `cicl.md` § Domain,
-  `networks.md`, `shape2.md`.
+  `networks.md`, `shape.md`.
 - **Core-service `secrets:` block.** A core service can declare bespoke,
   operator-supplied secrets (`KEY: "description"`) — API keys, tokens — that
   have no in-project source. They surface in `example.env` (grouped under the

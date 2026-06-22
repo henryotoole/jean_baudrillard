@@ -4,7 +4,7 @@ Sixth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overha
 
 ## The Doctrine Change
 
-From [`cicl.md § Compiler Output`](../../../../doctrine/infrastructure/cicl.md#compiler-output) and [`projinfra/overview.md`](../../../../doctrine/infrastructure/specifics/projinfra/overview.md):
+From [`cicl.md § Compiler Output`](../../../../doctrine/infrastructure/cicl.md#compiler-output) and [`projinfra/projinfra.md`](../../../../doctrine/infrastructure/specifics/projinfra/projinfra.md):
 
 **New project-tier output layout** — split by side:
 
@@ -22,7 +22,7 @@ infra/output/project/
 
 **Both sides emit on every project** regardless of foundation. An elastic project still emits `infra/output/project/development/docker-compose.yml` for the operator's dev machine; only the `production/` artifact differs (HCL instead of compose).
 
-**All four `-web` networks emit on every side** regardless of which envs that side hosts (per [`projinfra/overview.md § Why all four -web networks live on every side`](../../../../doctrine/infrastructure/specifics/projinfra/overview.md#why-all-four--web-networks-live-on-every-side)):
+**All four `-web` networks emit on every side** regardless of which envs that side hosts (per [`projinfra/projinfra.md § Why all four -web networks live on every side`](../../../../doctrine/infrastructure/specifics/projinfra/projinfra.md#why-all-four--web-networks-live-on-every-side)):
 
 ```yaml
 networks:
@@ -57,7 +57,7 @@ becomes:
 ```python
 # Project-tier development side: always emit a compose file with the
 # four -web external networks. Compose-only because dev side is always
-# fixed-style per shape2.md. Mod 035 emits the networks; mod 036 adds
+# fixed-style per shape.md. Mod 035 emits the networks; mod 036 adds
 # the project traefik.
 dev_project_dir = output_root / "project" / "development"
 dev_project_dir.mkdir(parents=True, exist_ok=True)

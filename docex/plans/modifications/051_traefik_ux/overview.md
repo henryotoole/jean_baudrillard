@@ -14,7 +14,7 @@ No per-mod cut, no version bump — changes accumulate under `CHANGELOG.md`'s `[
 
 **Decision — switch fixed to HTTP-01, per-host certs.** This *eliminates* the credential requirement rather than plumbing around it: HTTP-01 proves control by serving a token on `:80` (which the HAProxy demux already forwards by Host header), needing **no DNS-provider creds** — provider-agnostic, no shim change. Cost: no wildcards on fixed (one cert per service hostname, issued on demand) — immaterial at the doctrine's scale, and dev↔prod cert airgapping is preserved for free. Elastic keeps its ACM wildcards (DNS-validated by tofu). Full rationale: we walked HTTP-01 vs DNS-01-with-creds vs DNS-01-with-CNAME-delegation and landed on HTTP-01 as simplest.
 
-**Doctrine — DONE this session:** `cicl.md § TLS Implications` (split into Fixed TLS = HTTP-01 per-host / Elastic TLS = ACM wildcards), `shape2.md` fixed + elastic `cert_manager` rows, `fixed_reverse_proxy.md` cert section + traefik command block.
+**Doctrine — DONE this session:** `cicl.md § TLS Implications` (split into Fixed TLS = HTTP-01 per-host / Elastic TLS = ACM wildcards), `shape.md` fixed + elastic `cert_manager` rows, `fixed_reverse_proxy.md` cert section + traefik command block.
 
 **docex change:** in `emit_project_compose`, replace the two `dnschallenge` command lines with:
 ```
@@ -61,7 +61,7 @@ Drop the now-dead `${TRAEFIK_DNS_PROVIDER:-}` reference. **Keep** `${TRAEFIK_ACM
 
 | Gap | Doctrine touch | Status |
 | --- | -------------- | ------ |
-| A | `cicl.md`, `shape2.md`, `fixed_reverse_proxy.md` (cert/TLS) | **done this session** |
+| A | `cicl.md`, `shape.md`, `fixed_reverse_proxy.md` (cert/TLS) | **done this session** |
 | B | `fixed_reverse_proxy.md` (constraint), `transfer_tables.md` (per-container label) | **pending — draft for approval** |
 | I | `contracts.md` (and/or `infrastructure.md`) — curl convention | **pending — draft for approval** |
 

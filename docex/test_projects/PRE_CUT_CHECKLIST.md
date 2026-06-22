@@ -266,7 +266,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 ### D.6 Dev sanity (optional but recommended)
 
-`dev` and `test` envs run as fixed compose stacks even on an elastic-foundation project (per [`shape2.md § Shape and Environment`](../../doctrine/infrastructure/shape2.md#shape-and-environment)).
+`dev` and `test` envs run as fixed compose stacks even on an elastic-foundation project (per [`shape.md § Shape and Environment`](../../doctrine/infrastructure/shape.md#shape-and-environment)).
 
 - [ ] `./bin/docex envinfra up dev` — stack comes up locally. (No DNS for `dev.docex-smoke-elastic.luxrnd.tech` exists pre-projinfra; hit the service directly via the dev machine or check the per-project traefik routes it.)
 - [ ] `./bin/docex envinfra down dev`.

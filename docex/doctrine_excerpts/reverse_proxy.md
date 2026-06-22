@@ -8,4 +8,4 @@ The doctrine handles HTTP/S ingress asymmetrically across foundations because th
 
 The two answer the same question — "how do requests reach the right container?" — using the primitives each foundation already offers natively, rather than forcing a single cross-foundation abstraction.
 
-Doctrine reference: `infrastructure/shape2.md`; `infrastructure/specifics/networks.md`.
+Doctrine reference: `infrastructure/shape.md`; `infrastructure/specifics/networks.md`.

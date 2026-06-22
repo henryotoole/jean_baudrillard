@@ -89,7 +89,7 @@ The policy is **scoped to project resources only**. A task running under this ro
 
 ## Why One Role for Both Stage and Prod
 
-Per [shape2.md § Elastic-Foundation](../../shape2.md#elastic-foundation), each project gets one task-execution role used by both stage and prod. Splitting the role into two (`myproject_stage_task_execution` and `myproject_prod_task_execution`) was considered and rejected:
+Per [shape.md § Elastic-Foundation](../../shape.md#elastic-foundation), each project gets one task-execution role used by both stage and prod. Splitting the role into two (`myproject_stage_task_execution` and `myproject_prod_task_execution`) was considered and rejected:
 
 - The role doesn't carry env-distinguishing permissions — it can read any `/<project>/<env>/*` SSM path and write to any `/<project>/<env>/*` log group regardless of env. The permissions are scoped per-project, not per-env.
 - A stage task can't accidentally read prod's secrets through this role because *the task definition* references a specific SSM path. The role gates whether reading is allowed; the task definition specifies what's read. Misconfiguration at the task-definition layer is what would cause cross-env reads, not the role's permissions.

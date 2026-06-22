@@ -7,4 +7,4 @@ How one service finds another by name within an environment.
 
 In both cases the *connection string* a core service builds looks the same — only the resolution mechanism underneath differs.
 
-Doctrine reference: `infrastructure/shape2.md`.
+Doctrine reference: `infrastructure/shape.md`.

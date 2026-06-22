@@ -50,7 +50,7 @@ No per-mod cut, no version bump — accumulates under `CHANGELOG.md`'s `[Unrelea
 
 **Doctrine touches (Gap F):**
 - `docex.md § envinfra` — `down` now covers all envs (dev/test locally; stage/prod via `tofu destroy` on elastic); `up` stays dev/test-only. State the asymmetry + its root cause (up needs a build).
-- `docex.md § projinfra` (+ `specifics/projinfra/overview.md`) — `down production` on elastic: refuse-if-envs-up, project-tier teardown, the safe-by-default stateful gate.
+- `docex.md § projinfra` (+ `specifics/projinfra/projinfra.md`) — `down production` on elastic: refuse-if-envs-up, project-tier teardown, the safe-by-default stateful gate.
 - A teardown-ordering note where the layering is documented (preinfra→projinfra→envinfra inverse).
 
 ---
@@ -60,7 +60,7 @@ No per-mod cut, no version bump — accumulates under `CHANGELOG.md`'s `[Unrelea
 | Gap | Doctrine | Status |
 | --- | --- | --- |
 | E | `telemetry_infra.md`, `practices/logging.md` (author § With Respect to Telemetry), `projinfra/elastic_iam.md` | **pending — draft for approval** (design recorded) |
-| F | `docex.md` (envinfra + projinfra), `projinfra/overview.md` | **pending — draft for approval** |
+| F | `docex.md` (envinfra + projinfra), `projinfra/projinfra.md` | **pending — draft for approval** |
 
 Per `docex_process.md` (doctrine-first), I'll draft all of this for operator approval and make the doctrine edits **before** `implementation.md`. Given the surface, expect to review the wording in a couple of focused passes (E's telemetry/logging cluster, then F's command-semantics cluster).
 

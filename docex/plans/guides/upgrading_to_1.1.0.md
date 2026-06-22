@@ -351,7 +351,7 @@ replaced by `preinfra` / `projinfra` / `envinfra`.
 - **Fixed `up production`:** per-project traefik + `-web` networks on the prod
   host (local docker if single-machine; Ansible if remote).
 - **Elastic `up production` is two-phase** (NS delegation pause — see
-  [`projinfra/overview.md § Two-Phase Production-Side Apply`](../../../doctrine/infrastructure/specifics/projinfra/overview.md#two-phase-production-side-apply-elastic)):
+  [`projinfra/projinfra.md § Two-Phase Production-Side Apply`](../../../doctrine/infrastructure/specifics/projinfra/projinfra.md#two-phase-production-side-apply-elastic)):
   1. First invocation creates the state backend, then applies **only** the
      Route53 zone (`<project>.<apex_domain>`), prints its NS records, and exits.
   2. **Re-delegate at the parent registrar** to those new NS records (the zone

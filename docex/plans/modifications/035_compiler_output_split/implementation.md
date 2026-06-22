@@ -8,7 +8,7 @@ Invoke the `docex-edit` skill via Skill.
 
 Authoritative doctrine reading:
 - [`cicl.md § Compiler Output`](../../../../doctrine/infrastructure/cicl.md#compiler-output) — new file-tree layout.
-- [`projinfra/overview.md`](../../../../doctrine/infrastructure/specifics/projinfra/overview.md) — what project-tier vs side means and why all four `-web` networks emit on every side.
+- [`projinfra/projinfra.md`](../../../../doctrine/infrastructure/specifics/projinfra/projinfra.md) — what project-tier vs side means and why all four `-web` networks emit on every side.
 - [`projinfra/fixed_reverse_proxy.md`](../../../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md) — eventually the per-project traefik joins these networks (mod 036).
 
 ## Operator decisions binding on this implementation

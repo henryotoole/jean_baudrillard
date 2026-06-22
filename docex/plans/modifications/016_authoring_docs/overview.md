@@ -47,7 +47,7 @@ Each subsection is short and concrete — no abstract framing, just "here's how,
 
 ### Doctrine prose alignment
 
-This mod adds prose only. No `cicl.md`, `shape2.md`, or `infrastructure.md` changes. No code changes either — Mods 012–015 provided the machinery; this mod documents how projects use it.
+This mod adds prose only. No `cicl.md`, `shape.md`, or `infrastructure.md` changes. No code changes either — Mods 012–015 provided the machinery; this mod documents how projects use it.
 
 ### What this mod does NOT do
 

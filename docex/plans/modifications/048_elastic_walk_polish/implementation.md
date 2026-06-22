@@ -12,7 +12,7 @@ This document records where each fix landed, so a future reader can find the dif
 
 **File:** `src/docex/pipeline/projinfra.py`
 
-The dispatcher's `(foundation=elastic, direction=up, side=development)` branch was a stub returning "real behavior lands in mods 037-039 (elastic)". The dev-side of an elastic project is mechanically identical to a fixed dev side (per [`projinfra/overview.md § Why all four web networks live on every side`](../../../../doctrine/infrastructure/specifics/projinfra/overview.md#why-all-four--web-networks-live-on-every-side)) — both emit the same `infra/output/project/development/docker-compose.yml`. Route the elastic-dev-side case to the same compose-up path the fixed-dev-side uses.
+The dispatcher's `(foundation=elastic, direction=up, side=development)` branch was a stub returning "real behavior lands in mods 037-039 (elastic)". The dev-side of an elastic project is mechanically identical to a fixed dev side (per [`projinfra/projinfra.md § Why all four web networks live on every side`](../../../../doctrine/infrastructure/specifics/projinfra/projinfra.md#why-all-four--web-networks-live-on-every-side)) — both emit the same `infra/output/project/development/docker-compose.yml`. Route the elastic-dev-side case to the same compose-up path the fixed-dev-side uses.
 
 > **TODO (mid-fix-window):** confirm the dispatcher file path before editing — the actual layout in `src/docex/pipeline/` may be `projinfra.py` or it may be split per `(foundation, side)`. Adapt the fix accordingly. Either way, the goal is "elastic-dev-side does what fixed-dev-side does."
 

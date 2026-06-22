@@ -48,20 +48,20 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
    ```yaml
    labels:
      - "traefik.enable=true"
-     - "traefik.docker.network=web"
+     - "traefik.docker.network=hyperdx-internal"
      - "traefik.http.routers.hyperdx.rule=Host(`hyperdx.${BASE_DOMAIN}`)"
      - "traefik.http.routers.hyperdx.entrypoints=websecure"
      - "traefik.http.routers.hyperdx.tls=true"
      - "traefik.http.routers.hyperdx.tls.certresolver=doctrine"
      - "traefik.http.services.hyperdx.loadbalancer.server.port=<HYPERDX_UI_PORT>"
    networks:
-     - web
+     - hyperdx-internal
      - <hyperdx's internal network>
    ```
 
-   `<HYPERDX_UI_PORT>` is the port HyperDX's UI service listens on inside its container — verify against the running compose file (typical values are `8080` or `3000`, depending on version). The `web` network is the external docker network HyperDX shares with its dedicated traefik (created in the per-foundation setup below). In HyperDX 2.x, the UI lives on the `app` service in upstream's `docker-compose.yml`; these labels go on that service.
+   `<HYPERDX_UI_PORT>` is the port HyperDX's UI service listens on inside its container — verify against the running compose file (typical values are `8080` or `3000`, depending on version). The `hyperdx-internal` network is the external docker network HyperDX shares with its dedicated traefik (created in the per-foundation setup below). In HyperDX 2.x, the UI lives on the `app` service in upstream's `docker-compose.yml`; these labels go on that service.
 
-   The explicit `traefik.docker.network=web` label disambiguates which network's IP traefik picks when the target container is attached to multiple docker networks (which a HyperDX service always is — it needs `internal` for its DB / ClickHouse peers and `web` for traefik). It's redundant when the traefik provider config already pins `network: web` (as in step 4.4 below for elastic), but explicit beats implicit if labels ever get copied somewhere with different provider config.
+   The explicit `traefik.docker.network=hyperdx-internal` label disambiguates which network's IP traefik picks when the target container is attached to multiple docker networks (which a HyperDX service always is — it needs `internal` for its DB / ClickHouse peers and `hyperdx-internal` for traefik). It's redundant when the traefik provider config already pins `network: hyperdx-internal` (as in step 4.4 below for elastic), but explicit beats implicit if labels ever get copied somewhere with different provider config.
 
    The cert resolver name `doctrine` is the canonical handle the doctrine prescribes (see [networks.md § `networks: [web]`](../specifics/networks.md#networks-web) and [transfer_tables.md § Per-container (fixed)](../specifics/transfer_tables.md#per-container-fixed)) — the operator's traefik configures the actual cert provider under that name; the doctrine references it the same way everywhere.
 
@@ -70,14 +70,14 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
    ```yaml
    labels:
      - "traefik.enable=true"
-     - "traefik.docker.network=web"
+     - "traefik.docker.network=hyperdx-internal"
      - "traefik.http.routers.hyperdx_otlp.rule=Host(`hyperdx.${BASE_DOMAIN}`) && PathPrefix(`/v1/`)"
      - "traefik.http.routers.hyperdx_otlp.entrypoints=websecure"
      - "traefik.http.routers.hyperdx_otlp.tls=true"
      - "traefik.http.routers.hyperdx_otlp.tls.certresolver=doctrine"
      - "traefik.http.services.hyperdx_otlp.loadbalancer.server.port=4318"
    networks:
-     - web
+     - hyperdx-internal
      - <hyperdx's internal network>
    ```
 
@@ -200,10 +200,10 @@ The following describes how to setup HyperDX in fixed-foundation projects.
 
 4. **Setup HyperDX's dedicated traefik.** HyperDX is treated as its own project (per [fixed_master_network.md § Adding Preinfra To Machine](./fixed_master_network.md#adding-preinfra-to-machine)), so it gets its own traefik container — distinct from any project's traefik on the same machine. The traefik does NOT bind host ports (HAProxy already owns 80/443 on the host); it only joins `docex-ingress`, where HAProxy reaches it by SNI/Host header.
 
-   1. Create the external `web` docker network HyperDX and its traefik will share:
+   1. Create the external `hyperdx-internal` docker network HyperDX and its traefik will share:
 
       ```bash
-      docker network create web
+      docker network create hyperdx-internal
       ```
 
       `docex-ingress` is preinfra and already exists — do not recreate it.
@@ -226,12 +226,12 @@ The following describes how to setup HyperDX in fixed-foundation projects.
             - ./traefik.yml:/etc/traefik/traefik.yml:ro
           networks:
             - docex-ingress
-            - web
+            - hyperdx-internal
 
       networks:
         docex-ingress:
           external: true
-        web:
+        hyperdx-internal:
           external: true
       ```
 
@@ -252,7 +252,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
       providers:
         docker:
           exposedByDefault: false
-          network: web
+          network: hyperdx-internal
 
       certificatesResolvers:
         doctrine:
@@ -287,7 +287,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
 
       Expect a `308 Permanent Redirect` to `https://hyperdx.${base_domain}/` — the `web` entrypoint config from step 4.4 redirects all HTTP traffic to HTTPS unconditionally, before any routing happens, so the redirect itself proves both that HAProxy is forwarding to this traefik and that traefik is reachable. A connection error means DNS hasn't propagated, HAProxy isn't routing here (no SNI/Host match), or traefik didn't start.
 
-5. **Setup HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `web` network created in step 4.1.
+5. **Setup HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `hyperdx-internal` network created in step 4.1.
 
 6. **Test Reachability.** Follow the [common verification procedure](#verifying-reachability).
 
@@ -314,10 +314,10 @@ The following describes how to setup HyperDX for elastic-foundation projects.
 
 4. **Setup Traefik.** As on fixed, HyperDX needs its own dedicated traefik to handle SSL termination and routing — the difference is that on elastic this traefik binds the EC2 instance's 80/443 ports directly (no HAProxy in front, no `docex-ingress` bridge). Procedure:
 
-   1. Create the external `web` docker network that traefik and HyperDX will share:
+   1. Create the external `hyperdx-internal` docker network that traefik and HyperDX will share:
 
       ```bash
-      docker network create web
+      docker network create hyperdx-internal
       ```
 
    2. Make a directory at `~/traefik` on the EC2 instance.
@@ -338,10 +338,10 @@ The following describes how to setup HyperDX for elastic-foundation projects.
             - ./acme.json:/acme.json
             - ./traefik.yml:/etc/traefik/traefik.yml:ro
           networks:
-            - web
+            - hyperdx-internal
 
       networks:
-        web:
+        hyperdx-internal:
           external: true
       ```
 
@@ -362,7 +362,7 @@ The following describes how to setup HyperDX for elastic-foundation projects.
       providers:
         docker:
           exposedByDefault: false
-          network: web
+          network: hyperdx-internal
 
       certificatesResolvers:
         doctrine:
@@ -397,6 +397,6 @@ The following describes how to setup HyperDX for elastic-foundation projects.
 
       Expect a `308 Permanent Redirect` to `https://hyperdx.${base_domain}/` — the `web` entrypoint config from step 4.4 redirects all HTTP traffic to HTTPS unconditionally, before any routing happens, so the redirect itself is what proves traefik is reachable even with no service registered yet. A connection error means DNS hasn't propagated, the security group is closed, or traefik didn't start. (A `404` would only appear via HTTPS once a `Host` rule fails to match — not relevant at this step.)
 
-5. **Setup HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `web` network created in step 4.1.
+5. **Setup HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `hyperdx-internal` network created in step 4.1.
 
 6. **Test Reachability.** Follow the [common verification procedure](#verifying-reachability).

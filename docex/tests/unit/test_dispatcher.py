@@ -463,7 +463,7 @@ def test_projinfra_elastic_up_production_refuses_when_preinfra_fails(
     [
         # Mod 048: elastic's DEVELOPMENT side (up + down) is mechanically
         # identical to fixed dev-side projinfra (same emit shape per
-        # `projinfra/overview.md § Why all four web networks live on
+        # `projinfra/projinfra.md § Why all four web networks live on
         # every side`). Both directions route to the fixed-style code
         # path now — no longer stubs.
         ("up", "development"),

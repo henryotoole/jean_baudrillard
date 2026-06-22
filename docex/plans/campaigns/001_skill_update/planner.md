@@ -38,7 +38,7 @@ This file, engineer/gaps, and engineer/TODO all purport to do the same thing. I 
 
 ## AWS Account Talk is wrong now
 
-Line 59 of shape2: | aws_account | prerequisite | An AWS account | The AWS account in which all elastic resources are provisioned. The doctrine assumes one project per account; multi-tenant accounts are out of scope. |
+Line 59 of shape: | aws_account | prerequisite | An AWS account | The AWS account in which all elastic resources are provisioned. The doctrine assumes one project per account; multi-tenant accounts are out of scope. |
 
 ## No Scheduler Role
 

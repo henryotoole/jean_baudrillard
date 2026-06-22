@@ -30,7 +30,7 @@ Migrations are run by [`./bin/docex migrate <env>`](../docex.md#migrate), which 
 - **`./bin/docex test`**: after the `test` env's compose stack is up, before any service's `test.sh` runs. Tests always see a fully-migrated schema.
 - **`./bin/docex release <env>`** (`stage`, `prod`): after the database is reachable but before the new application code is fully rolled out. Per-env-category mechanism below.
 
-In every case, migration runs as a separate process invocation against the service's image — never on the host, never woven into the application's startup sequence. The exact invocation mechanism varies by env category — `dev`/`test` use the same mechanism on both foundations (since dev/test are always fixed-style per [shape2.md § Shape and Environment](../shape2.md#shape-and-environment)); `stage`/`prod` mechanism varies by foundation.
+In every case, migration runs as a separate process invocation against the service's image — never on the host, never woven into the application's startup sequence. The exact invocation mechanism varies by env category — `dev`/`test` use the same mechanism on both foundations (since dev/test are always fixed-style per [shape.md § Shape and Environment](../shape.md#shape-and-environment)); `stage`/`prod` mechanism varies by foundation.
 
 ## Dev and Test Mechanism
 

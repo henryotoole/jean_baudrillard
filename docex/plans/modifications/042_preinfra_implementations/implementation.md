@@ -8,7 +8,7 @@ Invoke the `docex-edit` skill via Skill.
 
 Authoritative doctrine reading:
 - [`docex.md § preinfra`](../../../../doctrine/infrastructure/docex.md#preinfra) — command contract.
-- [`shape2.md`](../../../../doctrine/infrastructure/shape2.md) — both foundations' preinfra resource lists.
+- [`shape.md`](../../../../doctrine/infrastructure/shape.md) — both foundations' preinfra resource lists.
 - The master VPC tag scheme set by mod 041 (`Name = "docex-master-vpc"`, `managed_by = "docex-preinfra"`, subnet `tier = public|private`).
 
 ## Operator decisions binding on this implementation

@@ -1,7 +1,7 @@
 # Maps `docex why <resource>` to the corresponding markdown file in
 # this directory. Resource names should be lowercase, underscore-
 # separated, and match the doctrine's `[resource]` notation in
-# shape2.md where possible.
+# shape.md where possible.
 registrar: registrar.md
 dns: dns.md
 host_machine: host_machine.md

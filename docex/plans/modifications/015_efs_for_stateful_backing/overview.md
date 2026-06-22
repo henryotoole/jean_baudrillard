@@ -211,7 +211,7 @@ Three edits, all to `transfer_tables.md`:
 
 3. **A small mention in the "Container-backing services on elastic" section** added in Mod 013, noting that stateful ones additionally need `persistent_storage` — links forward to "Persistent storage on Fargate". (Already foreshadowed there as "added in a follow-on mod"; this mod fills it in.)
 
-No changes to `cicl.md`, `shape2.md`, or `infrastructure.md`. EFS is a doctrine-internal mechanism; consumers see only the `mount_path` declaration and the persistent behavior. The shape table can stay unchanged — EFS is implicit infrastructure under "backing_service" on elastic.
+No changes to `cicl.md`, `shape.md`, or `infrastructure.md`. EFS is a doctrine-internal mechanism; consumers see only the `mount_path` declaration and the persistent behavior. The shape table can stay unchanged — EFS is implicit infrastructure under "backing_service" on elastic.
 
 ## Five-artifact alignment
 

@@ -13,7 +13,7 @@ Prerequisite infrastructure exists outside any single project and must be in pla
 
 What preinfra exists and the install layout. **Read this now.**
 
-[`overview.md`](../../doctrine/infrastructure/preinfra/overview.md) — the index of prerequisite-infrastructure resources and the canonical install location; routes to the per-resource files below.
+[`preinfra.md`](../../doctrine/infrastructure/preinfra/preinfra.md) — the index of prerequisite-infrastructure resources and the canonical install location; routes to the per-resource files below.
 
 ## Specific Information
 

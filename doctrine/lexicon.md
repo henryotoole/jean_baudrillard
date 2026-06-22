@@ -12,7 +12,7 @@ This guide defines special words and phrases that have unique context for all ma
 | Development Machine |  | The discrete server on which development occurs. `dev` and `test` envs run here. Code is written here. Git commands, ansible playbooks, and OpenTofu calls originate on this machine with credentials on this machine. |
 | Operator |  | The human engineer working on the development machine with LLM's to write code. |
 | Project Root | "$pr" | The directory of the root folder of the project. This is not the filesystem root. Sometimes this will be indicated as `$pr` e.g. "$pr/dir/file.txt". |
-| jean root | "$jb" | The directory of the root folder of the repo that contains the doctrine, `docex`, etc. Sometimes this will be indicated as `$jb` e.g. "$jb/doctrine/overview.md". |
+| jean root | "$jb" | The directory of the root folder of the repo that contains the doctrine, `docex`, etc. Sometimes this will be indicated as `$jb` e.g. "$jb/doctrine/doctrine.md". |
 | Project | "codebase" | Refers to all code and infrastructure within the scope of the project root. Includes docker compose config, dockerfiles, code architecture, and the code itself. |
 | Service |  | Refers to both "core services" and "backing services". |
 | Core Service | "application service", "application container" | Any service that executes code which is unique to this project. |
@@ -35,7 +35,7 @@ This guide defines special words and phrases that have unique context for all ma
 | Objectives |  | Strategic goals for the project. These define what a project *does*. The project is neither complete nor successful until it achieves its objectives. |
 | Apex Domain |  | An absolute top-level domain without any subdomains e.g. `example.com` |
 | Master Network | `master_network`, `master_vpc` | The main, toplevel network which spans all projects. |
-| Stratum | "strata" (pl.) | A classification of doctrine *information* by when it is needed. There are three: the resident, conditional, and executor strata. See [overview](./overview.md#strata). |
+| Stratum | "strata" (pl.) | A classification of doctrine *information* by when it is needed. There are three: the resident, conditional, and executor strata. See [overview](./doctrine.md#strata). |
 | Resident Stratum |  | The stratum of doctrine information needed to write any line of code; always resident in context, never gated behind a skill. |
 | Conditional Stratum |  | The stratum of doctrine information needed only for a specific activity (e.g. a release); broken into thread skills loaded when the agent undertakes that activity. |
 | Executor Stratum |  | The stratum of doctrine encoded as action-taking code (`docex` and its shim); consumed by skills, never wrapped in one. |

@@ -13,7 +13,7 @@ Project-tier infrastructure is shared across a project's environments and split 
 
 What the project tier is and which resources apply. **Read this now.**
 
-[`overview.md`](../../doctrine/infrastructure/specifics/projinfra/overview.md) — the project tier explained: the side duplication, the foundation × side matrix, and how projinfra relates to preinfra, envinfra, and release; routes to the per-resource files.
+[`projinfra.md`](../../doctrine/infrastructure/specifics/projinfra/projinfra.md) — the project tier explained: the side duplication, the foundation × side matrix, and how projinfra relates to preinfra, envinfra, and release; routes to the per-resource files.
 
 ## Specific Information
 

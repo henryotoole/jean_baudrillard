@@ -8,7 +8,7 @@ Invoke the `docex-edit` skill via Skill.
 
 Authoritative doctrine reading:
 - [`projinfra/fixed_reverse_proxy.md`](../../../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md) — the per-project traefik resource spec (cert resolver, networks, acme volume, command-line flags).
-- [`projinfra/overview.md`](../../../../doctrine/infrastructure/specifics/projinfra/overview.md) — `projinfra <direction> <side>` command behavior, including the env-still-up refusal.
+- [`projinfra/projinfra.md`](../../../../doctrine/infrastructure/specifics/projinfra/projinfra.md) — `projinfra <direction> <side>` command behavior, including the env-still-up refusal.
 
 ## Operator decisions binding on this implementation
 
@@ -181,7 +181,7 @@ New module. Two top-level functions:
 """Project-tier infrastructure runner. Mod 036 ships the fixed branch
 (per-project traefik + four -web networks); mods 037-039 add elastic.
 
-`docex/projinfra/overview.md` describes the per-(foundation, side)
+`docex/projinfra/projinfra.md` describes the per-(foundation, side)
 behavior at the doctrine level."""
 from __future__ import annotations
 

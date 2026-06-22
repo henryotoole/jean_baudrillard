@@ -7,7 +7,7 @@ You are executing mod 041 of a 16-mod docex campaign. Read [`overview.md`](./ove
 Invoke the `docex-edit` skill via Skill.
 
 Authoritative doctrine reading:
-- [`shape2.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape2.md#elastic-foundation) — master VPC as preinfra.
+- [`shape.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape.md#elastic-foundation) — master VPC as preinfra.
 - [`cicl.md § Simplifications`](../../../../doctrine/infrastructure/cicl.md#simplifications) — single-AZ commit rationale.
 - [`preinfra/elastic_master_network.md`](../../../../doctrine/infrastructure/preinfra/elastic_master_network.md) — preinfra side (sparse; this mod sets the tag convention).
 

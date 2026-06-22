@@ -280,7 +280,7 @@ def _cmd_projinfra(args: list[str]) -> int:
     #
     # Mod 048: an elastic project's DEVELOPMENT side is mechanically
     # identical to a fixed development side (same emit shape per
-    # `projinfra/overview.md § Why all four web networks live on every
+    # `projinfra/projinfra.md § Why all four web networks live on every
     # side`); route both through the same fixed-style code path. Only
     # the production side of an elastic project diverges (real AWS
     # state-backend + Route53 + ACM + ALB / EC2-traefik).

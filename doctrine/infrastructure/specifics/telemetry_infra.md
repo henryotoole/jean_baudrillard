@@ -246,7 +246,7 @@ This means the core service does not have a guaranteed sidecar at `t=0`. The OTe
 
 ECS task-level mechanics. Sidecar emitted as a paired container in the same task definition.
 
-Note: `dev` and `test` are always fixed per [shape2.md § Shape and Environment](../shape2.md#shape-and-environment), so the elastic mechanics below apply only to `stage` and `prod`. The exporter is always `otlphttp`; both `OBSERVABILITY_BACKEND_URL` and `TELEMETRY_API_KEY` are always required on elastic compiles.
+Note: `dev` and `test` are always fixed per [shape.md § Shape and Environment](../shape.md#shape-and-environment), so the elastic mechanics below apply only to `stage` and `prod`. The exporter is always `otlphttp`; both `OBSERVABILITY_BACKEND_URL` and `TELEMETRY_API_KEY` are always required on elastic compiles.
 
 ### Sidecar as Paired Task Container
 

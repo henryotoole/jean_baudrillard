@@ -165,7 +165,7 @@ On `fixed` foundations, DNS-01 is not available and HTTP-01 is used instead. We 
 
 ### Container Registry and Service Images
 
-The `container_registry` top-level config option declares where core service [build images](./shape2.md) are pushed and pulled from. The compiler derives every image reference deterministically on the basis of environment:
+The `container_registry` top-level config option declares where core service [build images](./shape.md) are pushed and pulled from. The compiler derives every image reference deterministically on the basis of environment:
 - **`dev` / `test`** build each core service's image **locally** from its Dockerfile (the compiled compose file carries a `build:` block) and never pull from a registry. The image is therefore a **registry-less local tag**:
 	`${project_name}/${service_name}:${version}`.
 - **`stage` / `prod`** reference an image that is pushed to and pulled from a registry, so the ref carries the full registry host:
@@ -173,7 +173,7 @@ The `container_registry` top-level config option declares where core service [bu
 
 with `name` and `version` from `project.yml` and `service_name` from the CICL key under `core_services`. Each core service gets its own image; all images for a project share the project-wide version.
 
-- **Fixed foundation:** `container_registry` is **required**. The doctrine does not provision a registry for fixed projects — it is [prerequisite infrastructure](./shape2.md#fixed-foundation). Typical values are a self-hosted Docker Registry V2 URL or a public registry (Docker Hub, ghcr.io, etc.).
+- **Fixed foundation:** `container_registry` is **required**. The doctrine does not provision a registry for fixed projects — it is [prerequisite infrastructure](./shape.md#fixed-foundation). Typical values are a self-hosted Docker Registry V2 URL or a public registry (Docker Hub, ghcr.io, etc.).
 - **Elastic foundation:** `container_registry` is **optional**. When omitted, `stage`/`prod` images resolve to the project's auto-provisioned registry (ECR). The registry domain is deterministically interpolated by OpenTofu using provider (AWS) account ID, the `doctrine`-pinned region, and standard AWS form. When provided, `container_registry` explicitly overrides the ECR default such that an external registry can be used instead.
 
 ### Git Repo URL
@@ -264,7 +264,7 @@ In order to simplify down the massive complexities of infrastructure, we make so
 
 ### Shape Assumption and Declaration
 
-The [shape](./shape2.md) of the infrastructure surrounding a project covers all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure. The compiler treats each a little differently:
+The [shape](./shape.md) of the infrastructure surrounding a project covers all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure. The compiler treats each a little differently:
 
 | Tier | Described by `infra.yml` | Described by compiler output |
 | ---- | ------------------------ | ---------------------------- |
@@ -313,7 +313,7 @@ infra/output/<env>/
 
 A single env `main.tf` contains the env-tier resources: provider config, state backend reference, networks (security groups), ECS, backing services, env-specific DNS records, ALB listener rules / EC2-traefik SSM config updates. OpenTofu does not require splitting, and a single file is simpler to read and review. Each env reads project-tier outputs (zone, certs, ALB/EC2-traefik ARNs, ECR repos, task-execution role) via `data "terraform_remote_state" "project"`.
 
-**Project-tier output** (one subdirectory per side). Project-tier resources are sided per [`projinfra/overview.md`](./specifics/projinfra/overview.md), so output is split too:
+**Project-tier output** (one subdirectory per side). Project-tier resources are sided per [`projinfra/projinfra.md`](./specifics/projinfra/projinfra.md), so output is split too:
 
 ```
 infra/output/project/

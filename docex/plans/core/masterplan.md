@@ -14,7 +14,7 @@
 > this masterplan hangs off, and why `docex`'s documentation layout
 > deliberately diverges from the standard in other small ways.
 
-`docex` is the executor of the [doctrine](../../../doctrine/overview.md). It is a single, versioned container image that bundles every deterministic doctrine-shipped tool — the [CICL](../../../doctrine/infrastructure/cicl.md) compiler, the [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md), the CI/CD orchestration ([cicd.md](../../../doctrine/infrastructure/cicd.md)), the foundation-specific release machinery ([release_mechanism.md](../../../doctrine/infrastructure/specifics/release_mechanism.md)), and the elastic state-backend bootstrap ([elastic_bootstrap.md](../../../doctrine/infrastructure/specifics/elastic_bootstrap.md)) — behind one cohesive command-line surface. Each project pins one `docex` version, ships one `./bin/docex` shim, and never carries doctrine source code in its own repository.
+`docex` is the executor of the [doctrine](../../../doctrine/doctrine.md). It is a single, versioned container image that bundles every deterministic doctrine-shipped tool — the [CICL](../../../doctrine/infrastructure/cicl.md) compiler, the [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md), the CI/CD orchestration ([cicd.md](../../../doctrine/infrastructure/cicd.md)), the foundation-specific release machinery ([release_mechanism.md](../../../doctrine/infrastructure/specifics/release_mechanism.md)), and the elastic state-backend bootstrap ([elastic_bootstrap.md](../../../doctrine/infrastructure/specifics/elastic_bootstrap.md)) — behind one cohesive command-line surface. Each project pins one `docex` version, ships one `./bin/docex` shim, and never carries doctrine source code in its own repository.
 
 The name is intentional: `docex` is *not* the doctrine. The doctrine is the body of rules and principles; `docex` is what executes those rules deterministically against a project.
 
@@ -183,7 +183,7 @@ Several commands branch internally on `foundation:` from `infra.yml`. The shim a
 | `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` |
 | `migrate` (during release) | one-off container in the existing internal docker network on the host | ECS `RunTask` against the migration task definition |
 
-The `dev` and `test` environments are always fixed regardless of declared foundation, per [shape2.md § Shape and Environment](../../../doctrine/infrastructure/shape2.md#shape-and-environment).
+The `dev` and `test` environments are always fixed regardless of declared foundation, per [shape.md § Shape and Environment](../../../doctrine/infrastructure/shape.md#shape-and-environment).
 
 ## Credentials & Ambient Host State
 

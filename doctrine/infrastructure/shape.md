@@ -101,7 +101,6 @@ cicl_version: "1"
 foundation: elastic
 apex_domain: "example.com"
 domain_default_service: api
-container_registry: "registry.example.com"
 repo_url: "https://github.com/owner_account/project_name"
 
 core_services:

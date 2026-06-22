@@ -72,7 +72,7 @@ The project's `main.tf` declares the following outputs, all consumed by env-tier
 | `zone_id` | Env-tier resources that add A-records or other records to the zone |
 | `zone_name_servers` | The operator (via `terraform output`) when re-checking delegation |
 
-The zone itself is never destroyed by `./bin/docex projinfra down production` *if any env still has resources in the zone* — the down command refuses to proceed in that case, matching the general projinfra-vs-envinfra layering rule from [overview.md](./overview.md#bindocex-projinfra-direction-side).
+The zone itself is never destroyed by `./bin/docex projinfra down production` *if any env still has resources in the zone* — the down command refuses to proceed in that case, matching the general projinfra-vs-envinfra layering rule from [projinfra.md](./projinfra.md#bindocex-projinfra-direction-side).
 
 ## Out of Scope
 

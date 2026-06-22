@@ -10,7 +10,7 @@ The architectural shape, services, and flows are **deliberately identical** to t
 
 1. `foundation: elastic` in `infra.yml` (and the AWS-resource shape that compiles from it).
 2. `reverse_proxy: alb` declared explicitly (the doctrine default, also the operator-chosen smoke variant — see mod 044's neutral-on-ALB-vs-EC2-traefik stance).
-3. `dev` and `test` still compile to fixed compose stacks (per `shape2.md § Shape and Environment`), but `stage` and `prod` compile to AWS HCL — RDS for `appdb`, ECS Fargate for `web`/`worker`/`probe`/`events`, ALB at project tier, ECR for images, EFS-backed persistent storage for ClickHouse (`events`).
+3. `dev` and `test` still compile to fixed compose stacks (per `shape.md § Shape and Environment`), but `stage` and `prod` compile to AWS HCL — RDS for `appdb`, ECS Fargate for `web`/`worker`/`probe`/`events`, ALB at project tier, ECR for images, EFS-backed persistent storage for ClickHouse (`events`).
 
 That this project's *application code* is identical to the fixed companion's is intentional. Any inter-foundation divergence in source code would mean the parts-only secret-and-env model is leaking — that itself is a doctrine bug. The PRE_CUT_CHECKLIST's audit step diffs the two `core/` trees and fails on real divergence.
 
@@ -28,7 +28,7 @@ Identical to fixed companion. `Ping` and `Smoke test` carry the same meanings.
 
 ### Foundation
 
-`elastic`. `dev` and `test` run as local docker stacks on the dev machine (always fixed-style per shape2.md); `stage` and `prod` run as AWS infrastructure in the shared master VPC (region `us-east-1`).
+`elastic`. `dev` and `test` run as local docker stacks on the dev machine (always fixed-style per shape.md); `stage` and `prod` run as AWS infrastructure in the shared master VPC (region `us-east-1`).
 
 ### Domain
 

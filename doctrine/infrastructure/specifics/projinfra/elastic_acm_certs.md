@@ -32,7 +32,7 @@ ACM issues the two wildcard certs from [cicl.md § Elastic TLS](../../cicl.md#el
 | `stage` | Stage cert (wildcard, DNS-01) | This file |
 | `prod` | Prod cert (wildcard, DNS-01) | This file |
 
-Dev/test certs aren't emitted by ACM because those envs are always fixed-style per [shape2.md § Shape and Environment](../../shape2.md#shape-and-environment) — they never reach the AWS ALB. The traefik that handles them issues per-host HTTP-01 certs per [Fixed TLS](../../cicl.md#fixed-tls); there is no single wildcard "development cert".
+Dev/test certs aren't emitted by ACM because those envs are always fixed-style per [shape.md § Shape and Environment](../../shape.md#shape-and-environment) — they never reach the AWS ALB. The traefik that handles them issues per-host HTTP-01 certs per [Fixed TLS](../../cicl.md#fixed-tls); there is no single wildcard "development cert".
 
 ## DNS-01 Validation
 

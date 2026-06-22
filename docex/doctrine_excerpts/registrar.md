@@ -5,4 +5,4 @@ A domain registrar — NameSilo, GoDaddy, or similar — is **prerequisite infra
 - **Fixed:** the registrar's DNS configuration directly routes each environment's subdomain (`dev.<domain>`, `test.<domain>`, `stage.<domain>`, `www.<domain>`) to the appropriate host machine's IP. The doctrine does not automate this — operators wire it once at setup time.
 - **Elastic:** the registrar delegates DNS authority to AWS Route53 via NS records, so the project's own HCL can drive DNS without ever touching the registrar console after initial setup.
 
-Doctrine reference: `infrastructure/shape2.md` § Fixed-Foundation / Elastic-Foundation.
+Doctrine reference: `infrastructure/shape.md` § Fixed-Foundation / Elastic-Foundation.

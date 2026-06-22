@@ -12,7 +12,7 @@ How docex's `compile` pipeline walks `infra.yml` and the transfer tables to prod
 
 and writes, under `infra/output/`:
 
-- `dev/docker-compose.yml`, `test/docker-compose.yml` — always emitted (dev and test are always fixed-foundation per [`shape2.md`](../../../doctrine/infrastructure/shape2.md#shape-and-environment)).
+- `dev/docker-compose.yml`, `test/docker-compose.yml` — always emitted (dev and test are always fixed-foundation per [`shape.md`](../../../doctrine/infrastructure/shape.md#shape-and-environment)).
 - `stage/docker-compose.yml`, `prod/docker-compose.yml` plus `playbook.yml`, `inventory.yml`, `ansible.cfg` — fixed-foundation projects.
 - `project/main.tf`, `stage/main.tf`, `prod/main.tf` — elastic-foundation projects.
 - `infra/secrets/example.env` — always.

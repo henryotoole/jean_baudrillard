@@ -221,10 +221,11 @@ The developer also maintains `$pr/infra/stage/stage_test.sh`. It is a shim that 
 2. Build the staging tester image if missing or stale. Tag with `${project_name}-stage-tester`.
 3. Spawn an ephemeral container from the tester image:
 	+ `--rm` for auto-cleanup.
-	+ Bind-mount the project root at the same path inside the container as on the host (matching docex's host-path mirror such that any path the operator sees on disk is also valid in the container).
+	+ Bind-mount the project root to `/project` inside the tester container.
+	+ Put the tester on the host network (`--network host`) so it can reach the deployed staging URL.
 	+ `STAGING_URL` env var pointing at the deployed staging env.
 	+ `PROJECT_VERSION` env var set to the current `project.yml` version. Stage tests that assert the deployed version (e.g., a `GET /health` returning `{"version": "..."}`) read this rather than hand-maintaining a hardcoded expected value, which historically drifts on every version bump.
-	+ Command: `<project-root>/infra/stage/stage_test.sh`.
+	+ Command: `/project/infra/stage/stage_test.sh`.
 4. `stage_test.sh` runs the project's staging tests against the deployed env via HTTPS.
 5. The container exits and is auto-removed; its exit code propagates through `docker run` to `./bin/docex stagetest`.
 

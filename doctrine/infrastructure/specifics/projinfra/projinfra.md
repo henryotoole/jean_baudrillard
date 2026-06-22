@@ -4,15 +4,15 @@ stratum: conditional
 
 # Projinfra Overview
 
-This folder describes **project-tier infrastructure**: the resources shared by every environment of a project, controlled at the project scope. It mirrors the per-resource layout of [`preinfra/`](../../preinfra/overview.md) — one file per resource, foundation-split where the foundations genuinely diverge — and exists for the same reason: an operator setting up, debugging, or extending the project tier benefits from per-resource pages they can land on directly, not a single monolithic file.
+This folder describes **project-tier infrastructure**: the resources shared by every environment of a project, controlled at the project scope. It mirrors the per-resource layout of [`preinfra/`](../../preinfra/preinfra.md) — one file per resource, foundation-split where the foundations genuinely diverge — and exists for the same reason: an operator setting up, debugging, or extending the project tier benefits from per-resource pages they can land on directly, not a single monolithic file.
 
-This is documentation for the implementer of `docex` and the curious developer; it is not meant to be force-loaded as general doctrine context. The doctrine-prose entry points are [infrastructure.md § Infrastructure Tiers](../../infrastructure.md#infrastructure-tiers) and [shape2.md](../../shape2.md); this folder is what those documents point *to*.
+This is documentation for the implementer of `docex` and the curious developer; it is not meant to be force-loaded as general doctrine context. The doctrine-prose entry points are [infrastructure.md § Infrastructure Tiers](../../infrastructure.md#infrastructure-tiers) and [shape.md](../../shape.md); this folder is what those documents point *to*.
 
 ## What "Project Tier" Means
 
 The infrastructure tier of a resource is defined by **what scope controls it**, not by where it physically runs or how many environments touch it. [infrastructure.md § Infrastructure Tiers](../../infrastructure.md#infrastructure-tiers) defines three tiers:
 
-1. **Prerequisite tier** — controlled outside any project. Master networks, the development machine itself, the AWS account, the observability backend. See [`preinfra/`](../../preinfra/overview.md).
+1. **Prerequisite tier** — controlled outside any project. Master networks, the development machine itself, the AWS account, the observability backend. See [`preinfra/`](../../preinfra/preinfra.md).
 2. **Project tier** — controlled by the project as a whole, shared across every environment of the project. The reverse proxy, the project's web-network surface, the Route53 zone, the ACM certs, the ECR repositories — all live here.
 3. **Environment tier** — controlled per-environment, duplicated across environments. Per-env compose files, per-env security groups, per-env ECS services, per-env RDS instances.
 
@@ -34,7 +34,7 @@ This produces three distinct topologies in practice:
 
 1. **Single-machine fixed.** One machine hosts every env. Dev side and prod side are the same physical thing. `projinfra up development` and `projinfra up production` converge on the same docker-resource set; running either is idempotent with the other.
 2. **Split-machine fixed.** Dev/test run on the operator's local machine; stage/prod run on a remote prod host. The two sides are distinct machines and must be set up separately — `projinfra up development` operates against local docker; `projinfra up production` SSHes to the prod host via Ansible.
-3. **Elastic.** Dev/test run on the operator's local machine (always fixed-style per [shape2.md § Shape and Environment](../../shape2.md#shape-and-environment)); stage/prod run in AWS. `projinfra up development` operates against local docker; `projinfra up production` runs `tofu apply` against AWS.
+3. **Elastic.** Dev/test run on the operator's local machine (always fixed-style per [shape.md § Shape and Environment](../../shape.md#shape-and-environment)); stage/prod run in AWS. `projinfra up development` operates against local docker; `projinfra up production` runs `tofu apply` against AWS.
 
 ### Why all four `-web` networks live on every side
 
@@ -114,7 +114,7 @@ For an elastic project, the OpenTofu state backend (S3 bucket + DynamoDB table) 
 
 ## How Projinfra Relates to Other Doctrine Pieces
 
-- **Preinfra is the foundation.** [`preinfra/`](../../preinfra/overview.md) covers the master networks, the dev machine itself, the AWS account, the container registry on fixed, and the observability backend. Projinfra resources attach to preinfra resources via data sources (elastic) or by joining preinfra docker networks (fixed). `./bin/docex preinfra <side>` is a precondition for `projinfra up <side>`.
+- **Preinfra is the foundation.** [`preinfra/`](../../preinfra/preinfra.md) covers the master networks, the dev machine itself, the AWS account, the container registry on fixed, and the observability backend. Projinfra resources attach to preinfra resources via data sources (elastic) or by joining preinfra docker networks (fixed). `./bin/docex preinfra <side>` is a precondition for `projinfra up <side>`.
 - **Envinfra and release sit on top of projinfra.** [envinfra](../../docex.md#envinfra) brings `dev`/`test` environments up against the dev-side project resources. [release](../release.md) deploys `stage`/`prod` against the production-side project resources. Both fail if the relevant projinfra hasn't been brought up.
 - **Compiled output is split by side, not just by env.** `./bin/docex compile` emits `infra/output/project/development/...` and `infra/output/project/production/...` in addition to the per-env directories. See [cicl.md § Compiler Output](../../cicl.md#compiler-output).
 - **`release` consumes projinfra outputs.** On elastic, each env's `main.tf` reads project-tier outputs (zone id, cert ARNs, ALB ARN, ECR repository URLs, task-execution role ARN) via `data "terraform_remote_state" "project"`. On fixed, each env's compose file joins the project-tier `-web` networks declared `external: true`. See [`release.md`](../release.md).

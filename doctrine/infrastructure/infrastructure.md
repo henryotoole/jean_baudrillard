@@ -108,7 +108,7 @@ The overall code-writing process is:
     1. Perform git-based actions: rebasing branches, gate checks, version-tagging a commit.
     2. Run formal build tests on the new build.
     3. Build and store the container images.
-    4. Release to stage and test.
+    4. Release to stage and run staging tests.
     5. Release to production.
 
 Essentially the entire pipeline can be performed using `docex` commands.

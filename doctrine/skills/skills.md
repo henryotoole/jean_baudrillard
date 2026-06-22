@@ -5,7 +5,7 @@ stratum: conditional
 
 This file gives an overview of how the "thread skills" attached to the doctrine are structured, written, tested, and formatted.
 
-Thread skills provide coverage for the [conditional stratum](../overview.md#strata) of the doctrine's information. Such skills take the form of *router + thread*; they provide links to relevant doctrine documents for an action and a thread of narrative to tie those links together. See [this overview](../overview.md#skills) for more info on the *content* a thread skill should cover and action-based trigger philosophy.
+Thread skills provide coverage for the [conditional stratum](../doctrine.md#strata) of the doctrine's information. Such skills take the form of *router + thread*; they provide links to relevant doctrine documents for an action and a thread of narrative to tie those links together. See [this overview](../doctrine.md#skills) for more info on the *content* a thread skill should cover and action-based trigger philosophy.
 
 ## Structure
 

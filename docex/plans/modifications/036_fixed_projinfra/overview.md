@@ -4,7 +4,7 @@ Seventh mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_over
 
 ## The Doctrine Change
 
-From [`projinfra/fixed_reverse_proxy.md`](../../../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md) and [`projinfra/overview.md`](../../../../doctrine/infrastructure/specifics/projinfra/overview.md):
+From [`projinfra/fixed_reverse_proxy.md`](../../../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md) and [`projinfra/projinfra.md`](../../../../doctrine/infrastructure/specifics/projinfra/projinfra.md):
 
 **Per-project traefik replaces the machine-wide traefik.** Each project gets one traefik container per side, named `${project}-traefik`, joined to all four `${project}-${env}-web` networks plus the host-wide `docex-ingress` bridge. It terminates TLS via Let's Encrypt (DNS-01 preferred, HTTP-01 fallback), uses cert resolver name `doctrine`, persists certs in a named volume.
 

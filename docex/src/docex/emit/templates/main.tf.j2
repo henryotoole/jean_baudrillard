@@ -111,7 +111,7 @@ resource "aws_ecs_cluster" "cluster" {
 
 # ---------------------------------------------------------------------------
 # Service discovery — ECS Service Connect over a Cloud Map PRIVATE DNS
-# namespace. Per shape2.md § Elastic-Foundation, one namespace per env,
+# namespace. Per shape.md § Elastic-Foundation, one namespace per env,
 # associated with the master VPC. Auto-creates a Route53 private hosted
 # zone resolvable VPC-wide so EC2-traefik (mod 044) and other non-ECS
 # consumers can reach services by name. ECS tasks inside the namespace

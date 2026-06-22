@@ -111,7 +111,7 @@ Stateful container-backing services (ClickHouse, real Redis with persistence) ad
 
 Plus a small clarification in the existing `## Anatomy of a Role Definition` § `emits` paragraph (line 231) noting that "the set of recognized destinations is closed in docex source; the dispatch chooses the per-destination renderer by name."
 
-No edits to `cicl.md`, `infrastructure.md`, or `shape2.md`. The change is at the engine-emission semantics layer, not at the cross-foundation shape layer.
+No edits to `cicl.md`, `infrastructure.md`, or `shape.md`. The change is at the engine-emission semantics layer, not at the cross-foundation shape layer.
 
 ## Five-artifact alignment
 

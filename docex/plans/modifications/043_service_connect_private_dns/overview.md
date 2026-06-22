@@ -4,7 +4,7 @@ Fourteenth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_o
 
 ## The Doctrine Change
 
-From [`shape2.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape2.md#elastic-foundation):
+From [`shape.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape.md#elastic-foundation):
 
 > `service_discovery` | environment | ECS Service Connect over a Cloud Map **private DNS** namespace | Each ECS task carries an injected Envoy sidecar that resolves peer services by name. The namespace is named `${project}-${env}`, associated with the master VPC, and lives at the env tier. From inside the namespace (ECS tasks with Service Connect injected), services resolve by discoveryName alone (e.g. `myproject-prod-api`); from elsewhere in the master VPC (e.g. the EC2-traefik instance), they resolve as `<discoveryName>.<namespace>` (e.g. `myproject-prod-api.myproject-prod`) via the namespace's auto-created private hosted zone.
 
@@ -43,7 +43,7 @@ Two new things:
 
 The `name` is already `${project}-${env}` (hyphenated, mod 030). No change there.
 
-Update the leading comment block: "Service discovery — ECS Service Connect over a Cloud Map **private DNS** namespace. Per shape2.md § Elastic-Foundation, one namespace per env, associated with the master VPC. Resolvable VPC-wide so EC2-traefik (mod 044) and other non-ECS consumers can reach services by name."
+Update the leading comment block: "Service discovery — ECS Service Connect over a Cloud Map **private DNS** namespace. Per shape.md § Elastic-Foundation, one namespace per env, associated with the master VPC. Resolvable VPC-wide so EC2-traefik (mod 044) and other non-ECS consumers can reach services by name."
 
 ### `src/docex/emit/hcl.py:460`
 

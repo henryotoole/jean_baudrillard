@@ -2,7 +2,7 @@
 
 ## Problem
 
-The doctrine's elastic-foundation shape table (`shape2.md`) claims:
+The doctrine's elastic-foundation shape table (`shape.md`) claims:
 
 > service_discovery | environment | AWS Cloud Map and ECS Service Connect | Provides DNS-based name resolution for [service]s within an env, so they can reach each other by name.
 
@@ -23,7 +23,7 @@ AWS offers two paths for ECS-to-ECS service discovery:
 
 Both work. Service Connect is AWS's modern recommendation, requires less per-service HCL, and aligns with how production ECS deployments are increasingly built. **Mod 014 implements Service Connect.**
 
-The doctrine's "DNS-based" phrasing in `shape2.md` is slightly inaccurate for Service Connect (which uses an HTTP namespace, not DNS records — though it appears name-based to apps). A small doctrine clarification updates this.
+The doctrine's "DNS-based" phrasing in `shape.md` is slightly inaccurate for Service Connect (which uses an HTTP namespace, not DNS records — though it appears name-based to apps). A small doctrine clarification updates this.
 
 ### One namespace per env
 
@@ -92,7 +92,7 @@ For sidecar (internal-only) + web (internal + web): both register, both can reso
 
 ## Proposed doctrine edits
 
-Two small edits to `shape2.md`:
+Two small edits to `shape.md`:
 
 1. In the **Elastic-Foundation** table (line 59 area), update the `service_discovery` row:
 
@@ -110,7 +110,7 @@ No edits to `cicl.md`, `transfer_tables.md`, or `infrastructure.md`. The engine 
 
 | Artifact | Change |
 | -------- | ------ |
-| `doctrine/.../*.md` | `shape2.md`: two clarifications described above. |
+| `doctrine/.../*.md` | `shape.md`: two clarifications described above. |
 | `docex/plans/core/*.md` | `compiler.md`: small mention in the "env-tier HCL" lookup table or in the Worked Example section, noting Service Connect emission. |
 | `tables/*.yml` | No change. |
 | `src/docex/**` | `emit/templates/main.tf.j2`: add `aws_service_discovery_http_namespace.env` resource. `emit/hcl.py`: extend `render_task_definition` to add `name` to port mappings; extend `render_ecs_service` to emit `service_connect_configuration`. |

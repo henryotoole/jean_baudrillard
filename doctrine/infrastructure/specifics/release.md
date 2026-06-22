@@ -24,7 +24,7 @@ The control node needs **credentials** for the target. The exact form differs by
 `./bin/docex release <env>` refuses to run unless the target's prerequisite and project-tier infrastructure are in place:
 
 1. **Preinfra exists.** `./bin/docex preinfra production` must pass — the master VPC (elastic) or the production host's HAProxy + `docex-ingress` (fixed) must already be set up via the `preinfra-setup` skill.
-2. **Projinfra is applied.** `./bin/docex projinfra up production` must have completed — the project's reverse proxy, web networks, ECR repos, etc. must exist before any env-tier resources can attach to them. See [`projinfra/overview.md`](./projinfra/overview.md).
+2. **Projinfra is applied.** `./bin/docex projinfra up production` must have completed — the project's reverse proxy, web networks, ECR repos, etc. must exist before any env-tier resources can attach to them. See [`projinfra/projinfra.md`](./projinfra/projinfra.md).
 
 If either check fails, `release` exits with a clear error pointing at the missing precondition. The operator brings the missing tier up first, then re-runs release.
 
@@ -46,7 +46,7 @@ Each task uses an idempotent Ansible module (`community.docker.docker_image`, `t
 
 ### Host Preinfra Assumed
 
-The playbook does *not* set up the machine-wide HAProxy web demux or the `docex-ingress` bridge network — both are [prerequisite infrastructure](../shape2.md#fixed-foundation) on the host, shared across every fixed-foundation project. `./bin/docex preinfra production` verifies these exist before release; if it fails, set them up via the `preinfra-setup` skill before running release.
+The playbook does *not* set up the machine-wide HAProxy web demux or the `docex-ingress` bridge network — both are [prerequisite infrastructure](../shape.md#fixed-foundation) on the host, shared across every fixed-foundation project. `./bin/docex preinfra production` verifies these exist before release; if it fails, set them up via the `preinfra-setup` skill before running release.
 
 ### SSH Credentials
 
@@ -81,7 +81,7 @@ For elastic-foundation projects, `./bin/docex release <env>` performs three oper
 OpenTofu reads the emitted HCL, diffs against the current AWS state, and applies. The env-tier HCL pulls from two places:
 
 - **Preinfra** (master VPC, subnets, NAT, IGW) via tag-based data sources — see [preinfra/elastic_master_network.md](../preinfra/elastic_master_network.md).
-- **Projinfra** (Route53 zone, ACM certs, ALB or EC2-traefik, ECR repos, task-execution role) via `data "terraform_remote_state" "project"` — see [`projinfra/overview.md`](./projinfra/overview.md).
+- **Projinfra** (Route53 zone, ACM certs, ALB or EC2-traefik, ECR repos, task-execution role) via `data "terraform_remote_state" "project"` — see [`projinfra/projinfra.md`](./projinfra/projinfra.md).
 
 The env-tier resources `tofu apply` actually creates or modifies are:
 - The env's security groups (`${project}-${env}-web`, `${project}-${env}-internal`, etc.) — see [networks.md](./networks.md).

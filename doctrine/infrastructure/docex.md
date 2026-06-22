@@ -4,7 +4,7 @@ stratum: conditional
 
 # `docex` Overview
 
-`docex` is the executor of the [doctrine](../overview.md). It is a single, versioned container image that bundles all deterministic doctrine-shipped tooling - the [CICL](./cicl.md) compiler, [CI/CD](./cicd.md) actions, and any future glue - into one cohesive command-line surface. Each project pins one `docex` version, gets one `./bin/docex` shim, and never carries doctrine source code in its own repository.
+`docex` is the executor of the [doctrine](../doctrine.md). It is a single, versioned container image that bundles all deterministic doctrine-shipped tooling - the [CICL](./cicl.md) compiler, [CI/CD](./cicd.md) actions, and any future glue - into one cohesive command-line surface. Each project pins one `docex` version, gets one `./bin/docex` shim, and never carries doctrine source code in its own repository.
 
 This file clearly documents all `docex` usage and commands for two purposes:
 1. To act as the source of truth for the development of the `docex` project itself.
@@ -53,7 +53,7 @@ Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perfo
 
 ### `compile`
 `./bin/docex compile`
-Compile takes the infrastructure definition at `infra.yml` and translates it to configuration files which can be used to drive `fixed` (docker compose config) or `elastic` (HCL files) infrastructure. Everything needed to perform this translation is either set by the project in [`infra.yml`](./cicl.md#the-cicl-format) or defined by the `doctrine` in [shape](./shape2.md) and [transfer tables](./cicl.md#cicl-transfer-tables).
+Compile takes the infrastructure definition at `infra.yml` and translates it to configuration files which can be used to drive `fixed` (docker compose config) or `elastic` (HCL files) infrastructure. Everything needed to perform this translation is either set by the project in [`infra.yml`](./cicl.md#the-cicl-format) or defined by the `doctrine` in [shape](./shape.md) and [transfer tables](./cicl.md#cicl-transfer-tables).
 
 The output of this command is stored in `$pr/infra/output/${env}` on the basis of environment. All environments are compiled and placed in output every time.
 
@@ -83,7 +83,7 @@ Describes one role: its engines (and foundations), the **provided parts** that m
 `./bin/docex preinfra <side>`
 Checks that the necessary prerequisite infrastructure resources exist for this project to launch on the indicated infrastructure side. Side can be "development" or "production"; "development" will select necessary development-side infrastructure for the project's foundation and "production" will select necessary production-side infrastructure.
 
-For example, one preinfra resource needed for the `development` side is the [HAProxy web demux](./shape2.md#fixed-foundation) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
+For example, one preinfra resource needed for the `development` side is the [HAProxy web demux](./shape.md#fixed-foundation) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
 
 Command does not fix or create preinfra. It only checks status.
 
@@ -108,7 +108,7 @@ Command refuses to run with `direction="up"` if `./bin/docex preinfra <side>` fa
 - `dev`/`test`, and `stage`/`prod` on **fixed**-foundation projects: stops and removes the compose stack's containers and networks; named volumes are preserved so persistent data survives the teardown.
 - `stage`/`prod` on **elastic**-foundation projects: `tofu destroy` against the env's `infra/output/${env}/main.tf` (its ECS/RDS/SG/records). A **pre-flight scan refuses before destroying anything** if any env resource is deletion-protected (e.g. an RDS with `deletion_protection=true`), reporting the full list — `docex` never disables a protection itself; the operator does so deliberately and re-runs.
 
-**The up/down asymmetry is intentional:** bringing an env *up* needs a versioned build (so `stage`/`prod` up is `release`'s job), but teardown is build-agnostic, so `down` is uniform across all envs. See [projinfra/overview.md](./specifics/projinfra/overview.md) for the teardown ordering (envs down before `projinfra down production`).
+**The up/down asymmetry is intentional:** bringing an env *up* needs a versioned build (so `stage`/`prod` up is `release`'s job), but teardown is build-agnostic, so `down` is uniform across all envs. See [projinfra/projinfra.md](./specifics/projinfra/projinfra.md) for the teardown ordering (envs down before `projinfra down production`).
 
 ### `build`
 `./bin/docex build` to refresh `dist/` for all core services in the running dev environment.
@@ -144,7 +144,7 @@ Releases the previously-containerized build to `<env>` (typically `stage` or `pr
 
 ### `stagetest`
 `./bin/docex stagetest`
-Runs the project's staging tests against the deployed staging environment via HTTPS, from outside the env. Spawns an ephemeral container from the project's `$pr/infra/stage/Dockerfile` definition, bind-mounts the project root, injects `STAGING_URL`, and invokes `/project/infra/stage/stage_test.sh`. Tests cover deployment-shape concerns (DNS, TLS, network reachability), per-service liveness, and critical-path smoke flows. Inter-service interaction concerns are intentionally not covered here — those are caught at build-test time via contract tests. See [cicd.md](./cicd.md#staging-tests).
+Runs the project's staging tests against the deployed staging environment via HTTPS, from outside the env. Spawns an ephemeral container from the project's `$pr/infra/stage/Dockerfile` definition, bind-mounts the project root to `/project`, injects `STAGING_URL` and `PROJECT_VERSION`, and invokes `/project/infra/stage/stage_test.sh` over the host network. Tests cover deployment-shape concerns (DNS, TLS, network reachability), per-service liveness, and critical-path smoke flows. Inter-service interaction concerns are intentionally not covered here — those are caught at build-test time via contract tests. See [cicd.md](./cicd.md#staging-tests).
 
 ### `rollback`
 `./bin/docex rollback <env> <target_version>`

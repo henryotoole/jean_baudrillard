@@ -2,7 +2,7 @@
 
 The settled output of the classification pass (planner § Major Skill Refactor, step 2).
 Records *decisions*, not rationale — the strata model itself is defined canonically in
-[`doctrine/overview.md` § Strata](../../../../doctrine/overview.md) and the lexicon. This
+[`doctrine/doctrine.md` § Strata](../../../../doctrine/doctrine.md) and the lexicon. This
 file is a planning snapshot for the campaign, superseded once the skills are built.
 
 ## Status of the schematic
@@ -58,14 +58,14 @@ target of more than one skill — router+thread means skills *point at* shared f
 | Proposed skill | Target files | Existing skill |
 | --- | --- | --- |
 | **inception** | `practices/inception.md` (s) | — |
-| **infra-compile** | `cicl.md` (g+s), `specifics/transfer_tables.md` (s), `specifics/networks.md` (s), `shape2.md` (g, shared) | `docex-transfer-table` → fold into this skill |
+| **infra-compile** | `cicl.md` (g+s), `specifics/transfer_tables.md` (s), `specifics/networks.md` (s), `shape.md` (g, shared) | `docex-transfer-table` → fold into this skill |
 | **network-design** | `specifics/networks.md` (s, shared), `reasoning/ingress_and_egress.md` (why), `charts/ing.md` (diagram) | — |
 | **cicd-pipeline** (one skill — check/merge/containerize/release/stagetest/rollback/migrate) | `cicd.md` (g), `specifics/release.md` (s), `specifics/migrations.md` (s), `specifics/secrets.md` (s), `credentials.md` (g) | — |
 | **telemetry-design** | `telemetry.md` (g), `specifics/telemetry_infra.md` (s) | — |
 | **contracts** | `contracts.md` (g) — architecture-adjacent; candidate to fold into a service-design skill | — |
 | **testing** | `tests.md` (g) — architecture-adjacent | — |
-| **preinfra-setup** | `preinfra/overview.md` (g) + `container_registry.md`, `fixed_master_network.md`, `elastic_master_network.md` (g-head / s-body) + `telemetry_preinfra.md` (s) | `docex-preinfra` → retired; replaced by this skill |
-| **projinfra-setup** | `specifics/projinfra/overview.md` (g) + 8 per-resource files (s) | — (new) |
+| **preinfra-setup** | `preinfra/preinfra.md` (g) + `container_registry.md`, `fixed_master_network.md`, `elastic_master_network.md` (g-head / s-body) + `telemetry_preinfra.md` (s) | `docex-preinfra` → retired; replaced by this skill |
+| **projinfra-setup** | `specifics/projinfra/projinfra.md` (g) + 8 per-resource files (s) | — (new) |
 
 Meta-skills (not activity skills): **`cohere`**, **`skill-evaluation`**, and the
 existing **`docex-edit`** (unchanged — work on docex itself).
@@ -86,7 +86,7 @@ split but is folded in for now.
 - `cicl.md` and `specifics/transfer_tables.md` — most-referenced sinks; nearly every infra
   specific links back to them.
 - `specifics/release.md` — densest outbound node (12+ links, preinfra → projinfra → envinfra).
-- `specifics/projinfra/overview.md` and `preinfra/overview.md` — orientation entry points
+- `specifics/projinfra/projinfra.md` and `preinfra/preinfra.md` — orientation entry points
   that already route to their per-resource files (router+thread, pre-existing in prose).
 
 ## Maintenance backbone — two meta-skills

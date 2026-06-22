@@ -306,7 +306,7 @@ roles:
 			provides:
 				host:
 					fixed: "${global_service_name}"
-					elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable as-is by ECS tasks inside the namespace (via Envoy sidecar) and as `<this>.<namespace>` from elsewhere in the master VPC (via the namespace's private DNS zone). See shape2.md § Elastic-Foundation.
+					elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable as-is by ECS tasks inside the namespace (via Envoy sidecar) and as `<this>.<namespace>` from elsewhere in the master VPC (via the namespace's private DNS zone). See shape.md § Elastic-Foundation.
 				port:
 					fixed: "${port}"
 					elastic: "${port}"

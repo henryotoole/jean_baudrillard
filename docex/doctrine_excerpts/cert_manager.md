@@ -7,4 +7,4 @@ TLS certificate provisioning and rotation.
 
 Both paths satisfy the doctrinal guarantee that no project ever embeds a private key in its repo or worries about cert expiry as an operational concern.
 
-Doctrine reference: `infrastructure/shape2.md`.
+Doctrine reference: `infrastructure/shape.md`.

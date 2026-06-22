@@ -4,4 +4,4 @@ The primary discrete machine carrying a fixed-foundation project's stack. Always
 
 The doctrine commits to **one host per environment** for now. Multi-host fixed support (docker swarm or otherwise) is deferred — see `infrastructure.md` § Deferred.
 
-Doctrine reference: `infrastructure/shape2.md` § Fixed-Foundation.
+Doctrine reference: `infrastructure/shape.md` § Fixed-Foundation.

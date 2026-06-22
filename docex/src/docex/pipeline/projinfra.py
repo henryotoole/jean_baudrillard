@@ -3,7 +3,7 @@ runner. Mod 036 ships the fixed branch (per-project traefik + four
 ``-web`` networks); mods 037-039 add elastic.
 
 The doctrine-level behavior lives in
-``doctrine/infrastructure/specifics/projinfra/overview.md`` and
+``doctrine/infrastructure/specifics/projinfra/projinfra.md`` and
 ``doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md``.
 This module is the runtime wiring: ``up`` invokes
 ``docker compose -f <side>/docker-compose.yml up -d``; ``down`` refuses

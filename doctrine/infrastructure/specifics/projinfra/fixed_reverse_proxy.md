@@ -7,7 +7,7 @@ stratum: conditional
 This file describes the per-project Traefik container — the project-tier reverse proxy for any side that uses docker-compose to host envs. That covers:
 
 1. **All fixed-foundation projects** on both the development and production sides.
-2. **Elastic-foundation projects on the development side** — dev/test are always fixed-style per [shape2.md § Shape and Environment](../../shape2.md#shape-and-environment), so the dev machine of an elastic project hosts a fixed-style project traefik alongside its dev/test envs.
+2. **Elastic-foundation projects on the development side** — dev/test are always fixed-style per [shape.md § Shape and Environment](../../shape.md#shape-and-environment), so the dev machine of an elastic project hosts a fixed-style project traefik alongside its dev/test envs.
 
 This is documentation for the implementer of `docex` and the curious developer; it is not meant to be force-loaded as general doctrine context.
 
@@ -33,7 +33,7 @@ A complete fixed-side projinfra set, on either side, consists of:
 | Stage-env web network | external docker bridge network | `${project_name}-stage-web` |
 | Prod-env web network | external docker bridge network | `${project_name}-prod-web` |
 
-The traefik container joins **all four** `-web` networks plus the host-wide `docex-ingress` bridge from [preinfra](../../preinfra/fixed_master_network.md). All four `-web` networks are always present on every side, even on sides where some envs will never run — see [overview.md § Why all four `-web` networks live on every side](./overview.md#why-all-four--web-networks-live-on-every-side).
+The traefik container joins **all four** `-web` networks plus the host-wide `docex-ingress` bridge from [preinfra](../../preinfra/fixed_master_network.md). All four `-web` networks are always present on every side, even on sides where some envs will never run — see [projinfra.md § Why all four `-web` networks live on every side](./projinfra.md#why-all-four--web-networks-live-on-every-side).
 
 The `-web` networks are declared `external: true` in each env's `compose.yml` so that env-tier services can join them without ownership ambiguity — projinfra owns the network lifecycle; env compose files merely attach.
 
@@ -140,7 +140,7 @@ When the operator runs `./bin/docex projinfra down <side>`:
 - The four `-web` networks are removed (they're owned by the projinfra compose file, declared with no external owner).
 - The `${project_name}-traefik-acme` named volume is **preserved** by default (docker compose's default behavior; the volume is not part of the `down` action unless `--volumes` is passed).
 
-Projinfra refuses to run `down` if any env-tier infra is still attached to its networks — see [overview.md § `./bin/docex projinfra <direction> <side>`](./overview.md#bindocex-projinfra-direction-side).
+Projinfra refuses to run `down` if any env-tier infra is still attached to its networks — see [projinfra.md § `./bin/docex projinfra <direction> <side>`](./projinfra.md#bindocex-projinfra-direction-side).
 
 ## Failure Modes
 

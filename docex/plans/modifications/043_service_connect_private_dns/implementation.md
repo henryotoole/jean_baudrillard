@@ -7,7 +7,7 @@ You are executing mod 043. Read [`overview.md`](./overview.md) first.
 Invoke the `docex-edit` skill via Skill.
 
 Authoritative doctrine reading:
-- [`shape2.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape2.md#elastic-foundation) — the service_discovery row, especially the resolution semantics "from inside the namespace" vs "from elsewhere in the master VPC".
+- [`shape.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape.md#elastic-foundation) — the service_discovery row, especially the resolution semantics "from inside the namespace" vs "from elsewhere in the master VPC".
 
 ## Operator decisions
 
@@ -22,7 +22,7 @@ Edit `src/docex/emit/templates/main.tf.j2` lines ~108–122. Replace the existin
 ```hcl
 # ---------------------------------------------------------------------------
 # Service discovery — ECS Service Connect over a Cloud Map PRIVATE DNS
-# namespace. Per shape2.md § Elastic-Foundation, one namespace per env,
+# namespace. Per shape.md § Elastic-Foundation, one namespace per env,
 # associated with the master VPC. Auto-creates a Route53 private hosted
 # zone resolvable VPC-wide so EC2-traefik (mod 044) and other non-ECS
 # consumers can reach services by name. ECS tasks inside the namespace

@@ -4,4 +4,4 @@ The AWS account in which all elastic-foundation resources are provisioned. **Pre
 
 This isolation is deliberate. A single project per account means the project's IAM policies, billing tags, security boundaries, and audit trails are uncomplicated. When two projects need to share resources, they should do so via explicit cross-account roles, not by squeezing into the same account.
 
-Doctrine reference: `infrastructure/shape2.md` § Elastic-Foundation.
+Doctrine reference: `infrastructure/shape.md` § Elastic-Foundation.

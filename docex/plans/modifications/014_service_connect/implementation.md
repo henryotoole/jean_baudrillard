@@ -8,7 +8,7 @@ Implement ECS Service Connect for intra-env service discovery on elastic. Emit o
 
 After this mod, a `web` core service magic-ref'ing `${backing_services.sidecar.host}` resolves to `proj_stage_sidecar` (the global name), and Service Connect's injected Envoy sidecar routes the traffic to sidecar's tasks. No transfer-table changes — the existing `provides.host.elastic: "${global_service_name}"` template already produces the right value.
 
-The doctrine edits for this mod are already landed in `shape2.md`. No further doctrine edits.
+The doctrine edits for this mod are already landed in `shape.md`. No further doctrine edits.
 
 ## Step 1 — Add the namespace resource to `main.tf.j2`
 
@@ -17,7 +17,7 @@ File: `src/docex/emit/templates/main.tf.j2`. Insert a new section after the ECS 
 ```jinja
 # ---------------------------------------------------------------------------
 # Service discovery — ECS Service Connect over a Cloud Map HTTP namespace.
-# Per shape2.md § Elastic-Foundation, one namespace per env. Services
+# Per shape.md § Elastic-Foundation, one namespace per env. Services
 # register themselves via service_connect_configuration on aws_ecs_service.
 # ---------------------------------------------------------------------------
 resource "aws_service_discovery_http_namespace" "env" {

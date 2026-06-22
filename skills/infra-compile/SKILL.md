@@ -15,7 +15,7 @@ What you are authoring and what it compiles toward. **Read these now.**
 
 [`cicl.md`](../../doctrine/infrastructure/cicl.md) — the CICL format: services, fields, magic refs, networks, domains, and validation rules. The language `infra.yml` is written in.
 
-[`shape2.md`](../../doctrine/infrastructure/shape2.md) — the fixed and elastic infrastructure shapes your `infra.yml` resolves into; the topology you are designing toward.
+[`shape.md`](../../doctrine/infrastructure/shape.md) — the fixed and elastic infrastructure shapes your `infra.yml` resolves into; the topology you are designing toward.
 
 ## Specific Information
 

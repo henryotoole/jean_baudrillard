@@ -55,7 +55,7 @@ Staging tests verify that a deployed release functions correctly on its infrastr
 
 Staging tests should at least perform the following:
 + Liveness Checks - Each core service responds to its [health-check endpoint](./contracts.md#health-checks).
-+ TLS / DNS - Can requests reach the [reverse proxy](./shape2.md#general)
++ TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)
 + Critical-path smoke-tests - one or two end-to-end smoke tests that span the system. These should be sufficient to ensure:
 	1. Secrets and environmental variables are wired up properly.
 	2. Services can actually reach each other over the network.

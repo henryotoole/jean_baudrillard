@@ -19,7 +19,7 @@ Everything below is keyed to the doctrine as it currently sits in the working tr
 
 The "shape" of both foundations has changed substantially. Old shape: per-project VPC on elastic, machine-wide traefik on fixed. New shape: single shared master network on both, with per-project reverse proxies hanging off it.
 
-**Elastic — new shape** (see [`shape2.md § Elastic-Foundation`](../../../doctrine/infrastructure/shape2.md#elastic-foundation), [`preinfra/elastic_master_network.md`](../../../doctrine/infrastructure/preinfra/elastic_master_network.md), [`reasoning/ingress_and_egress.md`](../../../doctrine/infrastructure/reasoning/ingress_and_egress.md)):
+**Elastic — new shape** (see [`shape.md § Elastic-Foundation`](../../../doctrine/infrastructure/shape.md#elastic-foundation), [`preinfra/elastic_master_network.md`](../../../doctrine/infrastructure/preinfra/elastic_master_network.md), [`reasoning/ingress_and_egress.md`](../../../doctrine/infrastructure/reasoning/ingress_and_egress.md)):
 
 - **One shared master VPC** across all projects in an AWS account. Contains the IGW, a single shared NAT gateway, and four subnets (public/private × two AZs). This is **preinfra**, not project-tier — `docex` does not create it.
 - **Centralized egress**: the single NAT gateway serves every project. No more per-project NAT, no more per-project EIP from the finite pool.
@@ -32,7 +32,7 @@ The "shape" of both foundations has changed substantially. Old shape: per-projec
 - **Single AZ commitment**. `us-east-1a` is the primary AZ across all projects. Secondary-AZ subnets exist only to satisfy AWS's two-AZ requirements for ALB and RDS; they're unused in practice.
 - **Service Connect**: now uses a Cloud Map **private DNS** namespace (was HTTP), named `${project}-${env}` (hyphen, was underscore). Resolvable as `<discoveryName>` from inside a task, `<discoveryName>.<namespace>` from elsewhere in the master VPC.
 
-**Fixed — new shape** (see [`shape2.md § Fixed-Foundation`](../../../doctrine/infrastructure/shape2.md#fixed-foundation), [`preinfra/fixed_master_network.md`](../../../doctrine/infrastructure/preinfra/fixed_master_network.md), [`projinfra/fixed_reverse_proxy.md`](../../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md)):
+**Fixed — new shape** (see [`shape.md § Fixed-Foundation`](../../../doctrine/infrastructure/shape.md#fixed-foundation), [`preinfra/fixed_master_network.md`](../../../doctrine/infrastructure/preinfra/fixed_master_network.md), [`projinfra/fixed_reverse_proxy.md`](../../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md)):
 
 - **Machine-wide traefik is gone.** Replaced by a **`web_demux` HAProxy** on the host's 443/80 ports — preinfra — that does SNI routing (443) and HTTP routing (80) to the right *per-project* traefik based on the request's domain.
 - **Per-project traefik** (`${project_name}-traefik`) is now project-tier. One traefik container per project per side, in the project's projinfra compose stack. Terminates TLS via Let's Encrypt (DNS-01 preferred, HTTP-01 fallback). Joins the host-wide `docex-ingress` bridge plus all four of the project's `-web` networks.
@@ -112,9 +112,9 @@ infra/output/
         └── main.tf                    # elastic projects
 ```
 
-Both sides emit on **every** project regardless of foundation. An elastic project still emits `infra/output/project/development/docker-compose.yml` (for the operator's dev machine). All four `-web` networks are emitted on every side regardless of which envs that side hosts — see [`projinfra/overview.md § Why all four -web networks live on every side`](../../../doctrine/infrastructure/specifics/projinfra/overview.md#why-all-four--web-networks-live-on-every-side).
+Both sides emit on **every** project regardless of foundation. An elastic project still emits `infra/output/project/development/docker-compose.yml` (for the operator's dev machine). All four `-web` networks are emitted on every side regardless of which envs that side hosts — see [`projinfra/projinfra.md § Why all four -web networks live on every side`](../../../doctrine/infrastructure/specifics/projinfra/projinfra.md#why-all-four--web-networks-live-on-every-side).
 
-**Specifics folder restructure** (see [`projinfra/overview.md`](../../../doctrine/infrastructure/specifics/projinfra/overview.md), [`preinfra/overview.md`](../../../doctrine/infrastructure/preinfra/overview.md)):
+**Specifics folder restructure** (see [`projinfra/projinfra.md`](../../../doctrine/infrastructure/specifics/projinfra/projinfra.md), [`preinfra/preinfra.md`](../../../doctrine/infrastructure/preinfra/preinfra.md)):
 
 - Old `doctrine/infrastructure/prereq/` → **renamed and expanded** to `doctrine/infrastructure/preinfra/`. Now contains per-resource files (master networks, container registry, telemetry preinfra).
 - New folder `doctrine/infrastructure/specifics/projinfra/` — one file per project-tier resource, mirroring the `preinfra/` shape.
@@ -135,7 +135,7 @@ Both sides emit on **every** project regardless of foundation. An elastic projec
 - ECR repos moved from env-tier to **project-tier** (one per core service, shared across envs). See [`projinfra/elastic_ecr.md`](../../../doctrine/infrastructure/specifics/projinfra/elastic_ecr.md).
 - Route53 zone, ACM certs, OpenTofu state backend (S3 + DDB) are all confirmed project-tier in the new `projinfra/` files. The state backend is the **one** project-tier resource still created directly via the AWS API (because `tofu` can't create the thing it needs to track itself).
 
-**Two-phase elastic projinfra apply** (see [`projinfra/overview.md § Two-Phase Production-Side Apply (Elastic)`](../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md#two-phase-apply-rationale) and [`projinfra/elastic_route53_zone.md`](../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md)):
+**Two-phase elastic projinfra apply** (see [`projinfra/projinfra.md § Two-Phase Production-Side Apply (Elastic)`](../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md#two-phase-apply-rationale) and [`projinfra/elastic_route53_zone.md`](../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md)):
 
 - Same two-phase NS-delegation pause as the old `bootstrap`. First invocation runs `tofu apply -target=aws_route53_zone.project`, prints the NS records, exits. Operator NS-delegates at the registrar. Second invocation runs untargeted `tofu apply`.
 - Phase detection from `tofu state list`, not separate persisted state.
@@ -154,12 +154,12 @@ Both sides emit on **every** project regardless of foundation. An elastic projec
 
 | Path | Purpose |
 | ---- | ------- |
-| `doctrine/infrastructure/preinfra/overview.md` | Preinfra tier overview, pointer to per-resource files |
+| `doctrine/infrastructure/preinfra/preinfra.md` | Preinfra tier overview, pointer to per-resource files |
 | `doctrine/infrastructure/preinfra/fixed_master_network.md` | HAProxy `web_demux` + `docex-ingress` bridge — fixed-side preinfra |
 | `doctrine/infrastructure/preinfra/elastic_master_network.md` | Master VPC + IGW + NAT + four subnets — elastic preinfra |
 | `doctrine/infrastructure/preinfra/container_registry.md` | Docker Registry V2 setup — fixed preinfra |
 | `doctrine/infrastructure/preinfra/telemetry_preinfra.md` | HyperDX setup (moved from `prereq/`, updated for new preinfra terms) |
-| `doctrine/infrastructure/specifics/projinfra/overview.md` | Project-tier overview, four-cell `(foundation × side)` matrix, `projinfra` command behavior |
+| `doctrine/infrastructure/specifics/projinfra/projinfra.md` | Project-tier overview, four-cell `(foundation × side)` matrix, `projinfra` command behavior |
 | `doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md` | Per-project traefik + four `-web` networks; applies to fixed everywhere and elastic dev-side |
 | `doctrine/infrastructure/specifics/projinfra/elastic_state_backend.md` | S3 + DynamoDB for OpenTofu state. Created directly via AWS API |
 | `doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md` | Route53 zone, NS delegation, **two-phase apply rationale lives here** |
@@ -178,7 +178,7 @@ Both sides emit on **every** project regardless of foundation. An elastic projec
 
 | Path | Reason |
 | ---- | ------ |
-| `doctrine/infrastructure/prereq/overview.md` | Replaced by `preinfra/overview.md` |
+| `doctrine/infrastructure/prereq/overview.md` | Replaced by `preinfra/preinfra.md` |
 | `doctrine/infrastructure/prereq/telemetry_preinfra.md` | Moved to `preinfra/telemetry_preinfra.md` |
 | `doctrine/infrastructure/specifics/elastic_bootstrap.md` | Dissolved into `projinfra/elastic_*.md` |
 | `doctrine/infrastructure/specifics/release_mechanism.md` | Split into `release.md` + `secrets.md` + `migrations.md` |
@@ -189,7 +189,7 @@ Both sides emit on **every** project regardless of foundation. An elastic projec
 | ---- | ------------ |
 | `doctrine/lexicon.md` | Added `Prerequisite Infrastructure`, `Project Infrastructure`, `Environment Infrastructure`, `Infrastructure Side`, `Apex Domain`, `Master Network` |
 | `doctrine/infrastructure/infrastructure.md` | Tier definitions rewritten; **new "Infrastructure Sides" section**; new "Networking" section (ingress / egress); compiler-output paragraph updated; minor wording on `migrate.sh` ("only if needed") |
-| `doctrine/infrastructure/shape2.md` | Both foundation tables rewritten — most ingress/egress / network / reverse-proxy / cert-manager rows changed tier, mechanism, or both. `[master_network]`, `[nat_gateway]`, `[web_demux]`, `[web_network]`, `[internal_network]` are new resource handles. Concrete example fully rewritten |
+| `doctrine/infrastructure/shape.md` | Both foundation tables rewritten — most ingress/egress / network / reverse-proxy / cert-manager rows changed tier, mechanism, or both. `[master_network]`, `[nat_gateway]`, `[web_demux]`, `[web_network]`, `[internal_network]` are new resource handles. Concrete example fully rewritten |
 | `doctrine/infrastructure/cicl.md` | `domain:` → `apex_domain:`. Domain section rewritten with new canonical form + bare-form rules + TLS-implications subsection. `reverse_proxy:` field added. `reverse_proxy` role removed from example. `DATABASE_SSLMODE` added as a provided part. Validation rules renumbered, several new rules. Compiler-output section rewritten for new tier/side layout. Fargate tier rounding formalized |
 | `doctrine/infrastructure/docex.md` | Command surface rewritten: `bootstrap` removed; `up`/`down` merged into `envinfra`; `preinfra` + `projinfra` + `migrate` added. Internal pointers updated to `release.md` / `migrations.md` |
 | `doctrine/infrastructure/cicd.md` | `up` → `envinfra up` references throughout. Containerize step gained doctrine prose for the per-invocation `docker login` (fixed vs elastic uniformity). Pointer updates from `release_mechanism.md` → `release.md` and `migrations.md` |
@@ -208,7 +208,7 @@ Both sides emit on **every** project regardless of foundation. An elastic projec
 
 A few things in the doctrine are explicitly marked as `TODO` or surface gaps the new doctrine acknowledges but doesn't fix:
 
-- [`docex.md § projinfra`](../../../doctrine/infrastructure/docex.md#projinfra) has two TODOs: deeper foundation-specific behavior, and the two-step elastic flow when NS delegation hasn't yet been performed. The behavior is fully described in [`projinfra/overview.md`](../../../doctrine/infrastructure/specifics/projinfra/overview.md) and [`projinfra/elastic_route53_zone.md`](../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md); the TODOs are doctrine-prose follow-ups, not implementation gaps.
+- [`docex.md § projinfra`](../../../doctrine/infrastructure/docex.md#projinfra) has two TODOs: deeper foundation-specific behavior, and the two-step elastic flow when NS delegation hasn't yet been performed. The behavior is fully described in [`projinfra/projinfra.md`](../../../doctrine/infrastructure/specifics/projinfra/projinfra.md) and [`projinfra/elastic_route53_zone.md`](../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md); the TODOs are doctrine-prose follow-ups, not implementation gaps.
 - [`preinfra/fixed_master_network.md`](../../../doctrine/infrastructure/preinfra/fixed_master_network.md) has TODO blocks under "Implementation" and "Setup Instructions" — to be filled in after the operator runs the new fixed master setup for the first time.
 - [`preinfra/elastic_master_network.md`](../../../doctrine/infrastructure/preinfra/elastic_master_network.md) is similarly thin — explicit TODO to flesh out post-first-setup.
 - Old open items still apply: no externally-rotated secrets, single-machine fixed only (no multi-host swarm yet), no path-based ALB routing, no automatic CI/CD triggers.
@@ -222,7 +222,7 @@ If you're going to drive a `docex` campaign from this, the doctrine reading orde
 1. **The two driving briefs** in `engineer/tmp/` (the design intent before the doctrine prose was finalized).
 2. **`lexicon.md`** — the new vocabulary (preinfra/projinfra/envinfra, side, apex domain, master network).
 3. **`infrastructure.md`** — Infrastructure Tiers + Infrastructure Sides + Networking sections. This is the conceptual spine.
-4. **`shape2.md`** — both foundation tables, then the concrete example. This is where the new shape actually lives.
+4. **`shape.md`** — both foundation tables, then the concrete example. This is where the new shape actually lives.
 5. **`cicl.md`** — the new `infra.yml` surface. Domain section, reverse_proxy field, validation rules, compiler output, fargate tier rounding.
 6. **`docex.md`** — the new command surface.
 7. **`preinfra/`** — what `docex` does *not* manage but does check for.

@@ -26,7 +26,7 @@ The state backend is the **only** project-tier resource not created by `tofu app
 
 Within the bucket, state files are organized by tier:
 
-- `project/terraform.tfstate` — project-tier state (everything described in [overview.md § Elastic × Production](./overview.md#elastic--production)).
+- `project/terraform.tfstate` — project-tier state (everything described in [projinfra.md § Elastic × Production](./projinfra.md#elastic--production)).
 - `stage/terraform.tfstate` — stage env-tier state.
 - `prod/terraform.tfstate` — prod env-tier state.
 

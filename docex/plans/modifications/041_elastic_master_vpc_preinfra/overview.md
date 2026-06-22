@@ -4,7 +4,7 @@ Twelfth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_over
 
 ## The Doctrine Change
 
-From [`shape2.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape2.md#elastic-foundation) and [`preinfra/elastic_master_network.md`](../../../../doctrine/infrastructure/preinfra/elastic_master_network.md):
+From [`shape.md § Elastic-Foundation`](../../../../doctrine/infrastructure/shape.md#elastic-foundation) and [`preinfra/elastic_master_network.md`](../../../../doctrine/infrastructure/preinfra/elastic_master_network.md):
 
 > Master VPC: A master VPC shared by all projects. Contains centralized IGW, NAT, and four subnets: a public-private pair in the default AZ and a redundant public-private pair in a secondary AZ. The redundant pair is included only to satisfy the two-AZ requirement.
 

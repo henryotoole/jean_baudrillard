@@ -4,7 +4,7 @@ stratum: conditional
 
 # Container Registry
 
-For `fixed`-foundation projects, the [doctrine](../shape2.md#fixed-foundation) commits to a self-hosted container registry as prerequisite infrastructure. One registry instance serves every `fixed` project on the host: each project's `infra.yml` simply points its `container_registry` field at the registry's URL, and the `containerize` step pushes images to a project-namespaced path within it.
+For `fixed`-foundation projects, the [doctrine](../shape.md#fixed-foundation) commits to a self-hosted container registry as prerequisite infrastructure. One registry instance serves every `fixed` project on the host: each project's `infra.yml` simply points its `container_registry` field at the registry's URL, and the `containerize` step pushes images to a project-namespaced path within it.
 
 `elastic`-foundation projects do not use this preinfra — they use AWS ECR, which is project-tier infra provisioned by [`./bin/docex projinfra up production`](../specifics/projinfra/elastic_ecr.md). This document covers only the `fixed` case.
 
