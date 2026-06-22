@@ -40,6 +40,14 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- `.gitignore` defaults (inception flow) extended with `.docex/`, a Python
+  bytecode + tool-cache block, editor/IDE and `*.log` noise, and a note to add
+  language-specific patterns per stack; `.terraform.lock.hcl` is documented as
+  committed (not ignored), matching the determinism promise. The two smoke-test
+  seed `.gitignore`s were reconciled to the new default (dropping a stale comment
+  and the elastic seed's erroneous lock-file ignore). Doctrine-side change lives
+  in `inception.md`; `docex` carries only the seed reconciliation. Mod 056.
+
 - The `test` env is no longer routed by traefik: its `web`-network services emit
   no traefik discovery labels (no router, no `tls`, no `certresolver`), so the
   project traefik never requests LE certs for `test` hostnames nobody browses

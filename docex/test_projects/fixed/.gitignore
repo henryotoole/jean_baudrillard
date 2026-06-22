@@ -1,11 +1,16 @@
 # Build artifacts (dev-iteration only; prod artifacts live inside images)
 core/*/dist/
 
-# OpenTofu local state and plan files
-# (state itself is remote per elastic_bootstrap, but the directory and lock files are local)
+# OpenTofu local state and plan files (state is remote per
+# projinfra/elastic_state_backend; .terraform/, plans, and state are local.
+# .terraform.lock.hcl is NOT ignored — the provider lock is committed, which
+# the doctrine's determinism promise wants.)
 infra/output/**/.terraform/
 infra/output/**/*.tfplan
 infra/output/**/*.tfstate*
+
+# docex ephemeral git worktrees
+.docex/
 
 # Secrets — ignore env files; allow the example template
 infra/secrets/*
@@ -19,12 +24,21 @@ infra/deploy_creds/*
 !infra/deploy_creds/README.md
 !infra/deploy_creds/*.pub
 
-# Docex ephemeral worktrees
-.docex/
-
-# Python bytecode caches
+# Python bytecode + tool caches
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editor / IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
 
 # OS noise
 .DS_Store

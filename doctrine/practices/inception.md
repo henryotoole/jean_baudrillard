@@ -117,11 +117,16 @@ After doing a production release for the first time, any barriers will be overco
 # Build artifacts (dev-iteration only; prod artifacts live inside images)
 core/*/dist/
 
-# OpenTofu local state and plan files
-# (state itself is remote per projinfra/elastic_state_backend, but the directory and lock files are local)
+# OpenTofu local state and plan files (state is remote per
+# projinfra/elastic_state_backend; .terraform/, plans, and state are local.
+# .terraform.lock.hcl is NOT ignored — the provider lock is committed, which
+# the doctrine's determinism promise wants.)
 infra/output/**/.terraform/
 infra/output/**/*.tfplan
 infra/output/**/*.tfstate*
+
+# docex ephemeral git worktrees
+.docex/
 
 # Secrets — ignore env files; allow the example template
 infra/secrets/*
@@ -135,10 +140,31 @@ infra/deploy_creds/*
 !infra/deploy_creds/README.md
 !infra/deploy_creds/*.pub
 
+# Python bytecode + tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editor / IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
 # OS noise
 .DS_Store
 Thumbs.db
 ```
+
+The block above covers Python (docex's own language and a common project choice)
+plus universal editor/OS noise. Projects add language-specific artifact patterns
+for their stack as needed — e.g. `node_modules/` (Node), `target/` (Rust/Cargo),
+`bin/` (Go).
 
 ### Infra `.gitignore` Files
 One file to apply to both `secrets` and `deploy_creds`.
