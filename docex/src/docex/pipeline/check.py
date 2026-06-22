@@ -448,10 +448,18 @@ def _gate_healthcheck_tooling(
     it builds each qualifying service's ``prod``-target image and runs
     ``command -v curl`` inside it.
 
-    Scope is exactly the services on the ``web`` network that declare
-    ``health_check_path`` — a port-less worker with no healthcheck needs no
-    curl. See ``contracts.md § Health Checks`` and
-    ``infrastructure.md § Healthcheck Tooling Requirement``.
+    Scope is every core service that declares ``health_check_path`` —
+    **regardless of network membership**, per ``infrastructure.md``'s "any
+    core service that declares a ``health_check_path`` must carry ``curl``."
+    The curl need follows the field, not the ``web`` network: the compiler
+    emits the curl healthcheck whenever ``health_check_path`` is set (mod 059
+    confirmed a ``web``-role service on a non-``web`` network still gets it),
+    and a curl-less healthcheck marks the container ``unhealthy`` — which drops
+    the Traefik route for a ``web`` service AND breaks any
+    ``depends_on: service_healthy`` waiting on a non-``web`` one. A service that
+    declares no ``health_check_path`` (e.g. a port-less worker) needs no curl.
+    See ``contracts.md § Health Checks`` and ``infrastructure.md § Healthcheck
+    Tooling Requirement``.
     """
     infra = ctx.infra
     if infra is None:
@@ -461,11 +469,13 @@ def _gate_healthcheck_tooling(
     qualifying: list[str] = []
     for name in sorted(infra.core_services):
         svc = infra.core_services[name]
-        on_web = "web" in (svc.networks or [])
         # ``extra="allow"`` on the model surfaces role fields like
-        # ``health_check_path`` as attributes; absent ⇒ None.
+        # ``health_check_path`` as attributes; absent ⇒ None. Only ``role: web``
+        # declares the field, but such a service may sit on a non-``web``
+        # network and still get the curl healthcheck — so do NOT filter on web
+        # membership (mod 059).
         declares_hc = getattr(svc, "health_check_path", None) is not None
-        if on_web and declares_hc:
+        if declares_hc:
             qualifying.append(name)
 
     if not qualifying:

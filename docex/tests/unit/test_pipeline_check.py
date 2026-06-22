@@ -230,15 +230,19 @@ def test_check_happy_path_aggregates_all_passing(
 # ---------------------------------------------------------------------------
 
 
-def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False):
+def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False, worker_hc=False):
     """Build a ProjectContext whose `api` web service declares
-    `health_check_path`. Optionally add a port-less, non-web worker that
-    must be skipped by the gate."""
+    `health_check_path`. Optionally add a non-web `worker` that the gate
+    must skip (no `health_check_path`) or, with ``worker_hc``, one that
+    declares `health_check_path` on a non-`web` network — which the gate
+    must STILL check (mod 059)."""
     from docex.context import load_project_context
 
     root = tmp_path / "hcproj"
     (root / "infra").mkdir(parents=True)
     (root / "core" / "api").mkdir(parents=True)
+    if extra_worker:
+        (root / "core" / "worker").mkdir(parents=True)
     (root / "bin").mkdir(parents=True)
     (root / "project.yml").write_text(
         'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
@@ -248,7 +252,9 @@ def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False):
         "  worker:\n"
         "    role: web\n"
         "    networks: [internal]\n"
-        "    resources:\n"
+        + ("    port: 9090\n" if worker_hc else "")
+        + ("    health_check_path: /health\n" if worker_hc else "")
+        + "    resources:\n"
         "      cpu: 0.5\n"
         "      memory: 512MB\n"
         "      disk: 1GB\n"
@@ -319,6 +325,26 @@ def test_hcgate_skips_services_without_health_check_path(fake_docker, tmp_path):
     assert "nothing to check" in res.detail
     # No image build attempted.
     assert not any(c[0] == "build_image" for c in fake_docker.calls)
+
+
+def test_hcgate_checks_nonweb_health_check_path_service(fake_docker, tmp_path):
+    # Mod 059: a `role: web` service on a NON-`web` network that declares
+    # `health_check_path` still gets a curl healthcheck emitted, so the gate
+    # must build+probe it even though it is not web-routed. Previously the
+    # `on_web` filter skipped it.
+    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
+
+    ctx, root = _hc_ctx(tmp_path, web_with_hc=False, extra_worker=True, worker_hc=True)
+    report = CheckReport()
+    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
+
+    res = next(r for r in report.results if r.name == "healthcheck_tooling")
+    assert res.passed, res.detail
+    # The gate built + probed the non-web worker, not just web services.
+    assert (
+        "build_image", str(root / "core" / "worker"), "prod",
+        "docex-hcgate-worker:check",
+    ) in fake_docker.calls
 
 
 def test_hcgate_reports_build_failure(fake_docker, tmp_path):

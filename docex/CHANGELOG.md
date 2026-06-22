@@ -40,6 +40,15 @@ first post-`0.4.0` overhaul.
 
 ### Fixed
 
+- `docex check`'s curl gate (`_gate_healthcheck_tooling`) now covers **every**
+  core service that declares `health_check_path`, not only those on the `web`
+  network. A `role: web` service on a non-`web` network (e.g. `[internal]`) still
+  gets a `curl` Docker healthcheck emitted; the old `on_web` filter skipped it,
+  so a curl-less such image escaped the gate and would mark itself `unhealthy` at
+  runtime (breaking any `depends_on: service_healthy` on it). Now matches
+  `infrastructure.md`'s "any core service that declares a `health_check_path`."
+  Doctrine was already correct; this is a code-scope fix. Mod 059.
+
 - Fixed-foundation `web_demux` (HAProxy) now routes projects on **multi-label
   TLDs** (`.co.uk`, `.com.au`, …). The SNI/Host → project parse was 3rd-from-last
   label, correct only for single-label TLDs; it is now Public Suffix List-aware
