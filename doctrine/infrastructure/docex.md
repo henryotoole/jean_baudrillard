@@ -85,6 +85,8 @@ Checks that the necessary prerequisite infrastructure resources exist for this p
 
 For example, one preinfra resource needed for the `development` side is the [HAProxy web demux](./shape.md#fixed-foundation) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
 
+The `development` side additionally verifies that each `dev` `web`-service hostname resolves in public DNS. Bringing `dev` up issues per-host Let's Encrypt certs via HTTP-01; if the hostnames don't resolve, every challenge fails and trips LE's failed-authorization rate limit (which then blocks legitimate issuance). Failing the check here — before `envinfra up dev` — surfaces missing dev DNS as an actionable preinfra gap instead of a rate-limit lockout. The operator routes `dev` DNS per [inception.md PART III](../practices/inception.md); `test` is excluded since it is not accessed over TLS.
+
 Command does not fix or create preinfra. It only checks status.
 
 ### `projinfra`

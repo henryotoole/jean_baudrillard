@@ -121,6 +121,20 @@ We define some arbitrary but hard rules for these infra files in order to reduce
 	+ For example, a core service needs a bucket name. This name will be interpolated from the object store backing service name, the environment name, and the project name.
 2. Services communicate over URLs, and those URLs are built from provided fields (host, port, etc.) at startup.
 
+### Naming and Tagging
+
+Consistent naming and tagging conventions are employed wherever possible to ensure infrastructure is easy to find and identify.
+
+#### Fixed Foundation
+
+For `fixed`-foundation infrastructure resources, there are no tags. Naming standards to:
+1. Docker networks: `${project_name}-${env_name}-${network_definition_name}`
+2. Docker containers `${project}-${env}-${service}`
+
+#### Elastic Foundation
+
+In the elastic foundation, tags can be used and the naming / tagging convention is a little more rigorous.
+
 ### Domain
 
 The anatomy of a project's domain is rigidly defined and critical to the "just works" nature of CICL machinery. A full domain describes a specific service container uniquely across all projects. The form is:
@@ -146,6 +160,8 @@ The "bare project" domain is useful for user URL ergonomics - `<project_name>.<a
 #### TLS Implications
 
 This complex and subdomain-heavy structure does have implications for SSL certificates.
+
+TLS is only maintained for the `dev`, `stage`, and `prod` env-domains. The `test` env is not accessed via SSL in practice.
 
 ##### Elastic TLS
 

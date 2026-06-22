@@ -61,10 +61,11 @@ All these core planning docs are driven by `masterplan.md`. They "unpack" those 
 
 __PART III__: Infrastructure Smoke Test
 1. Make a commit with the message "Inception Part II: design complete."
-2. Verify development preinfra exists with `./bin/docex preinfra development`
+2. Route DNS to `dev`, either with registrar DNS or Route53 depending on what is appropriate.
+3. Verify development preinfra exists with `./bin/docex preinfra development`
 	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
-3. Write `infra.yml` to reflect the needs of the core planning docs.
-4. Create the core service folders in `$pr/core` and the infrastructural concerns within each:
+4. Write `infra.yml` to reflect the needs of the core planning docs.
+5. Create the core service folders in `$pr/core` and the infrastructural concerns within each:
 	1. A Dockerfile that defines the environment.
 		+ These don't need to be perfect. At this stage, we only know what the core services are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.
 	2. `dist`, `src`, and `tests` folders.
@@ -73,14 +74,15 @@ __PART III__: Infrastructure Smoke Test
 		+ These can be empty, they must merely exist.
 	4. If this core service owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
 		+ These can be empty, they must merely exist.
-5. Compile `infra.yml`.
+6. Compile `infra.yml`.
 	+ This will produce `example.env`
-6. Write `dev.env` and `test.env` using `example.env` as a template.
+7. Write `dev.env` and `test.env` using `example.env` as a template.
 	+ You will need the values for these vars and secrets. For some, you might need to ask the operator.
-7. Bring the `dev` environment up to smoke test that the infrastructure works.
+8. Bring project  infrastructure online with `./bin/docex projinfra up development`
+9. Bring the `dev` environment up to smoke test that the infrastructure works.
 	1. Check that the environment comes up without error.
-8. Take the `dev` environment back down.
-9. Make a commit with the message "Inception Part III: infrastructure smoke tested"
+10. Take the `dev` environment back down.
+11. Make a commit with the message "Inception Part III: infrastructure smoke tested"
 
 __PART IV__: First Draft
 The project has been set up and has a `dev` and `test` env that work. The next step is the "first draft" of the project where the initial design state is implemented. This will be done in one or more [modification](./modifications.md) cycles.
