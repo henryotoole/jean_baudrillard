@@ -121,3 +121,24 @@ def test_migrate_dev_short_circuits_on_failure(sample_ctx, fake_docker):
 def test_migrate_rejects_unknown_env(sample_ctx, fake_docker):
     with pytest.raises(EnvNotSupported):
         run_migrate(sample_ctx, fake_docker, env="bogus")
+
+
+def test_migrate_vpc_lookup_uses_same_semantic_tags_as_preinfra():
+    """Mod 060 regression (1.2.0 elastic smoke walk): the elastic migrate
+    RunTask discovers the master VPC by the SAME semantic identity tags the
+    preinfra check and the project.tf.j2 data source use. The 1.2.0 walk
+    caught this filter drifting (migrate still used the pre-mod-060
+    Name=docex-master-vpc / managed_by=docex-preinfra tags). Lock the three
+    filters to one source so they can't diverge again."""
+    from docex.orchestrate import migrate as _migrate
+    from docex.pipeline import preinfra as _preinfra
+
+    # Single source of truth — same object, not a copy.
+    assert _migrate._MASTER_VPC_TAGS is _preinfra._MASTER_VPC_TAGS
+    # The new semantic scheme, not the retired one.
+    assert _migrate._MASTER_VPC_TAGS == {
+        "managed_by": "doctrine-operator",
+        "infra_tier": "prerequisite",
+        "shape_name": "master_network",
+    }
+    assert "Name" not in _migrate._MASTER_VPC_TAGS

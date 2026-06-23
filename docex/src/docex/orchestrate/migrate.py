@@ -32,6 +32,18 @@ from docex.orchestrate._common import (
     services_with_schema,
 )
 
+# Mod 060: single source of truth for the master-VPC identity tags. The
+# migrate RunTask discovers the VPC by the SAME semantic tags the preinfra
+# check and the project.tf.j2 data source use — importing rather than
+# re-declaring so the three filters can never drift apart again (the drift
+# that the 1.2.0 elastic smoke walk caught here).
+from docex.pipeline.preinfra import _MASTER_VPC_TAGS
+
+_MASTER_VPC_NOT_FOUND = (
+    "no master VPC found in account (expected the preinfra identity tags "
+    f"{_MASTER_VPC_TAGS}). Stand it up per `elastic_master_network.md`."
+)
+
 
 _FIXED_ENVS = ("dev", "test")
 
@@ -270,16 +282,18 @@ def _migrate_elastic(
 def _lookup_master_vpc(aws: AWSClient) -> str:
     """Resolve the shared master VPC's ID.
 
-    Per mod 041, every elastic project lives in a shared master VPC
-    tagged ``Name=docex-master-vpc`` + ``managed_by=docex-preinfra``.
-    The migration RunTask needs that VPC ID to launch the task into the
-    project's private subnets — same VPC the compiled HCL data-sources
-    via ``data.aws_vpc.master``.
+    Every elastic project lives in a shared master VPC. The migration
+    RunTask needs that VPC ID to launch the task into the project's
+    private subnets — same VPC the compiled HCL data-sources via
+    ``data.aws_vpc.master``.
 
-    Mod 047: this function replaces the pre-mod-041
-    ``_lookup_project_vpc`` (which filtered by ``tag:project=<name>``
-    when projects had their own VPCs). The function shape stays
-    parallel; the test fakes are updated to expose ``lookup_master_vpc``.
+    Mod 060: the VPC is discovered by the **semantic identity tags** from
+    ``cicl.md § Naming and Tagging`` (the preinfra block) —
+    ``managed_by=doctrine-operator`` + ``infra_tier=prerequisite`` +
+    ``shape_name=master_network`` — NOT the redundant console-only
+    ``Name``. This MUST match ``pipeline/preinfra.py``'s
+    ``_MASTER_VPC_TAGS`` and the ``data "aws_vpc" "master"`` filter in
+    ``templates/project.tf.j2``; all three are the same contract.
     """
     if hasattr(aws, "lookup_master_vpc"):
         return aws.lookup_master_vpc()  # type: ignore[attr-defined]
@@ -288,29 +302,21 @@ def _lookup_master_vpc(aws: AWSClient) -> str:
     # the AWSClient protocol, this method can switch to that uniformly.
     if hasattr(aws, "find_vpc_by_tags"):
         vpc_id = aws.find_vpc_by_tags(  # type: ignore[attr-defined]
-            {"Name": "docex-master-vpc", "managed_by": "docex-preinfra"}
+            _MASTER_VPC_TAGS
         )
         if vpc_id is None:
-            raise ECSTaskFailed(
-                "no master VPC found in account (expected tags "
-                "Name=docex-master-vpc, managed_by=docex-preinfra). "
-                "Stand it up per `elastic_master_network.md`."
-            )
+            raise ECSTaskFailed(_MASTER_VPC_NOT_FOUND)
         return vpc_id
     ec2 = aws._client("ec2")  # type: ignore[attr-defined]
     resp = ec2.describe_vpcs(
         Filters=[
-            {"Name": "tag:Name", "Values": ["docex-master-vpc"]},
-            {"Name": "tag:managed_by", "Values": ["docex-preinfra"]},
+            {"Name": f"tag:{k}", "Values": [v]}
+            for k, v in _MASTER_VPC_TAGS.items()
         ]
     )
     vpcs = resp.get("Vpcs", [])
     if not vpcs:
-        raise ECSTaskFailed(
-            "no master VPC found in account (expected tags "
-            "Name=docex-master-vpc, managed_by=docex-preinfra). "
-            "Stand it up per `elastic_master_network.md`."
-        )
+        raise ECSTaskFailed(_MASTER_VPC_NOT_FOUND)
     return str(vpcs[0]["VpcId"])
 
 

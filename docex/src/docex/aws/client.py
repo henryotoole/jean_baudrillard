@@ -269,9 +269,11 @@ class AWSClient(Protocol):
         or None if no match. Operator setup should produce exactly one
         master VPC; if multiple match, the first is returned.
 
-        Used by ``docex preinfra production`` to discover the doctrine-
-        prescribed master VPC (tagged ``Name=docex-master-vpc`` and
-        ``managed_by=docex-preinfra`` per mod 041).
+        Used by ``docex preinfra production`` and the elastic migrate
+        RunTask to discover the doctrine-prescribed master VPC by its
+        semantic identity tags (``managed_by=doctrine-operator`` +
+        ``infra_tier=prerequisite`` + ``shape_name=master_network`` per
+        ``cicl.md § Naming and Tagging``; mod 060).
         """
         ...
 

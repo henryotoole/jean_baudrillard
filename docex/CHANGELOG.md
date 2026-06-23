@@ -59,6 +59,16 @@ first post-`0.4.0` overhaul.
 
 ### Fixed
 
+- Elastic migrate RunTask now discovers the master VPC by the **mod-060 semantic
+  identity tags** (`managed_by=doctrine-operator` + `infra_tier=prerequisite` +
+  `shape_name=master_network`), not the retired `Name=docex-master-vpc` /
+  `managed_by=docex-preinfra` scheme. Mod 060 migrated the `preinfra.py` and
+  `project.tf.j2` VPC filters but missed `orchestrate/migrate.py:_lookup_master_vpc`,
+  so `docex migrate`/`release <env>` on elastic failed to find the VPC after a
+  master network tagged with the new scheme. The three filters now share one
+  imported constant (`_MASTER_VPC_TAGS`) so they can't drift again. Caught by the
+  1.2.0 elastic smoke walk. Mod 060.
+
 - `docex check`'s curl gate (`_gate_healthcheck_tooling`) now covers **every**
   core service that declares `health_check_path`, not only those on the `web`
   network. A `role: web` service on a non-`web` network (e.g. `[internal]`) still
