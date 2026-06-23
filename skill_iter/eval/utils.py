@@ -1,4 +1,4 @@
-"""Shared utilities for skill-creator scripts."""
+"""Shared utilities for skill_iter scripts (forked from Anthropic's skill-creator)."""
 
 from pathlib import Path
 

@@ -26,4 +26,4 @@ The authoritative form for thread skills is **[skills.md](../../../doctrine/skil
 
 ## When the body is done
 
-Validate it the way every doctrine skill is validated — through the `skill-evaluation` skill (suite-level trigger evals so a sibling can't steal its triggers, and outcome evals against doctrine-correct results). The parent `skill-creation` skill routes there automatically.
+Validate it the way every doctrine skill is validated — through this skill's [Evaluate](../SKILL.md#evaluate) phase: suite-level trigger evals (so a sibling can't steal its triggers) and outcome evals (against doctrine-correct results). Authoring and evaluation are the same activity here; don't treat shipping the body as the finish line.

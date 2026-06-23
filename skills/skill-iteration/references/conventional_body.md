@@ -1,6 +1,6 @@
 # Authoring a self-contained skill body
 
-How to write the markdown body of a **self-contained** skill — one that carries its own corpus of knowledge rather than routing into an external one. This is the generic skill-writing guidance from Anthropic's vendored standard; read it once the skill's intent and description are settled. (For a **thread** skill that routes into the doctrine, use `thread_body.md` instead — the two are mutually exclusive.)
+How to write the markdown body of a **self-contained** skill — one that carries its own corpus of knowledge rather than routing into an external one. This is the generic skill-writing guidance (adapted from Anthropic's skill-creator, now forked into this doctrine); read it once the skill's intent and description are settled. (For a **thread** skill that routes into the doctrine, use `thread_body.md` instead — the two are mutually exclusive.)
 
 ## Anatomy of a skill
 

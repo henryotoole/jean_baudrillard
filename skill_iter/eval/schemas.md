@@ -1,6 +1,6 @@
 # JSON Schemas
 
-This document defines the JSON schemas used by skill-creator.
+This document defines the JSON schemas used by skill_iter (forked from Anthropic's skill-creator).
 
 ---
 

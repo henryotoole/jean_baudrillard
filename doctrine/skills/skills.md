@@ -53,8 +53,8 @@ This plugin ought to be configured in global user settings so that skills are al
 
 Thread skill bodies route into the doctrine and doctrine files remain the single source of truth. A doctrine edit only requires that thread skill pointers still resolve. Two meta-skills enforce health on a cadence rather than at authoring time:
 + `cohere` - assesses doctrine internal conceptual integrity and thread-skill-based coverage. See `$jb/skills/cohere/SKILL.md` for more info.
-+ `skill-evaluation` - tests the actual performance of individual skills with both trigger and outcome evals. See [below](#testing)
++ `skill-iteration` - the skill-loop skill; among other things it tests the actual performance of individual skills with both trigger and outcome evals. See [below](#testing)
 
 ### Testing
 
-Testing all skills is done in accordance with the vendored Anthropic skill-eval standard. The structure for these tests lives in `$jb/skill_eval`. 
+Testing all skills is done in accordance with the forked Anthropic skill-eval standard. The structure and tooling for these tests live in `$jb/skill_iter`. 

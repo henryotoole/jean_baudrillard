@@ -1,0 +1,467 @@
+{
+  "summary": {
+    "total": 33,
+    "correct": 32,
+    "accuracy": 0.97
+  },
+  "recall": {
+    "cicd-pipeline": 1.0,
+    "contracts": 1.0,
+    "inception": 1.0,
+    "infra-compile": 1.0,
+    "network-design": 1.0,
+    "preinfra-setup": 1.0,
+    "projinfra-setup": 1.0,
+    "telemetry-design": 1.0,
+    "testing": 1.0,
+    "docex-edit": 0.6666666666666666,
+    "none": 1.0
+  },
+  "precision": {
+    "cicd-pipeline": 1.0,
+    "contracts": 1.0,
+    "inception": 1.0,
+    "infra-compile": 1.0,
+    "network-design": 1.0,
+    "preinfra-setup": 1.0,
+    "projinfra-setup": 1.0,
+    "telemetry-design": 1.0,
+    "testing": 1.0,
+    "docex-edit": 1.0,
+    "none": 0.8571428571428571
+  },
+  "confusion": {
+    "cicd-pipeline": {
+      "cicd-pipeline": 4
+    },
+    "contracts": {
+      "contracts": 3
+    },
+    "inception": {
+      "inception": 2
+    },
+    "infra-compile": {
+      "infra-compile": 4
+    },
+    "network-design": {
+      "network-design": 2
+    },
+    "preinfra-setup": {
+      "preinfra-setup": 3
+    },
+    "projinfra-setup": {
+      "projinfra-setup": 2
+    },
+    "telemetry-design": {
+      "telemetry-design": 2
+    },
+    "testing": {
+      "testing": 2
+    },
+    "docex-edit": {
+      "docex-edit": 2,
+      "\u2205": 1
+    },
+    "\u2205": {
+      "\u2205": 6
+    }
+  },
+  "results": [
+    {
+      "query": "ok i think my feature branch is finally ready \u2014 what's the actual process to get it merged to main and out to staging?",
+      "expect": "cicd-pipeline",
+      "got": "cicd-pipeline",
+      "runs": [
+        "cicd-pipeline",
+        "cicd-pipeline",
+        "cicd-pipeline"
+      ],
+      "correct": true,
+      "note": "merge + release"
+    },
+    {
+      "query": "prod release half-finished and the new containers are crash-looping, i need prod back on the last good version right now",
+      "expect": "cicd-pipeline",
+      "got": "cicd-pipeline",
+      "runs": [
+        "cicd-pipeline",
+        "cicd-pipeline",
+        "cicd-pipeline"
+      ],
+      "correct": true,
+      "note": "rollback"
+    },
+    {
+      "query": "i added a column to the pings table \u2014 how do migrations actually get applied when I release to prod on the elastic project?",
+      "expect": "cicd-pipeline",
+      "got": "cicd-pipeline",
+      "runs": [
+        "cicd-pipeline",
+        "cicd-pipeline",
+        "cicd-pipeline"
+      ],
+      "correct": true,
+      "note": "migrate (folded into pipeline)"
+    },
+    {
+      "query": "my web service talks to the worker over a queue and i need to pin down the message format so they don't drift \u2014 where does that definition live?",
+      "expect": "contracts",
+      "got": "contracts",
+      "runs": [
+        "contracts",
+        "contracts",
+        "contracts"
+      ],
+      "correct": true,
+      "note": "asyncapi provider contract"
+    },
+    {
+      "query": "CI says my api service is a provider but has no openapi file \u2014 what do i need to add?",
+      "expect": "contracts",
+      "got": "contracts",
+      "runs": [
+        "contracts",
+        "contracts",
+        "contracts"
+      ],
+      "correct": true,
+      "note": "provider contract requirement"
+    },
+    {
+      "query": "do my web-network services need a health endpoint, and what's it supposed to return?",
+      "expect": "contracts",
+      "got": "contracts",
+      "runs": [
+        "contracts",
+        "contracts",
+        "contracts"
+      ],
+      "correct": true,
+      "note": "mandatory health endpoints live in contracts doctrine"
+    },
+    {
+      "query": "i've got a masterplan doc for a brand new project and literally nothing else \u2014 walk me from zero to a working dev environment",
+      "expect": "inception",
+      "got": "inception",
+      "runs": [
+        "inception",
+        "inception",
+        "inception"
+      ],
+      "correct": true,
+      "note": "new project"
+    },
+    {
+      "query": "starting a fresh service from scratch today, need the repo, project.yml, docex install, folder structure, all of it",
+      "expect": "inception",
+      "got": "inception",
+      "runs": [
+        "inception",
+        "inception",
+        "inception"
+      ],
+      "correct": true,
+      "note": "new project scaffolding"
+    },
+    {
+      "query": "i need to add a redis cache as a backing service and wire its host and port into the web service's env \u2014 where do i edit and how do the magic refs work?",
+      "expect": "infra-compile",
+      "got": "infra-compile",
+      "runs": [
+        "infra-compile",
+        "infra-compile",
+        "infra-compile"
+      ],
+      "correct": true,
+      "note": "authoring infra.yml + magic refs"
+    },
+    {
+      "query": "adding a postgres-flavored engine that docex doesn't ship by default \u2014 how do i write a project-local table for it?",
+      "expect": "infra-compile",
+      "got": "infra-compile",
+      "runs": [
+        "infra-compile",
+        "infra-compile",
+        "infra-compile"
+      ],
+      "correct": true,
+      "note": "project-local transfer tables (former docex-transfer-table)"
+    },
+    {
+      "query": "what's the correct way to declare a new core service in infra.yml with its resources, networks, and depends_on?",
+      "expect": "infra-compile",
+      "got": "infra-compile",
+      "runs": [
+        "infra-compile",
+        "infra-compile",
+        "infra-compile"
+      ],
+      "correct": true,
+      "note": "CICL authoring"
+    },
+    {
+      "query": "why does the doctrine give every project its own reverse proxy instead of one shared load balancer? i want to understand the ingress model before defending it to my team",
+      "expect": "network-design",
+      "got": "network-design",
+      "runs": [
+        "network-design",
+        "network-design",
+        "network-design"
+      ],
+      "correct": true,
+      "note": "ingress rationale"
+    },
+    {
+      "query": "trying to reason about whether my worker can actually reach the database, and how outbound calls to a third-party API get out on elastic",
+      "expect": "network-design",
+      "got": "network-design",
+      "runs": [
+        "network-design",
+        "network-design",
+        "network-design"
+      ],
+      "correct": true,
+      "note": "reachability + egress design"
+    },
+    {
+      "query": "fresh dev box and docex preinfra is failing \u2014 i think the haproxy demux and the docex-ingress network were never set up",
+      "expect": "preinfra-setup",
+      "got": "preinfra-setup",
+      "runs": [
+        "preinfra-setup",
+        "preinfra-setup",
+        "preinfra-setup"
+      ],
+      "correct": true,
+      "note": "fixed master network"
+    },
+    {
+      "query": "i need to stand up the shared master VPC in our aws account before any project can deploy there",
+      "expect": "preinfra-setup",
+      "got": "preinfra-setup",
+      "runs": [
+        "preinfra-setup",
+        "preinfra-setup",
+        "preinfra-setup"
+      ],
+      "correct": true,
+      "note": "elastic master network"
+    },
+    {
+      "query": "where do i actually set up the self-hosted hyperdx instance that all the collector sidecars forward to?",
+      "expect": "preinfra-setup",
+      "got": "preinfra-setup",
+      "runs": [
+        "preinfra-setup",
+        "preinfra-setup",
+        "preinfra-setup"
+      ],
+      "correct": true,
+      "note": "observability backend is preinfra"
+    },
+    {
+      "query": "first prod release of myproject is happening \u2014 i need to bring up the route53 zone, the certs, the ALB and the ECR repos for the project",
+      "expect": "projinfra-setup",
+      "got": "projinfra-setup",
+      "runs": [
+        "projinfra-setup",
+        "projinfra-setup",
+        "projinfra-setup"
+      ],
+      "correct": true,
+      "note": "project-tier production side"
+    },
+    {
+      "query": "i'd rather use the cheap ec2-with-traefik reverse proxy than an ALB for this project \u2014 how is that one set up?",
+      "expect": "projinfra-setup",
+      "got": "projinfra-setup",
+      "runs": [
+        "projinfra-setup",
+        "projinfra-setup",
+        "projinfra-setup"
+      ],
+      "correct": true,
+      "note": "ec2_traefik variant"
+    },
+    {
+      "query": "i'm adding distributed tracing and a few custom metrics to my web service and need to figure out how the signals actually reach the backend",
+      "expect": "telemetry-design",
+      "got": "telemetry-design",
+      "runs": [
+        "telemetry-design",
+        "telemetry-design",
+        "telemetry-design"
+      ],
+      "correct": true,
+      "note": "observability design"
+    },
+    {
+      "query": "the otel collector sidecar \u2014 where do i change what it exports and how it picks up its endpoint on the elastic side?",
+      "expect": "telemetry-design",
+      "got": "telemetry-design",
+      "runs": [
+        "telemetry-design",
+        "telemetry-design",
+        "telemetry-design"
+      ],
+      "correct": true,
+      "note": "sidecar mechanism"
+    },
+    {
+      "query": "what kinds of tests am i supposed to write for a core service, and which run in the test env vs against staging?",
+      "expect": "testing",
+      "got": "testing",
+      "runs": [
+        "testing",
+        "testing",
+        "testing"
+      ],
+      "correct": true,
+      "note": "test taxonomy"
+    },
+    {
+      "query": "i need to write the stage_test.sh shim and the staging-tester dockerfile for my project",
+      "expect": "testing",
+      "got": "testing",
+      "runs": [
+        "testing",
+        "testing",
+        "testing"
+      ],
+      "correct": true,
+      "note": "staging test wiring"
+    },
+    {
+      "query": "docex picks the wrong ecs cluster name on steady-state releases \u2014 i need to fix the detection logic inside docex itself",
+      "expect": "docex-edit",
+      "got": "docex-edit",
+      "runs": [
+        "docex-edit",
+        "docex-edit",
+        "docex-edit"
+      ],
+      "correct": true,
+      "note": "fixing docex code"
+    },
+    {
+      "query": "i want to add a brand new subcommand to docex \u2014 where's the dispatcher and how are commands structured?",
+      "expect": "docex-edit",
+      "got": "docex-edit",
+      "runs": [
+        "docex-edit",
+        "docex-edit",
+        "docex-edit"
+      ],
+      "correct": true,
+      "note": "docex internals"
+    },
+    {
+      "query": "how should i format my python log statements, and what level for a failed db connection?",
+      "expect": null,
+      "got": null,
+      "runs": [
+        null,
+        null,
+        null
+      ],
+      "correct": true,
+      "note": "near-miss for telemetry-design: line-level logging is Resident (logging.md), not the observability-design activity"
+    },
+    {
+      "query": "how do i unit test a domain value object's validation rules?",
+      "expect": null,
+      "got": null,
+      "runs": [
+        null,
+        null,
+        null
+      ],
+      "correct": true,
+      "note": "near-miss for testing: the four hex test types are Resident architecture, not the infra-level test taxonomy"
+    },
+    {
+      "query": "i'm adding one more service to my existing project's infra.yml",
+      "expect": "infra-compile",
+      "got": "infra-compile",
+      "runs": [
+        "infra-compile",
+        "infra-compile",
+        "infra-compile"
+      ],
+      "correct": true,
+      "note": "near-miss for inception: existing project, not a new one"
+    },
+    {
+      "query": "my staging release isn't picking up a new secret i added to stage.env \u2014 what's wrong?",
+      "expect": "cicd-pipeline",
+      "got": "cicd-pipeline",
+      "runs": [
+        "cicd-pipeline",
+        "cicd-pipeline",
+        "cicd-pipeline"
+      ],
+      "correct": true,
+      "note": "near-miss for docex-edit: this is using the pipeline, not fixing docex"
+    },
+    {
+      "query": "i think docex's release code has a bug where it reuses the previous release's task-def revision during migrate",
+      "expect": "docex-edit",
+      "got": null,
+      "runs": [
+        null,
+        null,
+        "docex-edit"
+      ],
+      "correct": false,
+      "note": "near-miss for cicd-pipeline: fixing docex itself, not running a release"
+    },
+    {
+      "query": "write me a quick bash script to rename a batch of files by regex",
+      "expect": null,
+      "got": null,
+      "runs": [
+        null,
+        null,
+        null
+      ],
+      "correct": true,
+      "note": "pure code task, no doctrine skill"
+    },
+    {
+      "query": "explain the difference between a docker bridge network and host networking",
+      "expect": null,
+      "got": null,
+      "runs": [
+        null,
+        null,
+        null
+      ],
+      "correct": true,
+      "note": "near-miss for network-design: general knowledge, not the doctrine's network plane"
+    },
+    {
+      "query": "rename the getUser function to fetchUser everywhere in this repo",
+      "expect": null,
+      "got": null,
+      "runs": [
+        null,
+        null,
+        null
+      ],
+      "correct": true,
+      "note": "pure code task, no doctrine skill"
+    },
+    {
+      "query": "what's the difference between OAuth and JWT?",
+      "expect": null,
+      "got": null,
+      "runs": [
+        null,
+        null,
+        null
+      ],
+      "correct": true,
+      "note": "general knowledge, out of scope"
+    }
+  ]
+}

@@ -2,9 +2,9 @@
 """Suite-level trigger eval.
 
 Given the full competing set of skill descriptions, which skill (if any) does Claude reach
-for, per query? This is the cross-skill adaptation of the vendored single-skill trigger
-eval (`../vendor/skill-creator/scripts/run_eval.py`): instead of testing one description in
-isolation and returning a boolean, it installs ALL doctrine skills (via the real plugin),
+for, per query? This is the cross-skill adaptation of the single-skill trigger eval
+(`run_eval.py`, forked from Anthropic's skill-creator): instead of testing one description
+in isolation and returning a boolean, it installs ALL doctrine skills (via the real plugin),
 runs each query, and records WHICH skill triggered — so it surfaces trigger-stealing across
 the competing set, not just one skill's hit rate.
 
