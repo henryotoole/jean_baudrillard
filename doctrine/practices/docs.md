@@ -60,7 +60,7 @@ The core folder should contain:
 2. **masterplan.md** - The absolute, toplevel architecture doc for the project. This document should describe all the pieces at a high level and how they fit together.
 3. **conventions.md** - (OPTIONAL) A document that details any project-specific conventions, like a specific driven adapter pattern.
 
-The service folders contain both architecture and module documentation. The file structure *within* a service folder should approximately mirror the structure of the service code itself. For example, hexagonally-architectured backends will often have a `hex` folder that contains the hexagonal modules. The backend service folder would therefore also have a `hex` folder containing module documentation files for each hexagonal module. This is shown in the "Standard Documentation Structure" above.
+The service folders contain both architecture and module documentation. The file structure *within* a service folder should approximately mirror the structure of the service code itself. For example, hexagonally-architected backends will often have a `hex` folder that contains the hexagonal modules. The backend service folder would therefore also have a `hex` folder containing module documentation files for each hexagonal module. This is shown in the "Standard Documentation Structure" above.
 
 Some other specific files that might wind up in a service folder include:
 1. `db_schema.md` - A file that documents the relational structure for a database, if that service [owns the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database.

@@ -60,7 +60,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 | Name | Infrastructure Tier | Means | Description |
 | ---- | ------------------- | ----- | ----------- |
-| aws_account | prerequisite | An AWS account | The AWS account in which all elastic resources are provisioned. The doctrine assumes one project per account; multi-tenant accounts are out of scope. |
+| aws_account | prerequisite | An AWS account | The AWS account in which all elastic resources are provisioned. Multiple projects may exist under one account. |
 | registrar | prerequisite | NameSilo, GoDaddy, etc. + NS delegation | A registrar's DNS configuration, with nameservers delegated to our [dns] so the project controls its own records. |
 | repo | prerequisite | github, gitlab, etc. | The repository in which project code, docs, infra declarations, etc. are stored. |
 | observability_backend | prerequisite | HyperDX | A backend / application stack, either self-hosted or cloud-managed, which collects, indexes, and displays telemetry data. |

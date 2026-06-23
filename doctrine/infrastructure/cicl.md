@@ -89,7 +89,7 @@ The table below lists all standard fields for services.
 | port | no | both | The port that the service should be available on. |
 | env | no | core | Contains fields which define infrastructure-driven environment variables for the container. |
 | replicas | no | core | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. |
-| command | no | core | The command to run to launch the core service. |
+| command | no | core | The command to run to launch the core service. Required for the `scheduler` role (the job entrypoint). |
 | secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Used to construct `example.env` later. |
 | engine | yes | backing | The underlying software package the service will use e.g. 'postgres', 'redis', etc. Can define two options if `fixed` and `elastic` foundations require different engines. |
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
@@ -123,7 +123,7 @@ We define some arbitrary but hard rules for these infra files in order to reduce
 
 ### Naming and Tagging
 
-Consistent naming and tagging conventions are employed wherever possible to ensure infrastructure is easy to find and identify.
+Consistent naming and tagging conventions are employed wherever possible to ensure infrastructure is easy to identify.
 
 #### Fixed Foundation
 
@@ -133,7 +133,40 @@ For `fixed`-foundation infrastructure resources, there are no tags. Naming stand
 
 #### Elastic Foundation
 
-In the elastic foundation, tags can be used and the naming / tagging convention is a little more rigorous.
+In the elastic foundation, tags can be used and the naming / tagging convention is a little more developed:
+
+preinfra_tags:
++ `managed_by`: "doctrine-operator"
++ `infra_tier`: "prerequisite"
++ `shape_name`: "${shape_name}"
++ `descriptor`: "*"
++ `Name`: "${shape_name}_${descriptor}"
+
+projinfra_tags:
++ `managed_by`: "doctrine"
++ `infra_tier`: "project"
++ `shape_name`: "${shape_name}"
++ `descriptor`: "*"
++ `project`: "${project_name}"
++ `Name`: "${project}_${shape_name}_${descriptor}"
+
+envinfra_tags:
++ `managed_by`: "doctrine"
++ `infra_tier`: "environment"
++ `shape_name`: "${shape_name}"
++ `descriptor`: "*"
++ `project`: "${project_name}"
++ `env`: "${env_name}"
++ `service`: "${name}"
++ `role`: "${role_name}"
++ `Name`: "${project}_${env}_${service}"
+
+Notes on certain tags:
++ `shape_name` - The name from the [shape table](./shape.md#elastic-foundation) for elastic resources. If no shape name apply, set to `etc`.
++ `descriptor` - A looser descriptor for this resource. Use AWS abbreviations when possible e.g. ALB, IGW, etc. Not required, but useful for differentiating especially pre- and projinfra resources that belong to the same "shape name" from each other.
++ `Name` - Redundant; present only for AWS console ergonomics.
+
+These tags are not exclusive - some specific resources define their own tags which are load-bearing and used by `docex` machinery.
 
 ### Domain
 

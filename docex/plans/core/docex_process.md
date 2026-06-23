@@ -14,7 +14,7 @@ The rough, toplevel process for change is this:
 	4. When checking for drift after a mod implementation, check all [artifacts](#additional-artifacts) for alignment.
 3. **Run expensive tests** - When mod cycles are complete, run the "expensive" tests. These include:
 	1. End-to-end integration tests. These are automated and hit with `pytest -m integration`
-	2. The ["test project" tests](#test-project-tests), which call for the design LLM agent to manually step through critical `docex` steps for two distinct sample projects with different foundations.
+	2. The ["test project" tests](#test-project-tests), which call for you to manually step through critical `docex` steps for two distinct sample projects with different foundations.
 4. **Cut a new version** - See [below](#cutting-a-version). This process is also disctinct to `docex` and should be followed carefully.
 
 ## Docex Documentation
