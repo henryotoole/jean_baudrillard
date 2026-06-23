@@ -9,7 +9,7 @@ Iterating on skills — one activity, one skill. Authoring and evaluation are no
 
 **capture intent → author the body → evaluate → improve → package.**
 
-This is a **self-contained** skill, forked from Anthropic's `skill-creator` and reshaped to this doctrine's skill model. The writing guides and the full evaluation methodology live in `references/`; the packaging, validation, and eval machinery live in `skill_iter/` (ours to maintain — see `skill_iter/LICENSE.txt`).
+This is a **self-contained** skill, forked from Anthropic's `skill-creator` and reshaped to this doctrine's skill model. The writing guides and the full evaluation methodology live in `references/`; the packaging, validation, and eval machinery live in `skill_iter/` (ours to maintain).
 
 ## Capture intent
 
@@ -37,7 +37,7 @@ Read **exactly one**. They are mutually exclusive: a self-contained body duplica
 
 A skill isn't done when it's written — it's done when it's measured. Evaluation answers two questions: does the description *trigger* when it should (and only then), and does the skill *perform* — produce the doctrine-correct result — when used? This skill is the **single source of truth** for that behavioral methodology; its sibling `cohere` owns *static* soundness of the doctrine corpus (broken links, coverage), so don't reach there for behavioral measurement.
 
-Read [references/evaluation.md](references/evaluation.md) when you reach this phase — it carries the full methodology (trigger evals, outcome evals, the isolation rules that make the numbers trustworthy, grading) and routes to the runners and data in `skill_iter/eval/`. **Description optimization** is part of trigger eval, not a separate authoring step: the optimizer (`run_loop.py`) drives a query set — for a doctrine skill the shared `queries.json`, for a standalone skill a set you derive.
+Read [references/evaluation.md](references/evaluation.md) when you reach this phase — it carries the full methodology (trigger evals, outcome evals, grading) and routes to the runners and data in `skill_iter/eval/`. **Description optimization** is part of trigger eval, not a separate authoring step: the optimizer (`run_loop.py`) drives a query set — for a doctrine skill the shared `queries.json`, for a standalone skill a set you derive.
 
 Cadence: run trigger evals on every skill or description change; run outcome evals (gated) before a doctrine-affecting `docex` cut.
 

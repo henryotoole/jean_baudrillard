@@ -31,4 +31,4 @@ eval/     evaluation tooling + data
 
 ## Provenance
 
-`eval/` and `create/` are **forked** from Anthropic's `skills/skill-creator` (see `LICENSE.txt`). We no longer track upstream; the fork is ours to maintain. The code is organized into `create/` (authoring/packaging) and `eval/` (measurement) folders — an internal split for legibility, not a skill boundary; both halves back the single `skill-iteration` skill. The HTML-presentation surface (eval-viewer, HTML report/review generators) was dropped — results are read as JSON/markdown. Any future re-harvest from upstream is a deliberate, manual merge.
+`eval/` and `create/` are **forked** from Anthropic's `skills/skill-creator`. We no longer track upstream; the fork is ours to maintain. The code is organized into `create/` (authoring/packaging) and `eval/` (measurement) folders — an internal split for legibility, not a skill boundary; both halves back the single `skill-iteration` skill. The HTML-presentation surface (eval-viewer, HTML report/review generators) was dropped — results are read as JSON/markdown. Any future re-harvest from upstream is a deliberate, manual merge.

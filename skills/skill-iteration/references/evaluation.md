@@ -12,7 +12,7 @@ skill_iter/eval/
 └── outcome/<skill>/evals.json   per-skill outcome cases
 ```
 
-`skill_iter/eval/` is **forked** from Anthropic's `skill-creator` and is now ours to maintain (see `skill_iter/LICENSE.txt`); it is not a pinned upstream.
+`skill_iter/eval/` is **forked** from Anthropic's `skill-creator` and is now ours to maintain; it is not a pinned upstream.
 
 ## The System
 
@@ -56,14 +56,6 @@ Two ways to consume the one query file:
 Does a skill, when used, actually produce a doctrine-correct result — and beat the no-skill baseline? Per-skill, **gated** (run before a doctrine-affecting `docex` cut), built on the `evals.json` case format + the grader/comparator/analyzer agent roles.
 
 A good case targets doctrine that **diverges from a capable model's priors** — an arbitrary choice it couldn't reconstruct. (The `contracts` demonstrator qualifies: the mandated `/health`+`{version}` and `/health/<dependency>` endpoints are not produced without the doctrine; the inferable parts — contract format, file path — show ≈zero delta. Doctrine where a skill earns its keep is exactly the non-inferable part.) Mark each `expectations` entry as a **delta driver** (doctrine-specific, non-inferable — where the skill must win) or **confirmatory** (inferable, expect ≈zero delta); the delta-driver scores are the skill's measured value.
-
-### Isolation (non-negotiable)
-
-The methodology that makes a number trustworthy — ignore it and the numbers lie.
-
-1. **Restart the context so the parent reflects the current on-disk Resident strata before spawning eval subagents.** The failure mode is a stale parent snapshot: a session that loaded a *fuller* doctrine than what is on disk (e.g. before a SKILL.md / Resident-stratum trim) carries it in memory, and any subagent it spawns inherits that snapshot — so the baseline measures nothing. Restarting so the parent re-reads the on-disk `CLAUDE.md` makes the parent memory reflect the state under test; subagents then inherit a clean memory. This context restart — not the subprocess mechanism — is the real isolation lever.
-2. **Subagents are the right mechanism.** With the parent memory correct, spawn subagents (the Agent tool, in a with-skill vs. baseline pair). There is no need to shell out to `claude -p` for isolation.
-3. **Isolate the baseline by access, not cwd.** The **with-skill** subagent reads the skill and the doctrine files it points to; the **baseline** subagent works from general knowledge only, with no access to the doctrine on disk. The always-resident strata are present for *both* — so the delta is precisely what routing to the *gated* doctrine adds, which is the navigation value being measured.
 
 ### The run pattern
 
