@@ -15,9 +15,13 @@ Detection mirrors run_eval: stream-parse `claude -p --include-partial-messages` 
 first `Skill` / `SlashCommand` tool_use (or a `Read` of a skill's SKILL.md) whose input
 names one of the competing skills. No competing-skill invocation → recorded as None.
 
-Known confounds (documented in README.md): personal skills under ~/.claude/skills are
-visible to `claude -p` regardless of cwd; only `docex-edit` overlaps a plugin skill by bare
-name, so its row is the one to read with mild suspicion until the stale copies are gone.
+The competing set comes from `competing_skills` in the queries file when present; otherwise
+it is auto-discovered from `<plugin_dir>/skills/*/SKILL.md`, so a subset/focused query file
+need not restate the list.
+
+Confound to keep in mind: personal skills under ~/.claude/skills are visible to `claude -p`
+regardless of cwd and can shadow a plugin skill that shares its bare name. Keep that
+directory clear of doctrine-skill copies before a run.
 """
 
 import argparse
@@ -31,8 +35,25 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
+from utils import parse_skill_md
+
 REPO_ROOT = Path(__file__).resolve().parents[2]  # …/jean_baudrillard
 QUERIES = Path(__file__).resolve().parent / "queries.json"
+
+
+def discover_competing_skills(plugin_dir: str) -> list[str]:
+    """Skill names installed under <plugin_dir>/skills/*/SKILL.md (fallback when the
+    queries file doesn't pin its own competing_skills list)."""
+    skills_dir = Path(plugin_dir) / "skills"
+    names = []
+    for skill_md in sorted(skills_dir.glob("*/SKILL.md")):
+        try:
+            name, _, _ = parse_skill_md(skill_md.parent)
+        except (ValueError, OSError):
+            continue
+        if name:
+            names.append(name)
+    return names
 
 
 def _input_names_skill(text: str, skills: list[str]) -> str | None:
@@ -152,11 +173,26 @@ def main():
     ap.add_argument("--model", default=None, help="model id for claude -p (default: configured)")
     ap.add_argument("--out", default=None, help="write full JSON report here")
     ap.add_argument("--limit", type=int, default=None, help="only run the first N queries (smoke test)")
+    ap.add_argument("--grep", default=None,
+                    help="only run queries whose query text or note contains this substring "
+                         "(case-insensitive); the full competing set is still installed")
     args = ap.parse_args()
 
     spec = json.loads(Path(args.queries).read_text())
-    skills = spec["competing_skills"]
+    # competing_skills is optional: pinned in the queries file, else auto-discovered from the plugin.
+    skills = spec.get("competing_skills") or discover_competing_skills(args.plugin_dir)
+    if not skills:
+        sys.exit(
+            f"error: no competing skills — add a 'competing_skills' list to {args.queries} "
+            f"or ensure {args.plugin_dir}/skills/*/SKILL.md exist."
+        )
     queries = spec["queries"]
+    if args.grep:
+        needle = args.grep.lower()
+        queries = [q for q in queries
+                   if needle in q["query"].lower() or needle in q.get("note", "").lower()]
+        if not queries:
+            sys.exit(f"error: --grep {args.grep!r} matched no queries.")
     if args.limit:
         queries = queries[:args.limit]
 

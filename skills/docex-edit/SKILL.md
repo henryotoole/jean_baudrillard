@@ -1,6 +1,6 @@
 ---
 name: docex-edit
-description: Loads necessary information into context which allows claude to edit docex.
+description: Orientation for modifying `docex` itself — the doctrine's executor software — by loading its codebase docs into context. Use whenever the work is *on docex's own source code*: fixing a bug in how docex compiles, releases, migrates, rolls back, or detects infrastructure; adding or changing a docex subcommand or its dispatcher; or altering docex internals. Trigger even when the prompt names a pipeline step — "docex's release code has a bug", "fix the migrate logic inside docex", "add a new docex command" — the tell is that docex's code is being *changed*, not merely *run*. For *running* the pipeline against a project (executing a release/migrate/rollback, a release not picking up a secret), use cicd-pipeline instead.
 metadata:
   type: thread
 ---

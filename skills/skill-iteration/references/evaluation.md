@@ -1,6 +1,6 @@
 # Evaluating skills
 
-The **single source of truth** for the behavioral evaluation of doctrine skills — it answers two questions: do skill descriptions *trigger* correctly, and do skills *perform* correctly when used? The methodology lives here in full. The executable machinery and data it drives live in `skill_iter/eval/` (a top-level sibling to `docex`, tooling not doctrine prose), pointed to under [Tooling](#tooling) and read on demand.
+The **single source of truth** for the behavioral evaluation of doctrine skills — it answers two questions: do skill descriptions *trigger* correctly, and do skills *perform* correctly when used? The methodology lives here in full. The executable machinery and data it drives live in `$jb/skill_iter/eval/` — at the repo root, a sibling to `docex/` and to the `skills/` tree that holds this skill, **not** inside this skill (tooling, not doctrine prose). Pointed to under [Tooling](#tooling) and read on demand.
 
 ```
 skill_iter/eval/
@@ -46,7 +46,9 @@ Two ways to consume the one query file:
   ```
   python3 run_suite.py --runs-per-query 3 --out last_run.json     # full suite, modal vote over 3 runs
   python3 run_suite.py --limit 3 --runs-per-query 1               # smoke first
+  python3 run_suite.py --grep docex --runs-per-query 3            # re-check one skill's boundary after a description change
   ```
+  `--grep SUBSTR` keeps only queries whose text or note contains `SUBSTR` (the full competing set stays installed, so poaching is still real) — the fast path for the "re-run on every description change" cadence. `competing_skills` in the queries file is optional; absent it, the runner auto-discovers the installed skills from `<plugin_dir>/skills/*/SKILL.md`, so a focused subset file needn't restate the list.
   Tune `--num-workers` / `--timeout` / `--model`. Output: per-skill recall & precision, overall accuracy, confusion matrix; misroutes to stderr.
 
 - **Per-skill optimization** (`run_loop.py`, single-skill description optimizer) — derive its `[{query, should_trigger}]` set from `queries.json` with `should_trigger = (expect == "X")`; every other query (siblings *and* nulls) becomes a should-not-trigger near-miss for `X`. So the one suite file feeds the optimizer for any skill with only a small adapter. `run_loop.py` runs the eval+improve loop (train/test split, modal vote) and prints the best description it found as JSON.

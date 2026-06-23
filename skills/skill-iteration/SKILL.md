@@ -9,7 +9,12 @@ Iterating on skills — one activity, one skill. Authoring and evaluation are no
 
 **capture intent → author the body → evaluate → improve → package.**
 
-This is a **self-contained** skill, forked from Anthropic's `skill-creator` and reshaped to this doctrine's skill model. The writing guides and the full evaluation methodology live in `references/`; the packaging, validation, and eval machinery live in `skill_iter/` (ours to maintain).
+This is a **self-contained** skill, forked from Anthropic's `skill-creator` and reshaped to this doctrine's skill model. Two parts back it, and they sit in **different places**:
+
+- **Methodology prose** — the writing guides and the full evaluation methodology — lives in this skill's own `references/` folder (alongside this `SKILL.md`).
+- **Executable machinery** — packaging, validation, and eval runners plus their data — lives in `$jb/skill_iter/`: a tooling directory at the **repo root**, a sibling to `skills/` (and to `docex/`), **not** inside this skill. It is repo-level tooling because its query set and outcome cases span *every* doctrine skill, not just this one (ours to maintain — see `skill_iter/README.md`).
+
+Every bare `skill_iter/...` path in this document is relative to the repo root (`$jb`); run those commands from there.
 
 ## Capture intent
 

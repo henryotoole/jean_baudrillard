@@ -1,0 +1,16 @@
+# Python bytecode (was tracked by accident before this file existed)
+__pycache__/
+*.pyc
+
+# Eval run outputs — regenerated on every run, laden with model/run-to-run variance,
+# and noisy in diffs. INPUTS are NOT outputs and stay tracked: queries.json and
+# outcome/*/evals.json are the labeled query set and hand-authored case definitions.
+last_run.json
+*_run.json
+grading.json
+comparison.json
+analysis.json
+
+# NOTE: benchmark.json is intentionally NOT ignored. It is the gated rollup read before
+# a docex cut — worth committing as a release-time record of skill quality. Commit it
+# deliberately; don't add throwaway regenerations.
