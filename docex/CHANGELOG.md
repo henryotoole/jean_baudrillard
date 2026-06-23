@@ -12,6 +12,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-23
+
 ### Added
 
 - **Resource tagging standard** — every elastic resource docex emits now carries
