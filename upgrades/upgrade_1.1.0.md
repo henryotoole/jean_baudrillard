@@ -1,11 +1,24 @@
+---
+version: "1.1.0"
+severity: major
+kind: rebuild
+scope: [project]
+---
+
 # Upgrading a project to docex 1.1.0
 
 A runbook for moving an existing project from a **pre-1.0.0** `docex` pin up to
 **1.1.0**. The jump crosses the shape-and-tier overhaul (mods 030–045, cut as
-1.0.0) plus the polish campaign (mods 049–053, cut as 1.1.0). The campaign
-breakdown lives in
-[`../campaigns/shape_overhaul_mod_list.md`](../campaigns/shape_overhaul_mod_list.md);
-the full per-cut narrative is in [`../../CHANGELOG.md`](../../CHANGELOG.md).
+1.0.0) plus the polish campaign (mods 049–053, cut as 1.1.0); the full per-cut
+narrative is in [`../CHANGELOG.md`](../CHANGELOG.md).
+
+> **Predates the unified version.** This is the oldest guide on the
+> [upgrades tape](./README.md). `1.1.0` was a `docex`-only version (the
+> doctrine-wide scheme starts at `1.3.0`), so this guide speaks in terms of a
+> project's `docex` pin — which, retroactively, is the doctrine version that
+> project sits on. As a `kind: rebuild` guide it is start-point-agnostic: it
+> carries its own internal branches (full rebuild below; the `1.0.x` shortcut in
+> Appendix A), so the chain applies it whole regardless of where you start.
 
 > **Already on 1.0.x?** You have the new shape already. Skip to
 > [Appendix A](#appendix-a-shortcut-for-projects-already-on-10x) — it's a repin
@@ -90,7 +103,7 @@ Hold those until Phase B is verified complete.
    `infra/secrets/{stage,prod}.env` — must be present and complete, because
    re-release re-pushes from it. Confirm `TELEMETRY_API_KEY` is set for stage/prod
    (doctrine-injected secret; see
-   [`secrets.md`](../../../doctrine/infrastructure/specifics/secrets.md)).
+   [`secrets.md`](../doctrine/infrastructure/specifics/secrets.md)).
 
 4. **Confirm the old compiled output and state are intact.** `infra/output/`
    should be committed and match what's deployed (the old `docex compile`
@@ -168,7 +181,7 @@ the state backend itself.
      --db-instance-identifier <old-id> --no-deletion-protection --apply-immediately`,
      poll until it lands, then destroy. (The smoke `teardown.sh` automates this
      dance — see
-     [`test_projects.md § Smoke-project safety overrides`](../core/test_projects.md).)
+     [`test_projects.md § Smoke-project safety overrides`](../docex/plans/core/test_projects.md).)
    - If the old project ever emitted a project-tier state
      (`project/terraform.tfstate`), destroy that last, after both envs.
 
@@ -193,7 +206,7 @@ the state backend itself.
    ```
    (Bucket name uses the `s3` policy — hyphen+lower; lock table uses `ddb` —
    underscore-preserving. See
-   [`elastic_state_backend.md`](../../../doctrine/infrastructure/specifics/projinfra/elastic_state_backend.md).)
+   [`elastic_state_backend.md`](../doctrine/infrastructure/specifics/projinfra/elastic_state_backend.md).)
 
 4. **Verify bare metal.** Re-run the name/tag sweep from step 2 for both name
    forms. Nothing project-related should remain in the account.
@@ -212,7 +225,7 @@ the state backend itself.
    docker images docex:1.1.0
    ```
    If absent, build it from the docex tree (the image is built locally, not
-   pulled — see [`masterplan.md § Distribution`](../core/masterplan.md)):
+   pulled — see [`masterplan.md § Distribution`](../docex/plans/core/masterplan.md)):
    ```bash
    docker build -t docex:1.1.0 ~/.claude/jean_baudrillard/docex
    ```
@@ -231,7 +244,7 @@ the state backend itself.
    ```
 
 The shim itself never changes between versions; the pin is what selects the
-image. See [`docex.md § Project Installation`](../../../doctrine/infrastructure/docex.md#project-installation).
+image. See [`docex.md § Project Installation`](../doctrine/infrastructure/docex.md#project-installation).
 
 ---
 
@@ -250,7 +263,7 @@ The shape overhaul changed the CICL surface (mod 031). Edit `infra/infra.yml`:
    - `alb` — the default-shaped variant (one project ALB + ACM certs).
    - `ec2_traefik_eip` / `ec2_traefik_pip` — the cheaper single-instance traefik
      variant (see
-     [`ec2_traefik.md`](../../../doctrine/infrastructure/specifics/projinfra/ec2_traefik.md)).
+     [`ec2_traefik.md`](../doctrine/infrastructure/specifics/projinfra/ec2_traefik.md)).
    Validation rule 18 rejects `reverse_proxy` on a fixed project.
 
 3. **Rename any blacklisted service.** Service names can no longer be `dev`,
@@ -288,7 +301,7 @@ skill** — `docex` only *checks* it, never creates it.
 ### Development-side machine (both foundations)
 
 The dev machine's master network is two pieces (see
-[`fixed_master_network.md`](../../../doctrine/infrastructure/preinfra/fixed_master_network.md)):
+[`fixed_master_network.md`](../doctrine/infrastructure/preinfra/fixed_master_network.md)):
 
 1. **`docex-ingress` Docker bridge** — ties the per-project traefik containers to
    the demux. Idempotent create:
@@ -301,7 +314,7 @@ The dev machine's master network is two pieces (see
    each project's `${project}-traefik`. Lives at
    `/opt/docex-preinfra/web_demux/`. The full compose + `haproxy.cfg` +
    `project_resolver.lua` are in
-   [`fixed_master_network.md § Setup Instructions`](../../../doctrine/infrastructure/preinfra/fixed_master_network.md#setup-instructions).
+   [`fixed_master_network.md § Setup Instructions`](../doctrine/infrastructure/preinfra/fixed_master_network.md#setup-instructions).
    If a legacy machine-wide traefik still owned :443/:80, you removed it in
    Phase B-fixed — that port is now free for `web_demux`.
 
@@ -318,7 +331,7 @@ public/private subnets, tagged `Name=docex-master-vpc`,
 `managed_by=docex-preinfra`). If the account already hosts another elastic
 project, it exists — leave it. If not, create it via the `docex-preinfra` skill
 (see
-[`elastic_master_network.md`](../../../doctrine/infrastructure/preinfra/elastic_master_network.md)).
+[`elastic_master_network.md`](../doctrine/infrastructure/preinfra/elastic_master_network.md)).
 Then:
 ```bash
 ./bin/docex preinfra production      # must pass before projinfra up production
@@ -351,7 +364,7 @@ replaced by `preinfra` / `projinfra` / `envinfra`.
 - **Fixed `up production`:** per-project traefik + `-web` networks on the prod
   host (local docker if single-machine; Ansible if remote).
 - **Elastic `up production` is two-phase** (NS delegation pause — see
-  [`projinfra/projinfra.md § Two-Phase Production-Side Apply`](../../../doctrine/infrastructure/specifics/projinfra/projinfra.md#two-phase-production-side-apply-elastic)):
+  [`projinfra/projinfra.md § Two-Phase Production-Side Apply`](../doctrine/infrastructure/specifics/projinfra/projinfra.md#two-phase-production-side-apply-elastic)):
   1. First invocation creates the state backend, then applies **only** the
      Route53 zone (`<project>.<apex_domain>`), prints its NS records, and exits.
   2. **Re-delegate at the parent registrar** to those new NS records (the zone
@@ -429,4 +442,4 @@ is polish, not a reshape. No teardown needed:
    release stage → stagetest → release prod`). No infra teardown, no NS
    re-delegation, no data migration beyond what the release's own migrate step does.
 
-See the [1.1.0 CHANGELOG entry](../../CHANGELOG.md) for the full Gap A–K list.
+See the [1.1.0 CHANGELOG entry](../CHANGELOG.md) for the full Gap A–K list.

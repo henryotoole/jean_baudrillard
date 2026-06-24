@@ -10,6 +10,11 @@ last_run.json
 grading.json
 comparison.json
 analysis.json
+# Named --out reports (e.g. trigger_1.3.0.json), timestamped run backups, and the
+# stdout/stderr captured from a runner — all regenerated, all noisy in diffs.
+trigger_*.json
+prev_run_*.json
+*.log
 
 # NOTE: benchmark.json is intentionally NOT ignored. It is the gated rollup read before
 # a docex cut — worth committing as a release-time record of skill quality. Commit it

@@ -11,4 +11,6 @@ The exact filepath of the `docex` project root folder is always `~/.claude/jean_
 
 Read all files in `.../core` before making any changes to the code.
 
+`docex` no longer carries its own version or cut procedure. As of doctrine version `1.3.0` the version is **doctrine-wide** — doctrine prose, skills, and `docex` advance together under one number, and a `docex` change ships as part of a doctrine release. If your change touches anything the release tracks — the version artifacts (`docex/pyproject.toml`, `docex/src/docex/__init__.py`), the changelog, or behavior that gates a cut — read [`~/.claude/jean_baudrillard/RELEASING.md`](../../RELEASING.md) (the repo-root release process) alongside `docex_process.md`, which keeps only the `docex`-development specifics and routes there.
+
 Furthermore, it's a good idea to read all files in `~/.claude/jean_baudrillard/doctrine/infrastructure/specifics` as well. These contain details from the doctrine on several key functions that `docex` performs.

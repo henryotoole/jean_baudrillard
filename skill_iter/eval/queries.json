@@ -10,7 +10,9 @@
     "projinfra-setup",
     "telemetry-design",
     "testing",
-    "docex-edit"
+    "docex-edit",
+    "doctrine-update",
+    "project-upgrade"
   ],
   "queries": [
     {
@@ -177,6 +179,56 @@
       "query": "rename the getUser function to fetchUser everywhere in this repo",
       "expect": null,
       "note": "pure code task, no doctrine skill"
+    },
+    {
+      "query": "i've been heads-down on another repo for weeks and i'm sure the doctrine's moved on — pull the latest jean and get whatever new skills and resident changes landed onto this machine",
+      "expect": "doctrine-update",
+      "note": "machine refresh / get new skills"
+    },
+    {
+      "query": "is this box even on the current doctrine version? if it's behind, sync it up and tell me what changed",
+      "expect": "doctrine-update",
+      "note": "version check + machine sync"
+    },
+    {
+      "query": "i just git-pulled jean but i don't think my plugin skills or resident stratum actually refreshed — how do i get the machine onto the new release properly?",
+      "expect": "doctrine-update",
+      "note": "setup.sh / plugin cache refresh after pull"
+    },
+    {
+      "query": "this service is still pinned to a docex from months ago — walk it up to whatever the latest doctrine version is, following whatever upgrade steps apply between here and there",
+      "expect": "project-upgrade",
+      "note": "walk a project up the guide chain"
+    },
+    {
+      "query": "bring myproject onto 1.3.0 — repin it and run through the upgrade guides for each version in between",
+      "expect": "project-upgrade",
+      "note": "explicit target, chained guides"
+    },
+    {
+      "query": "we haven't moved this project's docex pin in ages and it's several doctrine versions behind; get it current and redeploy",
+      "expect": "project-upgrade",
+      "note": "multi-version project move + redeploy"
+    },
+    {
+      "query": "the jean repo on my laptop is behind — refresh my install and summarize what's new, i'm not touching any project yet",
+      "expect": "doctrine-update",
+      "note": "near-miss for project-upgrade: machine refresh only, no project move"
+    },
+    {
+      "query": "my machine's already updated to the latest doctrine; now actually move this project's pin up to match and run whatever upgrade steps it needs",
+      "expect": "project-upgrade",
+      "note": "near-miss for doctrine-update: machine already current, the work is the project move"
+    },
+    {
+      "query": "nothing's changed version-wise — i just need this project's current version built and shipped to staging and prod",
+      "expect": "cicd-pipeline",
+      "note": "near-miss for project-upgrade: routine release at the same version, not a doctrine-version upgrade"
+    },
+    {
+      "query": "i want to change what docex actually does during compile — edit its code, not just pull a newer release of it",
+      "expect": "docex-edit",
+      "note": "near-miss for doctrine-update: editing docex source vs pulling a doctrine release"
     }
   ]
 }

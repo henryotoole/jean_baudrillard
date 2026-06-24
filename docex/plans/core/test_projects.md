@@ -1,6 +1,6 @@
 # Doctrine Smoke-Test Projects
 
-Two minimal, doctrine-faithful projects (`fixed/` and `elastic/`) that live inside the `docex/` tree. They exist for one purpose: before cutting a `docex` minor or major version, drive each one end-to-end through `compile → containerize → release stage → stagetest → release prod → teardown` to surface bugs that unit tests structurally can't reach.
+Two minimal, doctrine-faithful projects (`fixed/` and `elastic/`) that live inside the `docex/` tree. They exist for one purpose: before cutting a doctrine minor or major version, drive each one end-to-end through `compile → containerize → release stage → stagetest → release prod → teardown` to surface bugs that unit tests structurally can't reach.
 
 ## Why two
 

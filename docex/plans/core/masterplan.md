@@ -229,7 +229,7 @@ The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` i
 
 ```
 jean_baudrillard/docex/
-├── CHANGELOG.md             (per-version change record; Keep a Changelog + SemVer)
+├── CHANGELOG.md             (pointer stub → the doctrine-wide ../CHANGELOG.md; version is doctrine-wide as of 1.3.0)
 ├── pyproject.toml
 ├── Dockerfile
 ├── plans/                   (doctrine-shaped planning tree — see docex_process.md for the divergences)

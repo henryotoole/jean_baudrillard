@@ -15,7 +15,7 @@ The rough, toplevel process for change is this:
 3. **Run expensive tests** - When mod cycles are complete, run the "expensive" tests. These include:
 	1. End-to-end integration tests. These are automated and hit with `pytest -m integration`
 	2. The ["test project" tests](#test-project-tests), which call for you to manually step through critical `docex` steps for two distinct sample projects with different foundations.
-4. **Cut a new version** - See [below](#cutting-a-version). This process is also disctinct to `docex` and should be followed carefully.
+4. **Cut a new version** - a `docex` change ships in a doctrine-wide release; see [`RELEASING.md`](../../../RELEASING.md) and § [Versioning & Releasing](#versioning--releasing) below.
 
 ## Docex Documentation
 
@@ -48,24 +48,31 @@ Unfortunately, the unique nature of `docex` means that it has five successive la
 
 Keep them aligned. Fixing the code while leaving the rule stale (or vice versa) is the failure mode this process guards against.
 
-## Versioning & cutting an image
+## Versioning & Releasing
 
-`docex` follows SemVer per [version_control.md](../../../doctrine/infrastructure/version_control.md). The image tag always equals the version — no floating tags (see [masterplan.md § Distribution](./masterplan.md#distribution)). The image is the unit of determinism, so a version is only meaningful once its image is built.
+`docex` no longer carries its own independent version or cut procedure. As of
+doctrine version `1.3.0` the version is **doctrine-wide** — doctrine prose,
+skills, and `docex` advance together under one number — and a `docex` change
+ships as part of a doctrine release. The full procedure (version semantics, the
+four synced artifacts, the tag, the image build) lives in
+[`RELEASING.md`](../../../RELEASING.md). Cuts now tag `v<v>`, **not** the old
+`docex-v<v>` form: the namespacing that once anticipated "a bare version tag
+would collide if the doctrine is ever versioned" is now realized by the unified
+scheme, so the one version owns the bare tag. Historical `docex-v*` tags remain
+only for archaeology.
 
-**Built images are not git-tracked** — they are build artifacts living in the local Docker store. The determinism promise ("a project pinned to a version gets identical output forever") therefore rests on being able to *rebuild* a version's image from source, which requires that version's source to be recoverable. **The git tag is what makes it recoverable** — without it, finding "the commit that was 0.4.0" is archaeology. So every cut is tagged, mirroring the discipline `docex merge` already enforces for consumer projects.
+Two `docex`-specific properties the release process relies on:
 
-### Cutting a version
-
-Whatever the mode, a *cut* is the same ordered procedure, run from a clean
-tree:
-
-1. Assign the version `<v>` (SemVer).
-2. Move `[Unreleased]` → `[<v>]` (dated) in [`CHANGELOG.md`](../../CHANGELOG.md).
-3. Bump the version in `pyproject.toml` **and** `src/docex/__init__.py`.
-4. Commit.
-5. **Tag the cut commit `docex-v<v>`.** The tag is namespaced (`docex-v…`, not a bare `v…`) because this repo also holds the doctrine — a bare version tag would collide if the doctrine is ever versioned.
-6. Rebuild the image: `docker build -t docex:<v> .` from `docex/`.
-7. Reinstall into consumers: `bash docex_install.sh <project>`.
+- **The image is the unit of determinism.** The image tag always equals the
+  version — no floating tags (see [masterplan.md § Distribution](./masterplan.md#distribution)).
+  A version is only meaningful once its image is built, and `RELEASING.md` builds
+  `docex:<v>` on every cut — even a no-op `docex` rebuild on a doctrine-only
+  release, to keep the *doctrine version ⟺ image* invariant.
+- **Built images are not git-tracked** — they live in the local Docker store, so
+  the determinism promise ("a project pinned to a version gets identical output
+  forever") rests on rebuilding a version's image from source. The `v<v>` git
+  tag is what makes that source recoverable — without it, finding "the commit
+  that was 1.2.0" is archaeology.
 
 ### Git
 

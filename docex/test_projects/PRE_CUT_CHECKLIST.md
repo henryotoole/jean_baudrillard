@@ -1,6 +1,6 @@
 # Pre-Cut Checklist
 
-The agent's manual procedure before cutting a `docex` minor or major version. Walks the two smoke-test projects ([`fixed/`](./fixed/) and [`elastic/`](./elastic/)) through their full release paths against real infrastructure. Surfaces bugs that unit tests can't reach.
+The agent's manual procedure before cutting a doctrine minor or major version. Walks the two smoke-test projects ([`fixed/`](./fixed/) and [`elastic/`](./elastic/)) through their full release paths against real infrastructure. Surfaces bugs that unit tests can't reach.
 
 **Skip this for patch cuts.** Patches fix unit-testable bugs; the smoke walk would burn real AWS spend without proportionate value.
 
@@ -324,4 +324,4 @@ Same intent as C.10 but against elastic prod. The rollback path pushes SSM and r
 - [ ] No registry images for `docex_smoke_fixed` or `docex_smoke_elastic` remain.
 - [ ] AWS cost report for the smoke-test window matches expectations (~$X for 1–2 hours of stage+prod elastic infra; verify against running tally).
 
-The cut is now safe to perform per [`docex_process.md § Cutting a version`](../plans/core/docex_process.md#cutting-a-version).
+The cut is now safe to perform per [`RELEASING.md § The Cut Procedure`](../../RELEASING.md#the-cut-procedure).
