@@ -17,6 +17,20 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-06-24
+
+### Added
+
+- **Backfilled the missing `1.2.0` upgrade guide** —
+  [`upgrades/upgrade_1.2.0.md`](./upgrades/upgrade_1.2.0.md)
+  (`kind: incremental`, `scope: [project]`). Covers mod 060's breaking
+  master-VPC re-tag (semantic identity tags, with the once-per-account /
+  add-before-delete coexistence caveat), the recompile-and-redeploy for the new
+  elastic tag standard, and the `preinfra` dev-DNS gate, widened `check` curl
+  gate, `scheduler` role, and multi-label-TLD `web_demux` notes from mods 054/
+  055/058/059. The `1.2.0` release shipped without it; the tape now chains
+  cleanly across the `1.1.0 → 1.2.0 → 1.3.0` span.
+
 ## [1.3.0] - 2026-06-24
 
 The release that **unifies versioning across the whole repo**. Before 1.3.0 the
