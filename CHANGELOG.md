@@ -17,6 +17,25 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in host-resolved git credential passthrough in the `docex` shim**
+  (mod 061). docex runs git inside its container and authenticates via the
+  operator's static host credentials (`~/.gitconfig`, `~/.ssh`, ssh-agent) mounted
+  in. That cannot cover an environment whose git access is brokered by a
+  `credential.helper` backed by host-local state (a helper binary, a socket) — the
+  failure mode being `docex merge` dying at its first network op with
+  `could not read Username` on such a machine. When the environment sets
+  `DOCEX_GIT_CREDENTIAL_PASSTHROUGH`, the shim now resolves the project's `https`
+  `origin` credential on the host via `git credential fill` (git's own machinery,
+  so docex stays agnostic to the helper) and injects the short-lived result into
+  the container as a `store`-helper entry (mode-600 temp file, mounted read-only,
+  removed on exit, kept off the container env). Unset ⇒ byte-for-byte the prior
+  static behavior; scoped to `https` origins; fails open. Shim-only change — no
+  `docex` image rebuild and no `src/` change. Doctrine: generalized
+  `credentials.md` § Git Host Credentials and reconciled the shim's
+  version-independence wording in `docex.md`.
+
 ## [1.3.2] - 2026-06-25
 
 ### Added

@@ -82,7 +82,9 @@ The name is intentional: `docex` is *not* the doctrine. The doctrine is the body
 
 Mounts that don't exist on the host (e.g. `~/.aws` on a fixed-only developer's box) are skipped by the shim — docex will fail loudly inside the container if a missing mount is actually needed by the requested command. `~/.docker` is the exception: the shim creates it on the host if missing so the in-container docker CLI always has a writable state dir.
 
-The shim never changes between `docex` versions. The `docex_install.sh` script in the `jean_baudrillard` repo copies it into projects and writes the `docex_version` pin into their `project.yml`. The same script is used to upgrade a project from one `docex` version to another.
+**Host-resolved git credentials (opt-in).** The static credential mounts above cover git auth that is a *file* or an *agent key*. They cannot cover an environment whose git auth is brokered by a `credential.helper` that talks to host-local state (a helper binary, a socket) — that machinery does not exist inside the container. When the **environment** sets `DOCEX_GIT_CREDENTIAL_PASSTHROUGH` (never the project repo), the shim resolves the project's `origin` credential **on the host** via `git credential fill` (git's own machinery, so docex stays agnostic to which helper is configured) and injects the resolved, short-lived credential into the container as a `store`-helper entry — a mode-600 host temp file mounted read-only and removed on exit, kept off the container env. The path is scoped to `https` origins, fails open to the static behavior when nothing resolves, and is a complete no-op when the signal is unset. See [credentials.md § Git Host Credentials](../../../doctrine/infrastructure/credentials.md#git-host-credentials).
+
+The shim is **version-independent** — one shim serves every `docex` version. Changes to it are kept **additive and backward-compatible** (an image of any version tolerates a newer shim), so it is not pinned per version. The `docex_install.sh` script in the `jean_baudrillard` repo copies it into projects and writes the `docex_version` pin into their `project.yml`. The same script is used to upgrade a project from one `docex` version to another, and to pick up an updated shim.
 
 ### Version Pinning
 
@@ -195,6 +197,7 @@ The `dev` and `test` environments are always fixed regardless of declared founda
 | AWS API access | `~/.aws/credentials` (or env vars / OIDC if present) | `bootstrap`, `release` (elastic), `containerize` (when ECR) |
 | SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts` | `release` (fixed); `preinfra production` (fixed — probes the target host for registry creds) |
 | Git identity & remote push | `~/.gitconfig`, `~/.ssh/` | `merge`, `check` (worktree creation) |
+| Git remote auth via a host credential helper (opt-in) | host `git credential fill` for `origin`, injected as a short-lived `store` entry — see [The Shim](#the-shim) | `merge`, `check`, `rollback` when `DOCEX_GIT_CREDENTIAL_PASSTHROUGH` is set |
 | Docker daemon | `/var/run/docker.sock` | every command that touches docker |
 
 If a required credential is missing, `docex` fails loudly with a message pointing at the conventional location, never with a silent fallback.

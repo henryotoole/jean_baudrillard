@@ -24,19 +24,27 @@ Logic, gated on `[[ -n "${DOCEX_GIT_CREDENTIAL_PASSTHROUGH:-}" ]]`:
    ```
    Parse `protocol`, `host`, `username`, `password` from the output. If any of
    username/password is empty → skip (fail-open: inject nothing).
-4. Write a host temp file (mode 600), single line in git-`store` format:
-   `<protocol>://<username>:<password>@<host>`. Use `umask 077` / `mktemp` so the
-   file is never world/group readable. `trap 'rm -f "$credfile"' EXIT`.
-5. Mount it read-only at its host path and configure in-container git to use it,
-   resetting any inherited helper first so a broken in-container helper (e.g. the
-   box's own `credential.helper`, visible via mounted `~/.gitconfig`) is never
-   invoked:
+4. Write the credential into a host temp **directory** (`mktemp -d`, mode 700 via
+   `umask 077`), as `<dir>/credentials`, single line in git-`store` format:
+   `<protocol>://<username>:<password>@<host>`. `trap 'rm -rf "$dir"' EXIT`.
+   **Mount the directory, not the file** — on a successful auth git's `store`
+   helper rewrites the file via temp+rename, which fails on a single-file bind
+   mount ("unable to write credential store: Operation not permitted") because
+   the target is a mountpoint; mounting the containing dir lets the rename
+   resolve. Verified necessary in testing.
+5. Mount the dir read-write at its host path and configure in-container git to use it.
+   Reset any inherited helper first (so a broken in-container helper — e.g. the
+   box's own `credential.helper`, visible via mounted `~/.gitconfig` — is never
+   invoked) **and** force `useHttpPath=false` (so the host-level, pathless store
+   entry matches even when an inherited per-host `useHttpPath=true` is present —
+   verified necessary in testing):
    ```
    MOUNTS+=(-v "$credfile:$credfile:ro")
    RUN_FLAGS+=(
-     -e GIT_CONFIG_COUNT=2
+     -e GIT_CONFIG_COUNT=3
      -e GIT_CONFIG_KEY_0=credential.helper -e GIT_CONFIG_VALUE_0=
      -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=store --file=$credfile"
+     -e GIT_CONFIG_KEY_2=credential.useHttpPath -e GIT_CONFIG_VALUE_2=false
    )
    ```
    (`GIT_CONFIG_*` env config is applied after the config files, so the empty

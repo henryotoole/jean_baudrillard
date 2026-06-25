@@ -24,7 +24,7 @@ The single argument is the target directory (use `.` when already at the project
 
 Both writes are idempotent. Re-running the script is also the supported way to upgrade a project from one `docex` version to another — no other steps required.
 
-The shim itself never changes between `docex` versions; the `docex_version` pin in `project.yml` is what selects which `docex` image the shim runs. After installation, verify with `./bin/docex --version`; this requires the pinned image to already exist in the host's Docker image store.
+The shim is **version-independent** — one shim serves every `docex` version, and the `docex_version` pin in `project.yml` is what selects which `docex` image it runs. Changes to the shim are kept **additive and backward-compatible** (an image of any version tolerates a newer shim), so it is not pinned per version; a project adopts an updated shim simply by re-running `docex_install.sh`. After installation, verify with `./bin/docex --version`; this requires the pinned image to already exist in the host's Docker image store.
 
 ## Usage
 Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. It does so by providing a "command" for each task; `./bin/docex build` builds all core services, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).

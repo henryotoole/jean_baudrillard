@@ -108,6 +108,74 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
   RUN_FLAGS+=(-e "SSH_AUTH_SOCK=/ssh-agent.sock")
 fi
 
+# Host-resolved git credentials (opt-in; mod 061).
+#
+# The static credential mounts above (~/.gitconfig, ~/.ssh, ssh-agent)
+# cover environments where git auth is a file or an agent key. They do
+# NOT cover an environment whose git auth is brokered by a
+# `credential.helper` talking to a host-local daemon/socket — the helper
+# binary and its transport don't exist inside the container. For those
+# environments, resolve the credential HERE, on the host (where git's
+# own credential machinery — whatever it is — works), and inject the
+# result into the container as a short-lived `store`-helper credential.
+#
+# WHY here, not in docex: the shim is the only host-side step, and only
+# the credential *resolution* needs the host. docex's in-container git is
+# unchanged. This is general — it drives `git credential fill`, not any
+# specific helper — so docex stays agnostic to how the host brokers git.
+#
+# Opt-in via $DOCEX_GIT_CREDENTIAL_PASSTHROUGH, set by the ENVIRONMENT
+# (e.g. a dev-box image), never by the project repo. Unset ⇒ this block
+# is skipped entirely and behavior is identical to the static path above.
+if [[ -n "${DOCEX_GIT_CREDENTIAL_PASSTHROUGH:-}" ]]; then
+  ORIGIN_URL="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)"
+  # Only https origins use a credential helper; ssh / remoteless fall
+  # through to the static path unchanged.
+  if [[ "$ORIGIN_URL" == https://* ]]; then
+    # Drive the host's configured credential machinery non-interactively;
+    # GIT_TERMINAL_PROMPT=0 makes a miss fail fast instead of prompting.
+    CRED_FILL="$(printf 'url=%s\n\n' "$ORIGIN_URL" \
+      | GIT_TERMINAL_PROMPT=0 git -C "$PROJECT_ROOT" credential fill 2>/dev/null || true)"
+    CRED_PROTOCOL="$(sed -n 's/^protocol=//p' <<<"$CRED_FILL" | head -n1)"
+    CRED_HOST="$(sed -n 's/^host=//p' <<<"$CRED_FILL" | head -n1)"
+    CRED_USER="$(sed -n 's/^username=//p' <<<"$CRED_FILL" | head -n1)"
+    CRED_PASS="$(sed -n 's/^password=//p' <<<"$CRED_FILL" | head -n1)"
+    # Fail open: nothing resolved ⇒ inject nothing, let docex proceed as
+    # it would have (it surfaces its own auth error if it needs one).
+    if [[ -n "$CRED_USER" && -n "$CRED_PASS" ]]; then
+      # Mount a DIRECTORY, not the file directly. On a successful auth git
+      # invokes the `store` helper's `store` action, which writes the file
+      # atomically (temp + rename onto the target). Renaming onto a
+      # single-file bind mount fails ("unable to write credential store:
+      # Operation not permitted") because the target is a mountpoint;
+      # mounting the containing dir lets the rename happen within it. The
+      # dir is mode 700 (umask), owned by the uid the container runs as,
+      # and removed on exit.
+      CRED_DIR="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/docex-gitcred.XXXXXX")"
+      CRED_FILE="$CRED_DIR/credentials"
+      # shellcheck disable=SC2064 - expand CRED_DIR now, at trap-set time.
+      trap "rm -rf '$CRED_DIR'" EXIT
+      # git `store` line format; no path component ⇒ matches any path on host.
+      ( umask 077; printf '%s://%s:%s@%s\n' \
+          "$CRED_PROTOCOL" "$CRED_USER" "$CRED_PASS" "$CRED_HOST" >"$CRED_FILE" )
+      MOUNTS+=(-v "$CRED_DIR:$CRED_DIR")
+      # Reset any inherited credential.helper (e.g. one named in the
+      # mounted ~/.gitconfig that can't run in-container) so only our
+      # store helper is consulted, and force useHttpPath=false so the
+      # host-level (pathless) store entry matches regardless of any
+      # inherited per-host useHttpPath=true. GIT_CONFIG_* applies after
+      # the config files, so the empty reset clears file-level helpers.
+      RUN_FLAGS+=(
+        -e GIT_CONFIG_COUNT=3
+        -e GIT_CONFIG_KEY_0=credential.helper -e GIT_CONFIG_VALUE_0=
+        -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=store --file=$CRED_FILE"
+        -e GIT_CONFIG_KEY_2=credential.useHttpPath -e GIT_CONFIG_VALUE_2=false
+      )
+      echo "docex: using host-resolved git credentials for $CRED_HOST" >&2
+    fi
+  fi
+fi
+
 exec docker run \
   "${RUN_FLAGS[@]}" \
   "${MOUNTS[@]}" \
