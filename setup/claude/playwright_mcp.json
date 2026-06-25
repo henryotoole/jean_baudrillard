@@ -1,0 +1,10 @@
+{
+  "command": "docker",
+  "args": [
+    "run",
+    "-i",
+    "--rm",
+    "--init",
+    "mcr.microsoft.com/playwright/mcp:v0.0.41@sha256:9509e68e2d0d3a022f14d5c20bd539bf273d3c9db852038c46cd9d5e52b27016"
+  ]
+}

@@ -30,24 +30,29 @@ the project's *automated* end-to-end tests, that belongs to the project's
    service(s) are healthy. (Bringing dev up already required dev DNS to be
    routed and certs issued — see below, this is why the public URL just works.)
 2. **The Playwright MCP server is registered.** It is a stdio MCP server that
-   runs the browser in a container. If the `browser_*` tools are not available
-   in this session, it is not registered yet — add the entry below via the
-   `update-config` skill (it writes `~/.claude.json` `mcpServers`), then restart
-   the session so the tools load.
+   runs the browser in a container. **`setup.sh` pre-registers it** (via
+   `setup/claude/mcp.sh`), so on a machine whose doctrine install is current it
+   is already there — the tools come live in any session started after that
+   setup run, which is the same fresh session `doctrine-update` already tells you
+   to start. If the `browser_*` tools are *not* available, the registration
+   didn't run or didn't take: re-run `bash ~/.claude/jean_baudrillard/setup.sh`
+   (or just its `setup/claude/mcp.sh`) and restart the session.
 
 ### MCP server entry
 
+The server's pinned config is the canonical
+[`setup/claude/playwright_mcp.json`](../../setup/claude/playwright_mcp.json) in
+the jean repo — the **single source of truth** for the pin, consumed by
+`setup/claude/mcp.sh`. It registers at **user scope** (`~/.claude.json`
+`mcpServers`), equivalent to:
+
 ```json
 {
-  "mcpServers": {
-    "playwright": {
-      "command": "docker",
-      "args": [
-        "run", "-i", "--rm", "--init",
-        "mcr.microsoft.com/playwright/mcp:v0.0.41@sha256:9509e68e2d0d3a022f14d5c20bd539bf273d3c9db852038c46cd9d5e52b27016"
-      ]
-    }
-  }
+  "command": "docker",
+  "args": [
+    "run", "-i", "--rm", "--init",
+    "mcr.microsoft.com/playwright/mcp:<tag>@sha256:<digest>"
+  ]
 }
 ```
 
@@ -61,7 +66,9 @@ the project's *automated* end-to-end tests, that belongs to the project's
   browser/Playwright versions don't drift between sessions. To bump the version
   later, re-resolve the digest with
   `docker buildx imagetools inspect mcr.microsoft.com/playwright/mcp:<tag> --format '{{.Manifest.Digest}}'`
-  and update both the tag and the `@sha256:` here.
+  and edit the tag and `@sha256:` in `setup/claude/playwright_mcp.json` (the one
+  place). `mcp.sh` compares command+args and re-registers on the next setup run,
+  so the new pin lands automatically.
 - **Network**: the container only needs ordinary internet egress (the default
   docker bridge gives it). No `--network` / `docex-ingress` wiring is needed —
   see the next section for why.

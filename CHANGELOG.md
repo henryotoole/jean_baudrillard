@@ -17,6 +17,34 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-06-25
+
+### Added
+
+- **`setup.sh` now pre-registers the Playwright MCP server** used by the
+  `browser-investigate` skill, via a new sub-script
+  [`setup/claude/mcp.sh`](./setup/claude/mcp.sh). Previously the first use of
+  `browser-investigate` had to register the stdio MCP server and then restart
+  the session before the `browser_*` tools were live. Because `setup.sh` is run
+  through `doctrine-update` — which already ends by telling the operator to
+  start a fresh session — the server now boots in that session and the skill
+  works on first use, with no extra restart.
+- **Canonical pin file** [`setup/claude/playwright_mcp.json`](./setup/claude/playwright_mcp.json)
+  is the single source of truth for the digest-pinned Playwright MCP image,
+  consumed by `mcp.sh`. The `browser-investigate` SKILL.md no longer embeds a
+  second copy of the pin — it points at this file, ending the drift risk of two
+  hand-maintained digests.
+
+### Changed
+
+- `mcp.sh` registers at **user scope** (`~/.claude.json` `mcpServers`) with a
+  **compare-and-replace** guard: it rewrites the entry only when the desired
+  command+args differ from what's registered, which both keeps re-runs
+  idempotent and picks up a digest bump automatically. It degrades gracefully
+  (warns, never fails `setup.sh`) when the `claude` CLI or Docker is absent, and
+  best-effort `docker pull`s the pinned image so the first `browser_navigate`
+  isn't a cold pull.
+
 ## [1.3.1] - 2026-06-24
 
 ### Added
