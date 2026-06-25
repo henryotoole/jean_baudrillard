@@ -106,6 +106,26 @@
       "note": "ec2_traefik variant"
     },
     {
+      "query": "we're sunsetting myproject for good — i need to tear down its entire production stack on aws: the ALB, the route53 zone, the ECR repos, the IAM role and the tofu state backend, all of it",
+      "expect": "projinfra-setup",
+      "note": "teardown: full elastic production-side projinfra retirement (tofu destroy + state-backend cleanup)"
+    },
+    {
+      "query": "what's the correct order to fully decommission a project's production side? tofu keeps refusing because there are still environment stacks up",
+      "expect": "projinfra-setup",
+      "note": "teardown: ordered retirement sequence (envinfra down prod/stage before projinfra down production); the refuse-if-env-resources-exist guard lives in projinfra doctrine"
+    },
+    {
+      "query": "this is a fixed single-machine project and i'm retiring it — how do i bring the production-side project infrastructure down, the traefik proxy and the -web networks?",
+      "expect": "projinfra-setup",
+      "note": "teardown: fixed-foundation production-side projinfra down"
+    },
+    {
+      "query": "the prod deploy went bad — i just need prod taken back down to the previous working version asap",
+      "expect": "cicd-pipeline",
+      "note": "near-miss for projinfra-setup: 'take down' is lexically a teardown but this is a rollback (code rewind), not infrastructure destruction"
+    },
+    {
       "query": "i'm adding distributed tracing and a few custom metrics to my web service and need to figure out how the signals actually reach the backend",
       "expect": "telemetry-design",
       "note": "observability design"
