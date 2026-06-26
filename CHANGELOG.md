@@ -17,6 +17,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-26
+
 ### Added
 
 - **Opt-in host-resolved git credential passthrough in the `docex` shim**
@@ -37,6 +39,11 @@ first post-`0.4.0` overhaul.
   `docex` image rebuild and no `src/` change. Doctrine: generalized
   `credentials.md` § Git Host Credentials and reconciled the shim's
   version-independence wording in `docex.md`.
+- **Production-teardown trigger-eval queries** added to the `skill-iteration`
+  eval suite (`skill_iter/eval/queries.json`): project-tier production teardown
+  routing to `projinfra-setup`, plus the teardown-vs-rollback near-miss that must
+  route to `cicd-pipeline`. Preinfra teardown is left uncovered by deliberate
+  choice. Eval-data only — no doctrine, skill, or `docex` behavior change.
 
 ## [1.3.2] - 2026-06-25
 
