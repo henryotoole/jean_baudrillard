@@ -72,9 +72,13 @@ untouched.
   proceeds exactly as it would today — it does not hang and does not hard-fail
   the invocation in the shim.
 - **Short-lived, off the process env.** The resolved credential is written to a
-  mode-600 host temp file, mounted read-only, consumed via git's `store` helper,
-  and removed when the shim exits. It is not placed on the container's env (so it
-  is not exposed via `docker inspect`).
+  mode-600 file inside a mode-700 host temp dir, mounted read-write (git's `store`
+  helper rewrites it on a successful auth), consumed via git's `store` helper, and
+  removed when docex exits. To make that removal real, the shim does **not** `exec`
+  when a credential is staged — an `exec` replaces the shell and the cleanup trap
+  never fires — so it runs docex as a child and removes the dir afterward (trap as
+  backstop). It is not placed on the container's env (so it is not exposed via
+  `docker inspect`).
 
 ## Scope of change (artifacts)
 

@@ -154,7 +154,11 @@ if [[ -n "${DOCEX_GIT_CREDENTIAL_PASSTHROUGH:-}" ]]; then
       CRED_DIR="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/docex-gitcred.XXXXXX")"
       CRED_FILE="$CRED_DIR/credentials"
       # shellcheck disable=SC2064 - expand CRED_DIR now, at trap-set time.
-      trap "rm -rf '$CRED_DIR'" EXIT
+      # Backstop cleanup. NOTE: this trap does NOT fire if the shell is
+      # replaced by `exec` — so the final dispatch below deliberately does
+      # NOT exec when a credential dir is staged (see the dispatch block).
+      # The trap covers the window before dispatch and signal interruption.
+      trap "rm -rf '$CRED_DIR'" EXIT INT TERM
       # git `store` line format; no path component ⇒ matches any path on host.
       ( umask 077; printf '%s://%s:%s@%s\n' \
           "$CRED_PROTOCOL" "$CRED_USER" "$CRED_PASS" "$CRED_HOST" >"$CRED_FILE" )
@@ -174,6 +178,28 @@ if [[ -n "${DOCEX_GIT_CREDENTIAL_PASSTHROUGH:-}" ]]; then
       echo "docex: using host-resolved git credentials for $CRED_HOST" >&2
     fi
   fi
+fi
+
+# Dispatch.
+#
+# Fast path (no credential staged): `exec` so docex fully replaces this
+# shell — identical to the historical behavior, no lingering process.
+#
+# Credential path: a temp dir holding a plaintext credential is staged and
+# MUST be removed when docex exits. `exec` would replace this shell and the
+# EXIT trap would never fire, leaking the credential dir (one per run). So
+# here we run docex as a child, then clean up and propagate its exit code.
+# `|| status=$?` keeps `set -e` from aborting before cleanup on a non-zero
+# docex exit; the EXIT/INT/TERM trap is the backstop.
+if [[ -n "${CRED_DIR:-}" ]]; then
+  status=0
+  docker run \
+    "${RUN_FLAGS[@]}" \
+    "${MOUNTS[@]}" \
+    "docex:$DOCEX_VERSION" \
+    "$@" || status=$?
+  rm -rf "$CRED_DIR"
+  exit "$status"
 fi
 
 exec docker run \

@@ -29,8 +29,10 @@ first post-`0.4.0` overhaul.
   `DOCEX_GIT_CREDENTIAL_PASSTHROUGH`, the shim now resolves the project's `https`
   `origin` credential on the host via `git credential fill` (git's own machinery,
   so docex stays agnostic to the helper) and injects the short-lived result into
-  the container as a `store`-helper entry (mode-600 temp file, mounted read-only,
-  removed on exit, kept off the container env). Unset ⇒ byte-for-byte the prior
+  the container as a `store`-helper entry (a mode-600 file in a mode-700 host temp
+  dir, mounted read-write — git's `store` helper rewrites it on a successful auth —
+  removed when docex exits, kept off the container env; the shim does not `exec`
+  when a credential is staged so the cleanup actually runs). Unset ⇒ byte-for-byte the prior
   static behavior; scoped to `https` origins; fails open. Shim-only change — no
   `docex` image rebuild and no `src/` change. Doctrine: generalized
   `credentials.md` § Git Host Credentials and reconciled the shim's

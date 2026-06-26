@@ -39,16 +39,33 @@ Logic, gated on `[[ -n "${DOCEX_GIT_CREDENTIAL_PASSTHROUGH:-}" ]]`:
    entry matches even when an inherited per-host `useHttpPath=true` is present —
    verified necessary in testing):
    ```
-   MOUNTS+=(-v "$credfile:$credfile:ro")
+   MOUNTS+=(-v "$cred_dir:$cred_dir")           # the DIR, read-write
    RUN_FLAGS+=(
      -e GIT_CONFIG_COUNT=3
      -e GIT_CONFIG_KEY_0=credential.helper -e GIT_CONFIG_VALUE_0=
-     -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=store --file=$credfile"
+     -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=store --file=$cred_dir/credentials"
      -e GIT_CONFIG_KEY_2=credential.useHttpPath -e GIT_CONFIG_VALUE_2=false
    )
    ```
    (`GIT_CONFIG_*` env config is applied after the config files, so the empty
    reset clears file-level helpers and the `store` entry is the only one left.)
+
+6. **Dispatch without `exec` when a credential is staged.** The shim's final step
+   normally `exec`s `docker run`. `exec` replaces the shell process, so the cleanup
+   `trap … EXIT` would **never fire** and the plaintext credential dir would persist
+   (one per run). When a credential dir was staged, run docex as a **child** instead,
+   then remove the dir and propagate the exit code; keep `exec` for the no-credential
+   fast path (preserves the byte-identical no-regression behavior). Guard with
+   `|| status=$?` so `set -e` doesn't abort before cleanup; trap on `EXIT INT TERM`
+   as backstop:
+   ```
+   if [[ -n "${cred_dir:-}" ]]; then
+     status=0
+     docker run "${RUN_FLAGS[@]}" "${MOUNTS[@]}" "docex:$DOCEX_VERSION" "$@" || status=$?
+     rm -rf "$cred_dir"; exit "$status"
+   fi
+   exec docker run "${RUN_FLAGS[@]}" "${MOUNTS[@]}" "docex:$DOCEX_VERSION" "$@"
+   ```
 
 Notes:
 - Keep `set -euo pipefail` safe: guard every git call with `|| true` where a
