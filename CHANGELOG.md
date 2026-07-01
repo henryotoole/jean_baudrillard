@@ -17,23 +17,43 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **`reverse_proxy: ec2_traefik_{eip,pip}` emitted invalid HCL** (mod 062).
-  The EC2-traefik instance's `user_data` bash script is injected into an HCL
-  heredoc in the project-tier `main.tf`, but HCL heredocs interpolate
-  `${...}`/`%{...}` — so the script's shell expansions (`${PROJECT}`,
-  `${VOLUME_ID//-/}`, etc.) were parsed as HCL and `tofu validate` failed with
-  `Extra characters after interpolation expression`. The whole `ec2_traefik`
-  path (mod 044) had never been exercised end-to-end — every prior elastic
-  smoke walk used the default `alb` reverse proxy — and the mod-044 tests only
-  asserted substring presence, never parsing the emitted HCL, so the break
-  shipped silently. The compiler now escapes `${`→`$${` and `%{`→`%%{` in the
-  rendered user_data before it enters the heredoc (OpenTofu un-escapes them on
-  evaluation, so the instance receives the intended script); bare `$(...)` /
-  `$VAR` are untouched. Regression coverage adds escaping assertions plus a
-  real `tofu validate` pass over every emitted tier of both variants. Fix is
-  confined to `emit/hcl.py`; no doctrine or output-layout change.
+- **Service-level "flow" tests in the test taxonomy.** New doctrine guidance
+  (`hexagonal_architecture/hex_overview.md`, `infrastructure/tests.md`) defining
+  flow tests — integration tests that drive a whole core service from the
+  outside against real driven adapters, asserting *behavior* (not the contract's
+  shape) — with the flow-vs-contract distinction, the `flows/`/`contracts/`
+  tests-folder layout, and a `testing`-skill update. Backward-compatible.
+
+### Fixed / Changed
+
+- **`reverse_proxy: ec2_traefik_*` — compile + boot chain repaired (mods
+  062–067); the path is NOT yet end-to-end functional.** EC2-traefik had never
+  been runtime-tested and carried a chain of bugs, surfaced by real-AWS smoke
+  walks of the elastic test project:
+  - **062** — user_data heredoc `${}`/`%{}` collided with HCL interpolation →
+    `tofu` parse failure. Now escaped (`emit/hcl.py`).
+  - **063** — user_data apt-installed `awscli`/`amazon-cloudwatch-agent`, absent
+    on Ubuntu 24.04 → boot abort. Now AWS CLI v2 bundle + best-effort CW agent.
+  - **064** — `release` never pushed the traefik routing config to SSM (stayed
+    the empty stub). Now rendered from stage+prod web services and pushed
+    (`emit/traefik.py`).
+  - **065** — user_data used token-less IMDS under IMDSv2-required → boot abort.
+    Now uses IMDSv2 tokens.
+  - **066** — the traefik instance lacked `purpose=ec2_traefik_acme`, so the
+    `AttachVolume` IAM grant denied the volume attach → boot abort. Now tagged.
+  - **067** — user_data ships its bring-up log to CloudWatch (observability;
+    the Nitro serial console is unreliable and SSM was SCP-denied).
+
+  Verified on real AWS: the instance now boots fully and traefik serves.
+  **Known limitation — do not advertise ec2_traefik as working yet:** backend
+  routing returns 502 because ECS **Service Connect** names are not
+  VPC-DNS-resolvable from the out-of-mesh EC2 traefik instance (bug 6,
+  architectural), and the Let's Encrypt cert path is unconfirmed (bug 7). A
+  follow-on campaign will register web services via ECS **Service Discovery**
+  (Cloud Map DNS). Until then use `reverse_proxy: alb` on elastic. Full detail:
+  `docex/plans/modifications/_campaign_ec2_traefik_functional.md`.
 
 ## [1.4.0] - 2026-06-26
 
