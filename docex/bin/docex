@@ -108,74 +108,114 @@ if [[ -n "${SSH_AUTH_SOCK:-}" && -S "$SSH_AUTH_SOCK" ]]; then
   RUN_FLAGS+=(-e "SSH_AUTH_SOCK=/ssh-agent.sock")
 fi
 
-# Host-resolved git credentials (opt-in; mod 061).
+# Per-call brokered git credentials (opt-in; mod 062, supersedes mod 061's
+# resolve-once store injection).
 #
-# The static credential mounts above (~/.gitconfig, ~/.ssh, ssh-agent)
-# cover environments where git auth is a file or an agent key. They do
-# NOT cover an environment whose git auth is brokered by a
-# `credential.helper` talking to a host-local daemon/socket — the helper
-# binary and its transport don't exist inside the container. For those
-# environments, resolve the credential HERE, on the host (where git's
-# own credential machinery — whatever it is — works), and inject the
-# result into the container as a short-lived `store`-helper credential.
+# WHY per-call: mod 061 resolved the credential ONCE at invocation and baked a
+# static `store` copy into the container. Brokered tokens (GitHub App installation
+# tokens) are hard-capped at ~1h, so any docex op that does long work before an
+# in-container git network op (merge: a multi-minute defensive `check` before its
+# fetch, and a `push` later still) could outlive the baked token — and in-container
+# git can't re-broker. Instead we forward EACH in-container `git credential` request
+# back out to the host's own `git credential fill`, so every fetch/push mints a
+# FRESH short-lived credential. docex stays agnostic to the host's helper.
 #
-# WHY here, not in docex: the shim is the only host-side step, and only
-# the credential *resolution* needs the host. docex's in-container git is
-# unchanged. This is general — it drives `git credential fill`, not any
-# specific helper — so docex stays agnostic to how the host brokers git.
-#
-# Opt-in via $DOCEX_GIT_CREDENTIAL_PASSTHROUGH, set by the ENVIRONMENT
-# (e.g. a dev-box image), never by the project repo. Unset ⇒ this block
-# is skipped entirely and behavior is identical to the static path above.
+# Opt-in via $DOCEX_GIT_CREDENTIAL_PASSTHROUGH (set by the ENVIRONMENT, never the
+# repo). Unset => this block is skipped and behavior is identical to the static path.
+# Requires python3 on the host (responder) — guaranteed by any environment that sets
+# the signal (the dev-box image). The in-container forwarder uses the docex image's
+# python3 (always present).
 if [[ -n "${DOCEX_GIT_CREDENTIAL_PASSTHROUGH:-}" ]]; then
   ORIGIN_URL="$(git -C "$PROJECT_ROOT" remote get-url origin 2>/dev/null || true)"
-  # Only https origins use a credential helper; ssh / remoteless fall
-  # through to the static path unchanged.
   if [[ "$ORIGIN_URL" == https://* ]]; then
-    # Drive the host's configured credential machinery non-interactively;
-    # GIT_TERMINAL_PROMPT=0 makes a miss fail fast instead of prompting.
-    CRED_FILL="$(printf 'url=%s\n\n' "$ORIGIN_URL" \
-      | GIT_TERMINAL_PROMPT=0 git -C "$PROJECT_ROOT" credential fill 2>/dev/null || true)"
-    CRED_PROTOCOL="$(sed -n 's/^protocol=//p' <<<"$CRED_FILL" | head -n1)"
-    CRED_HOST="$(sed -n 's/^host=//p' <<<"$CRED_FILL" | head -n1)"
-    CRED_USER="$(sed -n 's/^username=//p' <<<"$CRED_FILL" | head -n1)"
-    CRED_PASS="$(sed -n 's/^password=//p' <<<"$CRED_FILL" | head -n1)"
-    # Fail open: nothing resolved ⇒ inject nothing, let docex proceed as
-    # it would have (it surfaces its own auth error if it needs one).
-    if [[ -n "$CRED_USER" && -n "$CRED_PASS" ]]; then
-      # Mount a DIRECTORY, not the file directly. On a successful auth git
-      # invokes the `store` helper's `store` action, which writes the file
-      # atomically (temp + rename onto the target). Renaming onto a
-      # single-file bind mount fails ("unable to write credential store:
-      # Operation not permitted") because the target is a mountpoint;
-      # mounting the containing dir lets the rename happen within it. The
-      # dir is mode 700 (umask), owned by the uid the container runs as,
-      # and removed on exit.
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "docex: DOCEX_GIT_CREDENTIAL_PASSTHROUGH set but python3 not found on host; skipping per-call git credentials" >&2
+    else
       CRED_DIR="$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/docex-gitcred.XXXXXX")"
-      CRED_FILE="$CRED_DIR/credentials"
-      # shellcheck disable=SC2064 - expand CRED_DIR now, at trap-set time.
-      # Backstop cleanup. NOTE: this trap does NOT fire if the shell is
-      # replaced by `exec` — so the final dispatch below deliberately does
-      # NOT exec when a credential dir is staged (see the dispatch block).
-      # The trap covers the window before dispatch and signal interruption.
-      trap "rm -rf '$CRED_DIR'" EXIT INT TERM
-      # git `store` line format; no path component ⇒ matches any path on host.
-      ( umask 077; printf '%s://%s:%s@%s\n' \
-          "$CRED_PROTOCOL" "$CRED_USER" "$CRED_PASS" "$CRED_HOST" >"$CRED_FILE" )
+      CRED_SOCK="$CRED_DIR/cred.sock"
+      # Backstop cleanup (see dispatch note): kill the responder + remove the dir.
+      # shellcheck disable=SC2064 - expand now, at trap-set time.
+      trap "[[ -n \"\${RESPONDER_PID:-}\" ]] && kill \"\$RESPONDER_PID\" 2>/dev/null; rm -rf '$CRED_DIR'" EXIT INT TERM
+
+      # responder.py — runs on the HOST. Per connection, pipes the request through
+      # the host's own `git credential fill` (fresh broker each time) and returns it.
+      cat >"$CRED_DIR/responder.py" <<'PYRESP'
+import os, socket, subprocess, sys
+
+sock_path, project_root = sys.argv[1], sys.argv[2]
+if os.path.exists(sock_path):
+    os.unlink(sock_path)
+srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+srv.bind(sock_path)
+os.chmod(sock_path, 0o600)
+srv.listen(8)
+while True:
+    try:
+        conn, _ = srv.accept()
+    except OSError:
+        break
+    with conn:
+        chunks = []
+        while True:
+            b = conn.recv(4096)
+            if not b:
+                break
+            chunks.append(b)
+        request = b"".join(chunks)
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+        try:
+            # Drive the host's configured credential machinery (whatever it is).
+            proc = subprocess.run(
+                ["git", "-C", project_root, "credential", "fill"],
+                input=request, capture_output=True, env=env,
+            )
+            conn.sendall(proc.stdout)  # fail-open: empty on miss
+        except Exception:
+            pass  # fail-open: send nothing
+PYRESP
+
+      # forward.py — runs IN the container as git's credential.helper. Transparent
+      # pipe: git's request on stdin -> socket -> responder -> back to stdout.
+      cat >"$CRED_DIR/forward.py" <<'PYFWD'
+import socket, sys
+
+sock_path = sys.argv[1]
+operation = sys.argv[2] if len(sys.argv) > 2 else ""
+if operation != "get":  # store/erase are no-ops (nothing persisted)
+    sys.exit(0)
+request = sys.stdin.buffer.read()
+try:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(sock_path)
+    s.sendall(request)
+    s.shutdown(socket.SHUT_WR)  # signal end-of-request
+    chunks = []
+    while True:
+        b = s.recv(4096)
+        if not b:
+            break
+        chunks.append(b)
+    sys.stdout.buffer.write(b"".join(chunks))
+except Exception:
+    sys.exit(0)  # fail-open: no credential
+PYFWD
+
+      python3 "$CRED_DIR/responder.py" "$CRED_SOCK" "$PROJECT_ROOT" &
+      RESPONDER_PID=$!
+      # Bounded wait for the socket to bind (fail-open if it never does).
+      for _ in $(seq 1 20); do [[ -S "$CRED_SOCK" ]] && break; sleep 0.1; done
+
       MOUNTS+=(-v "$CRED_DIR:$CRED_DIR")
-      # Reset any inherited credential.helper (e.g. one named in the
-      # mounted ~/.gitconfig that can't run in-container) so only our
-      # store helper is consulted, and force useHttpPath=false so the
-      # host-level (pathless) store entry matches regardless of any
-      # inherited per-host useHttpPath=true. GIT_CONFIG_* applies after
-      # the config files, so the empty reset clears file-level helpers.
+      # git appends the operation (get/store/erase) as the final arg, so
+      # forward.py sees argv = [forward.py, <sock>, <op>]. Reset any inherited
+      # helper and force useHttpPath=false (same reasons as mod 061).
       RUN_FLAGS+=(
         -e GIT_CONFIG_COUNT=3
         -e GIT_CONFIG_KEY_0=credential.helper -e GIT_CONFIG_VALUE_0=
-        -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=store --file=$CRED_FILE"
+        -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=!python3 $CRED_DIR/forward.py $CRED_SOCK"
         -e GIT_CONFIG_KEY_2=credential.useHttpPath -e GIT_CONFIG_VALUE_2=false
       )
-      echo "docex: using host-resolved git credentials for $CRED_HOST" >&2
+      echo "docex: brokering per-call git credentials via the host for $ORIGIN_URL" >&2
     fi
   fi
 fi
@@ -185,10 +225,11 @@ fi
 # Fast path (no credential staged): `exec` so docex fully replaces this
 # shell — identical to the historical behavior, no lingering process.
 #
-# Credential path: a temp dir holding a plaintext credential is staged and
-# MUST be removed when docex exits. `exec` would replace this shell and the
-# EXIT trap would never fire, leaking the credential dir (one per run). So
-# here we run docex as a child, then clean up and propagate its exit code.
+# Credential path: a temp dir (socket + helper scripts) and a background
+# responder process are staged and MUST be cleaned up when docex exits.
+# `exec` would replace this shell and the EXIT trap would never fire, leaving
+# an orphaned responder and temp dir (one per run). So here we run docex as a
+# child, then kill the responder, remove the dir, and propagate its exit code.
 # `|| status=$?` keeps `set -e` from aborting before cleanup on a non-zero
 # docex exit; the EXIT/INT/TERM trap is the backstop.
 if [[ -n "${CRED_DIR:-}" ]]; then
@@ -198,6 +239,7 @@ if [[ -n "${CRED_DIR:-}" ]]; then
     "${MOUNTS[@]}" \
     "docex:$DOCEX_VERSION" \
     "$@" || status=$?
+  [[ -n "${RESPONDER_PID:-}" ]] && kill "$RESPONDER_PID" 2>/dev/null || true
   rm -rf "$CRED_DIR"
   exit "$status"
 fi
