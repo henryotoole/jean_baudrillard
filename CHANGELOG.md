@@ -17,6 +17,24 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`reverse_proxy: ec2_traefik_{eip,pip}` emitted invalid HCL** (mod 062).
+  The EC2-traefik instance's `user_data` bash script is injected into an HCL
+  heredoc in the project-tier `main.tf`, but HCL heredocs interpolate
+  `${...}`/`%{...}` — so the script's shell expansions (`${PROJECT}`,
+  `${VOLUME_ID//-/}`, etc.) were parsed as HCL and `tofu validate` failed with
+  `Extra characters after interpolation expression`. The whole `ec2_traefik`
+  path (mod 044) had never been exercised end-to-end — every prior elastic
+  smoke walk used the default `alb` reverse proxy — and the mod-044 tests only
+  asserted substring presence, never parsing the emitted HCL, so the break
+  shipped silently. The compiler now escapes `${`→`$${` and `%{`→`%%{` in the
+  rendered user_data before it enters the heredoc (OpenTofu un-escapes them on
+  evaluation, so the instance receives the intended script); bare `$(...)` /
+  `$VAR` are untouched. Regression coverage adds escaping assertions plus a
+  real `tofu validate` pass over every emitted tier of both variants. Fix is
+  confined to `emit/hcl.py`; no doctrine or output-layout change.
+
 ## [1.4.0] - 2026-06-26
 
 ### Added

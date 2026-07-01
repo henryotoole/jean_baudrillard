@@ -1049,6 +1049,19 @@ def emit_hcl_project(
             reverse_proxy=rp,
             traefik_acme_email=acme_email,
         )
+        # WHY: the user_data is injected into an HCL heredoc in
+        # project.tf.j2, and HCL heredocs interpolate ${...}/%{...}. The
+        # rendered script is pure bash — every ${VAR} is a shell expansion,
+        # none are HCL refs — so escape both interpolation triggers. OpenTofu
+        # un-escapes $${ -> ${ and %%{ -> %{ when evaluating the heredoc, so
+        # the instance receives the intended script. Bare $(...) / $VAR are
+        # untouched (only ${ and %{ trigger HCL interpolation). NOTE: do NOT
+        # use the $->$$ doubling from _hcl_value here — that is for quoted
+        # strings whose only $ usage is ${...}; this script has bare $(...)
+        # that must survive un-doubled.
+        traefik_user_data = traefik_user_data.replace(
+            "${", "$${"
+        ).replace("%{", "%%{")
 
     rendered = tpl.render(
         project=project,

@@ -8,7 +8,9 @@ are inspected there.
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -1299,3 +1301,77 @@ def test_mod044_traefik_user_data_renders_project_name(tmp_path: Path):
     # SSM-resource path elsewhere in the HCL carries the literal form too.
     assert 'PROJECT="sample"' in tf
     assert "/sample/ec2_traefik/config.yml" in tf
+
+
+def test_mod062_traefik_user_data_hcl_escaped_eip(tmp_path: Path):
+    """The EC2-traefik user_data is HCL-escaped before entering the heredoc:
+    every bash ${VAR} appears as $${VAR} so OpenTofu doesn't parse it as an
+    interpolation. Regression for mod 062 (invalid HCL on the ec2_traefik
+    path)."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # Escaped forms present.
+    assert "$${PROJECT}" in tf
+    assert "$${VOLUME_ID//-/}" in tf
+    assert "$${TRAEFIK_VERSION}" in tf
+    # No bare (unescaped) bash expansions survive — a `${` preceded by a
+    # non-`$` is what HCL would parse as an interpolation and reject. Every
+    # `${` in the emitted file must be the escaped `$${` form. (A plain
+    # substring check can't express this: "$${PROJECT}" contains
+    # "${PROJECT}" as a substring, so we match on the preceding char.)
+    for name in ("PROJECT", "VOLUME_ID", "TRAEFIK_VERSION",
+                 "DEVICE_NAME", "REGION"):
+        bare = re.search(r"(?<!\$)\$\{" + name + r"\b", tf)
+        assert bare is None, (
+            f"unescaped ${{{name}}} would break HCL parsing"
+        )
+    # Bash command substitution stays un-doubled (only ${/%{ are escaped).
+    assert "$(curl -sf http://169.254.169.254" in tf
+
+
+def test_mod062_traefik_user_data_hcl_escaped_pip(tmp_path: Path):
+    """Same escaping guarantee on the pip variant, whose user_data carries
+    the additional boot-time DNS-update block."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_pip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert "$${PROJECT}" in tf
+    for name in ("PROJECT", "VOLUME_ID", "TRAEFIK_VERSION"):
+        bare = re.search(r"(?<!\$)\$\{" + name + r"\b", tf)
+        assert bare is None
+
+
+def _tofu_validate(tf_dir: Path) -> subprocess.CompletedProcess:
+    """Run `tofu init -backend=false` + `tofu validate` in tf_dir.
+
+    Returns the validate CompletedProcess (init failure is raised eagerly so
+    a bad init doesn't masquerade as a validate pass)."""
+    init = subprocess.run(
+        ["tofu", "init", "-backend=false", "-input=false", "-no-color"],
+        cwd=tf_dir, capture_output=True, text=True,
+    )
+    assert init.returncode == 0, f"tofu init failed:\n{init.stdout}\n{init.stderr}"
+    return subprocess.run(
+        ["tofu", "validate", "-no-color"],
+        cwd=tf_dir, capture_output=True, text=True,
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(shutil.which("tofu") is None, reason="tofu not installed")
+@pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])
+def test_mod062_ec2_traefik_hcl_is_tofu_valid(tmp_path: Path, variant: str):
+    """Every tier of an ec2_traefik project emits HCL that OpenTofu accepts.
+    This is the coverage the mod-044 substring tests lacked — it parses the
+    emitted HCL rather than string-matching it. Regression for mod 062."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, variant)
+    out = root / "infra" / "output"
+    for tier in ("project/production", "stage", "prod"):
+        res = _tofu_validate(out / tier)
+        assert res.returncode == 0, (
+            f"[{variant}] tofu validate failed for {tier}:\n"
+            f"{res.stdout}\n{res.stderr}"
+        )
