@@ -55,6 +55,25 @@ first post-`0.4.0` overhaul.
   (Cloud Map DNS). Until then use `reverse_proxy: alb` on elastic. Full detail:
   `docex/plans/modifications/_campaign_ec2_traefik_functional.md`.
 
+- **`docex`'s opt-in host git-credential passthrough now brokers a *fresh*
+  credential per in-container network op** (mod 068, supersedes mod 061's
+  resolve-once injection). Previously the shim resolved the `origin` credential
+  **once** at invocation and baked a static `store` copy into the container.
+  Brokered tokens (GitHub App installation tokens) are hard-capped at ~1h, so a
+  `docex` command doing long work before its in-container git op — notably
+  `merge`, whose defensive `check` (cold build + service tests) runs for minutes
+  before the `fetch`, with the `push` later still — could outlive the baked token,
+  and in-container git cannot re-broker: `docex merge` died with
+  `fatal: could not read Username … (exit 128)` on every dev box using brokered
+  git (lifecycle finding B2). The shim now forwards **each** in-container
+  `git credential` request back out to the host's own `git credential fill` over a
+  Unix socket (a host-side `responder.py` + an in-container `forward.py` helper,
+  both written at runtime into a mode-700 temp dir), so every fetch/push mints a
+  fresh short-lived credential. Passthrough mode now also requires `python3` on
+  the host (for the responder). Unset signal ⇒ byte-for-byte the prior static
+  path; scoped to `https` origins; fails open. Shim-only change — no `docex` image
+  rebuild and no `src/` change.
+
 ## [1.4.0] - 2026-06-26
 
 ### Added
