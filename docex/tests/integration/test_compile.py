@@ -1375,3 +1375,29 @@ def test_mod062_ec2_traefik_hcl_is_tofu_valid(tmp_path: Path, variant: str):
             f"[{variant}] tofu validate failed for {tier}:\n"
             f"{res.stdout}\n{res.stderr}"
         )
+
+
+@pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])
+def test_mod063_user_data_installs_awscli_v2_not_apt(tmp_path: Path, variant: str):
+    """The ec2_traefik user_data must NOT apt-install `awscli` /
+    `amazon-cloudwatch-agent` (neither exists on Ubuntu 24.04, which aborts
+    user_data under `set -e`). It installs AWS CLI v2 from the official bundle
+    (load-bearing) and the CloudWatch agent best-effort. Regression for mod 063.
+    """
+    root = _compile_elastic_with_reverse_proxy(tmp_path, variant)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # The apt line only installs packages that exist on noble.
+    assert (
+        "apt-get install -y --no-install-recommends curl ca-certificates unzip jq"
+        in tf
+    )
+    # The broken apt package list is gone.
+    assert "jq awscli" not in tf
+    # AWS CLI v2 bundle install (load-bearing path).
+    assert "awscli-exe-linux-" in tf
+    assert "/tmp/aws/install" in tf
+    # CloudWatch agent is best-effort — its install path can't abort user_data.
+    assert "amazon-cloudwatch-agent.deb" in tf
+    assert "dpkg -i /tmp/cwagent.deb || apt-get install -f -y || true" in tf

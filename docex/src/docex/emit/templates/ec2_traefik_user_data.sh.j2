@@ -13,8 +13,26 @@ PROJECT="{{ project }}"
 TRAEFIK_VERSION="v3.3.1"
 
 apt-get update
-apt-get install -y --no-install-recommends \
-    curl ca-certificates unzip jq awscli amazon-cloudwatch-agent
+apt-get install -y --no-install-recommends curl ca-certificates unzip jq
+
+# AWS CLI v2 via the official bundle. WHY: the `awscli` apt package was removed
+# on Ubuntu 24.04 (noble); the v2 bundle is the supported no-apt path. This is
+# load-bearing — user_data uses `aws` for EBS attach, SSM config fetch, and
+# (pip variant) route53 DNS updates — so a failure here SHOULD abort (set -e).
+ARCH=$(uname -m)
+curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install
+rm -rf /tmp/awscliv2.zip /tmp/aws
+
+# CloudWatch agent from its AWS-hosted .deb (never in the Ubuntu apt repos).
+# WHY best-effort: log shipping is not required for the proxy to serve, so a
+# download/install failure must NOT abort user_data.
+CW_ARCH=$([ "$ARCH" = "aarch64" ] && echo arm64 || echo amd64)
+if curl -sSL "https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/${CW_ARCH}/latest/amazon-cloudwatch-agent.deb" -o /tmp/cwagent.deb; then
+    dpkg -i /tmp/cwagent.deb || apt-get install -f -y || true
+fi
+rm -f /tmp/cwagent.deb || true
 
 INSTANCE_ID=$(curl -sf http://169.254.169.254/latest/meta-data/instance-id)
 REGION=$(curl -sf http://169.254.169.254/latest/meta-data/placement/region)
