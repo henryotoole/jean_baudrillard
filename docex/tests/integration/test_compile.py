@@ -1401,3 +1401,26 @@ def test_mod063_user_data_installs_awscli_v2_not_apt(tmp_path: Path, variant: st
     # CloudWatch agent is best-effort — its install path can't abort user_data.
     assert "amazon-cloudwatch-agent.deb" in tf
     assert "dpkg -i /tmp/cwagent.deb || apt-get install -f -y || true" in tf
+
+
+@pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])
+def test_mod065_user_data_uses_imdsv2_token(tmp_path: Path, variant: str):
+    """The user_data must fetch an IMDSv2 session token and pass it on every
+    metadata request — the Ubuntu 24.04 AMI enforces token-required IMDS, so a
+    raw metadata curl 401s and aborts user_data under `set -e`. Regression for
+    mod 065."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, variant)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # A token is fetched via PUT.
+    assert "latest/api/token" in tf
+    assert "X-aws-ec2-metadata-token-ttl-seconds" in tf
+    # Metadata fetches carry the token header.
+    assert "X-aws-ec2-metadata-token:" in tf
+    # No token-less raw metadata GET survives (every metadata line has a token).
+    for line in tf.splitlines():
+        if "169.254.169.254/latest/meta-data" in line:
+            assert "X-aws-ec2-metadata-token:" in line, (
+                f"token-less IMDS fetch would 401 on IMDSv2: {line.strip()}"
+            )

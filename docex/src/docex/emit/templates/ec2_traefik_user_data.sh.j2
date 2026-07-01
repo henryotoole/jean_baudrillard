@@ -34,8 +34,13 @@ if curl -sSL "https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/${CW_ARCH}/
 fi
 rm -f /tmp/cwagent.deb || true
 
-INSTANCE_ID=$(curl -sf http://169.254.169.254/latest/meta-data/instance-id)
-REGION=$(curl -sf http://169.254.169.254/latest/meta-data/placement/region)
+# EC2 instance metadata via IMDSv2. WHY the token dance: the Ubuntu 24.04 AMI
+# enforces token-required IMDS (HttpTokens=required), so a raw metadata curl
+# gets 401 and `curl -f` aborts user_data under `set -e`. AWS CLI v2 does this
+# internally, but these raw curls must fetch a token themselves.
+IMDS_TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+INSTANCE_ID=$(curl -sf -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+REGION=$(curl -sf -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
 
 # --- Attach EBS ACME volume by tag ---------------------------------------------
 # WHY: the volume holds traefik's acme.json so cert material survives instance
@@ -188,7 +193,8 @@ EOF
 cat > /usr/local/bin/docex-traefik-dns-update <<EOF
 #!/bin/bash
 set -euo pipefail
-IP=\$(curl -sf http://169.254.169.254/latest/meta-data/public-ipv4)
+IMDS_TOKEN=\$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+IP=\$(curl -sf -H "X-aws-ec2-metadata-token: \$IMDS_TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
 ZONE_ID="\$(aws route53 list-hosted-zones-by-name \\
     --dns-name "{{ project_subdomain }}." \\
     --query 'HostedZones[?Name==\`{{ project_subdomain }}.\`].Id | [0]' \\

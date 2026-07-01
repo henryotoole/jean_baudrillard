@@ -20,6 +20,11 @@ three bugs are confined to the `ec2_traefik_*` branch.
 | 1 | HCL heredoc `${…}`/`%{…}` interpolation collides with the bash user_data → compile/`tofu` parse failure | `emit/hcl.py::emit_hcl_project` | **FIXED — mod 062** |
 | 2 | user_data `apt-get install … awscli amazon-cloudwatch-agent` fails on Ubuntu 24.04 (noble) — neither package is in the apt repos — and `set -euo pipefail` aborts the whole script → traefik never installs/starts | `emit/templates/ec2_traefik_user_data.sh.j2` | mod 063 |
 | 3 | docex never renders/pushes the traefik dynamic routing config; the SSM param `/<project>/ec2_traefik/config.yml` is created as a static empty stub by projinfra and never updated → traefik has zero routes even when running | `pipeline/release.py` (missing step) | mod 064 |
+| 4 | user_data fetches EC2 metadata with raw token-less curls; the Ubuntu 24.04 AMI enforces IMDSv2 (`HttpTokens=required`) so they 401 → `set -e` aborts user_data (surfaced only after mod 063 got past the package install) | `emit/templates/ec2_traefik_user_data.sh.j2` | mod 065 |
+
+> **Sequential discovery.** Bugs 2 → 4 are all in the user_data and were masked
+> one behind another: each fix let the script run further and hit the next.
+> mod 065's re-walk is the point where user_data should finally complete.
 
 ### Bug 1 evidence (fixed, confirmed on real AWS)
 
