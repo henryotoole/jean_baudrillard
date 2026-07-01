@@ -1445,3 +1445,21 @@ def test_mod066_traefik_instance_carries_acme_purpose_tag(tmp_path: Path, varian
     inst = tf.split('resource "aws_instance" "project_traefik"', 1)[1]
     inst_block = inst.split("\nresource ", 1)[0]
     assert 'purpose = "ec2_traefik_acme"' in inst_block
+
+
+@pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])
+def test_mod067_user_data_ships_bringup_log_to_cloudwatch(tmp_path: Path, variant: str):
+    """user_data installs an EXIT trap that ships its log to the project's
+    CloudWatch group, so a failed boot isn't a black box (serial console is
+    unreliable on Nitro; SSM may be SCP-denied). Best-effort. Regression for
+    mod 067."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, variant)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    assert "trap _ship_bringup_log EXIT" in tf
+    assert "aws logs put-log-events" in tf
+    # Ships to the project's ec2_traefik log group.
+    assert "/ec2_traefik" in tf
+    # Best-effort: the put must not abort (|| true guards on the shipping path).
+    assert "put-log-events" in tf and "|| true" in tf

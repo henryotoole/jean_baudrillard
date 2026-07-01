@@ -51,6 +51,37 @@ attach `AmazonSSMManagedInstanceCore` to the traefik role, or open 22 + add an
 SSH key / EC2 Instance Connect — so the remaining chain can be walked and fixed
 in one pass instead of N blind cycles.
 
+## Walk #3 results (mod 067 breadcrumb gave visibility)
+
+mod 067 added a CloudWatch breadcrumb (user_data ships `/var/log/docex-user-data.log`
+to the `/<project>/ec2_traefik` log group on EXIT — safe, uses IAM the role
+already has, no SSH / no SCP change). It immediately unblocked diagnosis. The
+breadcrumb log showed **user_data now runs to completion**: AWS CLI v2 ✓, CW
+agent ✓, **EBS volume attached ✓ (mod 066)**, filesystem made+mounted ✓, all
+systemd units enabled ✓. Confirmed live: traefik serves — `:80 → 301`
+(HTTP→HTTPS redirect), `:443 → 404` (TLS up, no route matched pre-release).
+After a full `release stage`, the SSM config carried the real routers (mod 064),
+the router matched (`-k` curl got past 404), and ECS web was `RUNNING`/healthy.
+
+**So mods 062–066 are now all VERIFIED on real AWS.** Two problems remain:
+
+| # | Bug | Nature | Status |
+| - | --- | ------ | ------ |
+| 6 | **Backend unreachable (502).** traefik routes the request but can't resolve the backend `<discoveryName>.<namespace>`. The Cloud Map **DNS_PRIVATE** zone (`docex-smoke-elastic-stage.`, associated with the master VPC) contains **only NS+SOA — no service A-records.** ECS **Service Connect** resolution is mesh-internal (Envoy sidecar in each task); it does **not** publish VPC-DNS-resolvable records. The EC2-traefik instance is *outside* the mesh, so the name never resolves for it. `ec2_traefik.md § Routing Discovery`'s core assumption is wrong. | **Architectural** — needs a design change (register web services via ECS **Service Discovery** / Cloud Map DNS `service_registries` so the private zone gets A-records, *in addition to or instead of* Service Connect), a doctrine correction, and a compile/emit change. | open |
+| 7 | **LE cert not issued.** traefik serves its `TRAEFIK DEFAULT CERT` for the domain (so `https://…` without `-k` fails the handshake → the `/health` poll saw 000). Whether this is just "needs more time / needs a router to exist first" or a real DNS-01 problem is **unconfirmed** — bug 6 (502) meant no successful request ever exercised the cert path fully. | Unconfirmed — re-diagnose after bug 6 is fixed. | open |
+
+### Bug 6 is the crux — and it's a doctrine design flaw
+
+The EC2-traefik path's entire backend-resolution premise (`ec2_traefik.md §
+Routing Discovery`: "resolved at runtime via the Cloud Map private DNS namespace
+… `<discoveryName>.<namespace>`") does not hold for a client outside the ECS
+mesh. Service Connect ≠ DNS. The likely fix: on the ec2_traefik path, emit an
+`aws_service_discovery_service` (Cloud Map, A-record DnsConfig) per web service
+and wire it via the ECS service's `service_registries`, so the private zone
+carries real A-records the EC2 instance can resolve. This is a doctrine change
+(operator sign-off required) + a compile change + another walk — a distinct
+sub-campaign, not a quick fix. **Paused here for operator design input.**
+
 ## Verified-so-far vs. unverified
 
 - **Verified against real AWS:** mod 062 (projinfra applies the instance), mod

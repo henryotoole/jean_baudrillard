@@ -42,6 +42,27 @@ IMDS_TOKEN=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws
 INSTANCE_ID=$(curl -sf -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
 REGION=$(curl -sf -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
 
+# Ship this script's log to CloudWatch on exit (mod 067). WHY: bring-up must be
+# observable — the serial console does not reliably populate on Nitro, and SSM
+# Session Manager may be denied by an org SCP, so a failed boot is otherwise a
+# black box. The traefik IAM role already grants CreateLogStream + PutLogEvents
+# on this group. Best-effort and never alters the exit status (a shipping
+# failure must not mask the real result). Runs on both success and `set -e`
+# abort, so the log always reflects how far boot got and why it stopped.
+_ship_bringup_log() {
+    rc=$?
+    grp="/${PROJECT}/ec2_traefik"; strm="bringup-${INSTANCE_ID}"
+    aws logs create-log-stream --region "${REGION}" --log-group-name "$grp" \
+        --log-stream-name "$strm" 2>/dev/null || true
+    ts=$(date +%s%3N)
+    jq -nc --arg m "$(tail -c 200000 /var/log/docex-user-data.log 2>/dev/null)" \
+        --argjson t "$ts" '[{timestamp:$t, message:$m}]' > /tmp/cwevents.json 2>/dev/null || true
+    aws logs put-log-events --region "${REGION}" --log-group-name "$grp" \
+        --log-stream-name "$strm" --log-events file:///tmp/cwevents.json 2>/dev/null || true
+    return $rc
+}
+trap _ship_bringup_log EXIT
+
 # --- Attach EBS ACME volume by tag ---------------------------------------------
 # WHY: the volume holds traefik's acme.json so cert material survives instance
 # replacement. Attach happens at runtime (not via aws_volume_attachment) because
