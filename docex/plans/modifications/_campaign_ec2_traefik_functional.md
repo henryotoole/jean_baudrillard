@@ -21,10 +21,44 @@ three bugs are confined to the `ec2_traefik_*` branch.
 | 2 | user_data `apt-get install … awscli amazon-cloudwatch-agent` fails on Ubuntu 24.04 (noble) — neither package is in the apt repos — and `set -euo pipefail` aborts the whole script → traefik never installs/starts | `emit/templates/ec2_traefik_user_data.sh.j2` | mod 063 |
 | 3 | docex never renders/pushes the traefik dynamic routing config; the SSM param `/<project>/ec2_traefik/config.yml` is created as a static empty stub by projinfra and never updated → traefik has zero routes even when running | `pipeline/release.py` (missing step) | mod 064 |
 | 4 | user_data fetches EC2 metadata with raw token-less curls; the Ubuntu 24.04 AMI enforces IMDSv2 (`HttpTokens=required`) so they 401 → `set -e` aborts user_data (surfaced only after mod 063 got past the package install) | `emit/templates/ec2_traefik_user_data.sh.j2` | mod 065 |
+| 5 | `ec2:AttachVolume` IAM grant conditions on `purpose=ec2_traefik_acme` for both the volume AND the instance ARN, but the instance isn't tagged with it → AttachVolume AccessDenied → user_data aborts at the EBS attach (never reached before mod 065) | `emit/templates/project.tf.j2` (instance tags) | mod 066 |
 
-> **Sequential discovery.** Bugs 2 → 4 are all in the user_data and were masked
-> one behind another: each fix let the script run further and hit the next.
-> mod 065's re-walk is the point where user_data should finally complete.
+> **Sequential discovery.** Bugs 2 → 5 are all on the boot path and were masked
+> one behind another: each fix let the script run further and hit the next
+> (package install → IMDS → EBS attach → …). This is the signature of code that
+> was never runtime-tested.
+
+## Introspection blocker (why the walk is paused)
+
+After mod 066 the next unverified boot steps are: EBS mkfs/mount, traefik
+download+install, LE cert issuance (DNS-01 via Route53), the SSM config-sync
+timer, and finally routing. Any of these could hide bug 6+. Confirming them
+requires reading the instance's `/var/log/docex-user-data.log` — but in this AWS
+account:
+
+- **SSM Session Manager / `SendCommand` is denied** by an org SCP
+  (`p-hakk9t13`), and the ec2_traefik IAM role lacks `AmazonSSMManagedInstanceCore`
+  anyway.
+- **The Nitro serial console (`get-console-output`) is not populating** — it
+  returned empty repeatedly, so it can't be relied on for user_data logs.
+- The traefik SG opens only 80/443, so no SSH / EC2 Instance Connect.
+
+So each remaining bug can only be found by a blind fix → re-provision → observe
+cycle (~10 min + real AWS spend each), with no visibility into *why* a boot
+failed. That is inefficient and expensive. **Recommended before resuming:** give
+the instance a debuggable path — e.g. temporarily relax the SCP to allow SSM +
+attach `AmazonSSMManagedInstanceCore` to the traefik role, or open 22 + add an
+SSH key / EC2 Instance Connect — so the remaining chain can be walked and fixed
+in one pass instead of N blind cycles.
+
+## Verified-so-far vs. unverified
+
+- **Verified against real AWS:** mod 062 (projinfra applies the instance), mod
+  064 (release pushes correct routers/services to SSM — inspected the param),
+  the full release path (ECS/RDS/EFS/migrate) on ec2_traefik.
+- **Code-confirmed + unit-tested, walk-unverified:** mods 063, 065, 066 (they
+  fix definite bugs proven by console logs / code inspection, but the instance
+  never reached a serving state to confirm end-to-end).
 
 ### Bug 1 evidence (fixed, confirmed on real AWS)
 

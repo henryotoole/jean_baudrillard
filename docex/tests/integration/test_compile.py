@@ -1424,3 +1424,24 @@ def test_mod065_user_data_uses_imdsv2_token(tmp_path: Path, variant: str):
             assert "X-aws-ec2-metadata-token:" in line, (
                 f"token-less IMDS fetch would 401 on IMDSv2: {line.strip()}"
             )
+
+
+@pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])
+def test_mod066_traefik_instance_carries_acme_purpose_tag(tmp_path: Path, variant: str):
+    """The traefik EC2 instance must carry `purpose=ec2_traefik_acme` (like the
+    ACME volume). The IAM AttachVolume grant conditions on purpose+project for
+    BOTH the volume and instance resources; without the tag on the instance,
+    AttachVolume is AccessDenied and user_data aborts before traefik starts.
+    Regression for mod 066."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, variant)
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # Both the volume and the instance carry the HCL purpose tag.
+    assert tf.count('purpose = "ec2_traefik_acme"') == 2, (
+        "expected purpose tag on BOTH the acme volume and the traefik instance"
+    )
+    # Specifically, within the aws_instance block.
+    inst = tf.split('resource "aws_instance" "project_traefik"', 1)[1]
+    inst_block = inst.split("\nresource ", 1)[0]
+    assert 'purpose = "ec2_traefik_acme"' in inst_block

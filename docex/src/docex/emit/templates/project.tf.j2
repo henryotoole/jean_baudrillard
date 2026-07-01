@@ -507,8 +507,18 @@ resource "aws_instance" "project_traefik" {
   user_data_replace_on_change = true
 {# Mod 060: the old hand-set `Name = <proj>-traefik` is superseded by the
    standard block's Name (`<project>_reverse_proxy_EC2`). The instance is
-   referenced by resource ref, never by that Name. -#}
-{{ tagblock(standard_tags("project", shape_name="reverse_proxy", descriptor="EC2", project=project)) }}
+   referenced by resource ref, never by that Name.
+   Mod 066: PLUS the load-bearing `purpose=ec2_traefik_acme` tag. The traefik
+   IAM role's ec2:AttachVolume grant is conditioned on purpose+project for
+   BOTH the volume AND the instance resource (project.tf.j2 § IAM); without
+   this tag on the instance, AttachVolume is AccessDenied and user_data aborts
+   before traefik starts. Mirrors the acme volume's tag pattern above. -#}
+  tags = {
+{%- for k, v in standard_tags("project", shape_name="reverse_proxy", descriptor="EC2", project=project).items() %}
+    {{ k }} = "{{ v }}"
+{%- endfor %}
+    purpose = "ec2_traefik_acme"
+  }
 }
 
 {% if reverse_proxy == "ec2_traefik_eip" %}
