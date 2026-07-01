@@ -122,7 +122,7 @@ Only when none of these fit is util appropriate, and even then the entry should 
 
 ### Tests
 
-There are four natural test types in hexagonal architecture, each targeting a distinct layer: domain tests, alogic tests, adapter tests, and module tests. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
+There are five natural test types in hexagonal architecture. The first four each target a distinct layer: domain, alogic, adapter, and module tests; the fifth (service/flow tests) exercises the whole service at once. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
 
 All the below categories of tests are [service tests](../infrastructure/tests.md#service-tests) from an infrastructure perspective.
 
@@ -145,12 +145,27 @@ Each hexagonal module gets a small number of tests that wire it up with its real
 
 These catch a bug class that no other test type can:
 - Composition-root mistakes (wrong adapter passed to a service)
-- Contract drift between alogic and adapters (e.g. one expects `None` on miss, the other returns `[]`)
+- Drift between alogic and adapters (e.g. one expects `None` on miss, the other returns `[]`)
 - Serialization or data-shape mismatches that only surface when real components meet
 
 Keep these few. The unit and adapter tests already cover detailed behavior; module integration tests verify that the parts fit together. One happy-path test per driving-port operation, plus a few representative error paths, is usually sufficient.
 
-Every hexagonal module should have at least some test functions that automatically test it. The structure of the tests folder should approximately mirror the structure of `src`:
+Every hexagonal module should have at least some test functions that automatically test it.
+
+5. Service Integration / Flow Tests
+
+The "highest" form of integration test, performed against the entire core service. They test the behavior of all modules together against real driven adapters (real test database, real test cache, etc); however, like module integration tests, external-system gateways are still stubbed by necessity. Flow tests generally drive the service "from the outside" - for a REST-based API backend, this would be through the HTTP edge itself and appear as a series of POST requests and assessed responses.
+
+By testing the entire service, we can catch some unique sorts of bugs:
+- Routing, auth, and serialization problems
+- Cross-module wiring problems
+- Emergent behavioral bugs - the situation where a composed, end-to-end behavior is wrong even though every module and all the wiring are individually correct.
+
+Flow tests are very heavy, very slow, and should be used sparingly.
+
+#### Structure 
+
+The structure of the tests folder should approximately mirror the structure of `src`, with a few additions for integration, flows, etc.:
 
 ```
 tests
@@ -170,6 +185,10 @@ tests
 │       └── integration
 |           └── test_sample_module.py
 │── shared
+|   └── ...
+│── flows
+|   └── ...
+│── contracts
 |   └── ...
 └── util
 ```

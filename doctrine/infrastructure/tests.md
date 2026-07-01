@@ -16,11 +16,21 @@ Service tests are written in whatever language, and with whatever tooling, that 
 
 Unit, integration, and contract tests should all be run by the [standard service test script](./cicd.md#build-test-step)
 
+The folder structure of service tests (and more details on how to write them) is described here: [hex_overview.md](../hexagonal_architecture/hex_overview.md#tests)
+
 ### Unit Tests
 These are very fast tests which test a piece of code in isolation. Dependencies are mocked. The purpose is to determine if the unit's internal logic is correct.
 
 ### Integration Tests
 These tests verify that multiple pieces work *together*. Tests might fire against real backing service containers (in a `test` env) rather than mocked ones.
+
+#### Module-Level
+Module-level integration tests verify that a single module behaves as expected.
+
+#### Service-Level
+Service-level integration tests (e.g. "flow" tests) verify that the entire core service behaves as expected, often from the "outside" (e.g. by applying requests against an actual backend's api). It tests all modules, often in an end-to-end form. We call these "flow" tests because they test the flow of information across the entire service as a hand-authored scenario plays out.
+
+Flow tests are similar to contract tests. Both test the whole service as a unit. The distinction is in *purpose*. A contract test ensures the service's external shape is consistent with the contract (e.g. that a JSON POST response has code 200 and `some_field`). A flow test ensures the service's *behavior* is correct (e.g. that the JSON POST response has the actual correct value for `some_field`) and that the expected effects occur as a result (e.g. the correct record is persisted as a result of the POST). A schema-valid response can still be the wrong answer; that gap is what flow tests cover.
 
 ### Contract Tests
 [On contracts](./infrastructure.md#contracts).
