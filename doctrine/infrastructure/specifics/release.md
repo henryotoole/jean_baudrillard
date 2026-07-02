@@ -87,7 +87,7 @@ The env-tier resources `tofu apply` actually creates or modifies are:
 - The env's security groups (`${project}-${env}-web`, `${project}-${env}-internal`, etc.) — see [networks.md](./networks.md).
 - The ECS cluster and services for the env's core services.
 - Backing services for the env (RDS instances, ElastiCache clusters, etc.).
-- ALB listener rules and target groups (or EC2-traefik SSM config updates) for `web`-network services.
+- For `web`-network services, the reverse-proxy routing wiring: ALB listener rules and target groups on the `alb` path, or the `traefik.*` `dockerLabels` on each service's ECS task definition on the `ec2_traefik_*` path (the traefik ECS provider discovers these; there is no separate release step for it).
 - Route53 A-records in the project zone, aimed at the project's reverse proxy.
 
 For a typical release where only the image tag has changed, this updates each core service's ECS task definition, causing ECS to roll the service: pull the new image from ECR, drain old tasks, start new tasks, run health checks. For initial provisioning or for releases that include infrastructure changes, the same apply additionally creates or modifies the env-tier ECS, RDS, listener-rule, and DNS-record resources.

@@ -50,57 +50,37 @@ The doctrine prescribes a uniform instance shape across both variants. The trans
 
 ## Routing Discovery
 
-Traefik on the instance learns about backend services via the same model the ALB uses — declarative routing rules paired with runtime backend address resolution.
+Traefik on the instance discovers backend services through its built-in **ECS provider** (`providers.ecs`). This is the elastic analog of how the fixed-foundation project traefik uses its **docker provider** (see [`fixed_reverse_proxy.md`](./fixed_reverse_proxy.md) and [`release.md`](../release.md)): in both cases traefik reads routing intent from labels on the workloads themselves and rebuilds its routing table automatically as workloads come and go. Nothing is pushed to traefik at release time on either foundation.
 
-**Routing rules** are emitted by `./bin/docex compile` into the project's env-tier HCL as SSM Parameter contents (see [Config Delivery](#config-delivery) below). Each `web`-network service in stage and prod gets a rule of roughly the form (this example assumes `api` is the project's `domain_default_service` per [cicl.md § Domain](../../cicl.md#domain), which is why prod's rule carries the bare-project and bare-env alternates and stage's rule carries the bare-stage-env alternate; services that are not the default get only the full `<service>.<env>.<project>.<apex>` host):
+**How it works.** The ECS provider polls the ECS/EC2 control plane every `refreshSeconds` (doctrine default: 15s) for the project's `stage` and `prod` clusters. For each `RUNNING` Fargate task it reads the task ENI's private IPv4 directly from the task description and builds routers and services from the container's `dockerLabels`. The instance therefore needs scoped ECS/EC2 read access (see [IAM Role](#iam-role)) — it does not resolve backends by DNS.
 
-```yaml
-http:
-  routers:
-    api-prod:
-      rule: "Host(`api.prod.myproject.example.com`) || Host(`prod.myproject.example.com`) || Host(`myproject.example.com`)"
-      service: api-prod
-      tls:
-        certResolver: doctrine
-    api-stage:
-      rule: "Host(`api.stage.myproject.example.com`) || Host(`stage.myproject.example.com`)"
-      service: api-stage
-      tls:
-        certResolver: doctrine
-  services:
-    api-prod:
-      loadBalancer:
-        servers:
-          - url: "http://myproject-prod-api.myproject-prod:8080"
-    api-stage:
-      loadBalancer:
-        servers:
-          - url: "http://myproject-stage-api.myproject-stage:8080"
+**Why the provider and not DNS.** ECS Service Connect — the mechanism that gives *in-mesh* services name resolution — resolves only inside the mesh, via the Envoy sidecar injected into each task. Its Cloud Map private DNS namespace carries no per-service A-records, so a client *outside* the mesh (the EC2-traefik instance lives in the master VPC but in no task's network namespace) cannot resolve services by name at all. Beyond that, the provider gives what a DNS approach structurally cannot: traefik load-balances across *all* of a service's running task IPs and drops a task from the pool as soon as it leaves `RUNNING` on the next refresh — real balancing and health-gating rather than DNS round-robin against a possibly-stale record.
+
+**Labels.** `./bin/docex compile` emits the traefik labels onto each `web`-network service's container definition in the env-tier HCL. `exposedByDefault` is `false`, so only services carrying `traefik.enable=true` are routed; port-less workers and backing services are never exposed. Router names encode the env (`<service>-<env>`) so the single instance's `stage` and `prod` views don't collide. Each `web`-network service in stage and prod gets labels of roughly the form (this example assumes `api` is the project's `domain_default_service` per [cicl.md § Domain](../../cicl.md#domain), which is why prod's rule carries the bare-project and bare-env alternates and stage's rule carries the bare-stage-env alternate; services that are not the default get only the full `<service>.<env>.<project>.<apex>` host):
+
+```
+traefik.enable=true
+traefik.http.routers.api-prod.rule=Host(`api.prod.myproject.example.com`) || Host(`prod.myproject.example.com`) || Host(`myproject.example.com`)
+traefik.http.routers.api-prod.tls.certresolver=doctrine
+traefik.http.services.api-prod.loadbalancer.server.port=8080
 ```
 
-**Backend addresses** are resolved at runtime via the Cloud Map private DNS namespace each env registers with Service Connect — see [shape.md § Elastic-Foundation](../../shape.md#elastic-foundation). The right-hand-side host has the form `<discoveryName>.<namespace>`, where `discoveryName = ${global_service_name}` (the same flat name `provides.host.elastic` emits to app env vars — e.g. `myproject-prod-api`) and `namespace = ${project}-${env}` (e.g. `myproject-prod`). From inside an ECS task the discoveryName alone resolves via the Envoy sidecar, but the EC2-traefik instance lives outside any task netns, so it must use the fully-qualified form — VPC DNS doesn't auto-search the Cloud Map namespace as a default search domain. ECS rotates the underlying task IPs behind the name as services roll. Traefik does not need AWS SDK access for this — only DNS resolution, which the instance has by default in any VPC subnet.
-
-This parallels how the ALB option works (ALB listener rules + ECS-managed target group membership) and reuses doctrine machinery — Service Connect — that already exists for inter-service discovery. No traefik ECS-provider plugin, no ECS API polling, no IAM-mediated traefik discovery.
+The provider fills in the backend server IPs from the running tasks it discovers; the label only declares the container port. ECS rotates task IPs as services roll; the next poll (≤ `refreshSeconds`) reconciles traefik's routing table to the live set. The host-rule logic (including the bare-project / bare-env alternates for the `domain_default_service`) is identical to the ALB path's listener-rule matching, so the two reverse-proxy options route the same hosts to the same services.
 
 ## Config Delivery
 
-The traefik config — both static settings (TLS, LE) and dynamic routing rules — lives in an SSM Parameter at `/<project>/ec2_traefik/config.yml` as a `SecureString` (the LE config can reference IAM-scoped secrets indirectly; encrypting at rest is consistent with other SSM use in the doctrine).
+Traefik's config splits into two halves that are delivered differently:
 
-The instance runs a small systemd timer (`docex-traefik-config.timer`, fires every 30s) that calls `aws ssm get-parameter`, compares to the on-disk version, writes the new value to `/etc/traefik/dynamic.yml` if changed, and exits. Traefik's file provider watches that path and reloads on change — no restart, no dropped connections.
+- **Static config** (entrypoints, the Let's Encrypt cert resolver, cert paths, and the **ECS provider** block — cluster list, region, `refreshSeconds`, `exposedByDefault=false`) is rendered into the instance's user_data at creation time. Changes to it require instance replacement; see [Lifecycle](#lifecycle-recovery-and-updates) below.
+- **Dynamic routing** (routers, services, rules) is *not delivered to traefik at all* — it is discovered by the ECS provider from the running tasks' `dockerLabels` (see [Routing Discovery](#routing-discovery)). The routing intent is emitted onto the task definitions by `./bin/docex compile` and reaches AWS through the normal env-tier `tofu apply` during `release`; traefik then picks it up on its next poll.
 
-Release flow:
-
-1. `./bin/docex release stage` (or `prod`) re-renders the config from the merged stage+prod state.
-2. The new content is pushed to the SSM Parameter via `ssm:PutParameter` with `Overwrite=True`.
-3. Within 30 seconds, the systemd timer on the instance picks up the change. Traefik reloads. New routes are live.
+**Release does not touch traefik.** `./bin/docex release <env>` converges the env's ECS services (new image, new labels) exactly as it always does; within one `refreshSeconds` window the provider reconciles traefik's routing table to the new task set. There is no SSM routing parameter, no `ssm:PutParameter` step in release, and no on-instance config-sync timer. This mirrors the fixed foundation, where release likewise never touches the project traefik — the docker provider picks up joining containers automatically.
 
 This delivery model:
 
 - Uses no SSH (no port 22 exposure, no key management).
-- Survives instance replacement transparently — the new instance fetches config from SSM on boot.
-- Decouples config changes from instance lifecycle. Most releases don't require instance replacement; only docex-version bumps that change the AMI or user_data do.
-
-The static portion of the traefik config (entrypoints, LE resolver config, cert paths) is rendered into the user_data at instance creation time. Changes to the static config require instance replacement; see [Lifecycle](#lifecycle-recovery-and-updates) below.
+- Survives instance replacement transparently — the new instance re-discovers the full routing table from live ECS tasks on boot, with no config to re-fetch.
+- Decouples routing changes from instance lifecycle. Most releases don't require instance replacement; only docex-version bumps that change the AMI or static config (user_data) do.
 
 ## TLS and Cert Handling
 
@@ -161,11 +141,13 @@ The EC2-traefik instance assumes a project-tier IAM instance profile (`<project>
 | Permission | Scope | Why |
 | ---------- | ----- | --- |
 | `route53:ChangeResourceRecordSets`, `route53:GetChange` | The project's Route53 zone only | DNS-01 LE challenge + (PIP variant) boot-time DNS update |
-| `ssm:GetParameter`, `ssm:GetParameters` | `/<project>/ec2_traefik/*` | Config fetch |
+| `ecs:ListClusters`, `ecs:DescribeClusters`, `ecs:ListTasks`, `ecs:DescribeTasks`, `ecs:DescribeContainerInstances`, `ecs:DescribeTaskDefinition`, `ec2:DescribeInstances` | The project's `stage` and `prod` ECS clusters (via an `ecs:cluster` condition where the API supports resource-level scoping; the `Describe*`/`List*` actions that AWS only permits at `*` are granted at `*` but read-only) | Backend discovery by the traefik ECS provider |
 | `logs:CreateLogStream`, `logs:PutLogEvents` | The project's `/<project>/ec2_traefik` CloudWatch Log Group | Traefik log shipping |
 | `ec2:AttachVolume`, `ec2:DescribeVolumes` | EBS volume tagged `purpose=ec2_traefik_acme` and the matching project | EBS cert volume attach at boot |
 
 The Route53 scoping is the most permission-sensitive — the IAM policy restricts changes to the project's hosted zone ID, not the apex zone. A compromised EC2-traefik instance cannot manipulate DNS for other projects on the same apex.
+
+The ECS/EC2 discovery grant is **read-only** and, where AWS supports resource-level conditions, scoped to the project's own clusters — a compromised instance can enumerate the project's tasks but cannot mutate ECS or reach another project's clusters. This is the deliberate cost of the ECS-provider discovery model: it trades a narrow read grant for real load-balancing and health-aware routing that a DNS-only approach cannot provide. The SSM config-fetch grant that earlier revisions carried is gone — routing is no longer delivered via SSM (see [Config Delivery](#config-delivery)).
 
 ## Logging
 
@@ -173,7 +155,7 @@ Traefik logs (access logs + error logs) ship to CloudWatch Logs via the [AWS Clo
 
 The cost is modest — a few cents per month per project for typical traffic. The benefit is parity with ECS task logs, queryability in the AWS console, and a log audit trail that survives instance replacement.
 
-journald is also available on the instance via SSM Session Manager for live debugging (`aws ssm start-session --target i-...`); the SSM agent ships preinstalled on Ubuntu AMIs.
+For deeper live debugging, the instance's `journald` is reachable via SSM Session Manager (`aws ssm start-session --target i-...`) *only* when the environment permits it — the traefik IAM role does not carry `AmazonSSMManagedInstanceCore` by default, and some AWS orgs deny `ssm:StartSession`/`SendCommand` via an SCP. When SSM is unavailable, boot-time diagnostics still land in CloudWatch (the user_data ships its bring-up log to the `/<project>/ec2_traefik` group on exit); a temporary SSH ingress can be added to the traefik SG for hands-on debugging and removed afterward.
 
 ## Lifecycle: Recovery and Updates
 
@@ -183,7 +165,7 @@ Three lifecycle events worth being explicit about:
 
 **AWS-initiated retirement.** AWS schedules the instance for hardware retirement. The operator stops + starts the instance during the retirement window. PIP variant: new IP, boot-time DNS update propagates within ~60 seconds. EIP variant: same IP, no DNS update needed. EBS volume re-attaches; certs preserved. Total user-visible downtime: 60 seconds (PIP) or near-zero (EIP).
 
-**docex-version bump that changes AMI or static config.** Operator runs `./bin/docex projinfra up production` (typically as part of a docex upgrade). Tofu detects an AMI ID change or user_data change and triggers instance replacement. The new instance launches with the new AMI/user_data; the EBS cert volume re-attaches; certs preserved; SSM Parameter config is fetched fresh. PIP variant updates DNS on boot. Downtime is bounded by instance launch time, typically 30–90 seconds.
+**docex-version bump that changes AMI or static config.** Operator runs `./bin/docex projinfra up production` (typically as part of a docex upgrade). Tofu detects an AMI ID change or user_data change and triggers instance replacement. The new instance launches with the new AMI/user_data; the EBS cert volume re-attaches; certs preserved; the ECS provider re-discovers the full routing table from live tasks on its first poll. PIP variant updates DNS on boot. Downtime is bounded by instance launch time, typically 30–90 seconds.
 
 The replacement-with-EBS-preservation model is what makes docex-version bumps acceptable on the EC2-traefik path. Without it, every AMI bump would cost an LE cert reissuance and potentially hit rate limits.
 
@@ -191,9 +173,9 @@ The replacement-with-EBS-preservation model is what makes docex-version bumps ac
 
 | Symptom | Probable cause | Where to look |
 | ------- | -------------- | ------------- |
-| 502/504 from clients, traefik logs show "no available servers" | Service Connect name resolution failing — ECS service not registered or task not healthy | ECS console for the service; `aws servicediscovery list-services` for the Cloud Map namespace |
+| 502/504 from clients, traefik logs show "no available servers" | No `RUNNING` task discovered for the service — task unhealthy/crash-looping, or the ECS-read IAM grant is missing so the provider sees no tasks | ECS console for the service (task health); traefik logs for provider errors; confirm the instance's IAM role carries the ECS/EC2 discovery grant |
 | Cert renewal fails | Route53 IAM permission revoked, or hosted zone deleted | CloudWatch Logs for traefik; `aws route53 get-hosted-zone` to confirm zone exists |
-| New routes not appearing on instance | SSM Parameter not updated, or systemd timer not running | `systemctl status docex-traefik-config.timer` on the instance via SSM Session Manager; `aws ssm get-parameter --name /<project>/ec2_traefik/config.yml` to check current value |
+| New routes not appearing on instance | Service's task definition missing the `traefik.*` labels, or the ECS provider not polling | inspect the deployed task definition's `dockerLabels`; traefik logs for `providers.ecs` poll activity; confirm `refreshSeconds` has elapsed |
 | DNS records stale after stop/start (PIP variant) | Boot-time DNS update unit failed | `journalctl -u docex-traefik-dns-update.service` on the instance |
 | Instance comes up but cert material missing | EBS volume attach failed | `journalctl -b` boot logs on the instance; `aws ec2 describe-volumes --filters Name=tag:purpose,Values=ec2_traefik_acme` |
 | LE rate limit hit | EBS volume was destroyed and recreated multiple times in a week | Check EBS volume creation history; the doctrine should not normally destroy this volume — investigate why it happened |
@@ -211,8 +193,8 @@ For an EC2-traefik project, the project-tier vs env-tier emission split is:
 - The five Route53 A-records (EIP variant pre-populates them; PIP variant initializes them at first boot)
 
 **Envinfra / Release (`infra/output/<env>/main.tf`):**
-- Per-service Service Connect registration on the env's ECS services (already happens for inter-service comms)
-- SSM Parameter `/<project>/ec2_traefik/config.yml` content updates (re-rendered on each release to reflect current service set and routing rules)
+- Per-service Service Connect registration on the env's ECS services (already happens for inter-service comms; unaffected by the reverse-proxy choice)
+- The `traefik.*` `dockerLabels` on each `web`-network service's container definition (the routing intent the ECS provider discovers)
 - Env-tier `<project>-<env>-web` SG ingress rule allowing the project's traefik SG
 
-The split mirrors the ALB option: the reverse-proxy resource itself is project-tier; per-service routing config is env-tier.
+The split mirrors the ALB option: the reverse-proxy resource itself is project-tier; per-service routing config is env-tier — carried as ALB listener rules on the ALB path, as task-definition labels on the EC2-traefik path.

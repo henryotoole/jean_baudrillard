@@ -41,9 +41,12 @@ The ALB and its SG follow the doctrine's general naming pattern from [transfer_t
 | -------- | ------ | ---------------- |
 | ALB | `alb` | `myproject-alb` |
 | ALB SG | `alb` | `myproject-alb-sg` |
+| Target group (env-tier) | `alb` | `myproject-stage-web-tg` |
 | Listeners | (not separately named; identified by attached ALB ARN) | — |
 
 The `alb` policy is hyphen-separated, case-preserving, max length 32.
+
+These `name` fields are AWS **resource identifiers** (unique per account+region, ≤32 chars) — *not* the doctrine `Name` tag. AWS caps them hard at 32, which a `${project}-${env}-${service}-tg` target-group name overruns for all but the shortest project names (e.g. `tactical-lifecycle-test-stage-web-tg` is 36). The `alb` policy therefore sets `overflow: hash_truncate` (see [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies)): when the rendered name exceeds 32, docex keeps a readable prefix and appends a short deterministic hash so the identifier always fits and stays unique. The full, untruncated descriptive name is preserved in the resource's `Name` tag (`${project}_${env}_${service}` for the target group's envinfra block, per [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging)), so console ergonomics are unaffected.
 
 ## Subnet Placement
 

@@ -88,26 +88,28 @@ naming_policies:
 	<policy_name>:
 		separator: underscore | hyphen
 		case: any | lower
-		max_len: <int>   # optional
+		max_len: <int>              # optional
+		overflow: error | hash_truncate   # optional; default error
 ```
 
 - **`separator`** — chooses what `_` in the internal form becomes in the rendered name. `hyphen` translates each `_` to `-`; `underscore` preserves the underscore form (and translates stray `-` back to `_` for symmetry).
 - **`case`** — `any` preserves case; `lower` lowercases the rendered name.
-- **`max_len`** — if set, a rendered name exceeding this length fails compile with a clear error rather than being silently truncated.
+- **`max_len`** — if set, a rendered name exceeding this length is handled per `overflow`.
+- **`overflow`** *(optional; default `error`)* — what to do when the rendered name exceeds `max_len`. `error` fails compile with a clear message rather than silently truncating — the correct default, because most identifiers double as human-facing names and a silent truncation would be surprising. `hash_truncate` keeps a readable prefix and appends `-<h>`, where `<h>` is the first 6 hex characters of the SHA-256 of the full internal name — guaranteeing the result fits `max_len` while staying collision-resistant across distinct inputs that share a truncated prefix. Use `hash_truncate` only for AWS **identifier** fields that are *not* the human-facing `Name` tag; the descriptive full name is preserved in the resource's `Name` tag (see [cicl.md § Naming and Tagging](../cicl.md#naming-and-tagging)). The `alb` policy uses it because the ALB and target-group `name` fields hard-cap at 32 characters, which a `${project}_${env}_${service}` combination overruns for all but the shortest project names.
 
 ### Doctrine-shipped policies
 
-| Policy | Resource(s) | Separator | Case | Max len |
-| ------ | ----------- | --------- | ---- | ------- |
-| `s3` | S3 bucket | hyphen | lower | 63 |
-| `rds` | RDS instance identifier, DB subnet group, ElastiCache cluster | hyphen | lower | 63 |
-| `ddb` | DynamoDB table | underscore | any | 255 |
-| `alb` | ALB and target-group name | hyphen | any | 32 |
-| `ecs` | ECS cluster, service, task-definition family, Service Connect discoverable name | hyphen | any | 255 |
-| `iam` | IAM role / policy | underscore | any | 64 |
-| `ssm_path` | SSM parameter path segment | underscore | any | 1024 |
-| `docker` | Docker network / container / volume | hyphen | any | (none) |
-| `http_host` | DNS label (hostname) | hyphen | lower | (none) |
+| Policy | Resource(s) | Separator | Case | Max len | Overflow |
+| ------ | ----------- | --------- | ---- | ------- | -------- |
+| `s3` | S3 bucket | hyphen | lower | 63 | error |
+| `rds` | RDS instance identifier, DB subnet group, ElastiCache cluster | hyphen | lower | 63 | error |
+| `ddb` | DynamoDB table | underscore | any | 255 | error |
+| `alb` | ALB and target-group name | hyphen | any | 32 | hash_truncate |
+| `ecs` | ECS cluster, service, task-definition family, Service Connect discoverable name | hyphen | any | 255 | error |
+| `iam` | IAM role / policy | underscore | any | 64 | error |
+| `ssm_path` | SSM parameter path segment | underscore | any | 1024 | error |
+| `docker` | Docker network / container / volume | hyphen | any | (none) | error |
+| `http_host` | DNS label (hostname) | hyphen | lower | (none) | error |
 
 Default rule, expressed once: **anything name-resolvable on the data plane** — Docker containers/networks/volumes, ECS cluster/service/task-def identifiers, ECS Service Connect names, ALB/target-group names, S3 buckets, RDS identifiers, hostnames — **uses hyphens**, so a service's compiled name is identical on fixed Docker and elastic ECS. **Underscores are preserved only for inert identifiers** that AWS uses as record keys but applications never name in DNS or compose: IAM roles, SSM path segments, and DynamoDB tables.
 
@@ -306,7 +308,7 @@ roles:
 			provides:
 				host:
 					fixed: "${global_service_name}"
-					elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable as-is by ECS tasks inside the namespace (via Envoy sidecar) and as `<this>.<namespace>` from elsewhere in the master VPC (via the namespace's private DNS zone). See shape.md § Elastic-Foundation.
+					elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable by ECS tasks inside the namespace (via Envoy sidecar). Mesh-internal only — not resolvable from outside the mesh via DNS. See shape.md § Elastic-Foundation.
 				port:
 					fixed: "${port}"
 					elastic: "${port}"
@@ -830,7 +832,7 @@ When loading transfer tables (doctrine and project-local merged) and compiling a
 6. Every runtime ref (`$[...]`) appearing in any `provides:` part template is also declared in the engine's `env:` block — so dependency propagation can wire it up correctly when a consumer references that part.
 7. Every magic ref in `infra.yml` (e.g., `${backing_services.database.host}`) names a part the referenced engine's `provides:` block exposes.
 8. `@<expr>` refs appear only in elastic-side templates (`provides.<part>.elastic`, `defaults.elastic`, etc.) and never in fixed-side templates, where HCL syntax is meaningless.
-9. The `naming` policy resolved for each engine is satisfied by the `${global_service_name}` the compiler generates; impossible cases (e.g., a project name + env name + service name combination that exceeds the policy's `max_len`) fail compile cleanly with a descriptive error.
+9. The `naming` policy resolved for each engine is satisfied by the `${global_service_name}` the compiler generates. A rendered name that exceeds the policy's `max_len` fails compile cleanly with a descriptive error, *unless* the policy sets `overflow: hash_truncate`, in which case the name is truncated with a deterministic hash suffix to fit (see [§ Naming Policies](#naming-policies)).
 10. Every engine's `naming:` value is the name of a policy declared in `naming_policies:` (bundled or project-local). An unknown policy ref fails compile at load time.
 11. Every engine declares a non-empty `emits.fixed` and `emits.elastic` list (the latter only required if the engine supports the elastic foundation). Every destination name in those lists is one the compiler recognizes; unknown destination names fail compile at load time.
 12. Every `fields.<f>.<foundation>.target:` value (if set) names a destination in the engine's `emits.<foundation>` list. If the named destination is conditional (e.g., `target_group` requires the service to be on the `web` network) and the condition does not hold for the service being compiled, that is also a compile error — surfaced with a hint pointing at the missing condition.
