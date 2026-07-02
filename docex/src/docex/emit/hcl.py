@@ -50,6 +50,12 @@ _TEMPLATE_DIR = Path(__file__).parent / "templates"
 # service bodies.
 _RUNTIME_REF_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
 
+# A bare HCL identifier: letters/underscore start, then letters/digits/
+# underscore/hyphen. Object keys not matching this must be quoted (a dot
+# would otherwise be parsed as a resource-reference traversal). Used by
+# _hcl_value's dict branch.
+_HCL_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+
 
 def _hcl_value(value: Any, indent: int = 2) -> str:
     """Format a Python value as HCL syntax.
@@ -98,7 +104,14 @@ def _hcl_value(value: Any, indent: int = 2) -> str:
         lines = ["{"]
         for k in sorted(value.keys()):
             v = value[k]
-            lines.append(f"{pad}  {k} = {_hcl_value(v, indent + 2)}")
+            # HCL object keys that aren't bare identifiers must be quoted, or
+            # HCL parses them as a resource-reference traversal. Identifiers
+            # permit [A-Za-z0-9_-] (hyphens OK — e.g. `awslogs-group`); a dot
+            # is not allowed, so the traefik.* dockerLabels keys (Mod 070) get
+            # quoted here. Bare-identifier keys stay unquoted, preserving the
+            # existing emit shape everywhere else.
+            key = k if _HCL_IDENT_RE.fullmatch(k) else _hcl_value(k)
+            lines.append(f"{pad}  {key} = {_hcl_value(v, indent + 2)}")
         lines.append(f"{pad}}}")
         return "\n".join(lines)
     return f'"{value}"'
@@ -337,6 +350,27 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     if secret_entries:
         container_def["secrets"] = secret_entries
 
+    # Mod 070: on the ec2_traefik path, the project traefik discovers routes
+    # from these container labels via its ECS provider (the elastic analog of
+    # the fixed docker provider). No labels on the alb path — it routes via
+    # listener rules. Web-network core services with a port only.
+    if (
+        ctx.reverse_proxy in ("ec2_traefik_eip", "ec2_traefik_pip")
+        and "web" in svc.networks
+        and svc.port is not None
+        and svc.web_hosts
+    ):
+        key = f"{svc.name}-{ctx.env}"
+        rule = " || ".join(f"Host(`{h}`)" for h in svc.web_hosts)
+        container_def["dockerLabels"] = {
+            "traefik.enable": "true",
+            f"traefik.http.routers.{key}.rule": rule,
+            f"traefik.http.routers.{key}.entrypoints": "websecure",
+            f"traefik.http.routers.{key}.tls.certresolver": "doctrine",
+            f"traefik.http.routers.{key}.service": key,
+            f"traefik.http.services.{key}.loadbalancer.server.port": str(svc.port),
+        }
+
     # Mod 015: persistent storage wiring. When the engine declares
     # `persistent_storage`, mount the per-service EFS at the declared path
     # inside the container. Volume name is the doctrine-fixed handle "data".
@@ -572,12 +606,13 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
     web-network service. The dispatcher only calls this when
     ``web in svc.networks`` (per ``_destination_applicable``).
 
-    Mod 044: ``aws_lb_listener_rule`` is ALB-specific. EC2-traefik routes
-    via the SSM-pushed dynamic config (handled at release time, out of
-    mod 044 scope) — listener rules don't apply there. We still emit the
-    target group: ECS services with a ``load_balancer { ... }`` reference
-    it, and even when traefik is the front door the target-group resource
-    is harmless (no ALB attaches to it). Future cleanup mod can prune.
+    Mod 044: ``aws_lb_listener_rule`` is ALB-specific. Mod 070: EC2-traefik
+    routes via the traefik ECS provider, which reads each task's traefik.*
+    dockerLabels (see render_task_definition) — listener rules don't apply
+    there. We still emit the target group: ECS services with a
+    ``load_balancer { ... }`` reference it, and even when traefik is the
+    front door the target-group resource is harmless (no ALB attaches to
+    it). Future cleanup mod can prune.
     """
     # ALB target-group names disallow underscores, so the name is
     # policy-translated regardless of the engine's own naming.
@@ -909,8 +944,8 @@ def _destination_applicable(dest: str, svc: CompiledService, ctx: _RenderCtx | N
     Mod 044: ``target_group`` is additionally suppressed when the
     project's ``reverse_proxy`` is one of the ``ec2_traefik_*`` variants —
     those projects don't have an ALB to attach the target group to.
-    Traefik reaches ECS services via Service Connect's Cloud Map DNS,
-    so no target group is required.
+    Mod 070: traefik reaches ECS tasks via its ECS provider (polling task
+    ENIs, routing off dockerLabels), so no target group is required.
     """
     if dest == "target_group":
         if "web" not in svc.networks:
@@ -1018,6 +1053,7 @@ def emit_hcl_project(
     iam_p = naming_policies.get("iam")
     ssm_p = naming_policies.get("ssm_path")
     alb_p = naming_policies.get("alb")
+    ecs_p = naming_policies.get("ecs")
     # Mod 046: the project subdomain (Route53 zone, ACM cert domain_name + SANs)
     # is a DNS hostname — its project segment must be DNS-labeled. AWS rejects
     # underscores in zone names and ACM cert domain names; an underscored
@@ -1042,6 +1078,17 @@ def emit_hcl_project(
     # of `or "alb"` handling.
     rp = reverse_proxy or "alb"
 
+    # Mod 070: the traefik ECS provider polls the project's stage + prod
+    # clusters and its cluster-scoped IAM grant is keyed on their ARNs.
+    # Computed once and threaded into both the user_data render (provider
+    # `clusters:` list) and the project template (IAM ArnEquals condition).
+    # Only meaningful on the ec2_traefik path; harmless on the alb path
+    # (the template references it only inside the ec2_traefik branch).
+    traefik_ecs_clusters = [
+        apply_policy(f"{project}_stage", ecs_p),
+        apply_policy(f"{project}_prod", ecs_p),
+    ]
+
     # Render the EC2-traefik user_data script ahead of the HCL template so
     # the rendered shell is available as a single literal injected into
     # `aws_instance.project_traefik.user_data`. Skipped on the ALB path
@@ -1059,6 +1106,8 @@ def emit_hcl_project(
             apex_domain=apex_domain,
             reverse_proxy=rp,
             traefik_acme_email=acme_email,
+            traefik_region=ELASTIC_REGION,
+            traefik_ecs_clusters=traefik_ecs_clusters,
         )
         # WHY: the user_data is injected into an HCL heredoc in
         # project.tf.j2, and HCL heredocs interpolate ${...}/%{...}. The
@@ -1095,6 +1144,7 @@ def emit_hcl_project(
         alb_sg_name=apply_policy(f"{project}_alb_sg", alb_p),
         reverse_proxy=rp,
         traefik_user_data=traefik_user_data,
+        traefik_ecs_clusters=traefik_ecs_clusters,
     )
     out_path.write_text(rendered)
 

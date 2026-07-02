@@ -252,32 +252,11 @@ def _release_elastic(
     pushed = _push_secrets(aws, env_file, project=project_name, env=env)
     print(f"release: pushed {pushed} secret(s) to SSM under /{project_name}/{env}/")
 
-    # ec2_traefik routing config: the single project traefik instance serves
-    # stage AND prod, so re-render both envs' web routes and push to the SSM
-    # param the instance's sync timer reads. alb projects route via HCL
-    # listener rules and need none of this. See ec2_traefik.md § Config Delivery.
-    rp = ctx.infra.reverse_proxy
-    if rp in ("ec2_traefik_eip", "ec2_traefik_pip"):
-        from docex.cicl.compile import compile_env
-        from docex.emit.traefik import render_traefik_dynamic_config
-        envs = [
-            compile_env(
-                ctx.infra, ctx.transfer_tables, env=e,
-                project_name=project_name, project_version=ctx.project.version,
-            )
-            for e in ("stage", "prod")
-        ]
-        cfg_yaml = render_traefik_dynamic_config(envs)
-        ssm_policy = ctx.transfer_tables.naming_policies.get("ssm_path")
-        cfg_path = f"/{apply_policy(project_name, ssm_policy)}/ec2_traefik/config.yml"
-        n_routers = cfg_yaml.count("certResolver")
-        try:
-            aws.ssm_put_parameter(cfg_path, cfg_yaml, overwrite=True)
-        except Exception as e:
-            raise SSMPushFailed(
-                f"failed pushing traefik config to {cfg_path!r}: {e}"
-            ) from e
-        print(f"release: pushed traefik routing config ({n_routers} router(s)) to SSM")
+    # Mod 070: ec2_traefik projects no longer push routing config at release
+    # time. The project traefik discovers routes from each task's traefik.*
+    # dockerLabels via its ECS provider (elastic analog of the fixed docker
+    # provider) — routing intent lives on the workloads. See ec2_traefik.md
+    # § Routing Discovery.
 
     if skip_migrations:
         # Rollback path: no first-release detection (rollback only

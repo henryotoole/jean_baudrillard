@@ -1083,7 +1083,7 @@ def test_mod044_default_reverse_proxy_emits_alb(tmp_path: Path):
 
 def test_mod044_eip_variant_emits_traefik_resource_set(tmp_path: Path):
     """`reverse_proxy: ec2_traefik_eip` emits the full EC2-traefik resource
-    set: instance, EIP, EBS volume, IAM role+policy+profile, SG, SSM param,
+    set: instance, EIP, EBS volume, IAM role+policy+profile, SG,
     log group, and the five doctrine A-records pointing at the EIP."""
     root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
     tf = (
@@ -1101,9 +1101,8 @@ def test_mod044_eip_variant_emits_traefik_resource_set(tmp_path: Path):
     assert 'resource "aws_iam_instance_profile" "project_traefik"' in tf
     assert 'resource "aws_iam_role_policy" "project_traefik"' in tf
     assert 'resource "aws_cloudwatch_log_group" "project_traefik"' in tf
-    # SSM dynamic-config param (stub initial value + ignore_changes guard).
-    assert 'resource "aws_ssm_parameter" "project_traefik_config"' in tf
-    assert "ignore_changes = [value]" in tf
+    # Mod 070: no SSM routing param — routing lives on task dockerLabels now.
+    assert 'resource "aws_ssm_parameter" "project_traefik_config"' not in tf
     # Five A-records at the project tier, pointing at the EIP public IP.
     for key in (
         "traefik_bare_project",
@@ -1202,8 +1201,8 @@ def test_mod044_traefik_variant_env_tier_skips_alb_route53_records(tmp_path: Pat
 
 
 def test_mod044_traefik_variant_env_tier_skips_listener_rules(tmp_path: Path):
-    """EC2-traefik routes via SSM-pushed dynamic config (out of mod 044
-    scope) — env-tier `aws_lb_listener_rule` resources must NOT emit."""
+    """EC2-traefik routes via the traefik ECS provider (task dockerLabels,
+    mod 070) — env-tier `aws_lb_listener_rule` resources must NOT emit."""
     root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_pip")
     for env in ("stage", "prod"):
         tf = (root / "infra" / "output" / env / "main.tf").read_text()
@@ -1256,15 +1255,108 @@ def test_mod044_traefik_iam_route53_scoped_to_project_zone(tmp_path: Path):
     assert "aws_route53_zone.project.zone_id" in policy_block
 
 
-def test_mod044_traefik_ssm_param_scoped_to_project_path(tmp_path: Path):
-    """The traefik instance's IAM `ssm:GetParameter*` permission is scoped
-    to `/<project>/ec2_traefik/*` only."""
+def test_mod070_traefik_iam_grants_ecs_discovery_not_ssm(tmp_path: Path):
+    """The traefik instance's IAM policy grants read-only ECS/EC2 discovery
+    (for the ECS provider) scoped to the project's two clusters, and no
+    longer grants `ssm:GetParameter*` (routing left SSM in mod 070)."""
     root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
     tf = (
         root / "infra" / "output" / "project" / "production" / "main.tf"
     ).read_text()
-    # The fixture project is `sample`; SSM path policy preserves its form.
-    assert "parameter/sample/ec2_traefik/*" in tf
+    policy_start = tf.find('resource "aws_iam_role_policy" "project_traefik"')
+    assert policy_start != -1
+    policy_end = tf.find(
+        'resource "aws_cloudwatch_log_group" "project_traefik"', policy_start
+    )
+    policy_block = tf[policy_start:policy_end]
+    # Cluster-scoped discovery actions, conditioned on the two cluster ARNs.
+    for action in (
+        '"ecs:ListTasks"',
+        '"ecs:DescribeTasks"',
+        '"ecs:DescribeServices"',
+        '"ecs:DescribeContainerInstances"',
+    ):
+        assert action in policy_block, action
+    assert "ArnEquals" in policy_block
+    assert '"ecs:cluster"' in policy_block
+    assert "cluster/sample-stage" in policy_block
+    assert "cluster/sample-prod" in policy_block
+    # Unscopeable read-only discovery calls.
+    for action in (
+        '"ecs:ListClusters"',
+        '"ecs:DescribeClusters"',
+        '"ecs:DescribeTaskDefinition"',
+        '"ec2:DescribeInstances"',
+    ):
+        assert action in policy_block, action
+    # The mod-064 SSM config-fetch grant is gone.
+    assert "ssm:GetParameter" not in policy_block
+
+
+def test_mod070_traefik_user_data_uses_ecs_provider(tmp_path: Path):
+    """The user_data's static traefik config uses the ECS provider (region,
+    both cluster names, exposedByDefault: false, refreshSeconds: 15) and no
+    longer carries the file provider / dynamic.yml / SSM config-sync timer."""
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    tf = (
+        root / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    # ECS provider block, keyed under providers.ecs.
+    assert "providers:" in tf
+    assert "ecs:" in tf
+    assert "region: us-east-1" in tf
+    assert "autoDiscoverClusters: false" in tf
+    assert "- sample-stage" in tf
+    assert "- sample-prod" in tf
+    assert "exposedByDefault: false" in tf
+    assert "refreshSeconds: 15" in tf
+    # The removed mod-064 file-provider subsystem must be entirely gone.
+    assert "docex-traefik-config" not in tf
+    assert "dynamic.yml" not in tf
+    assert "providers.file" not in tf
+    assert "filename: /etc/traefik/dynamic.yml" not in tf
+
+
+def test_mod070_ec2_traefik_task_def_emits_traefik_labels(tmp_path: Path):
+    """On the ec2_traefik path, a web-network core service's task-definition
+    container carries the traefik.* dockerLabels the ECS provider reads:
+    enable, the router rule (from web_hosts), entrypoint, cert resolver, the
+    router->service binding, and the loadbalancer port. Router key <svc>-<env>.
+    """
+    root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
+    for env, expected_host in (
+        ("stage", "Host(`api.stage.sample.example.com`)"),
+        ("prod", "Host(`api.prod.sample.example.com`)"),
+    ):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        key = f"api-{env}"
+        assert "dockerLabels = {" in tf
+        assert '"traefik.enable" = "true"' in tf
+        assert f'"traefik.http.routers.{key}.rule" = ' in tf
+        assert expected_host in tf
+        assert (
+            f'"traefik.http.routers.{key}.entrypoints" = "websecure"' in tf
+        )
+        assert (
+            f'"traefik.http.routers.{key}.tls.certresolver" = "doctrine"'
+            in tf
+        )
+        assert f'"traefik.http.routers.{key}.service" = "{key}"' in tf
+        # The fixture's `api` service listens on 8080.
+        assert (
+            f'"traefik.http.services.{key}.loadbalancer.server.port" = "8080"'
+            in tf
+        )
+
+
+def test_mod070_alb_task_def_has_no_traefik_labels(tmp_path: Path):
+    """The default `alb` path routes via listener rules — task definitions
+    must NOT carry any traefik.* dockerLabels."""
+    root = _compile_elastic(tmp_path)
+    for env in ("stage", "prod"):
+        tf = (root / "infra" / "output" / env / "main.tf").read_text()
+        assert "dockerLabels" not in tf
+        assert "traefik." not in tf
 
 
 def test_mod044_traefik_ebs_volume_tagged_for_attach_discovery(tmp_path: Path):
@@ -1298,9 +1390,9 @@ def test_mod044_traefik_user_data_renders_project_name(tmp_path: Path):
     ).read_text()
     # Project literal is set as a shell variable at the top of the
     # user_data and then referenced by `${PROJECT}` throughout. The
-    # SSM-resource path elsewhere in the HCL carries the literal form too.
+    # CloudWatch log-group path elsewhere in the HCL carries the literal too.
     assert 'PROJECT="sample"' in tf
-    assert "/sample/ec2_traefik/config.yml" in tf
+    assert "/sample/ec2_traefik" in tf
 
 
 def test_mod062_traefik_user_data_hcl_escaped_eip(tmp_path: Path):
@@ -1328,7 +1420,11 @@ def test_mod062_traefik_user_data_hcl_escaped_eip(tmp_path: Path):
             f"unescaped ${{{name}}} would break HCL parsing"
         )
     # Bash command substitution stays un-doubled (only ${/%{ are escaped).
-    assert "$(curl -sf http://169.254.169.254" in tf
+    # Mod 065 moved metadata fetches to IMDSv2 token curls; assert the token
+    # PUT survives verbatim (the pre-065 token-less GET form is gone).
+    assert (
+        '$(curl -sf -X PUT "http://169.254.169.254/latest/api/token"' in tf
+    )
 
 
 def test_mod062_traefik_user_data_hcl_escaped_pip(tmp_path: Path):

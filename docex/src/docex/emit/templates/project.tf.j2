@@ -273,8 +273,9 @@ resource "aws_lb_listener" "project_http" {
 #
 # A single t3.nano running Traefik replaces the project ALB for cost-sensitive
 # projects. Traefik terminates TLS with built-in Let's Encrypt (DNS-01 via
-# Route53), proxies to ECS services via the env-tier Service Connect Cloud Map
-# namespace, and reads dynamic routing rules from an SSM Parameter.
+# Route53) and discovers routes via its ECS provider: it polls the project's
+# stage + prod clusters, reads each RUNNING task's ENI private IP directly, and
+# builds routers/services from the tasks' traefik.* dockerLabels (mod 070).
 #
 # See doctrine/infrastructure/specifics/projinfra/ec2_traefik.md for the full
 # resource spec, IAM scoping, and user_data behavior.
@@ -341,8 +342,8 @@ resource "aws_security_group" "project_traefik" {
 
 # IAM role + instance profile for the traefik EC2 instance. Distinct from the
 # ECS task-execution role above — different principal (ec2 vs ecs-tasks) and
-# different permissions (Route53 ChangeRecordSets, SSM param fetch, EBS attach,
-# CloudWatch log writes).
+# different permissions (Route53 ChangeRecordSets, read-only ECS/EC2 discovery
+# for the traefik ECS provider, EBS attach, CloudWatch log writes).
 resource "aws_iam_role" "project_traefik" {
   name = "{{ project }}_traefik_role"
   assume_role_policy = jsonencode({
@@ -394,9 +395,34 @@ resource "aws_iam_role_policy" "project_traefik" {
         Resource = "*"
       },
       {
+        # Cluster-scoped discovery for the traefik ECS provider.
         Effect   = "Allow"
-        Action   = ["ssm:GetParameter", "ssm:GetParameters"]
-        Resource = "arn:aws:ssm:{{ region }}:${data.aws_caller_identity.current.account_id}:parameter/{{ ssm_path_project }}/ec2_traefik/*"
+        Action   = [
+          "ecs:ListTasks",
+          "ecs:DescribeTasks",
+          "ecs:DescribeServices",
+          "ecs:DescribeContainerInstances",
+        ]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "ecs:cluster" = [
+{% for c in traefik_ecs_clusters %}              "arn:aws:ecs:{{ region }}:${data.aws_caller_identity.current.account_id}:cluster/{{ c }}",
+{% endfor %}            ]
+          }
+        }
+      },
+      {
+        # Unscopeable read-only discovery calls (AWS permits no resource-
+        # level scoping on these).
+        Effect   = "Allow"
+        Action   = [
+          "ecs:ListClusters",
+          "ecs:DescribeClusters",
+          "ecs:DescribeTaskDefinition",
+          "ec2:DescribeInstances",
+        ]
+        Resource = "*"
       },
       {
         Effect   = "Allow"
@@ -434,27 +460,6 @@ resource "aws_cloudwatch_log_group" "project_traefik" {
   name              = "/{{ ssm_path_project }}/ec2_traefik"
   retention_in_days = 30
 {{ tagblock(standard_tags("project", shape_name="reverse_proxy", descriptor="logs", project=project)) }}
-}
-
-# SSM Parameter that holds traefik's dynamic-config YAML. The instance's
-# systemd timer polls this every 30s and writes changes to
-# /etc/traefik/dynamic.yml; traefik's file provider reloads on change.
-#
-# v1 gap: env-tier release-side rerender is NOT implemented in mod 044 —
-# the parameter is created with an empty stub. Operators using EC2-traefik
-# manage the routing rules manually until a follow-up mod adds the
-# release-flow SSM push. The lifecycle.ignore_changes guard below means
-# subsequent `tofu apply` invocations won't fight with manual edits.
-resource "aws_ssm_parameter" "project_traefik_config" {
-  name        = "/{{ ssm_path_project }}/ec2_traefik/config.yml"
-  description = "Traefik dynamic config (HTTP routers + services) for {{ project }}."
-  type        = "SecureString"
-  value       = "http:\n  routers: {}\n  services: {}\n"
-{{ tagblock(standard_tags("project", shape_name="reverse_proxy", descriptor="config", project=project)) }}
-  lifecycle {
-    # The release flow (and operators, in v1) overwrite this. Don't drift-fight.
-    ignore_changes = [value]
-  }
 }
 
 # EBS volume that holds traefik's acme.json (LE cert material + account key).

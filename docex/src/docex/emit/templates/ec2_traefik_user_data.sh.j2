@@ -122,7 +122,7 @@ rm -f "/tmp/traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz" /tmp/traefik
 
 mkdir -p /var/log/traefik
 
-# --- Static traefik config (entrypoints, LE DNS-01, file provider) ------------
+# --- Static traefik config (entrypoints, LE DNS-01, ECS provider) -------------
 cat > /etc/traefik/traefik.yml <<'EOF'
 entryPoints:
   web:
@@ -148,9 +148,13 @@ certificatesResolvers:
           - "8.8.8.8:53"
 
 providers:
-  file:
-    filename: /etc/traefik/dynamic.yml
-    watch: true
+  ecs:
+    region: {{ traefik_region }}
+    autoDiscoverClusters: false
+    clusters:
+{% for c in traefik_ecs_clusters %}      - {{ c }}
+{% endfor %}    exposedByDefault: false
+    refreshSeconds: 15
 
 log:
   level: INFO
@@ -161,50 +165,6 @@ accessLog:
 
 api:
   dashboard: false
-EOF
-
-# --- Initial dynamic config; SSM timer overwrites within 30s -----------------
-cat > /etc/traefik/dynamic.yml <<'EOF'
-http:
-  routers: {}
-  services: {}
-EOF
-
-# --- systemd timer that syncs dynamic.yml from SSM ----------------------------
-cat > /usr/local/bin/docex-traefik-config-sync <<EOF
-#!/bin/bash
-set -euo pipefail
-NEW=\$(mktemp)
-trap 'rm -f "\$NEW"' EXIT
-aws ssm get-parameter \\
-    --region ${REGION} \\
-    --name "/${PROJECT}/ec2_traefik/config.yml" \\
-    --with-decryption \\
-    --query 'Parameter.Value' --output text > "\$NEW"
-if ! cmp -s /etc/traefik/dynamic.yml "\$NEW"; then
-    mv "\$NEW" /etc/traefik/dynamic.yml
-    chmod 0644 /etc/traefik/dynamic.yml
-fi
-EOF
-chmod +x /usr/local/bin/docex-traefik-config-sync
-
-cat > /etc/systemd/system/docex-traefik-config.service <<'EOF'
-[Unit]
-Description=Sync traefik dynamic config from SSM
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/docex-traefik-config-sync
-EOF
-
-cat > /etc/systemd/system/docex-traefik-config.timer <<'EOF'
-[Unit]
-Description=Sync traefik dynamic config every 30 seconds
-[Timer]
-OnBootSec=15s
-OnUnitActiveSec=30s
-Unit=docex-traefik-config.service
-[Install]
-WantedBy=timers.target
 EOF
 
 {% if reverse_proxy == "ec2_traefik_pip" %}
@@ -273,7 +233,7 @@ EOF
 cat > /etc/systemd/system/traefik.service <<'EOF'
 [Unit]
 Description=Traefik reverse proxy
-After=network-online.target docex-traefik-config.service
+After=network-online.target
 Wants=network-online.target
 [Service]
 ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
@@ -314,10 +274,6 @@ EOF
 
 # --- start everything ---------------------------------------------------------
 systemctl daemon-reload
-systemctl enable --now docex-traefik-config.timer
-# Run the config sync once synchronously so dynamic.yml has the real config
-# before traefik first starts.
-/usr/local/bin/docex-traefik-config-sync || true
 {% if reverse_proxy == "ec2_traefik_pip" %}
 systemctl enable docex-traefik-dns-update.service
 systemctl start docex-traefik-dns-update.service || true
