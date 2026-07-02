@@ -61,14 +61,18 @@ first post-`0.4.0` overhaul.
     `ecs_cluster_has_services` probe, since the cluster is now always present.
     Doctrine: `shape.md` gains an `ecs_cluster` (project-tier) row;
     `projinfra.md` / `release.md` / `cicd.md` / `migrations.md` reconciled.
-  - **Bug 7 — Let's Encrypt cert never issued.** traefik's route53 DNS-01
-    provider failed with `Invalid Configuration: Missing Region`. Fix: set
-    `AWS_REGION` / `AWS_DEFAULT_REGION` on the `traefik.service` unit so lego
-    resolves the Route53 endpoint.
+  - **Bug 7 — Let's Encrypt cert never issued.** Two stacked causes:
+    (1) traefik's route53 DNS-01 provider failed with `Invalid Configuration:
+    Missing Region` — fixed by setting `AWS_REGION` / `AWS_DEFAULT_REGION` on
+    the `traefik.service` unit; (2) once that cleared, issuance 403'd because
+    lego's route53 provider calls `route53:ListHostedZonesByName` (to discover
+    the zone) and the traefik IAM policy granted only `ListHostedZones` — the
+    missing action is now added.
 
-  **Not yet re-walked to green** — this lands the fixes; a fresh real-AWS
-  ec2_traefik walk (routing + real cert) plus the alb confirmation pass gate
-  the 1.5.0 cut.
+  **Verified end-to-end on real AWS (elastic, `ec2_traefik_eip`):** routing
+  returns 200 through traefik → ECS provider → Fargate, and a real Let's
+  Encrypt cert serves over HTTPS (no `-k`). The `alb` confirmation pass and
+  the fixed-foundation walk still gate the 1.5.0 cut.
 
 ### Fixed
 

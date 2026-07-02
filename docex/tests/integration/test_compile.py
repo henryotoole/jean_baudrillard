@@ -1275,6 +1275,10 @@ def test_mod044_traefik_iam_route53_scoped_to_project_zone(tmp_path: Path):
     policy_block = tf[policy_start:policy_end]
     assert '"route53:ChangeResourceRecordSets"' in policy_block
     assert "aws_route53_zone.project.zone_id" in policy_block
+    # Mod 071: lego's route53 DNS-01 provider calls ListHostedZonesByName to
+    # discover the zone; its absence 403'd LE cert issuance on the real-AWS
+    # walk even after AWS_REGION was set.
+    assert '"route53:ListHostedZonesByName"' in policy_block
 
 
 def test_mod070_traefik_iam_grants_ecs_discovery_not_ssm(tmp_path: Path):

@@ -384,11 +384,15 @@ resource "aws_iam_role_policy" "project_traefik" {
         ]
       },
       {
-        # ListHostedZones / GetHostedZone are unscopeable per AWS IAM — the
-        # traefik LE client needs them to discover the zone for DNS-01.
+        # ListHostedZones{,ByName} / GetHostedZone are unscopeable per AWS
+        # IAM — the traefik LE client needs them to discover the zone for
+        # DNS-01. lego's route53 provider specifically calls
+        # ListHostedZonesByName; its absence 403'd cert issuance even after
+        # AWS_REGION was set (mod 071).
         Effect   = "Allow"
         Action   = [
           "route53:ListHostedZones",
+          "route53:ListHostedZonesByName",
           "route53:GetHostedZone",
           "route53:ListResourceRecordSets",
         ]
