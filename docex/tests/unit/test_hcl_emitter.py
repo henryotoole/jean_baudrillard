@@ -449,16 +449,21 @@ def test_projinfra_tags_task_exec_role(compiled_elastic_project: Path):
     assert 'descriptor = "exec-role"' in blk
 
 
-def test_envinfra_tags_ecs_cluster_env_scoped(compiled_elastic_project: Path):
-    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
-    blk = _block(tf, 'resource "aws_ecs_cluster" "cluster"')
-    assert 'infra_tier = "environment"' in blk
-    assert 'shape_name = "etc"' in blk
-    assert 'descriptor = "ecs-cluster"' in blk
-    assert 'service = "etc"' in blk
-    assert 'role = "etc"' in blk
-    # Decision 2: env-scoped Name falls back to the descriptor.
-    assert 'Name = "sample_prod_ecs-cluster"' in blk
+def test_projinfra_tags_ecs_cluster_project_scoped(compiled_elastic_project: Path):
+    """Mod 071: the ECS clusters moved to the project tier — one resource per
+    env (stage + prod), tagged as projinfra (no env/service/role) with the
+    env carried in `descriptor`."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_ecs_cluster" "prod"')
+    assert 'infra_tier = "project"' in blk
+    assert 'shape_name = "ecs_cluster"' in blk
+    assert 'descriptor = "prod"' in blk
+    assert 'managed_by = "doctrine"' in blk
+    assert 'project = "sample"' in blk
+    assert 'Name = "sample_ecs_cluster_prod"' in blk
+    # Projinfra carries no env / service / role.
+    assert 'service ' not in blk
+    assert 'role ' not in blk
 
 
 def test_envinfra_tags_network_sg_descriptor_carries_short(compiled_elastic_project: Path):

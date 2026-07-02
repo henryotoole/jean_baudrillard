@@ -104,21 +104,20 @@ resource "aws_security_group_rule" "{{ short }}_self_ingress" {
 {% endfor %}
 
 # ---------------------------------------------------------------------------
-# ECS cluster
+# ECS cluster — provisioned at the PROJECT tier (mod 071), not here. Both the
+# stage and prod clusters always exist; this env references its own via
+# `data.terraform_remote_state.project.outputs.ecs_cluster_<env>_arn`.
 # ---------------------------------------------------------------------------
-resource "aws_ecs_cluster" "cluster" {
-  name = "{{ ecs_cluster_name }}"
-{{ tagblock(standard_tags("environment", shape_name="etc", descriptor="ecs-cluster", project=project, env=env, service="etc", role="etc")) }}
-}
 
 # ---------------------------------------------------------------------------
 # Service discovery — ECS Service Connect over a Cloud Map PRIVATE DNS
 # namespace. Per shape.md § Elastic-Foundation, one namespace per env,
-# associated with the master VPC. Auto-creates a Route53 private hosted
-# zone resolvable VPC-wide so EC2-traefik (mod 044) and other non-ECS
-# consumers can reach services by name. ECS tasks inside the namespace
-# resolve by discoveryName alone via the Envoy sidecar; consumers
-# outside the namespace use the FQDN form <discoveryName>.<namespace>.
+# associated with the master VPC. The namespace provides mesh-internal
+# Service Connect resolution ONLY: ECS tasks inside the namespace resolve
+# each other by discoveryName via the Envoy sidecar. It is NOT how the
+# EC2-traefik reverse proxy (mod 044) finds backends — that path discovers
+# RUNNING tasks and their routing labels through its ECS provider (mod 070),
+# not through this DNS zone. See the ec2_traefik projinfra doc.
 # ---------------------------------------------------------------------------
 resource "aws_service_discovery_private_dns_namespace" "env" {
   # Mod 046: Cloud Map private DNS namespaces resolve via Route53; the name

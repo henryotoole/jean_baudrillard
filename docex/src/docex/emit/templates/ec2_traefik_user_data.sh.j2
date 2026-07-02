@@ -152,7 +152,7 @@ providers:
     region: {{ traefik_region }}
     autoDiscoverClusters: false
     clusters:
-{% for c in traefik_ecs_clusters %}      - {{ c }}
+{% for c in ecs_clusters.values() %}      - {{ c }}
 {% endfor %}    exposedByDefault: false
     refreshSeconds: 15
 
@@ -237,6 +237,12 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
+# WHY: traefik's LE DNS-01 route53 provider (lego) resolves the Route53 API
+# endpoint from AWS_REGION/AWS_DEFAULT_REGION and does NOT fall back to the
+# IMDS region — without these it fails with "Missing Region" and no cert
+# issues. The ECS provider is unaffected (it reads region: from its config).
+Environment=AWS_REGION={{ traefik_region }}
+Environment=AWS_DEFAULT_REGION={{ traefik_region }}
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65536

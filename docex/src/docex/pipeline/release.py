@@ -279,16 +279,19 @@ def _release_elastic(
         )
         return 0
 
-    # First-time-release detection: the env's ECS cluster (named per
-    # the ``ecs`` naming policy on the project/env pair) is created by
-    # tofu apply. If it isn't there yet, the migrate step would error
-    # with "no ACTIVE ECS cluster" before tofu had a chance to create it.
+    # First-time-release detection. Mod 071: the ECS cluster is now
+    # project-tier and always exists (both stage + prod), so its mere
+    # existence no longer distinguishes a first release from a steady-state
+    # one. Instead we key off env-service existence: a first release is one
+    # where the env's cluster holds no ECS services yet — the env-tier
+    # ``tofu apply`` is what creates them. On such a release the migrate
+    # step must wait until after apply, or RunTask would find no infra.
     ecs_policy = ctx.transfer_tables.naming_policies.get("ecs")
     cluster_name = apply_policy(f"{project_name}_{env}", ecs_policy)
-    first_release = not aws.ecs_cluster_exists(cluster_name)
+    first_release = not aws.ecs_cluster_has_services(cluster_name)
     if first_release:
         print(
-            f"release: ECS cluster {cluster_name!r} not yet provisioned — "
+            f"release: no ECS services in cluster {cluster_name!r} — "
             f"first-time release detected; applying infra before migrate."
         )
 

@@ -119,11 +119,12 @@ def test_release_elastic_aborts_when_ssm_push_fails(
 def test_release_elastic_first_time_applies_before_migrate(
     elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply
 ):
-    """First-time release: the ECS cluster doesn't exist yet, so
-    migrate would fail before tofu had a chance to create it. The
+    """First-time release: the env's cluster has no ECS services yet
+    (mod 071 — the cluster itself is project-tier and always present), so
+    migrate would fail before tofu had a chance to create the services. The
     flow swaps to: SSM → tofu apply → migrate, so the migration runs
     against the now-live cluster + RDS."""
-    fake_aws.cluster_exists = False
+    fake_aws.cluster_has_services = False
     rc = run_release(
         elastic_ctx,
         env="stage",
@@ -138,10 +139,10 @@ def test_release_elastic_first_time_applies_before_migrate(
     if "ecs_run_task" in names:
         # The fake's call records are appended in invocation order
         # (the recorder shares one list across all methods). The
-        # ecs_cluster_exists probe happens before tofu_apply (which
+        # ecs_cluster_has_services probe happens before tofu_apply (which
         # isn't recorded on fake_aws), and ecs_run_task must come
-        # after the cluster_exists probe.
-        first_probe = names.index("ecs_cluster_exists")
+        # after the has-services probe.
+        first_probe = names.index("ecs_cluster_has_services")
         first_run = names.index("ecs_run_task")
         assert first_probe < first_run, names
 
@@ -155,7 +156,7 @@ def test_release_elastic_first_time_aborts_when_migrate_fails(
     unknown state and the infra up."""
     from docex.errors import ECSTaskFailed
 
-    fake_aws.cluster_exists = False
+    fake_aws.cluster_has_services = False
     fake_aws.ecs_exit_codes = {
         "arn:aws:ecs:us-east-1:123456789012:task/fake/00000001": 9
     }
@@ -209,11 +210,10 @@ def test_release_elastic_aborts_when_migrate_fails(
 def test_release_elastic_probes_cluster_via_ecs_naming_policy(
     elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply
 ):
-    """Mod 007: the first-time-release cluster probe must use the ``ecs``
-    naming policy (underscore-preserving), not a stale hyphen-joined
-    literal. Otherwise the probe always misses on steady-state releases
-    (the live cluster is underscore-joined) and falls into the
-    first-release branch on every invocation."""
+    """Mod 007/071: the first-time-release env-service probe must use the
+    ``ecs`` naming policy (data-plane hyphen form), not a stale literal.
+    Otherwise the probe always misses on steady-state releases and falls
+    into the first-release branch on every invocation."""
     run_release(
         elastic_ctx,
         env="stage",
@@ -222,9 +222,9 @@ def test_release_elastic_probes_cluster_via_ecs_naming_policy(
         tofu_apply=fake_tofu_apply,
     )
     probes = [
-        call for call in fake_aws.calls if call[0] == "ecs_cluster_exists"
+        call for call in fake_aws.calls if call[0] == "ecs_cluster_has_services"
     ]
-    assert probes, "expected ecs_cluster_exists to be probed once"
+    assert probes, "expected ecs_cluster_has_services to be probed once"
     # The fixture's project name is "sample"; the ecs policy joins on
     # hyphen (mod 030: data-plane resolvable name).
     name_arg = probes[0][1][0]

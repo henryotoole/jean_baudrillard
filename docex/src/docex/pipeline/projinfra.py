@@ -142,11 +142,15 @@ def run_projinfra_elastic_down(
     policies = ctx.transfer_tables.naming_policies
     ecs_policy = policies.get("ecs")
 
-    # ---- Gate 1: refuse if any env-tier ECS cluster still exists. -----
+    # ---- Gate 1: refuse if any env-tier resources still exist. --------
+    # Mod 071: the ECS clusters are project-tier now (always present, and
+    # torn down by *this* project destroy), so cluster existence no longer
+    # signals a live env — probe env-service existence instead. An env is
+    # "up" iff its (project-tier) cluster still holds ECS services.
     live_envs: list[str] = []
     for env in _ELASTIC_ENVS:
         cluster = apply_policy(f"{project}_{env}", ecs_policy)
-        if aws.ecs_cluster_exists(cluster):
+        if aws.ecs_cluster_has_services(cluster):
             live_envs.append(env)
     if live_envs:
         print(

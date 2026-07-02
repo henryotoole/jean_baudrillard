@@ -725,10 +725,15 @@ def test_project_tier_task_execution_policy_empty_core_services(tmp_path: Path):
 
 
 def test_env_tier_state_backend_ecs_cluster_names(tmp_path: Path):
-    """Stage/prod main.tf state backend + ECS cluster names follow the
-    matching policies (S3 = hyphen, DDB = underscore, ECS = hyphen).
+    """Stage/prod main.tf state backend names follow the matching policies
+    (S3 = hyphen, DDB = underscore).
+
     Mod 038: the ALB moved to project-tier; its name is asserted in the
-    project-tier name test."""
+    project-tier name test. Mod 071: the ECS clusters also moved to the
+    project tier (both stage + prod always exist). The env main.tf no longer
+    declares its own cluster resource — it references the project remote-state
+    cluster ARN output — and the cluster *names* are asserted at the project
+    tier below."""
     proj = _write_underscore_project(tmp_path)
     run_compile(load_project_context(proj))
     for env in ("stage", "prod"):
@@ -737,8 +742,25 @@ def test_env_tier_state_backend_ecs_cluster_names(tmp_path: Path):
         assert 'bucket         = "docex-smoke-elastic-tofu-state"' in tf
         assert 'dynamodb_table = "docex_smoke_elastic_tofu_locks"' in tf
         assert f'bucket = "docex-smoke-elastic-tofu-state"' in tf
-        # ECS cluster: hyphen (ecs policy is data-plane resolvable).
-        assert f'name = "docex-smoke-elastic-{env}"' in tf
+        # Mod 071: no env-tier cluster resource; the env references the
+        # project-tier cluster ARN via remote state.
+        assert 'resource "aws_ecs_cluster" "cluster"' not in tf
+        assert (
+            f"data.terraform_remote_state.project.outputs.ecs_cluster_{env}_arn"
+            in tf
+        )
+
+    # Mod 071: cluster names (hyphen — ecs policy is data-plane resolvable)
+    # live at the project tier, one resource per env.
+    project_tf = (
+        proj / "infra" / "output" / "project" / "production" / "main.tf"
+    ).read_text()
+    for env in ("stage", "prod"):
+        assert f'name = "docex-smoke-elastic-{env}"' in project_tf
+    assert 'resource "aws_ecs_cluster" "stage"' in project_tf
+    assert 'resource "aws_ecs_cluster" "prod"' in project_tf
+    assert 'output "ecs_cluster_stage_arn"' in project_tf
+    assert 'output "ecs_cluster_prod_arn"' in project_tf
 
 
 def test_project_tier_alb_name(tmp_path: Path):
@@ -1310,6 +1332,10 @@ def test_mod070_traefik_user_data_uses_ecs_provider(tmp_path: Path):
     assert "- sample-prod" in tf
     assert "exposedByDefault: false" in tf
     assert "refreshSeconds: 15" in tf
+    # Mod 071 (bug 7): the traefik.service systemd unit sets AWS_REGION so
+    # lego's LE DNS-01 route53 provider can resolve the Route53 endpoint.
+    assert "Environment=AWS_REGION=us-east-1" in tf
+    assert "Environment=AWS_DEFAULT_REGION=us-east-1" in tf
     # The removed mod-064 file-provider subsystem must be entirely gone.
     assert "docex-traefik-config" not in tf
     assert "dynamic.yml" not in tf

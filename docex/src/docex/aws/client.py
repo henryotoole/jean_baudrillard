@@ -253,10 +253,23 @@ class AWSClient(Protocol):
 
     def ecs_cluster_exists(self, name: str) -> bool:
         """Return True iff an ACTIVE ECS cluster with the given name
-        exists. Used by ``release`` to distinguish a first-time release
-        (the cluster hasn't been provisioned yet, so migrations must
-        wait until after ``tofu apply``) from a subsequent release
-        (cluster exists; migrations run first per the doctrine order).
+        exists. Retained for completeness; since mod 071 the ECS clusters
+        are project-tier and always present, so this no longer distinguishes
+        a first release — see :meth:`ecs_cluster_has_services`.
+        """
+        ...
+
+    def ecs_cluster_has_services(self, name: str) -> bool:
+        """Return True iff the ECS cluster with the given name has at least
+        one registered ECS service.
+
+        Mod 071: the ECS clusters are project-tier and always exist, so
+        cluster existence no longer distinguishes a first-time release from
+        a steady-state one. Env-service existence does: ``release`` treats an
+        empty cluster as a first release (migrations must wait until after
+        ``tofu apply`` creates the services), and ``projinfra down`` treats a
+        non-empty cluster as a still-live env (refuses project teardown). A
+        cluster that does not exist reads as having no services (False).
         """
         ...
 

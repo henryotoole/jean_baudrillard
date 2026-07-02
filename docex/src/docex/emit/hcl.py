@@ -552,7 +552,9 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     out: list[str] = []
     out.append(f'resource "aws_ecs_service" "{svc.name}" {{')
     out.append(f'  name            = "{svc.global_name}"')
-    out.append( '  cluster         = aws_ecs_cluster.cluster.id')
+    # Mod 071: the ECS cluster is project-tier (stage + prod both always
+    # exist), referenced via the project remote state by env.
+    out.append(f'  cluster         = data.terraform_remote_state.project.outputs.ecs_cluster_{ctx.env}_arn')
     out.append(f'  task_definition = aws_ecs_task_definition.{svc.name}.arn')
     out.append( '  launch_type     = "FARGATE"')
     out.append( '  desired_count   = 1')
@@ -894,7 +896,8 @@ def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(f'  schedule_expression          = "{schedule_expr}"')
     out.append('  schedule_expression_timezone = "UTC"')
     out.append("  target {")
-    out.append("    arn      = aws_ecs_cluster.cluster.arn")
+    # Mod 071: project-tier cluster, referenced via the project remote state.
+    out.append(f"    arn      = data.terraform_remote_state.project.outputs.ecs_cluster_{ctx.env}_arn")
     out.append(f"    role_arn = aws_iam_role.{svc.name}_scheduler.arn")
     out.append("    ecs_parameters {")
     out.append(
@@ -1078,16 +1081,18 @@ def emit_hcl_project(
     # of `or "alb"` handling.
     rp = reverse_proxy or "alb"
 
-    # Mod 070: the traefik ECS provider polls the project's stage + prod
-    # clusters and its cluster-scoped IAM grant is keyed on their ARNs.
-    # Computed once and threaded into both the user_data render (provider
-    # `clusters:` list) and the project template (IAM ArnEquals condition).
-    # Only meaningful on the ec2_traefik path; harmless on the alb path
-    # (the template references it only inside the ec2_traefik branch).
-    traefik_ecs_clusters = [
-        apply_policy(f"{project}_stage", ecs_p),
-        apply_policy(f"{project}_prod", ecs_p),
-    ]
+    # Mod 071: the two ECS clusters (stage + prod) are project-tier — every
+    # elastic project gets both, on both reverse_proxy paths. Named per the
+    # `ecs` naming policy and keyed by env so the cluster resources, outputs,
+    # the traefik IAM ArnEquals condition, and the user_data provider list all
+    # reference the same rendered names. (Was the mod-070 `traefik_ecs_clusters`
+    # list, which only the ec2_traefik path consumed; making the clusters
+    # project-tier fixes bug 8 — the traefik ECS provider treats a missing
+    # listed cluster as fatal for the entire refresh, so both must pre-exist.)
+    ecs_clusters = {
+        "stage": apply_policy(f"{project}_stage", ecs_p),
+        "prod": apply_policy(f"{project}_prod", ecs_p),
+    }
 
     # Render the EC2-traefik user_data script ahead of the HCL template so
     # the rendered shell is available as a single literal injected into
@@ -1107,7 +1112,7 @@ def emit_hcl_project(
             reverse_proxy=rp,
             traefik_acme_email=acme_email,
             traefik_region=ELASTIC_REGION,
-            traefik_ecs_clusters=traefik_ecs_clusters,
+            ecs_clusters=ecs_clusters,
         )
         # WHY: the user_data is injected into an HCL heredoc in
         # project.tf.j2, and HCL heredocs interpolate ${...}/%{...}. The
@@ -1144,7 +1149,7 @@ def emit_hcl_project(
         alb_sg_name=apply_policy(f"{project}_alb_sg", alb_p),
         reverse_proxy=rp,
         traefik_user_data=traefik_user_data,
-        traefik_ecs_clusters=traefik_ecs_clusters,
+        ecs_clusters=ecs_clusters,
     )
     out_path.write_text(rendered)
 
@@ -1191,7 +1196,6 @@ def emit_hcl(
     s3_p = naming_policies.get("s3")
     ddb_p = naming_policies.get("ddb")
     alb_p = naming_policies.get("alb")
-    ecs_p = naming_policies.get("ecs")
     iam_p = naming_policies.get("iam")
 
     ctx = _RenderCtx(
@@ -1225,9 +1229,6 @@ def emit_hcl(
         ),
         state_lock_table=apply_policy(
             f"{compiled.project}_tofu_locks", ddb_p
-        ),
-        ecs_cluster_name=apply_policy(
-            f"{compiled.project}_{compiled.env}", ecs_p
         ),
         reverse_proxy=compiled.reverse_proxy,
     )

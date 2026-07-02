@@ -199,11 +199,13 @@ def _compile_project_tier(ctx):
 def test_projinfra_elastic_down_refuses_when_env_cluster_exists(
     elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
 ):
-    """Refuse-if-envs-up: any live env ECS cluster blocks the teardown.
-    Nothing is destroyed (no tofu, no cleanup)."""
+    """Refuse-if-envs-up: any env whose (project-tier) cluster still holds
+    ECS services blocks the teardown. Nothing is destroyed (no tofu, no
+    cleanup). Mod 071: probes env-service existence, not cluster existence
+    (the clusters are project-tier and always present)."""
     _compile_project_tier(elastic_ctx)
-    # Default fake `cluster_exists=True` → both stage and prod read as live.
-    fake_aws.cluster_exists = True
+    # Default fake `cluster_has_services=True` → both stage and prod read as live.
+    fake_aws.cluster_has_services = True
 
     rc = run_projinfra_elastic_down(
         elastic_ctx, fake_aws,
@@ -227,7 +229,7 @@ def test_projinfra_elastic_down_refuses_on_nonempty_ecr(
     """ECR pre-flight: a non-empty repo blocks the teardown. Nothing is
     destroyed."""
     _compile_project_tier(elastic_ctx)
-    fake_aws.cluster_exists = False  # envs are down
+    fake_aws.cluster_has_services = False  # envs are down
     fake_aws.ecr_image_count_results["sample/api"] = 3
 
     rc = run_projinfra_elastic_down(
@@ -248,7 +250,7 @@ def test_projinfra_elastic_down_clean_path_orders_cleanup(
     """Clean path: tofu destroy, then SSM delete, then state backend
     (S3 bucket + DDB table) — in that order, state backend last."""
     _compile_project_tier(elastic_ctx)
-    fake_aws.cluster_exists = False
+    fake_aws.cluster_has_services = False
     # ECR empty by default (image count 0).
 
     rc = run_projinfra_elastic_down(

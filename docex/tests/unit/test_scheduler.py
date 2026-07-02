@@ -178,11 +178,17 @@ def test_elastic_scheduler_task_no_sidecar_resource_overhead(tmp_path: Path):
     assert 'memory                   = "512"' in nc
 
 
-def test_elastic_cluster_emitted(tmp_path: Path):
-    """The ECS cluster must exist for RunTask even when the env had no
-    web service — here it coexists with one, but assert it is present."""
+def test_elastic_scheduler_runtask_targets_project_tier_cluster(tmp_path: Path):
+    """Mod 071: the ECS cluster is project-tier now — the env main.tf no
+    longer declares one. The scheduler RunTask target must reference the
+    env's project-tier cluster ARN via remote state so it still has a
+    cluster to run in."""
     hcl = _stage_hcl(_compile(_ELASTIC, tmp_path))
-    assert 'resource "aws_ecs_cluster" "cluster" {' in hcl
+    assert 'resource "aws_ecs_cluster" "cluster" {' not in hcl
+    assert (
+        "arn      = data.terraform_remote_state.project.outputs."
+        "ecs_cluster_stage_arn" in hcl
+    )
 
 
 # ---------------------------------------------------------------------------

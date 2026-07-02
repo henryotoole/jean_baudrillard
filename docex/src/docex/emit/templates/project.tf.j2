@@ -407,7 +407,7 @@ resource "aws_iam_role_policy" "project_traefik" {
         Condition = {
           ArnEquals = {
             "ecs:cluster" = [
-{% for c in traefik_ecs_clusters %}              "arn:aws:ecs:{{ region }}:${data.aws_caller_identity.current.account_id}:cluster/{{ c }}",
+{% for c in ecs_clusters.values() %}              "arn:aws:ecs:{{ region }}:${data.aws_caller_identity.current.account_id}:cluster/{{ c }}",
 {% endfor %}            ]
           }
         }
@@ -558,6 +558,26 @@ resource "aws_route53_record" "traefik_{{ key }}" {
 {% endif %}
 
 # ---------------------------------------------------------------------------
+# ECS clusters — one per elastic env (stage + prod), project-tier (mod 071).
+#
+# Both clusters always exist for every elastic project, on both reverse-proxy
+# paths. WHY project-tier: the EC2-traefik ECS provider lists BOTH clusters
+# statically; it treats a ListTasks error on any listed cluster as fatal for
+# the entire refresh, so a stage-only release with the prod cluster absent
+# would build zero routes. Empty ECS clusters are free. Each env's main.tf
+# references its cluster ARN via terraform_remote_state (never creates one).
+# ---------------------------------------------------------------------------
+resource "aws_ecs_cluster" "stage" {
+  name = "{{ ecs_clusters.stage }}"
+{{ tagblock(standard_tags("project", shape_name="ecs_cluster", descriptor="stage", project=project)) }}
+}
+
+resource "aws_ecs_cluster" "prod" {
+  name = "{{ ecs_clusters.prod }}"
+{{ tagblock(standard_tags("project", shape_name="ecs_cluster", descriptor="prod", project=project)) }}
+}
+
+# ---------------------------------------------------------------------------
 # ECR repositories — one per core service. The image refs in each env's
 # main.tf resolve to `<repo_url>:<version>`.
 # ---------------------------------------------------------------------------
@@ -686,6 +706,16 @@ output "zone_name_servers" {
 
 output "task_execution_role_arn" {
   value = aws_iam_role.task_execution.arn
+}
+
+# Mod 071: project-tier ECS cluster ARNs, one per elastic env. Each env's
+# main.tf references its own via `ecs_cluster_<env>_arn`.
+output "ecs_cluster_stage_arn" {
+  value = aws_ecs_cluster.stage.arn
+}
+
+output "ecs_cluster_prod_arn" {
+  value = aws_ecs_cluster.prod.arn
 }
 
 # Mod 044: polymorphic output. Env-tier `web` SGs use it as their ingress

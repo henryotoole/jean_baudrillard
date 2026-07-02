@@ -458,6 +458,14 @@ class Boto3AWSClient:
         clusters = resp.get("clusters", [])
         return bool(clusters) and clusters[0].get("status") == "ACTIVE"
 
+    def ecs_cluster_has_services(self, name: str) -> bool:
+        ecs = self._client("ecs")
+        try:
+            resp = ecs.list_services(cluster=name, maxResults=1)
+        except ecs.exceptions.ClusterNotFoundException:
+            return False
+        return bool(resp.get("serviceArns"))
+
     # ------------------------------------------------------------------
     # Mod 042: preinfra master VPC discovery
     # ------------------------------------------------------------------

@@ -488,6 +488,10 @@ class FakeAWSClient:
     sg_id: str = "sg-fake0001"
     cluster_arn: str = "arn:aws:ecs:us-east-1:123456789012:cluster/fake"
     cluster_exists: bool = True
+    # Mod 071: env-service existence probe used by the first-release
+    # detector and the projinfra-down env-live gate. Defaults True so the
+    # steady-state / envs-live paths remain the default.
+    cluster_has_services: bool = True
     ecs_exit_codes: dict[str, int] = field(default_factory=dict)
     raise_on: dict[str, Exception] = field(default_factory=dict)
     # Mod 029: probe results for ``ecr_image_exists``. Maps
@@ -659,6 +663,10 @@ class FakeAWSClient:
     def ecs_cluster_exists(self, name: str) -> bool:
         self._record("ecs_cluster_exists", name)
         return self.cluster_exists
+
+    def ecs_cluster_has_services(self, name: str) -> bool:
+        self._record("ecs_cluster_has_services", name)
+        return self.cluster_has_services
 
     # -- Mod 042: preinfra master VPC discovery -----------------------
 
