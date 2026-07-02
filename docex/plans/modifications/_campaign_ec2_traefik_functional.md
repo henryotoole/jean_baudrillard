@@ -70,6 +70,38 @@ the router matched (`-k` curl got past 404), and ECS web was `RUNNING`/healthy.
 | 6 | **Backend unreachable (502).** traefik routes the request but can't resolve the backend `<discoveryName>.<namespace>`. The Cloud Map **DNS_PRIVATE** zone (`docex-smoke-elastic-stage.`, associated with the master VPC) contains **only NS+SOA — no service A-records.** ECS **Service Connect** resolution is mesh-internal (Envoy sidecar in each task); it does **not** publish VPC-DNS-resolvable records. The EC2-traefik instance is *outside* the mesh, so the name never resolves for it. `ec2_traefik.md § Routing Discovery`'s core assumption is wrong. | **Architectural** — needs a design change (register web services via ECS **Service Discovery** / Cloud Map DNS `service_registries` so the private zone gets A-records, *in addition to or instead of* Service Connect), a doctrine correction, and a compile/emit change. | open |
 | 7 | **LE cert not issued.** traefik serves its `TRAEFIK DEFAULT CERT` for the domain (so `https://…` without `-k` fails the handshake → the `/health` poll saw 000). Whether this is just "needs more time / needs a router to exist first" or a real DNS-01 problem is **unconfirmed** — bug 6 (502) meant no successful request ever exercised the cert path fully. | Unconfirmed — re-diagnose after bug 6 is fixed. | open |
 
+## Update — 2026-07-02: Path B chosen; mods 069–070 landed (code + tests green, walk pending)
+
+Bug 6 resolved in **code** via **Path B — the traefik ECS provider**, not
+the Service Discovery / Cloud Map A-records design floated below. Operator
+weighed both and chose B: it removes the release-time SSM push + the
+on-instance sync timer entirely (`release` never touches traefik — the
+elastic analog of the fixed docker provider), gives real load-balancing +
+task-health awareness, at the cost of a scoped read-only ECS/EC2 IAM grant.
+The old `ec2_traefik.md` "no ECS provider" line was documentative, not
+prophetic — removed and replaced with current-state docs.
+
+- **Doctrine** (committed): `ec2_traefik.md` (Routing Discovery / Config
+  Delivery / IAM / Failure Modes / Lifecycle / Projinfra-vs-Envinfra
+  rewritten), `shape.md` + `transfer_tables.md` (wrong out-of-mesh-DNS
+  claim corrected), `release.md` (label-based routing).
+- **mod 070** (committed): `providers.ecs` in user_data; `traefik.*`
+  `dockerLabels` on web-service task defs; ECS/EC2 discovery IAM; removed
+  the SSM routing param + release push + `emit/traefik.py`; `_hcl_value`
+  now quotes dotted object keys (found via `tofu validate`). Fixed the
+  stale mod-062 test (IMDSv2 curl form).
+- **mod 069** (committed, unrelated ALB fix bundled into this cut):
+  naming-policy `overflow: hash_truncate` so ALB/target-group/SG `name`
+  identifiers fit AWS's 32-char cap; full name preserved in the `Name` tag.
+- **Tests**: 653 unit/non-integration + 65 offline compile (incl.
+  ec2_traefik `tofu validate` on eip/pip) all green.
+
+**Still pending — the real-AWS re-walk** (targets 1.5.0). Bug 6 is fixed in
+code but **not yet verified end-to-end on AWS**. Bug 7 (LE cert) remains
+open and is only diagnosable once bug 6 clears on a live walk (→ mod 071,
+contingent). Operator authorized adding a temporary SSH ingress to the
+traefik SG for hands-on debugging during the walk (revert before the cut).
+
 ### Bug 6 is the crux — and it's a doctrine design flaw
 
 The EC2-traefik path's entire backend-resolution premise (`ec2_traefik.md §
