@@ -15,6 +15,25 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [1.4.2] - 2026-07-02
+
+### Fixed
+
+- **`bin/docex` shim reported exit 1 on success under git-credential
+  passthrough.** When `DOCEX_GIT_CREDENTIAL_PASSTHROUGH` is set (as the Periscope
+  runner sets it), the shim's credential branch runs an `EXIT INT TERM` cleanup
+  trap that `kill`s the responder — then repeats that same `kill` inline before
+  `exit "$status"`. The `exit` re-fired the trap, whose now-redundant `kill` hit
+  an already-dead process and returned non-zero; under `set -e` that became the
+  shell's exit status, so **every** docex command reported failure on success
+  (and clobbered genuine non-zero codes to 1 as well). Callers that judge by
+  output were unaffected, but exit-code-sensitive consumers — notably the
+  Periscope tactical **retire** flow — read the false failure and wedged. Fixed
+  by clearing the trap (`trap - EXIT INT TERM`) before the inline cleanup, so it
+  cannot re-fire on the explicit `exit`. Adds `tests/unit/test_shim_exit_code.py`
+  pinning exit-code propagation on both the fast and credential paths (the shim
+  had no prior test coverage — which is how this shipped).
+
 ## [1.4.1] - 2026-07-01
 
 ### Added

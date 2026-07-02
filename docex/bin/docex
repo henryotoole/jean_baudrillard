@@ -239,6 +239,13 @@ if [[ -n "${CRED_DIR:-}" ]]; then
     "${MOUNTS[@]}" \
     "docex:$DOCEX_VERSION" \
     "$@" || status=$?
+  # Clear the trap BEFORE cleaning up here. Otherwise the trap re-fires on the
+  # `exit` below and repeats this same `kill` — but the responder is already
+  # dead, so the second `kill` returns non-zero and (under `set -e`) becomes the
+  # shell's exit status, clobbering `$status` and making EVERY docex command
+  # report failure on success. We do the cleanup inline; the trap was only the
+  # backstop for an abnormal exit before this point.
+  trap - EXIT INT TERM
   [[ -n "${RESPONDER_PID:-}" ]] && kill "$RESPONDER_PID" 2>/dev/null || true
   rm -rf "$CRED_DIR"
   exit "$status"
