@@ -15,6 +15,25 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [Unreleased]
+
+### Fixed
+
+- **ALB / target-group / ALB-SG `name` identifiers overflowed AWS's
+  32-char cap for realistically-named projects** (mod 069). All three
+  route through the `alb` naming policy, whose `max_len: 32` previously
+  *hard-errored* on overflow — so `reverse_proxy: alb` (the default
+  elastic path) failed to compile for a project like
+  `tactical-lifecycle-test` (its target group `tactical-lifecycle-test-stage-web-tg`
+  is 36 chars). Naming policies gain an `overflow: error | hash_truncate`
+  field (default `error`, unchanged for every other policy); the `alb`
+  policy uses `hash_truncate`, which keeps a readable prefix and appends a
+  6-hex-char SHA-256 suffix so the identifier always fits 32 and stays
+  unique/deterministic. The full descriptive name now lives in the
+  resource's `Name` tag — and `aws_lb_target_group`, which previously
+  emitted **no** tag block at all, now carries the standard envinfra tags
+  (descriptor `ALB-TG`).
+
 ## [1.4.2] - 2026-07-02
 
 ### Fixed
