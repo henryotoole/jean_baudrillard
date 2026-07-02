@@ -44,6 +44,32 @@ first post-`0.4.0` overhaul.
   `shape.md`, `transfer_tables.md`, `release.md` corrected to the
   ECS-provider model.
 
+- **ec2_traefik: ECS clusters moved to the project tier, and the LE cert
+  path fixed** (mod 071) — the two follow-on bugs the first real-AWS
+  ec2_traefik walk surfaced *after* mod 070 proved routing works (verified:
+  `GET /health` returned 200 through traefik → ECS-provider → Fargate).
+  - **Bug 8 — traefik built zero routes at a first-release.** traefik's ECS
+    provider treats a `ListTasks` error on *any* configured cluster as fatal
+    for the whole refresh; the instance lists both stage+prod clusters
+    statically, so a stage-first-release (prod cluster absent) produced a
+    blanket 404. Fix: provision both `${project}-stage` / `${project}-prod`
+    ECS clusters at the **project tier** (empty clusters are free) for all
+    elastic projects — both reverse_proxy paths — so the provider's cluster
+    list always resolves. Env-tier release attaches services via
+    `terraform_remote_state` cluster ARN. First-release detection (and the
+    `projinfra down` live-env gate) switch from `ecs_cluster_exists` to a new
+    `ecs_cluster_has_services` probe, since the cluster is now always present.
+    Doctrine: `shape.md` gains an `ecs_cluster` (project-tier) row;
+    `projinfra.md` / `release.md` / `cicd.md` / `migrations.md` reconciled.
+  - **Bug 7 — Let's Encrypt cert never issued.** traefik's route53 DNS-01
+    provider failed with `Invalid Configuration: Missing Region`. Fix: set
+    `AWS_REGION` / `AWS_DEFAULT_REGION` on the `traefik.service` unit so lego
+    resolves the Route53 endpoint.
+
+  **Not yet re-walked to green** — this lands the fixes; a fresh real-AWS
+  ec2_traefik walk (routing + real cert) plus the alb confirmation pass gate
+  the 1.5.0 cut.
+
 ### Fixed
 
 - **ALB / target-group / ALB-SG `name` identifiers overflowed AWS's

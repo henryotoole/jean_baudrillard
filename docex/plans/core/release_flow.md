@@ -53,7 +53,7 @@ Adapter: `src/docex/ansible/subprocess_runner.py` shells out to `ansible-playboo
 `_release_elastic` runs AWS-API operations bracketing one or two `tofu apply` invocations:
 
 1. **Push secrets to SSM**. Every `KEY=value` line of `infra/secrets/<env>.env` becomes `/<project>/<env>/<KEY>` as a `SecureString` parameter (encrypted with the default `aws/ssm` KMS key). The compiled HCL's ECS `secrets[]` blocks reference these by ARN. Overwrite=True per doctrine — SSM is clobbered every release. See `_push_secrets`.
-2. **Detect first-release vs steady-state**. `aws.ecs_cluster_exists(apply_policy(f"{project}_{env}", ecs_policy))` — if the env's ECS cluster is absent in AWS, this is the first release of this env. The cluster name is policy-aware (mod 007); earlier versions used a literal `f"{project}-{env}"` which never matched after mod 005's naming policies landed.
+2. **Detect first-release vs steady-state**. `aws.ecs_cluster_has_services(apply_policy(f"{project}_{env}", ecs_policy))` — if the env's cluster holds no ECS services, this is the first release of this env. Mod 071 moved the ECS cluster to the project tier (it always exists now), so cluster *existence* no longer distinguishes a first release; env-service existence does. The cluster name is policy-aware (mod 007); earlier versions used a literal `f"{project}-{env}"` which never matched after mod 005's naming policies landed.
 3. **Branch on detection** — see [The four sequences](#the-four-sequences) below.
 
 Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/aws/boto3_client.py` (the only file in docex permitted to import `boto3` — kept narrow to keep the AWS surface auditable). `src/docex/opentofu/subprocess_runner.py` shells out to `tofu`.
@@ -70,7 +70,7 @@ Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/a
 
 **Why the elastic ordering differs between first-release and steady-state:**
 
-- **First-release**: the env's ECS cluster, RDS, ALB don't exist yet. `tofu apply` must run *before* migrate, because migrate needs the cluster + RDS to exist. The transient consequence is that newly-created ECS tasks may crash-loop until the migration completes, but no users are on a first-deploy env so the window is bounded by migration runtime.
+- **First-release**: the env's ECS services and RDS don't exist yet (the ECS cluster itself is project-tier and already present since mod 071). `tofu apply` must run *before* migrate, because migrate needs the services + RDS to exist. The transient consequence is that newly-created ECS tasks may crash-loop until the migration completes, but no users are on a first-deploy env so the window is bounded by migration runtime.
 - **Steady-state**: the doctrine prefers migrate-then-apply so the rolling deploy of new application code happens *after* the schema is migrated, preserving zero-downtime (see [`release_mechanism.md § Backward-compatibility requirement`](../../../doctrine/infrastructure/specifics/release_mechanism.md#backward-compatibility-requirement)). The pre-migrate **targeted** apply (mod 008) only bumps migration task-defs — not main service task-defs — so the in-flight web/worker tasks keep serving old code during the migration window. Without that targeted apply, RunTask would pick up the previous release's revision and any current-release task-def change (image tag, env-var refs) would be invisible to migrate.
 
 ## The migration step
@@ -104,7 +104,7 @@ The shim (`bin/docex`) bind-mounts all of these into the docex container so the 
 | Migration task fails to start with `unable to retrieve secrets from ssm: context deadline exceeded` | Per-network SG missing egress | `templates/main.tf.j2` per-network SG block — mod 006 fixed this |
 | Migration task exits non-zero with `dial tcp: lookup <host>:<port>:<port>: no such host` | DB host part returning `host:port` instead of host | `tables/roles/relational_db.yml` `provides.host.elastic` — mod 007 fixed this |
 | Migration uses stale env vars after a doctrine-side change | LATEST task-def revision is still previous release's | mod 008 fixed this — steady-state now runs pre-migrate targeted apply |
-| Release log says `ECS cluster ... not yet provisioned` on every steady-state release | First-release detector compared wrong name form | mod 007 fixed this — `apply_policy` on the probed name |
+| Release log says `no ECS services in cluster ...` (mod 071 message; pre-071: `ECS cluster ... not yet provisioned`) on every steady-state release | First-release detector compared wrong name form | mod 007 fixed this — `apply_policy` on the probed name |
 | `tofu destroy` of an env blocked by a deletion-protected RDS | RDS has `deletion_protection: true` | `docex envinfra down <env>` refuses-and-reports protected RDS up front (mod 052, Gap F) — disable protection deliberately and re-run; docex never disables it for you. The smoke `teardown.sh` does the disable automatically (smoke-only). |
 | `RepositoryNotEmptyException` would block project-tier destroy | ECR repo still holds images | `docex projinfra down production` refuses-and-reports non-empty ECR up front (mod 052, Gap F) — empty the repo and re-run. |
 
@@ -120,7 +120,7 @@ For ECS-container-level diagnostics: every container in a task definition emits 
 | How migrate.sh is invoked on either foundation | `src/docex/orchestrate/migrate.py` (`_migrate_stage_prod`, `_migrate_elastic`) |
 | AWS API calls docex makes | `src/docex/aws/boto3_client.py` (sole importer of `boto3`) |
 | SSM push semantics | `src/docex/pipeline/release.py:_push_secrets` |
-| First-release vs steady-state detection | `src/docex/pipeline/release.py:_release_elastic` (`ecs_cluster_exists` probe) |
+| First-release vs steady-state detection | `src/docex/pipeline/release.py:_release_elastic` (`ecs_cluster_has_services` probe — mod 071; the project-tier cluster always exists, so an empty cluster signals first release) |
 | Schema-owner discovery | `src/docex/orchestrate/_common.py:services_with_schema` |
 | Migration task-def family name | `src/docex/orchestrate/migrate.py:_migration_task_family` |
 
