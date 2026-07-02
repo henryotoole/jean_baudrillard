@@ -15,7 +15,7 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
-## [Unreleased]
+## [1.4.3] - 2026-07-02
 
 ### Changed
 
@@ -38,9 +38,7 @@ first post-`0.4.0` overhaul.
   read-only, cluster-scoped ECS/EC2 discovery grant to the traefik IAM
   role. Also quotes non-identifier HCL object keys in `_hcl_value` (the
   dotted label keys), and fixes a stale mod-062 test that still asserted
-  the pre-IMDSv2 metadata-curl form. **Not yet re-walked on real AWS** —
-  the LE cert path (bug 7) is diagnosed next; until the green walk lands,
-  prefer `reverse_proxy: alb` on elastic. Doctrine: `ec2_traefik.md`,
+  the pre-IMDSv2 metadata-curl form. Doctrine: `ec2_traefik.md`,
   `shape.md`, `transfer_tables.md`, `release.md` corrected to the
   ECS-provider model.
 
@@ -69,10 +67,14 @@ first post-`0.4.0` overhaul.
     the zone) and the traefik IAM policy granted only `ListHostedZones` — the
     missing action is now added.
 
-  **Verified end-to-end on real AWS (elastic, `ec2_traefik_eip`):** routing
-  returns 200 through traefik → ECS provider → Fargate, and a real Let's
-  Encrypt cert serves over HTTPS (no `-k`). The `alb` confirmation pass and
-  the fixed-foundation walk still gate the 1.5.0 cut.
+  **Both elastic reverse-proxy paths verified end-to-end on real AWS**
+  (`us-east-1`): `ec2_traefik_eip` — routing 200 through traefik → ECS
+  provider → Fargate, plus a real Let's Encrypt cert over HTTPS (no `-k`);
+  `alb` — routing 200 through the ALB with a valid ACM cert, target group
+  `docex-smoke-elastic-stage-web-tg` at exactly 32 chars. The
+  fixed-foundation smoke walk was **not** re-run for this patch (the changes
+  are elastic-path-only bug fixes; the sole elastic consumer is the smoke
+  project).
 
 ### Fixed
 
