@@ -603,6 +603,17 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
             else:
                 out.append(f'    {k} = {v}')
         out.append("  }")
+    # The AWS `name` above is a hash-truncatable identifier; the full
+    # descriptive name lives in the standard envinfra Name tag.
+    out.append(render_hcl_tags(standard_tags(
+        "environment",
+        shape_name="core_service",
+        descriptor="ALB-TG",
+        project=ctx.project,
+        env=ctx.env,
+        service=svc.name,
+        role=svc.role,
+    )))
     out.append("}")
     if ctx.reverse_proxy == "alb":
         out.append("")

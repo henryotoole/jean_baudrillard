@@ -622,6 +622,76 @@ def test_aws_lb_target_group_omits_health_check_when_no_field(tmp_path: Path):
     assert "health_check" not in tg_block
 
 
+def _tg_block(tf: str, service: str) -> str:
+    """Slice the `aws_lb_target_group.<service>` resource body out of HCL."""
+    start = tf.find(f'resource "aws_lb_target_group" "{service}"')
+    assert start != -1
+    end = tf.find("\n}", start) + 2
+    return tf[start:end]
+
+
+# ---------------------------------------------------------------------------
+# Mod 069 — ALB target-group name overflow + Name tag.
+# ---------------------------------------------------------------------------
+
+
+def test_target_group_long_project_hash_truncates(tmp_path: Path):
+    """A project name long enough to overrun the 32-char ALB ceiling no
+    longer fails compile — the target-group `name` is hash-truncated to
+    fit and ends with a 6-hex-char suffix."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    project_yml = dest / "project.yml"
+    project_yml.write_text(
+        project_yml.read_text().replace(
+            "name: sample", "name: tactical_lifecycle_testbed", 1
+        )
+    )
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+    block = _tg_block(tf, "api")
+    # Extract the emitted name value.
+    name_line = next(
+        line for line in block.splitlines() if line.strip().startswith("name")
+    )
+    name_val = name_line.split('"')[1]
+    assert len(name_val) <= 32
+    assert name_val[-7] == "-"
+    assert all(c in "0123456789abcdef" for c in name_val[-6:])
+    assert "--" not in name_val
+
+
+def test_target_group_carries_standard_name_tag(tmp_path: Path):
+    """The target group now emits the standard envinfra tag block so the
+    descriptive name lives in the `Name` tag (mod 069)."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+    block = _tg_block(tf, "api")
+    assert "tags = {" in block
+    assert 'Name = "sample_prod_api"' in block
+    assert 'descriptor = "ALB-TG"' in block
+    assert 'infra_tier = "environment"' in block
+
+
+def test_target_group_short_name_no_hash(tmp_path: Path):
+    """A short project name still emits the plain
+    `<project>-<env>-<service>-tg` identifier with no hash suffix."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    rc = run_compile(ctx)
+    assert rc == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+    block = _tg_block(tf, "api")
+    assert 'name        = "sample-prod-api-tg"' in block
+
+
 def test_fixed_compile_skips_project_main_tf(tmp_path: Path):
     """Fixed-foundation projects don't emit a project-tier main.tf — the
     production-side output is a compose file, not HCL (mod 035)."""

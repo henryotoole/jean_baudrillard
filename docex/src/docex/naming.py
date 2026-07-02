@@ -15,6 +15,7 @@ This module exposes:
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -27,6 +28,7 @@ _ALLOWED_POLICY_KEYS: frozenset[str] = frozenset({
     "separator",
     "case",
     "max_len",
+    "overflow",
 })
 
 
@@ -66,6 +68,7 @@ class NamingPolicy:
     separator: str  # 'underscore' | 'hyphen'
     case: str       # 'any' | 'lower'
     max_len: int | None
+    overflow: str = "error"  # 'error' | 'hash_truncate'
 
 
 @dataclass(frozen=True)
@@ -108,8 +111,15 @@ def parse_policies(raw: dict) -> NamingPolicies:
             raise TransferTableError(
                 f"naming_policies.{name}.max_len must be an int or absent"
             )
+        overflow = body.get("overflow", "error")
+        if overflow not in ("error", "hash_truncate"):
+            raise TransferTableError(
+                f"naming_policies.{name}.overflow must be "
+                f"'error' or 'hash_truncate' (got {overflow!r})"
+            )
         by_name[name] = NamingPolicy(
-            name=name, separator=sep, case=case, max_len=max_len
+            name=name, separator=sep, case=case, max_len=max_len,
+            overflow=overflow,
         )
     return NamingPolicies(by_name=by_name)
 
@@ -131,9 +141,16 @@ def apply_policy(name: str, policy: NamingPolicy) -> str:
     The compiler always joins parts with ``_`` internally; this function
     decides whether to keep them or translate to ``-``. If ``case`` is
     ``lower``, the result is lowercased. If ``max_len`` is set and the
-    result exceeds it, a clear error is raised — silent truncation is a
-    known footgun and the doctrine prefers a clean compile-time failure
-    (per ``transfer_tables.md`` validation rule).
+    result exceeds it, behavior depends on ``policy.overflow``:
+
+    - ``error`` (default): a clear compile-time error is raised — silent
+      truncation is a known footgun and the doctrine prefers a clean
+      failure (per ``transfer_tables.md`` validation rule).
+    - ``hash_truncate``: keep a readable prefix and append ``-<h>``, where
+      ``<h>`` is the first 6 hex chars of the SHA-256 of the full internal
+      (underscore-joined) name. Deterministic, always fits ``max_len``,
+      and collision-resistant across distinct inputs sharing a truncated
+      prefix (used by the ``alb`` policy for AWS resource identifiers).
     """
     if policy.separator == "hyphen":
         out = name.replace("_", "-")
@@ -142,6 +159,15 @@ def apply_policy(name: str, policy: NamingPolicy) -> str:
     if policy.case == "lower":
         out = out.lower()
     if policy.max_len is not None and len(out) > policy.max_len:
+        if policy.overflow == "hash_truncate":
+            # WHY: hash the full internal name, not `out` — two names that
+            # collapse to the same truncated prefix still get distinct
+            # hashes.
+            h = hashlib.sha256(name.encode()).hexdigest()[:6]
+            keep = policy.max_len - len(h) - 1  # -1 for the joining hyphen
+            prefix = out[:keep].rstrip("-")  # never emit `foo--<hash>`
+            out = f"{prefix}-{h}"
+            return out
         raise TransferTableError(
             f"name {out!r} exceeds policy {policy.name!r} max_len "
             f"{policy.max_len}; shorten project/env/service names"

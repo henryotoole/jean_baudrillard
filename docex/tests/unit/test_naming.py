@@ -68,6 +68,74 @@ def test_apply_policy_no_max_len_allows_long_names():
     assert apply_policy(long, policy) == long
 
 
+# --- overflow: hash_truncate (mod 069) -------------------------------------
+
+_ALB = NamingPolicy(
+    name="alb", separator="hyphen", case="any", max_len=32,
+    overflow="hash_truncate",
+)
+
+
+def test_hash_truncate_fits_and_has_hash_suffix():
+    out = apply_policy("tactical_lifecycle_test_stage_web_tg", _ALB)
+    assert len(out) <= 32
+    # ends with `-` + 6 hex chars
+    assert out[-7] == "-"
+    assert all(c in "0123456789abcdef" for c in out[-6:])
+
+
+def test_hash_truncate_is_deterministic():
+    name = "tactical_lifecycle_test_stage_web_tg"
+    assert apply_policy(name, _ALB) == apply_policy(name, _ALB)
+
+
+def test_hash_truncate_distinct_for_shared_prefix():
+    # Identical in the first 25 chars, differ later — the truncated
+    # readable prefixes collide but the full-name hashes must not.
+    a = "shared_prefix_xxxxxxxxxxx_alpha_service_tg"
+    b = "shared_prefix_xxxxxxxxxxx_bravo_service_tg"
+    assert a[:25] == b[:25]
+    assert apply_policy(a, _ALB) != apply_policy(b, _ALB)
+
+
+def test_hash_truncate_no_double_hyphen():
+    # A name whose truncation boundary lands on a separator must not emit
+    # `foo--<hash>`.
+    out = apply_policy("aaaaaaaaaaaaaaaaaaaaaaaa_bbbb_cccc_tg", _ALB)
+    assert "--" not in out
+
+
+def test_error_overflow_default_still_raises():
+    policy = NamingPolicy(name="rds", separator="hyphen", case="lower", max_len=8)
+    assert policy.overflow == "error"
+    with pytest.raises(TransferTableError):
+        apply_policy("this_is_too_long", policy)
+
+
+def test_within_limit_untouched_regardless_of_overflow():
+    out = apply_policy("short_web_tg", _ALB)
+    assert out == "short-web-tg"
+
+
+def test_parse_policies_rejects_bad_overflow():
+    raw = {"oops": {"separator": "hyphen", "overflow": "truncate"}}
+    with pytest.raises(TransferTableError) as exc_info:
+        parse_policies(raw)
+    assert "overflow" in str(exc_info.value)
+
+
+def test_parse_policies_accepts_known_overflow_values():
+    raw = {
+        "a": {"separator": "hyphen", "overflow": "error"},
+        "b": {"separator": "hyphen", "overflow": "hash_truncate"},
+        "c": {"separator": "hyphen"},  # default
+    }
+    policies = parse_policies(raw)
+    assert policies.get("a").overflow == "error"
+    assert policies.get("b").overflow == "hash_truncate"
+    assert policies.get("c").overflow == "error"
+
+
 def test_parse_policies_happy_path():
     raw = {
         "s3": {"separator": "hyphen", "case": "lower", "max_len": 63},

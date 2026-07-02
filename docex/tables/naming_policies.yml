@@ -37,11 +37,14 @@ naming_policies:
     case: any
     max_len: 255
 
-  # ALB and target-group names: hyphens only, 32-char ceiling.
+  # ALB and target-group names: hyphens only, 32-char ceiling. These are
+  # AWS resource identifiers (not the descriptive Name tag), so on
+  # overflow we hash-truncate to stay unique/deterministic within 32.
   alb:
     separator: hyphen
     case: any
     max_len: 32
+    overflow: hash_truncate
 
   # ECS cluster / service / task-definition family / Service Connect:
   # data-plane resolvable, hyphens.
