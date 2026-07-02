@@ -89,7 +89,7 @@ This ordering ensures migrations are fully complete and verified before any new 
 
 ### First-Time Release of an Env
 
-The first time an elastic env is released, the cluster, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. `./bin/docex release` detects this case via an `ecs_cluster_exists` probe and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the cluster, RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
+The first time an elastic env is released, the env's ECS services, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. (The ECS cluster itself is project-tier and always present — see [shape.md § ecs_cluster](../shape.md#elastic-foundation).) `./bin/docex release` detects a first release via an ECS-service-existence probe (the env's service is not yet in its cluster) and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
 
 The transient consequence: on a first release, the application's ECS service comes up before the migration runs. Until the migration completes, the application tasks may crash-loop or 500 against the not-yet-created schema. This is acceptable because there are no users on a first deploy and the window is bounded by migration runtime. Subsequent releases find the cluster present and follow the steady-state order, preserving the zero-downtime properties documented below.
 

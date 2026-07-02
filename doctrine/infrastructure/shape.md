@@ -71,6 +71,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | dns | project | AWS Route53 | DNS handling which project can drive. `docex` creates one hosted zone per project for its `apex_domain:`; the operator NS-delegates to it from the parent. |
 | container_registry | project | AWS ECR | The project's container registry, holding [build_image]s. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |
+| ecs_cluster | project | AWS ECS cluster | One empty cluster per production-side env (`${project}-stage`, `${project}-prod`), provisioned at the project tier so both always exist before any env release. Env-tier release attaches [core_service] tasks/services into the env's cluster. Project-tier (not env-tier) because the [reverse_proxy] must be able to rely on both clusters existing regardless of which env has been released — the EC2-traefik ECS provider fails *all* route-building if any configured cluster is absent (see [`projinfra/ec2_traefik.md`](./specifics/projinfra/ec2_traefik.md)). Empty clusters incur no cost. |
 | network | environment | AWS security group | A security group within the [master_network], scoping access between [service]s for a given environment and `infra.yml`-defined network.  |
 | service_discovery | environment | ECS Service Connect over a Cloud Map private DNS namespace | Each ECS task carries an injected Envoy sidecar that resolves peer services by name. The namespace is named `${project}-${env}`, associated with the master VPC, and lives at the env tier. Service Connect resolution is **mesh-internal only**: from inside the namespace (ECS tasks with Service Connect injected) services resolve by discoveryName (e.g. `myproject-prod-api`). The namespace's private hosted zone carries **no per-service A-records**, so a client *outside* the mesh — an EC2-traefik instance is in the master VPC but in no task's network namespace — cannot resolve services by name via DNS; the EC2-traefik path discovers backends through the traefik ECS provider instead (see [`projinfra/ec2_traefik.md`](./specifics/projinfra/ec2_traefik.md)). Services with a declared `port` register as discoverable; services without (e.g. a port-less worker) participate as clients only. Reachability remains gated by SG rules — Service Connect provides resolution, not authorization. |
 | core_service | environment | AWS ECS Fargate task | A Fargate container running one of the project's [build_image]s from ECR. Rolled by ECS on image updates. |
@@ -156,12 +157,13 @@ HCL files describing:
 - ECR repo for the `api` image
 - 1 ALB `myproject-alb` in the master VPC's two public subnets, listening on 443 with the project ACM certs. One ALB serves both stage and prod via host-based listener rules.
 - 1 IAM task-execution role for ECS to pull from ECR and read SSM secrets
+- 2 ECS clusters `myproject-stage` and `myproject-prod`, created empty; env-tier release attaches services into the matching one
 
 (If the project had declared `reverse_proxy: ec2_traefik_eip`, the ALB and ACM certs would be replaced by a single EC2 instance with an elastic IP, running traefik with built-in Let's Encrypt for the same cert / SAN structure. Same ingress shape from outside, different mechanism.)
 
 **Environment infrastructure:**
 - 2 SGs in the master VPC: `myproject-prod-web`, `myproject-prod-internal`
-- 1 ECS cluster + 1 ECS service for `api`, in the master VPC's primary-AZ private subnet, attached to both SGs
+- 1 ECS service for `api` (in the project-tier `myproject-prod` cluster), in the master VPC's primary-AZ private subnet, attached to both SGs
 - 1 ALB target group for the prod `api` service, plus 1 listener rule on the project ALB whose host-header condition matches the explicit set `api.prod.myproject.example.com`, `prod.myproject.example.com`, and `myproject.example.com` pointed at that target group.
 - 1 RDS instance for `database` (identifier `myproject-prod-database`), in the master VPC's primary-AZ private subnet, attached only to the `internal` SG. The RDS subnet group references both private subnets (primary and secondary AZ) to satisfy AWS's multi-AZ requirement; the instance is pinned to the primary AZ.
 - 5 Route53 A-records (alias) in the project's zone:

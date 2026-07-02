@@ -85,7 +85,7 @@ OpenTofu reads the emitted HCL, diffs against the current AWS state, and applies
 
 The env-tier resources `tofu apply` actually creates or modifies are:
 - The env's security groups (`${project}-${env}-web`, `${project}-${env}-internal`, etc.) — see [networks.md](./networks.md).
-- The ECS cluster and services for the env's core services.
+- The ECS services for the env's core services (attached into the project-tier `${project}-${env}` cluster, which projinfra already created — see [shape.md](../shape.md#elastic-foundation)).
 - Backing services for the env (RDS instances, ElastiCache clusters, etc.).
 - For `web`-network services, the reverse-proxy routing wiring: ALB listener rules and target groups on the `alb` path, or the `traefik.*` `dockerLabels` on each service's ECS task definition on the `ec2_traefik_*` path (the traefik ECS provider discovers these; there is no separate release step for it).
 - Route53 A-records in the project zone, aimed at the project's reverse proxy.
