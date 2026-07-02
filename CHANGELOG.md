@@ -17,6 +17,33 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Changed
+
+- **`reverse_proxy: ec2_traefik_*` now routes via the traefik ECS
+  provider** (mod 070) — closing campaign **bug 6**, the last blocker on
+  making EC2-traefik functional. The path booted and served (mods 062–067)
+  but returned **502** for every backend: the EC2 instance lives in the
+  master VPC but *outside* the ECS mesh, and ECS Service Connect resolution
+  is mesh-internal (per-task Envoy) with no VPC-DNS A-records — so the old
+  "resolve `<discoveryName>.<namespace>`" premise could never work. The
+  instance now runs traefik's built-in `providers.ecs`, which polls the
+  project's stage+prod clusters (`refreshSeconds: 15`), reads each `RUNNING`
+  Fargate task's ENI private IP directly, and builds routers/services from
+  `traefik.*` `dockerLabels` emitted onto each web service's ECS task
+  definition. This is the elastic analog of the fixed-foundation project
+  traefik's docker provider: routing intent lives on the workloads, and
+  **`release` no longer touches traefik**. Removes the release-time SSM
+  routing push (mod 064), the on-instance config-sync systemd timer, the
+  `aws_ssm_parameter` routing param, and `emit/traefik.py`; adds a
+  read-only, cluster-scoped ECS/EC2 discovery grant to the traefik IAM
+  role. Also quotes non-identifier HCL object keys in `_hcl_value` (the
+  dotted label keys), and fixes a stale mod-062 test that still asserted
+  the pre-IMDSv2 metadata-curl form. **Not yet re-walked on real AWS** —
+  the LE cert path (bug 7) is diagnosed next; until the green walk lands,
+  prefer `reverse_proxy: alb` on elastic. Doctrine: `ec2_traefik.md`,
+  `shape.md`, `transfer_tables.md`, `release.md` corrected to the
+  ECS-provider model.
+
 ### Fixed
 
 - **ALB / target-group / ALB-SG `name` identifiers overflowed AWS's

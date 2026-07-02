@@ -189,6 +189,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What env-tier HCL looks like | `src/docex/emit/hcl.py` + `templates/main.tf.j2` |
 | How a specific AWS resource type is rendered | `src/docex/emit/hcl.py` — the matching `render_<destination>` function (one per entry in `EMIT_DESTINATIONS["elastic"]`). Dispatch is keyed off the engine's `emits.elastic` list via `_DESTINATION_RENDERERS`. Mod 013. |
 | What project-tier HCL looks like | `src/docex/emit/hcl.py::emit_hcl_project` + `templates/project.tf.j2` |
+| How ec2_traefik discovers routes (the ECS-provider `traefik.*` labels on web-service task defs; the instance's `providers.ecs` static config) | `src/docex/emit/hcl.py::render_task_definition` (the `dockerLabels` block) + `templates/ec2_traefik_user_data.sh.j2`. Mod 070. Routing is label-driven, not release-pushed — there is no SSM routing param. |
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
 | What `example.env` looks like | `src/docex/emit/secrets.py` |
 | What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
