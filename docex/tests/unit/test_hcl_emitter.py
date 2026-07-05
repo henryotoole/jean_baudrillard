@@ -418,6 +418,15 @@ def test_projinfra_tags_route53_zone(compiled_elastic_project: Path):
     assert "role " not in blk
 
 
+def test_project_route53_zone_force_destroy(compiled_elastic_project: Path):
+    """The child zone is emitted force_destroy=true so teardown sweeps
+    out-of-band records (dev A-records, stale ACM CNAMEs) and can't hit
+    HostedZoneNotEmpty. Mod 072 / campaign 002."""
+    tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
+    blk = _block(tf, 'resource "aws_route53_zone" "project"')
+    assert "force_destroy = true" in blk
+
+
 def test_projinfra_tags_acm_certs_no_env(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     stage = _block(tf, 'resource "aws_acm_certificate" "stage"')

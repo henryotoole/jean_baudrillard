@@ -216,6 +216,7 @@ def test_projinfra_elastic_down_refuses_when_env_cluster_exists(
     assert "env-tier resources still exist" in out
     assert "envinfra down" in out
     assert "Nothing was destroyed" in out
+    assert "NS record" not in out
     # No destroy, no cleanup.
     assert fake_tofu_apply.calls == []
     assert not any(c[0] == "ssm_delete_parameters" for c in fake_aws.calls)
@@ -240,6 +241,7 @@ def test_projinfra_elastic_down_refuses_on_nonempty_ecr(
     out = capsys.readouterr().out
     assert "sample/api has 3 image(s)" in out
     assert "Nothing was destroyed" in out
+    assert "NS record" not in out
     assert fake_tofu_apply.calls == []
     assert not any(c[0] == "s3_delete_bucket" for c in fake_aws.calls)
 
@@ -279,3 +281,25 @@ def test_projinfra_elastic_down_clean_path_orders_cleanup(
     assert s3_call[1] == ("sample-tofu-state",)
     ddb_call = next(c for c in fake_aws.calls if c[0] == "ddb_delete_table")
     assert ddb_call[1] == ("sample_tofu_locks",)
+
+
+def test_projinfra_elastic_down_prints_delegation_removal_reminder(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
+):
+    """On a successful teardown, docex reminds the operator to remove the
+    parent-zone NS delegation it can't manage itself. Mod 072 / campaign 002."""
+    _compile_project_tier(elastic_ctx)
+    fake_aws.cluster_has_services = False  # envs down; ECR empty by default
+
+    rc = run_projinfra_elastic_down(
+        elastic_ctx, fake_aws,
+        tofu_init=fake_tofu_init, tofu_destroy=fake_tofu_apply,
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    # Names the NS record to remove and the parent zone.
+    assert "NS record" in out
+    assert elastic_ctx.infra.apex_domain in out
+    # The child-zone subdomain the operator delegated.
+    from docex.naming import dns_label
+    assert f"{dns_label(elastic_ctx.project.name)}.{elastic_ctx.infra.apex_domain}" in out

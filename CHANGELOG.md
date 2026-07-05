@@ -15,6 +15,20 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [Unreleased]
+
+### Fixed
+
+- **`projinfra down production` no longer wedges on `HostedZoneNotEmpty`** (mod
+  072, campaign 002). The elastic Route53 child zone is emitted with
+  `force_destroy = true`, so `tofu destroy` sweeps records tofu doesn't own —
+  the dev `A`-records that NS-delegation forces into the child zone (dev is
+  fixed and routed out-of-band), plus stale ACM validation CNAMEs — instead of
+  failing the zone delete and orphaning the zone. `projinfra down production`
+  now also prints a reminder to remove the parent-zone NS delegation, which is
+  the operator's to manage (docex has no scope over the parent zone), mirroring
+  the delegation instructions printed on `up`.
+
 ## [1.4.3] - 2026-07-02
 
 ### Changed

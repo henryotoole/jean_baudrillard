@@ -215,4 +215,30 @@ def run_projinfra_elastic_down(
         f"projinfra down production: project {project!r} project-tier "
         f"and state backend removed."
     )
+    _print_delegation_removal_reminder(project, ctx.infra.apex_domain)
     return 0
+
+
+def _print_delegation_removal_reminder(project: str, apex_domain: str) -> None:
+    """Remind the operator to remove the parent-zone NS delegation.
+
+    The mirror of ``bootstrap.py::_print_delegation_instructions``: docex does
+    not manage the parent zone (registrar / other account / other team), so it
+    printed NS records for the operator to delegate on ``up`` and now prints a
+    reminder to undo that delegation on ``down``. Left in place the delegation
+    points at now-deleted nameservers and SERVFAILs the subtree on any later
+    run. See elastic_route53_zone.md § Teardown.
+    """
+    project_subdomain = f"{dns_label(project)}.{apex_domain}"
+    print("")
+    print(
+        f"  Reminder: the project's Route53 zone is gone, but the NS delegation "
+        f"you added\n"
+        f"  on `up` still lives in the parent zone ({apex_domain!r}). Remove it "
+        "so a later\n"
+        f"  run doesn't SERVFAIL on a dead delegation:\n"
+        f"    delete the {project_subdomain!r} NS record from the parent zone "
+        "at your\n"
+        "    registrar or parent Route53 hosted zone."
+    )
+    print("")
