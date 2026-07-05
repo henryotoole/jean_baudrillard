@@ -108,6 +108,8 @@ Phase detection is observed from `tofu state list`, not stored separately. The o
 
 This rationale lives in [`elastic_route53_zone.md`](./elastic_route53_zone.md) in detail, since that's the resource whose delegation drives the split.
 
+Teardown is symmetric. `projinfra down production` `tofu destroy`s the zone — emitted with `force_destroy` so out-of-band records (e.g. the dev `A`-records the delegation forces into the child zone) can't block the delete with `HostedZoneNotEmpty` — and, once the destroy succeeds, prints a reminder to remove the parent-zone NS delegation the operator added on `up`. Detail in [`elastic_route53_zone.md § Teardown`](./elastic_route53_zone.md#teardown).
+
 ### State backend on first-ever invocation
 
 For an elastic project, the OpenTofu state backend (S3 bucket + DynamoDB table) must exist before any `tofu init` can run against the project-tier HCL. The command checks for the backend, creates it directly via the AWS API if missing, then proceeds to the project-tier apply. See [`elastic_state_backend.md`](./elastic_state_backend.md).

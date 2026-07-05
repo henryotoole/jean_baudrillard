@@ -74,6 +74,23 @@ The project's `main.tf` declares the following outputs, all consumed by env-tier
 
 The zone itself is never destroyed by `./bin/docex projinfra down production` *if any env still has resources in the zone* — the down command refuses to proceed in that case, matching the general projinfra-vs-envinfra layering rule from [projinfra.md](./projinfra.md#bindocex-projinfra-direction-side).
 
+## Teardown
+
+Once the refuse-if-envs-up gate above passes, `./bin/docex projinfra down production` `tofu destroy`s the zone as part of the production-tier destroy. Two properties keep that destroy robust against what the zone actually contains in practice.
+
+### The zone can hold records tofu doesn't own
+
+By teardown time the zone can legitimately contain records that the production-tier tofu — which owns the zone — never created:
+
+- **Dev `A`-records.** `dev`/`test` are always fixed-style ([shape.md § Shape and Environment](../../shape.md#shape-and-environment)) and run on the dev machine, so their public DNS is routed out-of-band during inception, not by project-tier tofu. Before the child zone exists those records live in the parent apex zone; once `projinfra up production` creates the child zone and the operator NS-delegates the *entire* `<project>.<apex_domain>` subtree to it, `dev.<project>.<apex_domain>` must resolve from the child zone or it stops resolving. The dev records therefore, correctly, come to live **inside the child zone but outside tofu state**.
+- **Stale ACM validation CNAMEs** refreshed by cert renewal out of step with state, plus any other non-required record added out-of-band.
+
+A plain `tofu destroy` deletes only the records tofu itself created, leaving these behind, so AWS rejects the zone delete with `HostedZoneNotEmpty` whenever such a record is present. To make teardown reliable in a single pass, `docex` emits the zone with `force_destroy = true`: on destroy the AWS provider first deletes *every* record in the zone, then deletes the zone. This is safe because the zone is a project-owned, production-tier resource and `projinfra down production` carries an unambiguous "destroy the project's DNS" intent — there is no case where the operator wants to keep the zone but drop its records. `force_destroy` affects **destroy only**; normal operation is unchanged.
+
+### The parent NS delegation is the operator's to remove
+
+The delegation that makes the child zone reachable lives in the **parent** zone, which `docex` does not manage — it may be a third-party registrar, a different AWS account, or another team's zone (see [§ NS Delegation](#ns-delegation)). The operator creates that delegation by hand between phase 1 and phase 2 of `up`; symmetrically, removing it is the operator's step on `down`. `docex` has no credentials or scope to delete a record in a zone it does not own, so it does not try. What it does do is **print a teardown reminder** once the production-tier destroy succeeds — the mirror of the NS-record instructions printed during phase 1 of `up` — telling the operator to delete the `<project>.<apex_domain> NS` record from the parent zone. Left in place, that delegation points at now-deleted nameservers and `SERVFAIL`s the subtree on any later run.
+
 ## Out of Scope
 
 - **Apex zones.** The doctrine does not provision the apex zone (`example.com`). That's prerequisite infrastructure, owned by whoever owns the apex domain.
