@@ -15,7 +15,7 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
-## [Unreleased]
+## [1.4.4] - 2026-07-05
 
 ### Fixed
 
