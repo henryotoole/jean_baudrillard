@@ -1,5 +1,12 @@
 # Campaign: make `reverse_proxy: ec2_traefik_*` actually work
 
+> **Status correction (retrospective).** This campaign **shipped as patch
+> `1.4.3`**, not `1.5.0`. It was briefly planned as a minor (`1.5.0`) — hence the
+> `1.5.0` references throughout the sections below — but was reclassified to a
+> patch and cut as `1.4.3` (see `CHANGELOG.md`). There is **no `1.5.0` release**.
+> The planning text below is left intact as a historical record; read every
+> `1.5.0` in it as "the release that became `1.4.3`."
+
 ## Origin
 
 An operator tried `reverse_proxy: ec2_traefik` for the first time on a real
