@@ -54,7 +54,7 @@ The two project-local backings are declared in `infra/transfer_tables/{sidecar,c
 
 ### Core Services
 
-Same two services as the fixed companion: `web` and `worker`. Same hex modules (`pings` and `processor`), same domain types, same ports/adapters/alogic. The code is intended to be **literally the same source tree** at the `core/<service>/` level — see "Code duplication between fixed and elastic test projects" below.
+Same three services as the fixed companion: `web`, `worker`, and `reaper`. Same hex modules (`pings`, `processor`, `reaper`), same domain types, same ports/adapters/alogic. The code is intended to be **literally the same source tree** at the `core/<service>/` level — see "Code duplication between fixed and elastic test projects" below.
 
 #### `web`
 
@@ -70,6 +70,13 @@ Same two services as the fixed companion: `web` and `worker`. Same hex modules (
 - **Contract**: none.
 - On elastic: a Fargate task in the `internal` security group only — not reachable from the ALB.
 
+#### `reaper`
+
+- **Networks**: `internal` only
+- **Role**: `scheduler` — a cron-triggered, run-to-completion job (prunes processed pings older than a 30-day `RetentionWindow`). Schedule `0 3 * * *`.
+- **Contract**: none; purely a consumer of `appdb`.
+- On elastic: **no `ecs_service`**. The compiler emits a `task_definition` plus an `aws_scheduler_schedule` (EventBridge Scheduler) whose target is an ECS `RunTask` of that task-def, and a per-service scheduler-invocation IAM role. Secrets arrive through the task-def `secrets[]`/SSM path (the same proven mechanism `web`/`worker` use), so the fixed-side ofelia env-file plumbing has no elastic analogue. Suppressed in `test` (which is fixed → compose, so the trigger there is dropped like the fixed companion's).
+
 ### Code duplication between fixed and elastic test projects
 
 Per the kickoff brief: "Two separate projects, one per foundation. Cleaner than a single toggleable project, even if it means some duplication." The two projects each carry their own `core/web/src/`, `core/worker/src/`, etc. — full copies. This is doctrine-faithful ("core services never share code"; each project has one project root) and accepts duplication as the cost.
@@ -78,7 +85,7 @@ Per the kickoff brief: "Two separate projects, one per foundation. Cleaner than 
 
 ## Flows
 
-Identical to the fixed companion — Ping creation, Ping processing, Health (`/health`, `/health/probe`, `/health/events`). On elastic they exercise RDS (postgres), Service Connect (peer resolution between core services and the nginx sidecar), and a TCP connection to ClickHouse on its native port through the EFS-backed Fargate task.
+Identical to the fixed companion — Ping creation, Ping processing, Health (`/health`, `/health/probe`, `/health/events`), and nightly Ping reaping. On elastic they exercise RDS (postgres), Service Connect (peer resolution between core services and the nginx sidecar), and a TCP connection to ClickHouse on its native port through the EFS-backed Fargate task. The reaping flow fires via EventBridge Scheduler → ECS `RunTask` rather than the fixed companion's Ofelia container.
 
 ## Hard Boundaries
 

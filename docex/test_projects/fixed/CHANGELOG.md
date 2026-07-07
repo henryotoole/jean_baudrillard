@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-07-07
+
+### Added
+
+- New `reaper` **scheduler** core service — a cron job (`0 3 * * *`) that prunes
+  processed `pings` older than a 30-day retention window. Adds smoke coverage for
+  the doctrine `scheduler` role end-to-end (Ofelia container on fixed) and for the
+  `test`-env trigger suppression. Own hex module: `RetentionWindow` domain value,
+  `ReaperService` alogic, a minimal `RepoPingsPostgres` (`delete_processed_before`),
+  and a `ContReaperCli` driving adapter. Source is identical to the elastic
+  companion's `reaper`. The job runs from the self-contained `prod` image stage
+  (the scheduler trigger launches it with no bind-mounts). Exercising it in a
+  smoke walk requires a docex version carrying the fixed-scheduler emit fixes
+  (mods 073–075), so the `docex_version` pin advances when that version ships.
+
 ## [0.0.5] - 2026-06-09
 
 ### Changed

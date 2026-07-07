@@ -45,7 +45,7 @@ The two project-local backings exercise the project-local transfer-table feature
 
 ### Core Services
 
-Two services, each hexagonally-architectured per `doctrine/hexagonal_architecture/`. Both are written in Python.
+Three services, each hexagonally-architectured per `doctrine/hexagonal_architecture/`. All are written in Python.
 
 #### `web`
 
@@ -73,6 +73,19 @@ Two services, each hexagonally-architectured per `doctrine/hexagonal_architectur
 
 > **Doctrine readability note.** The `role: web` name is HTTP-flavored, but the role is in fact the single, network-neutral core-service-container role. A non-web core service like `worker` declaring `role: web` reads strangely — flagged for possible follow-up (rename to `role: container`? add a `role: worker` alias?), but not blocking this work.
 
+#### `reaper`
+
+- **Networks**: `internal` only
+- **Role**: `scheduler` — a cron-triggered, run-to-completion job, not a long-running server. On fixed, an Ofelia container launches it as a one-off container per fire; on the elastic counterpart, an EventBridge Scheduler invokes an ECS `RunTask` (no `ecs_service`). Suppressed entirely in the `test` env (the trigger is dropped so a job never fires inside the test window).
+- **Schedule**: `0 3 * * *` (03:00 UTC daily).
+- **Contract**: none. `reaper` provides no interface and is purely a consumer of `appdb`.
+- **Driving adapters**: `ContReaperCli` (translates the job trigger into a single `reap()` call, then exits 0).
+- **Driven adapters**: `RepoPingsPostgres` (its own minimal repo — a single `delete_processed_before` method; no code shared with `web`/`worker` per the cross-module rule).
+- **Hex modules**:
+  - **`reaper`** — domain value `RetentionWindow` (a positive-day window with a `cutoff(now)`); alogic `ReaperService.reap()` deletes processed pings older than the cutoff.
+
+The `reaper` exercises the scheduler role end-to-end on both foundations, and the `test`-suppression path, in the smoke walk. Its job image is the self-contained `prod` Dockerfile stage (Ofelia launches it with no bind-mounts), built locally by `docex up dev`.
+
 ### Composition Roots
 
 Each core service has its own `root.py` per doctrine. The composition root instantiates `RepoPingsPostgres`, the alogic service, and the driving adapter, then registers any HTTP routes.
@@ -83,6 +96,7 @@ Each core service has its own `root.py` per doctrine. The composition root insta
 2. **Ping processing.** `worker` polls `pings WHERE processed_at IS NULL` every N seconds → for each row, `ProcessorService.process_ping()` runs (no-op business logic) → `RepoPings.mark_processed(id)` sets `processed_at = now()`.
 3. **Health.** `GET /health` on `web` returns `{"version": "<project version>"}`. Doctrine-mandated; exercised by both stage tests and (on the elastic counterpart) the ALB target-group health check. `worker` is not in `web`'s in-process `depends_on` chain (postgres-mediated), so no `/health/worker` endpoint is required.
 4. **Project-local-backing reachability.** `GET /health/probe` confirms `web` can resolve and reach the `probe` nginx sidecar by service name; `GET /health/events` confirms it can open a TCP connection to ClickHouse. Both exercise Service Connect / docker network DNS at the smoke-test layer.
+5. **Ping reaping.** Nightly (`0 3 * * *`), the `reaper` scheduler fires → `ReaperService.reap()` computes the cutoff from a 30-day `RetentionWindow` → `RepoPings.delete_processed_before(cutoff)` deletes expired *processed* pings (unprocessed and recently-processed rows survive) → the job exits. Suppressed in `test`.
 
 ## Hard Boundaries
 

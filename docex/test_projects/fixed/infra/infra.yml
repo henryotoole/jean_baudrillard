@@ -58,6 +58,28 @@ core_services:
       cpu: 0.25
       memory: 512MB
 
+  # A scheduler core service: prunes processed pings older than the
+  # retention window on a nightly cron. Runs the project's own image as a
+  # run-to-completion job (Ofelia on fixed, EventBridge RunTask on
+  # elastic), never a long-running container. Suppressed in `test` (mod
+  # 073). Same code + env parts as the elastic project (code identity).
+  reaper:
+    role: scheduler
+    schedule: "0 3 * * *"          # 03:00 UTC daily
+    command: ["python", "/service/dist/root.py"]
+    networks: [internal]
+    depends_on: [appdb]
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+      DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
+    resources:
+      cpu: 0.25
+      memory: 512MB
+
 backing_services:
   # `appdb` rather than `db` — `db` collides with postgres's reserved
   # DBName list on RDS. The elastic counterpart uses the same name so

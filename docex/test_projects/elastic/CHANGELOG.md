@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.11] - 2026-07-07
+
+### Added
+
+- New `reaper` **scheduler** core service — a cron job (`0 3 * * *`) that prunes
+  processed `pings` older than a 30-day retention window. Adds smoke coverage for
+  the doctrine `scheduler` role on elastic (EventBridge Scheduler → ECS `RunTask`,
+  no `ecs_service`, per-service scheduler-invocation IAM role) and for the
+  `test`-env trigger suppression. Own hex module: `RetentionWindow` domain value,
+  `ReaperService` alogic, a minimal `RepoPingsPostgres` (`delete_processed_before`),
+  and a `ContReaperCli` driving adapter. Source is identical to the fixed
+  companion's `reaper`. Elastic secret delivery reuses the task-def `secrets[]`/SSM
+  path, so no fixed-side ofelia plumbing applies.
+
 ## [0.0.5] - 2026-06-09
 
 ### Fixed
