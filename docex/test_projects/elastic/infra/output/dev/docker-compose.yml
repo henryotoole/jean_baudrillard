@@ -19,28 +19,14 @@ configs:
 
       delete = true
 
-      environment = DATABASE_HOST=docex-smoke-elastic-dev-appdb
+      environment = ["DATABASE_HOST=docex-smoke-elastic-dev-appdb", "DATABASE_NAME=appdb",
+      "DATABASE_PORT=5432", "DATABASE_SSLMODE=disable", "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318",
+      "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf", "OTEL_RESOURCE_ATTRIBUTES=service.namespace=docex_smoke_elastic,service.version=0.0.11,deployment.environment.name=dev",
+      "OTEL_SERVICE_NAME=reaper", "PROJECT_VERSION=0.0.11"]
 
-      environment = DATABASE_NAME=appdb
+      command = sh -c ''. /run/job.env && exec python /service/dist/root.py''
 
-      environment = DATABASE_PORT=5432
-
-      environment = DATABASE_SSLMODE=disable
-
-      environment = OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-
-      environment = OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-
-      environment = OTEL_RESOURCE_ATTRIBUTES=service.namespace=docex_smoke_elastic,service.version=0.0.11,deployment.environment.name=dev
-
-      environment = OTEL_SERVICE_NAME=reaper
-
-      environment = PROJECT_VERSION=0.0.11
-
-      command = sh -c ''. /run/job.env && export DATABASE_PASSWORD="$$POSTGRES_PASSWORD"
-      && export DATABASE_USER="$$POSTGRES_USER" && exec python /service/dist/root.py''
-
-      volume = ${DOCEX_SECRETS_ENV_FILE}:/run/job.env:ro
+      volume = ["infra/secrets/dev.env:/run/job.env:ro"]
 
       '
   otelcol_config:

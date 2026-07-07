@@ -44,12 +44,6 @@ provider "aws" {
 # ---------------------------------------------------------------------------
 resource "aws_route53_zone" "project" {
   name = "docex-smoke-elastic.luxrnd.tech"
-  # WHY: the zone legitimately accrues records tofu doesn't own — dev A-records
-  # that NS-delegation forces into the child zone (dev is fixed/out-of-band),
-  # plus stale ACM validation CNAMEs. force_destroy sweeps all records on
-  # `projinfra down production` so the zone delete can't hit HostedZoneNotEmpty.
-  # See elastic_route53_zone.md § Teardown. Destroy-only; no effect on up.
-  force_destroy = true
   tags = {
     managed_by = "doctrine"
     infra_tier = "project"
