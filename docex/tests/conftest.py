@@ -71,13 +71,16 @@ class FakeDockerClient:
     def compose_up(self, compose_file: Path, *, build: bool = True, detach: bool = True,
                    env_file: Path | None = None,
                    project_dir: Path | None = None,
-                   project_name: str | None = None) -> int:
+                   project_name: str | None = None,
+                   extra_env: dict[str, str] | None = None) -> int:
         key = ("compose_up", str(compose_file), build, detach)
         self.calls.append(key)
         if project_dir is not None:
             self.calls.append(("compose_up_project_dir", str(project_dir)))
         if project_name is not None:
             self.calls.append(("compose_up_project_name", project_name))
+        if extra_env is not None:
+            self.calls.append(("compose_up_extra_env", tuple(sorted(extra_env.items()))))
         return self.exit_codes.get(key, self._fallback("compose_up"))
 
     def compose_down(self, compose_file: Path, *, preserve_volumes: bool = True,

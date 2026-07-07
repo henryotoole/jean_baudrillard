@@ -2,10 +2,76 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import pytest
 
+from docex.context import load_project_context
 from docex.errors import EnvNotSupported
 from docex.orchestrate.up import run_up
+
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+@pytest.fixture
+def scheduler_ctx(tmp_path):
+    """A fixed-foundation project fixture that includes a scheduler
+    (``nightly_cleanup``, project ``sample`` v0.1.0)."""
+    fixture = (
+        _REPO_ROOT / "tests" / "fixtures" / "sample_project_scheduler_fixed"
+    )
+    dest = tmp_path / "sched"
+    shutil.copytree(fixture, dest, dirs_exist_ok=False)
+    out = dest / "infra" / "output"
+    if out.exists():
+        shutil.rmtree(out)
+    return load_project_context(dest)
+
+
+def test_up_dev_builds_scheduler_image_from_prod_stage(
+    scheduler_ctx, fake_docker
+):
+    """Mod 074: ``up dev`` builds each scheduler's self-contained job
+    image from the Dockerfile ``prod`` stage, tagged the dev-local ref
+    (byte-identical to Ofelia's INI ``image =``)."""
+    rc = run_up(scheduler_ctx, fake_docker, env="dev")
+    assert rc == 0
+    prod_builds = [
+        c for c in fake_docker.calls
+        if c[0] == "build_image" and c[2] == "prod"
+    ]
+    assert ("build_image", str(
+        scheduler_ctx.project_root / "core" / "nightly_cleanup"
+    ), "prod", "sample/nightly_cleanup:0.1.0") in prod_builds
+
+
+def test_up_dev_passes_abs_secrets_env_file(scheduler_ctx, fake_docker):
+    """Mod 075: ``up`` passes DOCEX_SECRETS_ENV_FILE (absolute path to the
+    env's .env) to compose_up so Compose can interpolate it into the
+    scheduler's ofelia INI mount source."""
+    run_up(scheduler_ctx, fake_docker, env="dev")
+    abs_env = str(scheduler_ctx.project_root / "infra" / "secrets" / "dev.env")
+    extra_env_calls = [
+        c for c in fake_docker.calls if c[0] == "compose_up_extra_env"
+    ]
+    assert extra_env_calls == [
+        ("compose_up_extra_env", (("DOCEX_SECRETS_ENV_FILE", abs_env),))
+    ]
+
+
+def test_up_dev_skips_initial_build_for_scheduler(scheduler_ctx, fake_docker):
+    """The scheduler is skipped in the bind-mount initial-dev-build path —
+    no ``target=build`` image is built for it."""
+    run_up(scheduler_ctx, fake_docker, env="dev")
+    build_stage_for_sched = [
+        c for c in fake_docker.calls
+        if c[0] == "build_image"
+        and c[2] == "build"
+        and c[1].endswith("nightly_cleanup")
+    ]
+    assert build_stage_for_sched == []
 
 
 def test_up_rejects_stage(sample_ctx, fake_docker):

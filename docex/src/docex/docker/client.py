@@ -38,6 +38,7 @@ class DockerClient(Protocol):
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> int:
         """Run ``docker compose up`` for the given file.
 

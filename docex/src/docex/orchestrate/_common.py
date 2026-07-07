@@ -101,6 +101,22 @@ def core_services(ctx: ProjectContext) -> list[str]:
     return sorted(ctx.infra.core_services or {})
 
 
+def scheduler_services(ctx: ProjectContext) -> list[str]:
+    """Return the simple names of every ``scheduler``-role core service.
+
+    Sorted for determinism, matching :func:`core_services`. Used by
+    ``up`` to build each scheduler's self-contained job image (mod 074)
+    and to skip schedulers in the bind-mount initial-build path.
+    """
+    if ctx.infra is None:
+        return []
+    return sorted(
+        name
+        for name, svc in (ctx.infra.core_services or {}).items()
+        if getattr(svc, "role", None) == "scheduler"
+    )
+
+
 def services_with_schema(ctx: ProjectContext) -> list[str]:
     """Return core services that declare ``schema_owned_by``.
 

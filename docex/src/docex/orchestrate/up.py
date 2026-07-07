@@ -25,6 +25,7 @@ from docex.orchestrate._common import (
     ensure_compiled,
     env_compose_project,
     env_file_for,
+    scheduler_services,
     services_with_schema,
 )
 
@@ -71,6 +72,47 @@ def _ensure_initial_dev_build(
         raise BuildFailed(
             f"failed to copy initial build artifacts for {svc!r} "
             f"into host dist/ (docker run exit {rc})."
+        )
+
+
+def _ensure_scheduler_image(
+    ctx: ProjectContext, docker: DockerClient, svc: str
+) -> None:
+    """Build a scheduler service's self-contained job image for dev.
+
+    Mod 074: a scheduler compiles to an Ofelia container that launches the
+    job as a bare ``docker run`` over the docker socket — with NO compose
+    bind-mounts. So unlike a long-running dev service (which runs the
+    Dockerfile ``dev`` stage against bind-mounted ``src``/``dist``), a
+    scheduler job needs an image with the artifact BAKED IN. That is the
+    ``prod`` stage (``COPY --from=build /service/dist``). We build it and
+    tag it the dev-local ref — byte-identical to what the compiler wrote
+    into the Ofelia INI's ``image =`` (via the same ``_image_ref``), so
+    Ofelia finds the image at fire time.
+
+    A missing ``core/<svc>/Dockerfile`` is a real error for a scheduler
+    (the job cannot run without an image), so — unlike
+    :func:`_ensure_initial_dev_build`, which tolerates non-conformant
+    fixtures — we let ``docker build`` surface it loudly.
+    """
+    from docex.cicl.compile import _image_ref
+
+    svc_dir = ctx.project_root / "core" / svc
+    image_ref = _image_ref(
+        ctx.infra.container_registry if ctx.infra else None,
+        ctx.project.name,
+        svc,
+        ctx.project.version,
+        env="dev",
+        foundation="fixed",
+    )
+    rc = docker.build_image(svc_dir, target="prod", tag=str(image_ref))
+    if rc != 0:
+        raise BuildFailed(
+            f"docker build --target prod for scheduler service {svc!r} "
+            f"exited {rc}. A scheduler's job image must build from the "
+            f"self-contained `prod` stage (Ofelia launches it with no "
+            f"compose bind-mounts)."
         )
 
 
@@ -148,14 +190,32 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     # Test env intentionally skips this — its images carry artifacts
     # baked in by the build stage and aren't bind-mounted.
     if env == "dev":
+        schedulers = set(scheduler_services(ctx))
         for svc in core_services(ctx):
+            # Schedulers aren't bind-mounted and never run as a compose
+            # service, so the host-dist/ pre-populate is meaningless for
+            # them. They instead need a self-contained job image built
+            # below (mod 074).
+            if svc in schedulers:
+                continue
             _ensure_initial_dev_build(ctx, docker, svc)
+        # Mod 074: build each scheduler's self-contained job image so the
+        # emitted Ofelia container can `docker run` it at fire time.
+        for svc in scheduler_services(ctx):
+            _ensure_scheduler_image(ctx, docker, svc)
 
     # 1b. Compose up. Compose itself handles "rebuild if Dockerfile or
     # context changed" so we don't add caching on top.
+    #
+    # Mod 075: pass the ABSOLUTE env-file path as DOCEX_SECRETS_ENV_FILE so
+    # Compose interpolates it into any scheduler's ofelia INI `volume`
+    # source. A relative source fails at the Docker API (ofelia spawns the
+    # job outside Compose). Harmless when the stack has no scheduler.
+    abs_env_file = ctx.project_root / "infra" / "secrets" / f"{env}.env"
     rc = docker.compose_up(
         compose_file, build=True, detach=True, env_file=env_file,
         project_dir=ctx.project_root, project_name=project_name,
+        extra_env={"DOCEX_SECRETS_ENV_FILE": str(abs_env_file)},
     )
     if rc != 0:
         print(

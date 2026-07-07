@@ -251,17 +251,30 @@ def _shell_quote(arg: str) -> str:
     return "'" + arg.replace("'", "'\\''") + "'"
 
 
-def _wrapped_job_command(command: Any, env_file_target: str) -> str:
+def _wrapped_job_command(
+    command: Any, env_file_target: str, secret_exports: list[tuple[str, str]],
+) -> str:
     """Build the ofelia ``command =`` value for a scheduler job.
 
     The one-off job container must see the env's secrets, which ofelia
     cannot deliver itself (it spawns the container outside Compose, so
-    Compose's ``.env`` interpolation never reaches it). Mirroring the
-    fixed migrate one-off, secrets arrive via a mounted env file that the
-    command sources before exec'ing the real job:
-    ``sh -c '. <env_file> && exec <cmd>'``. Non-secret env is inlined
-    separately into the INI ``environment`` list, so the two sets compose
-    into the full env surface (scheduler.md § Env and secret delivery).
+    Compose's ``.env`` interpolation never reaches it). Secrets arrive via
+    a mounted env file the command sources before exec'ing the real job.
+    But the sourced ``.env`` carries the *provider* secret names
+    (``POSTGRES_USER``) while the job reads the *consumer* keys
+    (``DATABASE_USER``) — a mapping Compose does for ordinary services but
+    the raw Docker-API job does not get. So we re-export each secret key
+    from its provider var before exec (mod 075):
+
+        sh -c '. /run/job.env && export DATABASE_USER="$POSTGRES_USER" && exec <cmd>'
+
+    ``secret_exports`` is the sorted list of ``(consumer_key,
+    provider_var)`` pairs. The ``$`` on the provider var is **doubled**
+    (``$$``) so Compose — which interpolates ``configs.content`` — passes
+    the literal ``$POSTGRES_USER`` through to the rendered config, and the
+    job shell (not Compose) expands it from the sourced file at run time.
+    That keeps the secret value out of the rendered config
+    (scheduler.md § Env and secret delivery).
 
     ``command`` is the model's ``str | list[str]`` form; a list is joined
     with shell quoting, a string is passed through verbatim.
@@ -270,12 +283,17 @@ def _wrapped_job_command(command: Any, env_file_target: str) -> str:
         cmd = " ".join(_shell_quote(str(c)) for c in command)
     else:
         cmd = str(command)
-    return f"sh -c '. {env_file_target} && exec {cmd}'"
+    parts = [f". {env_file_target}"]
+    for key, var in secret_exports:
+        # `$$` so Compose emits a literal `$`; the job shell expands it.
+        parts.append(f'export {key}="$${var}"')
+    parts.append(f"exec {cmd}")
+    return "sh -c '" + " && ".join(parts) + "'"
 
 
 def _ofelia_ini(
     svc: CompiledService, project_dns_label: str, env: str,
-    env_file_host_path: str, env_file_target: str,
+    env_file_source: str,
 ) -> str:
     """Render the ofelia INI for one scheduler service.
 
@@ -283,11 +301,19 @@ def _ofelia_ini(
     schedule, the service's image, the job's docker network (its first
     non-``web`` network — a scheduler is never on ``web``), ``delete =
     true`` to auto-remove the one-off container, the NON-secret env
-    inlined into ``environment``, the secret-sourcing command wrapper,
-    and the env-file mount. See scheduler.md § Fixed Foundation.
+    inlined into ``environment``, the secret-sourcing + re-exporting
+    command wrapper, and the env-file mount. See scheduler.md § Fixed
+    Foundation.
+
+    ``env_file_source`` is the **absolute** host path of the env file the
+    job sources — ``${DOCEX_SECRETS_ENV_FILE}`` in ``dev``/``test`` (docex
+    sets it at ``up`` time; a relative source fails at the Docker API) or
+    the baked ``/opt/<project>/<env>/.env`` in fixed ``stage``/``prod``
+    (mod 075).
     """
     from docex.cicl.cron import to_ofelia_cron
 
+    env_file_target = "/run/job.env"
     image = svc.body.get("image", "")
     # The job's docker network: the service's first non-web network,
     # rendered to its project-scoped data-plane name. Schedulers are never
@@ -297,35 +323,45 @@ def _ofelia_ini(
         f"{project_dns_label}-{env}-{job_nets[0]}" if job_nets else ""
     )
 
-    # Env/secret split: a bare $[VAR] value is a secret (delivered via the
-    # sourced env file); everything else is a non-secret literal inlined
-    # into `environment`. The two sets are disjoint per the parts-only rule.
+    # Env/secret split: a bare $[VAR] value is a secret; everything else is
+    # a non-secret literal inlined into `environment`. The two sets are
+    # disjoint per the parts-only rule. Secrets are NOT inlined — they are
+    # sourced from the mounted env file, then re-exported from their
+    # provider var to the consumer key (mod 075).
     env_pairs: list[str] = []
+    secret_exports: list[tuple[str, str]] = []
     for key in sorted(svc.env):
         val = svc.env[key]
-        if isinstance(val, str) and _RUNTIME_FULL_RE.match(val):
-            continue  # secret — arrives via the sourced env file
+        if isinstance(val, str) and (m := _RUNTIME_FULL_RE.match(val)):
+            # secret — provider var name is the captured group; re-exported
+            # to `key` (the consumer name) after the env file is sourced.
+            secret_exports.append((key, m.group(1)))
+            continue
         # HCLLiteral never appears on fixed; treat any non-secret value as
         # a literal string for inlining.
         env_pairs.append(f"{key}={val}")
-    environment_list = "[" + ", ".join(
-        '"' + p.replace('"', '\\"') + '"' for p in env_pairs
-    ) + "]"
 
     schedule = to_ofelia_cron(svc.schedule) if svc.schedule else ""
-    command = _wrapped_job_command(svc.body.get("command", ""), env_file_target)
-    volume = f'["{env_file_host_path}:{env_file_target}:ro"]'
+    command = _wrapped_job_command(
+        svc.body.get("command", ""), env_file_target, secret_exports,
+    )
 
+    # Ofelia's INI uses gcfg: repeatable list fields (`environment`,
+    # `volume`) are expressed as one bare `key = value` line PER entry, NOT
+    # as a JSON array (mod 075 fix — the JSON-array form emitted through mod
+    # 055 was mis-parsed by ofelia: it took the literal `["…` as a volume
+    # name / env string, so no fixed scheduler job ever ran). Verified
+    # end-to-end against mcuadros/ofelia:v0.3.7.
     lines = [
         f'[job-run "{svc.name}"]',
         f"schedule = {schedule}",
         f"image = {image}",
         f"network = {network_name}",
         "delete = true",
-        f"environment = {environment_list}",
-        f"command = {command}",
-        f"volume = {volume}",
     ]
+    lines += [f"environment = {p}" for p in env_pairs]
+    lines.append(f"command = {command}")
+    lines.append(f"volume = {env_file_source}:{env_file_target}:ro")
     return "\n".join(lines) + "\n"
 
 
@@ -592,32 +628,50 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     # so the compose file travels to the deploy host without a sidecar
     # file.
     #
-    # Env-file path (judgment call, scheduler.md § Env and secret delivery):
-    # the job sources the env's `.env` for its secrets. On dev/test that is
-    # the operator's `infra/secrets/<env>.env`. ofelia spawns the job via
-    # the docker socket (DooD), so the host side of the mount is a path the
-    # docker daemon resolves — the project-relative `infra/secrets/<env>.env`
-    # the operator runs compose from, mirroring where the fixed migrate
-    # one-off reads its env. The container side is the doctrine-fixed
-    # `/run/job.env`.
-    env_file_host_path = f"infra/secrets/{compiled.env}.env"
-    env_file_target = "/run/job.env"
-    for name in sorted(compiled.services):
-        svc = compiled.services[name]
-        if svc.role != "scheduler":
-            continue
-        ofelia_name = (
-            f"{compiled.project_dns_label}-{compiled.env}-{svc.name}-scheduler"
-        )
-        config_key = f"ofelia_{svc.name}"
-        services[ofelia_name] = _ofelia_block(
-            svc, compiled.project_dns_label, compiled.env, config_key,
-        )
-        ini = _ofelia_ini(
-            svc, compiled.project_dns_label, compiled.env,
-            env_file_host_path, env_file_target,
-        )
-        configs[config_key] = {"content": ini}
+    # Env-file mount source (scheduler.md § Env and secret delivery, mod
+    # 075): ofelia spawns the job via the docker socket (DooD, NOT Compose),
+    # so the host side of the mount must be an ABSOLUTE path the docker
+    # daemon resolves — a relative source fails at the Docker API.
+    #   - stage/prod (fixed): the deterministic ansible deploy path
+    #     `/opt/<project>/<env>/.env`, baked here (matches the migrate
+    #     one-off's `env_file`). `project` is the raw name, matching
+    #     emit/ansible.py's `deploy_root`.
+    #   - dev/test: the path is the operator's machine-specific project
+    #     root, so baking it would break compile determinism. Emit
+    #     `${DOCEX_SECRETS_ENV_FILE}` instead; `docex up` sets that var to
+    #     the absolute `infra/secrets/<env>.env` and Compose interpolates
+    #     it into the rendered config. (test suppresses the scheduler
+    #     entirely, so in practice this is the dev path.)
+    if compiled.env in ("dev", "test"):
+        env_file_source = "${DOCEX_SECRETS_ENV_FILE}"
+    else:
+        env_file_source = f"/opt/{compiled.project}/{compiled.env}/.env"
+    # Mod 073: the `test` env drops the scheduler trigger entirely. A
+    # scheduler is otherwise inert (no long-running container in any env),
+    # so skipping the ofelia container + its INI here means a scheduler
+    # service produces NO output in `test` and its job never fires inside
+    # the test window. Because `dev`/`test` are always fixed → compose,
+    # the ofelia container is the only trigger `test` could carry (the
+    # elastic EventBridge path is never reached for `test`), so this one
+    # guard fully suppresses it. Mirrors the mod-054 web-label exclusion
+    # above. See scheduler.md § Caveats.
+    if compiled.env != "test":
+        for name in sorted(compiled.services):
+            svc = compiled.services[name]
+            if svc.role != "scheduler":
+                continue
+            ofelia_name = (
+                f"{compiled.project_dns_label}-{compiled.env}-{svc.name}-scheduler"
+            )
+            config_key = f"ofelia_{svc.name}"
+            services[ofelia_name] = _ofelia_block(
+                svc, compiled.project_dns_label, compiled.env, config_key,
+            )
+            ini = _ofelia_ini(
+                svc, compiled.project_dns_label, compiled.env,
+                env_file_source,
+            )
+            configs[config_key] = {"content": ini}
 
     if configs:
         body_doc["configs"] = configs

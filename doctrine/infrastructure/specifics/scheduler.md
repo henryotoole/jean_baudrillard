@@ -92,7 +92,11 @@ digest, like every doctrine-shipped image). It:
 - Carries the doctrine `docex.project` label and `restart: unless-stopped`, like
   every emitted container.
 
-The rendered INI declares one `[job-run "<svc>"]` section:
+The rendered INI declares one `[job-run "<svc>"]` section. Ofelia parses its
+INI with `gcfg`, where a repeatable list field (`environment`, `volume`) is one
+bare `key = value` line **per entry** — *not* a JSON array. (A JSON-array value
+is mis-parsed: Ofelia takes the literal `["…` as the value, so the job never
+runs.)
 
 ```ini
 [job-run "nightly_cleanup"]
@@ -100,9 +104,10 @@ schedule = 0 0 3 * * *                       ; 0-seconds + the 5-field expressio
 image = myproject/nightly_cleanup:0.4.2      ; same image ref a core service uses
 network = myproject-dev-internal             ; the service's non-web network(s)
 delete = true                                ; auto-remove the one-off container
-environment = ["DATABASE_HOST=myproject-dev-appdb", "OTEL_SERVICE_NAME=nightly_cleanup", ...]
-command = sh -c '. /run/job.env && exec python -m jobs.cleanup'
-volume = ["<env-file path>:/run/job.env:ro"]
+environment = DATABASE_HOST=myproject-dev-appdb    ; one bare line per non-secret var
+environment = OTEL_SERVICE_NAME=nightly_cleanup
+command = sh -c '. /run/job.env && export DATABASE_USER="$POSTGRES_USER" && exec python -m jobs.cleanup'
+volume = /opt/myproject/prod/.env:/run/job.env:ro  ; absolute source (see below)
 ```
 
 ### Env and secret delivery (the load-bearing detail)
@@ -119,19 +124,40 @@ the task definition):
   resolves at compile time and that is *not* a secret — magic-ref parts that
   resolve to literals (`DATABASE_HOST` → `<project>-<env>-appdb`), the
   doctrine-injected `OTEL_*` / `PROJECT_VERSION` block, plain literals from the
-  service's `env:` — is rendered inline into the `job-run` `environment` list.
-  These are safe to inline because none are secret. Ofelia passes them to the
-  one-off container.
-- **Secrets — via a mounted, sourced env file.** Values that resolve to a `$[…]`
-  runtime ref (e.g. `DATABASE_USER` → `$[POSTGRES_USER]`) are *not* known at
-  compile and must not be inlined. They're delivered exactly as the
-  [fixed migrate step](./migrations.md#stage-and-prod-on-fixed-foundation)
-  delivers them to its one-off container: the env's `.env` is mounted into the
-  job and sourced before the command runs. The compiler wraps the job `command`
-  as `sh -c '. /run/job.env && exec <command…>'` and the INI `volume` mounts the
-  env file at `/run/job.env:ro`. The path is the one Compose already uses for
-  that env — `infra/secrets/<env>.env` in `dev`/`test` (operator's machine), the
-  ansible-rendered `/opt/<project>/<env>/.env` in fixed `stage`/`prod`.
+  service's `env:` — is rendered inline as one bare `environment = KEY=value`
+  line per var in the `job-run` section (Ofelia's gcfg list form, not a JSON
+  array). These are safe to inline because none are secret. Ofelia passes them
+  to the one-off container.
+- **Secrets — via a mounted, sourced env file, re-exported to the consumer
+  keys.** Values that resolve to a `$[…]` runtime ref (e.g. `DATABASE_USER` →
+  `$[POSTGRES_USER]`) are *not* known at compile and must not be inlined. The
+  env's `.env` is mounted into the job at `/run/job.env:ro` and sourced before the
+  command runs. Ofelia spawns the job through the Docker API rather than through
+  Compose, so — unlike the
+  [fixed migrate one-off](./migrations.md#stage-and-prod-on-fixed-foundation),
+  which runs via `docker compose run` — it inherits neither Compose's
+  relative-path resolution nor Compose's `${VAR}` env-mapping. Two consequences
+  the compiler handles explicitly:
+    1. **Absolute mount source.** The Docker API rejects a *relative* bind
+       source, so the `volume` source must be an absolute host path. In fixed
+       `stage`/`prod` it is the deterministic ansible deploy path
+       `/opt/<project>/<env>/.env`, baked at compile. In `dev`/`test` the path is
+       machine-specific (the operator's project root), so baking it would break
+       compile determinism; instead the compiler emits `${DOCEX_SECRETS_ENV_FILE}`
+       and `docex` sets that variable to the absolute `infra/secrets/<env>.env`
+       when it brings the stack up, so Compose interpolates the real path into the
+       rendered config.
+    2. **Provider→consumer re-export.** The sourced `.env` carries the *provider*
+       secret names (`POSTGRES_USER`), but the job reads the *consumer* keys
+       (`DATABASE_USER`). Compose performs that mapping for ordinary services and
+       the migrate one-off; the Ofelia job must do it explicitly. The compiler
+       wraps the command as
+       `sh -c '. /run/job.env && export DATABASE_USER="$POSTGRES_USER" && … && exec <command…>'`,
+       one `export <consumer_key>="$<provider_var>"` per secret-bearing part. The
+       `$`-refs are emitted **doubled** (`$$`) so Compose passes the literal
+       `$POSTGRES_USER` through to the config and the *job* shell expands it from
+       the sourced file at run time — the secret value never lands in the rendered
+       config.
 
 The two sets are disjoint (a provided part is either a literal or a single bare
 `$[REF]`, never both — see [secrets.md § Parts-Only Rule](./secrets.md#parts-only-rule)),
@@ -187,20 +213,25 @@ directly, and needs no always-on rule resource.
 - **Fixed:** the Ofelia container comes up with the env stack (`envinfra up <env>`
   / `release`) and is torn down with it. Re-running is idempotent — Compose
   reconciles the scheduler container like any other service. The one-off job
-  containers are `delete = true`, so they don't accumulate.
+  containers are `delete = true`, so they don't accumulate. The `test` env is the
+  exception: no Ofelia container is emitted for it, so its stack carries no
+  scheduler at all (see § Caveats).
 - **Elastic:** the schedule, task def, and invocation role are env-tier — created
   and destroyed with the env by `release` / `envinfra down`. `tofu apply` against
   an unchanged schedule is a no-op.
 
 ## Caveats
 
-- **`test` does not suppress schedulers.** Unlike `web` routing (which `test`
+- **`test` suppresses the scheduler trigger.** Like `web` routing (which `test`
   drops entirely — see [cicl.md § TLS Implications](../cicl.md#tls-implications)),
-  a scheduler in a `test` stack is emitted normally. Schedules are typically
-  infrequent (hourly/nightly), so a job rarely fires inside the brief `test`
-  window; a project that does not want a scheduler exercised during tests should
-  not place it in a stack it runs `docex test` against. A future doctrine
-  extension may add a test-time suppression.
+  a scheduler's trigger is omitted from the `test` stack: the compiler emits no
+  Ofelia container for a scheduler service, so the job never fires inside the
+  `test` window. Because `dev`/`test` are always fixed, the Ofelia trigger is the
+  only one `test` could carry, and it is dropped (the elastic EventBridge path is
+  never reached for `test`). The scheduler service is otherwise inert in every
+  env — it has no long-running container — so in `test` it produces no compiled
+  output at all. Exercise a job's logic through its own unit/module tests, or in
+  `dev`, rather than relying on a `test`-window fire.
 - **No backfill / catch-up.** A missed fire (host down, instance replacement) is
   not retroactively run. Both Ofelia and EventBridge Scheduler fire forward-only
   in the v1 configuration.

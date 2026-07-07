@@ -91,28 +91,111 @@ def test_fixed_ini_schedule_and_image(tmp_path: Path):
     assert "delete = true" in ini
 
 
+def _ini_line(ini: str, prefix: str) -> str:
+    return next(l for l in ini.splitlines() if l.startswith(prefix))
+
+
+def test_fixed_ini_uses_bare_gcfg_lists(tmp_path: Path):
+    """Mod 075: `environment`/`volume` are bare repeated gcfg lines, NOT a
+    JSON array — ofelia mis-parses the array form (the mod-055 bug that
+    kept fixed scheduler jobs from ever running)."""
+    doc = _dev_compose(_compile(_FIXED, tmp_path))
+    ini = doc["configs"]["ofelia_nightly_cleanup"]["content"]
+    # No JSON-array brackets anywhere in the rendered INI.
+    assert "[" not in ini.replace('[job-run "nightly_cleanup"]', "")
+    # One bare `environment = KEY=value` line per non-secret var.
+    env_lines = [l for l in ini.splitlines() if l.startswith("environment = ")]
+    assert "environment = DATABASE_HOST=sample-dev-appdb" in env_lines
+
+
 def test_fixed_ini_env_secret_split(tmp_path: Path):
-    """Non-secret resolved env is inlined; secrets are NOT (they arrive via
-    the sourced env file)."""
+    """Non-secret resolved env is inlined into `environment`; secrets are
+    NOT inlined there (they arrive via the sourced env file and are
+    re-exported in the command — mod 075)."""
     doc = _dev_compose(_compile(_FIXED, tmp_path))
     ini = doc["configs"]["ofelia_nightly_cleanup"]["content"]
-    # Non-secret: DATABASE_HOST resolves to a literal -> inlined.
-    assert "DATABASE_HOST=sample-dev-appdb" in ini
-    # Secret: DATABASE_USER / _PASSWORD resolve to $[VAR] -> NOT inlined.
-    assert "DATABASE_USER=" not in ini
-    assert "DATABASE_PASSWORD=" not in ini
-    assert "POSTGRES_USER" not in ini
-    assert "POSTGRES_PASSWORD" not in ini
-
-
-def test_fixed_ini_command_wrapper_and_mount(tmp_path: Path):
-    doc = _dev_compose(_compile(_FIXED, tmp_path))
-    ini = doc["configs"]["ofelia_nightly_cleanup"]["content"]
-    assert (
-        "command = sh -c '. /run/job.env && exec python -m jobs.cleanup'"
-        in ini
+    env_lines = "\n".join(
+        l for l in ini.splitlines() if l.startswith("environment = ")
     )
-    assert 'volume = ["infra/secrets/dev.env:/run/job.env:ro"]' in ini
+    # Non-secret: DATABASE_HOST resolves to a literal -> inlined.
+    assert "DATABASE_HOST=sample-dev-appdb" in env_lines
+    # Secrets are NOT in any environment line (neither the consumer key nor
+    # the provider var value is inlined).
+    assert "DATABASE_USER" not in env_lines
+    assert "DATABASE_PASSWORD" not in env_lines
+    assert "POSTGRES_USER" not in env_lines
+    assert "POSTGRES_PASSWORD" not in env_lines
+
+
+def test_fixed_ini_command_reexports_secrets_and_absolute_mount(tmp_path: Path):
+    """Mod 075: the command sources the env file, re-exports each secret
+    consumer-key from its provider var (doubled `$$` so Compose passes the
+    literal `$` through), then execs the job. The mount source is an
+    absolute path — `${DOCEX_SECRETS_ENV_FILE}` in dev (Compose-interpolated
+    at up time), never the old relative path."""
+    doc = _dev_compose(_compile(_FIXED, tmp_path))
+    ini = doc["configs"]["ofelia_nightly_cleanup"]["content"]
+    cmd_line = _ini_line(ini, "command = ")
+    assert cmd_line.startswith("command = sh -c '. /run/job.env")
+    assert 'export DATABASE_USER="$$POSTGRES_USER"' in cmd_line
+    assert 'export DATABASE_PASSWORD="$$POSTGRES_PASSWORD"' in cmd_line
+    assert cmd_line.rstrip().endswith("exec python -m jobs.cleanup'")
+    # Absolute, runtime-provided mount source — bare gcfg line, not the old
+    # relative path, not a JSON array.
+    assert "volume = ${DOCEX_SECRETS_ENV_FILE}:/run/job.env:ro" in ini
+    assert "infra/secrets/dev.env" not in ini
+
+
+def test_fixed_ini_stage_bakes_absolute_deploy_path(tmp_path: Path):
+    """On fixed stage/prod the env-file mount is the deterministic ansible
+    deploy path, baked at compile (matches emit/ansible.py deploy_root)."""
+    root = _compile(_FIXED, tmp_path)
+    stage = yaml.safe_load(
+        (root / "infra" / "output" / "stage" / "docker-compose.yml").read_text()
+    )
+    ini = stage["configs"]["ofelia_nightly_cleanup"]["content"]
+    assert "volume = /opt/sample/stage/.env:/run/job.env:ro" in ini
+    assert "DOCEX_SECRETS_ENV_FILE" not in ini
+
+
+# ---------------------------------------------------------------------------
+# Mod 073 — `test` env suppresses the scheduler trigger
+# ---------------------------------------------------------------------------
+
+
+def _test_compose(root: Path) -> dict:
+    # dev/test are always fixed, so both fixtures' `test` env is compose.
+    return yaml.safe_load(
+        (root / "infra" / "output" / "test" / "docker-compose.yml").read_text()
+    )
+
+
+def test_test_env_omits_ofelia_fixed(tmp_path: Path):
+    """A fixed-foundation project: the scheduler produces NO output in
+    `test` — no ofelia container and no ofelia config entry."""
+    doc = _test_compose(_compile(_FIXED, tmp_path))
+    assert "sample-test-nightly_cleanup-scheduler" not in doc["services"]
+    assert "ofelia_nightly_cleanup" not in (doc.get("configs") or {})
+    # Suppression is scheduler-scoped: the ordinary web service stays.
+    assert "sample-test-api" in doc["services"]
+
+
+def test_test_env_omits_ofelia_elastic(tmp_path: Path):
+    """An elastic-foundation project's `test` env is still fixed → compose;
+    the scheduler trigger is dropped there too (the EventBridge path is
+    never reached for `test`)."""
+    doc = _test_compose(_compile(_ELASTIC, tmp_path))
+    assert "sample-test-nightly_cleanup-scheduler" not in doc["services"]
+    assert "ofelia_nightly_cleanup" not in (doc.get("configs") or {})
+    assert "sample-test-api" in doc["services"]
+
+
+def test_dev_still_emits_ofelia(tmp_path: Path):
+    """Regression: suppression is scoped to `test` — `dev` keeps the
+    ofelia container and its rendered INI config."""
+    doc = _dev_compose(_compile(_FIXED, tmp_path))
+    assert "sample-dev-nightly_cleanup-scheduler" in doc["services"]
+    assert "ofelia_nightly_cleanup" in doc["configs"]
 
 
 # ---------------------------------------------------------------------------

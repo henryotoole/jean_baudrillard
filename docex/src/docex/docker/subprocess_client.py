@@ -131,6 +131,7 @@ class SubprocessDockerClient:
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
+        extra_env: dict[str, str] | None = None,
     ) -> int:
         cmd = self._compose_base(
             compose_file, env_file, project_dir, project_name
@@ -139,7 +140,10 @@ class SubprocessDockerClient:
             cmd.append("--build")
         if detach:
             cmd.append("-d")
-        return self._run(cmd)
+        # extra_env (mod 075): DOCEX_SECRETS_ENV_FILE for scheduler env-file
+        # interpolation. Merged into the compose subprocess env so Compose
+        # interpolates `${DOCEX_SECRETS_ENV_FILE}` in the ofelia INI content.
+        return self._run(cmd, extra_env=extra_env)
 
     def compose_down(
         self,
@@ -474,10 +478,21 @@ class SubprocessDockerClient:
     # Internal
     # ------------------------------------------------------------------
 
-    def _run(self, cmd: list[str]) -> int:
-        """Run ``cmd`` with inherited stdio; return its exit code."""
+    def _run(
+        self, cmd: list[str], *, extra_env: dict[str, str] | None = None
+    ) -> int:
+        """Run ``cmd`` with inherited stdio; return its exit code.
+
+        ``extra_env`` (mod 075) is merged over the inherited environment for
+        this one invocation — used to pass ``DOCEX_SECRETS_ENV_FILE`` to a
+        compose ``up`` so Compose can interpolate it into the ofelia INI.
+        """
+        env = None
+        if extra_env:
+            import os
+            env = {**os.environ, **extra_env}
         try:
-            res = subprocess.run(cmd, check=False)  # noqa: S603
+            res = subprocess.run(cmd, check=False, env=env)  # noqa: S603
         except FileNotFoundError:
             # Docker not installed at all. Tell the caller this is fatal.
             return 127
