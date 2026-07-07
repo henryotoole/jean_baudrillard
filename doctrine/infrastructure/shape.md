@@ -24,7 +24,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 **Runtime Shape** - [registrar] sets [dns]; [dns] routes requests by domain to the [host_machine]. Here [web_demux] picks up 443/80 requests and forwards them to the relevant project [reverse_proxy] on the basis of domain, where TLS will be terminated with [cert_manager]. [web_demux] and project [reverse_proxy] live on the machine's [master_network], allowing them to communicate. [reverse_proxy] then routes requests to the correct [web_network] and [service] container unencrypted. Core and backing services are all docker containers. In `prod`, there might be multiple of the same [service] (e.g. multiple workers) per environment - [reverse_proxy] load balances in this case. [service]s communicate with each other over shared environment [internal_network]s. [service_discovery] is handled implicitly by docker network DNS. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
 
-**Network Egress** - Outbound requests reach the internet via the host machine's Docker-managed `iptables` config. This handles address translation and requires no effort on behalf of the developer or `docex` - it *just works*.
+**Network Egress** - Outbound requests reach the internet via the host machine's Docker-managed `iptables` config. This handles address translation and requires no effort on the part of the developer or `docex` - it *just works*.
 
 **Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry], which is locally hosted. The `stage` and `prod` environments have [build_image]s pulled to them from [container_registry] with ansible and release them by combining with [environment_config] and [secrets]. 
 
@@ -68,7 +68,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | nat_gateway | prerequisite | AWS NAT | Centralized NAT gateway shared by all projects. |
 | reverse_proxy | project | AWS ALB or EC2-with-traefik | Each project gets its own reverse proxy. This is project-configured either as an ALB or a small EC2 instance with traefik. Terminates TLS via [cert_manager] and forwards to [service]s. Doubles as a load balancer for replicated [core_service]s in `prod`. |
 | cert_manager | project | AWS ACM certificate (ALB) or traefik (EC2) | ALB: Uses ACM certs. Traefik: Uses built-in Let's Encrypt; enabled with config. Both employ DNS-01 and the two cert system defined [here](./cicl.md#elastic-tls) |
-| dns | project | AWS Route53 | DNS handling which project can drive. `docex` creates one hosted zone per project for its `apex_domain:`; the operator NS-delegates to it from the parent. |
+| dns | project | AWS Route53 | DNS handling which the project can drive. `docex` creates one hosted zone per project for its `apex_domain:`; the operator NS-delegates to it from the parent. |
 | container_registry | project | AWS ECR | The project's container registry, holding [build_image]s. |
 | build_image | project | Docker container images | Image built for release, has passed unit and integration tests. |
 | ecs_cluster | project | AWS ECS cluster | One empty cluster per production-side env (`${project}-stage`, `${project}-prod`), provisioned at the project tier so both always exist before any env release. Env-tier release attaches [core_service] tasks/services into the env's cluster. Project-tier (not env-tier) because the [reverse_proxy] must be able to rely on both clusters existing regardless of which env has been released — the EC2-traefik ECS provider fails *all* route-building if any configured cluster is absent (see [`projinfra/ec2_traefik.md`](./specifics/projinfra/ec2_traefik.md)). Empty clusters incur no cost. |
@@ -138,12 +138,11 @@ backing_services:
 
 **Environment infrastructure:**
 - One internal network: `myproject-dev-internal`
-- A named volume: `myproject-dev-database-data`
+- A named volume: `myproject-dev-database_data`
 - An `api` container on both networks (no published host port), with Traefik labels routing both `dev.myproject.example.com` (it's the `domain_default_service`) and `api.dev.myproject.example.com` to it, plus `DATABASE_*` env for internally constructing the db url
 - A `database` container on the internal network, postgres 15 image, env vars and healthcheck per the transfer table
-- Definition of the project's `traefik` container. This container sits on the `docex-ingress` network and its relevant project networks (`myproject-dev-web`, `myproject-dev-internal`). It ensures that `dev.myproject.example.com` and `api.dev.myproject.example.com` both actually get routed to the `api` service container.
 
-The developer accesses the project at `dev.myproject.example.com` on the dev machine.
+The project traefik (project-tier, listed above) spans the `-web` networks and `docex-ingress`; it picks up the `api` container's labels so that `dev.myproject.example.com` and `api.dev.myproject.example.com` both actually get routed to it. The developer accesses the project at `dev.myproject.example.com` on the dev machine.
 
 ### Compiled for `prod` (elastic shape)
 

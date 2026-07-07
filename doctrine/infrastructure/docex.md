@@ -27,7 +27,7 @@ Both writes are idempotent. Re-running the script is also the supported way to u
 The shim is **version-independent** — one shim serves every `docex` version, and the `docex_version` pin in `project.yml` is what selects which `docex` image it runs. Changes to the shim are kept **additive and backward-compatible** (an image of any version tolerates a newer shim), so it is not pinned per version; a project adopts an updated shim simply by re-running `docex_install.sh`. After installation, verify with `./bin/docex --version`; this requires the pinned image to already exist in the host's Docker image store.
 
 ## Usage
-Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. It does so by providing a "command" for each task; `./bin/docex build` builds all core services, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
+Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. Docex does so by providing a "command" for each task; `./bin/docex build` builds all core services, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
 
 ## Provided Tools
 
@@ -64,7 +64,7 @@ The output of this command is stored in `$pr/infra/output/${env}` on the basis o
 Describes the project infrastructure shape across all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure for a certain environment. This is purely illustrative - the purpose of this command is to show the developer the shape of infrastructure without requiring them to read config files.
 
 The formats available are:
-`dag` - Describe the infrastructure shape with a directional acyclic graph.
+`dag` - Describe the infrastructure shape with a directed acyclic graph.
 `llm` - Describe the infrastructure in JSON-form so that an LLM can easily parse it.
 
 ### `why`
@@ -83,7 +83,7 @@ Describes one role: its engines (and foundations), the **provided parts** that m
 `./bin/docex preinfra <side>`
 Checks that the necessary prerequisite infrastructure resources exist for this project to launch on the indicated infrastructure side. Side can be "development" or "production"; "development" will select necessary development-side infrastructure for the project's foundation and "production" will select necessary production-side infrastructure.
 
-For example, one preinfra resource needed for the `development` side is the [HAProxy web demux](./shape.md#fixed-foundation) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
+For example, one preinfra resource needed for the `development` side is the [`docex-ingress` bridge](./preinfra/fixed_master_network.md#the-docex-ingress-network) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
 
 The `development` side additionally verifies that each `dev` `web`-service hostname resolves in public DNS. Bringing `dev` up issues per-host Let's Encrypt certs via HTTP-01; if the hostnames don't resolve, every challenge fails and trips LE's failed-authorization rate limit (which then blocks legitimate issuance). Failing the check here — before `envinfra up dev` — surfaces missing dev DNS as an actionable preinfra gap instead of a rate-limit lockout. The operator routes `dev` DNS per [inception.md PART III](../practices/inception.md); `test` is excluded since it is not accessed over TLS.
 

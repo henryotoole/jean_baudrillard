@@ -180,7 +180,7 @@ roles:
 			defaults:
 				fixed:
 					volumes:
-						- postgres-data:/var/lib/postgresql
+						- ${global_service_name}_data:/var/lib/postgresql/data
 					healthcheck:
 						test: ["CMD-SHELL", "pg_isready -U $[POSTGRES_USER] -d ${name}"]
 						interval: 10s
@@ -208,7 +208,9 @@ roles:
 			provides:
 				host:
 					fixed: "${global_service_name}"
-					elastic: "@aws_db_instance.${name}.endpoint"
+					# .address (hostname only), NOT .endpoint (host:port) — port is its
+					# own part, and .endpoint would compose to a malformed host:port:port.
+					elastic: "@aws_db_instance.${name}.address"
 				port:
 					fixed: "${port}"
 					elastic: "${port}"
@@ -646,7 +648,7 @@ What the compiler emits on elastic for `events`:
 - `aws_ecs_task_definition.events` with a `volume { name = "data" efs_volume_configuration { ... } }` block and a container `mountPoints` entry linking `"data"` → `/var/lib/clickhouse`.
 - `aws_ecs_service.events` with `service_connect_configuration` registering the service as discoverable at `<project>-<env>-events`.
 
-On fixed, the `defaults.fixed.volumes` entry creates a docker named volume mounted at `/var/lib/clickhouse`; ClickHouse's data survives `./bin/docex down dev` / `up dev` cycles. The compose stack runs ClickHouse as a regular container on the internal network.
+On fixed, the `defaults.fixed.volumes` entry creates a docker named volume mounted at `/var/lib/clickhouse`; ClickHouse's data survives `./bin/docex envinfra down dev` / `envinfra up dev` cycles. The compose stack runs ClickHouse as a regular container on the internal network.
 
 Same `infra.yml`, same magic-ref values flowing into `web`'s env block, same application code on both foundations. The foundation-specific machinery — EFS on elastic, docker volumes on fixed — is doctrine-internal; the project just declares "stateful at /var/lib/clickhouse" and gets the right thing.
 
@@ -818,7 +820,7 @@ Values that exceed the largest Fargate tier (currently 16 vCPU / 120 GB) fail co
 `resources.cpu` and `resources.memory` have no defaults — they are required by CICL on every core service. `resources.disk` is optional with these foundation-specific behaviors when omitted:
 
 - **Fixed:** no tmpfs is emitted; the container shares the host disk. The overlay layer remains unbounded regardless of whether `disk` is set (an overlay2 storage driver limitation).
-- **Elastic:** `ephemeral_storage` is omitted from the task definition, accepting Fargate's 21 GiB default.
+- **Elastic:** `ephemeral_storage` is omitted from the task definition, accepting Fargate's default allotment (20 GiB; the explicitly-settable range starts at 21 GiB).
 
 ## Validation
 

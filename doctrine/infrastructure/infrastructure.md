@@ -44,7 +44,7 @@ There are three tiers, or types, of infrastructure:
 2. Project Infrastructure - These resources are configured and controlled within the scope of the whole project. They are required for environment infrastructure to function.
 	+ Examples: the project-level reverse proxy (whether ALB or Traefik), the `fixed`-foundation `web`-networks.
 3. Environment Infrastructure - These resources are configured and controlled within the scope of a single environment.
-	+ Examples: `elastic` SG's, the `postgres` container for each environment, core service containers.
+	+ Examples: `elastic` SGs, the `postgres` container for each environment, core service containers.
 
 Project infrastructure tends to be shared across all environments whereas environment infrastructure is *duplicated* across environments. Each environment gets an independent copy, although the exact nature of that copy may differ (e.g. between the `fixed` `dev` environment and an `elastic` `prod`).
 
@@ -152,6 +152,9 @@ $pr
 │   │   ├── Dockerfile
 │   │   └── tests
 │   ├── output
+│   │   ├── project
+│   │   │   ├── development
+│   │   │   └── production
 │   │   ├── dev
 │   │   ├── test
 │   │   ├── stage
@@ -288,6 +291,7 @@ More details [here](./credentials.md)
 
 Some things must be deferred for now:
 1. Multi-machine `fixed` foundation. We will one day support multiple machines, but this will involve docker-swarm and some other complexities. We assume only one machine for now, hosting all environments.
-2. Automated CI/CD flow (in the sense that a pull request kicks off the process). All CI/CD can be achieved with `docex` commands; this can be done manually by a developer with strict discipline. These commands could be worked into github, GitLab, or some other service. That's beyond the scope of this version.
+2. Automated CI/CD flow (in the sense that a pull request kicks off the process). All CI/CD can be achieved with `docex` commands; this can be done manually by a developer with strict discipline. These commands could be worked into GitHub, GitLab, or some other service. That's beyond the scope of this version.
 3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. health check all services, check DNS) which run alongside project-defined stage tests.
 4. Real defense-in-depth with networks, permissions, and validation cross-service.
+5. GPU workloads on `elastic` foundations. The doctrine commits to Fargate for elastic compute, and Fargate does not run GPU workloads; `resources.gpu` is therefore `fixed`-only and rejected on elastic compiles.

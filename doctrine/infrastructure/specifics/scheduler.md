@@ -201,7 +201,7 @@ directly, and needs no always-on rule resource.
   window; a project that does not want a scheduler exercised during tests should
   not place it in a stack it runs `docex test` against. A future doctrine
   extension may add a test-time suppression.
-- **No backfill / catch-up.** A missed fire (host down, instance replacing) is
+- **No backfill / catch-up.** A missed fire (host down, instance replacement) is
   not retroactively run. Both Ofelia and EventBridge Scheduler fire forward-only
   in the v1 configuration.
 - **No per-job concurrency guard.** If a job's runtime exceeds its interval, a

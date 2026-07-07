@@ -23,7 +23,7 @@ Some examples:
 
 ## Structure
 
-The doctrine's files are structured by file-structure hierarchy along topic lines - the "infrastructure" folder contains files relating to infrastructure; each file is named after the infrastructure topic it covers. Just as critical are the links which connect file and file-sections together. These links form a graph that is just as load-bearing to the conceptual integrity of the doctrine as the file-structure.
+The doctrine's files are structured by file-structure hierarchy along topic lines - the "infrastructure" folder contains files relating to infrastructure; each file is named after the infrastructure topic it covers. Just as critical are the links which connect files and file-sections together. These links form a graph that is just as load-bearing to the conceptual integrity of the doctrine as the file-structure.
 
 Doctrine files also carry a small amount of YAML frontmatter. Today it is a single field, `stratum`, classifying the file as one of `resident`, `conditional`, or `executor`:
 

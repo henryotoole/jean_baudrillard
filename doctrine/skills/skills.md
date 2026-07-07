@@ -19,7 +19,7 @@ metadata:
 
 ## Form
 
-All skills are formed in accordance with the Anthropic-endorsed [Agent Skills Standard](https://agentskills.io/home). Most critically, all skills have standard-prescribed YAML frontmatter which provides *metadata* for the skill. The most critical of these fields is the *description*, which is an always-in-context description of the skill's purpose. They should be authored as crisp, slightly "pushy" activity triggers.
+All skills are formed in accordance with the Anthropic-endorsed [Agent Skills Standard](https://agentskills.io/home). Most critically, all skills have standard-prescribed YAML frontmatter which provides *metadata* for the skill. The most critical of these fields is the *description*, which is an always-in-context description of the skill's purpose. Descriptions should be authored as crisp, slightly "pushy" activity triggers.
 
 The body of a thread skill has a loosely defined standard shape. Thread skills should generally contain one `#` H1 (the skill name) plus a short intro stating the router intent.
 

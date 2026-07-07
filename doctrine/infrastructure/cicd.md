@@ -43,7 +43,7 @@ Each level two section below describes one of the steps in the pipeline with:
 
 ### Check Step
 
-This step kicks off the CI/CD pipeline. It performs the "gate checks" which are the first line of defense for unworking or misconfigured code. These checks are performed against an ephemeral worktree that combines the feature and main branches into the form they'd be released *without* actually altering either branch so that reverting back is simple if checks fail. 
+This step kicks off the CI/CD pipeline. It performs the "gate checks" which are the first line of defense for broken or misconfigured code. These checks are performed against an ephemeral worktree that combines the feature and main branches into the form in which they'd be released *without* actually altering either branch so that reverting back is simple if checks fail. 
 
 #### Process
 1. Create the ephemeral worktree by combining the feature branch with the latest main from origin.
@@ -58,8 +58,9 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml` [depends-on](./cicl.md#depends-on-relationships) relationships.
 	3. Contracts for core services on the `web` network have the mandatory [health check](./contracts.md#health-checks) endpoints.
 	4. Every `health_check_path`-declaring service's image carries `curl`.
-4. Ensure build doesn't fail.
-5. Run build test
+4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
+5. Ensure build doesn't fail.
+6. Run build test
 
 If any steps fail, the repo is reverted back to its original state.
 
@@ -74,7 +75,7 @@ This step is optional, and is not covered more deeply in this version of the `do
 
 ### Merge
 
-This step simply merges the feature branch into the main branch (technically we rebase, but "merge" captures the intent more) and tags the relevant commit. The release tag is applied to the merge tip, not to the original version-bump commit. This way, if any fix-up commits after a failed `./bin/docex check` occur they require no special handling.
+This step simply merges the feature branch into the main branch (technically we rebase, but "merge" captures the intent more) and tags the relevant commit. The release tag is applied to the merge tip, not to the original version-bump commit. This way, if any fix-up commits after a failed `./bin/docex check` occur, they require no special handling.
 
 #### Process
 1. Re-run gate checks just in case the main branch moved.

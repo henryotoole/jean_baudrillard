@@ -12,7 +12,7 @@ Service tests describe all unit tests and integration tests which cover a single
 
 These tests test the code itself - that functions behave correctly, modules within a service can communicate, etc. They *don't* test inter-core service communication. They can, however, interact with a backing service for the purpose of testing a single core service (required for some integration tests).
 
-Service tests are written in whatever language, and with whatever tooling, that is appropriate for the service. A `web` core service written in python would have tests also written in python and perhaps run with `pytest`.
+Service tests are written in whatever language, and with whatever tooling, is appropriate for the service. A `web` core service written in python would have tests also written in python and perhaps run with `pytest`.
 
 Unit, integration, and contract tests should all be run by the [standard service test script](./cicd.md#build-test-step)
 
@@ -65,7 +65,7 @@ Staging tests verify that a deployed release functions correctly on its infrastr
 
 Staging tests should at least perform the following:
 + Liveness Checks - Each core service responds to its [health-check endpoint](./contracts.md#health-checks).
-+ TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)
++ TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)?
 + Critical-path smoke-tests - one or two end-to-end smoke tests that span the system. These should be sufficient to ensure:
 	1. Secrets and environmental variables are wired up properly.
 	2. Services can actually reach each other over the network.

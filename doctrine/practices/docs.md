@@ -86,14 +86,14 @@ Project flows are the critical pathways which move information or action through
 
 For example, take a project with the objective "Generate text-based scripts from videos of talkshows". It has a `frontend` and `backend` core services, and within the `backend` there are three modules: `video_manip` which has video manipulation tools, `speech` which contains speech-to-text code, and `formatter` which formats the text conversation as a script. Some key flows in this project would be:
 1. Upload Flow - User uses `frontend` to upload a video to `backend`. 
-2. Video Conversion Flow - Using `frontend` to select a video, user kicks off a video conversion for it. `video_manip` divides up the video by scene, `speech` converts those scenes to text, and `formatter` combines them all back into one coherent package. The result is then viewed by the user in `frontend`.
+2. Video Conversion Flow - Using `frontend` to select a video, the user kicks off a video conversion for it. `video_manip` divides up the video by scene, `speech` converts those scenes to text, and `formatter` combines them all back into one coherent package. The result is then viewed by the user in `frontend`.
 
 ### Modifications
 "$pr/plans/modifications/*"
 
 Modifications can also be known as "mods".
 
-This folder contains plans for modifications on the codebase. These follow a pretty rigid structure - `modifications` contains folders with names of the form `${modification_number}_${modification_name}.md`. Within a modification folder, there may be a handful of files. The most important are:
+This folder contains plans for modifications on the codebase. These follow a pretty rigid structure - `modifications` contains folders with names of the form `${modification_number}_${modification_name}`. Within a modification folder, there may be a handful of files. The most important are:
 1. **overview.md** - An overview of the requested modification from a design perspective.
 2. **implementation.md** - Specific implementation steps to effect the modifications on the codebase.
 

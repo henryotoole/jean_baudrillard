@@ -60,7 +60,7 @@ The design phase should "fill out" the [core planning docs](./docs.md#core-plann
 All these core planning docs are driven by `masterplan.md`. They "unpack" those high-level plans into more concrete architecture and design docs. 
 
 __PART III__: Infrastructure Smoke Test
-1. Make a commit with the message "Inception Part II: design complete."
+1. Make a commit with the message "Inception Part II: design complete"
 2. Route DNS to `dev`, either with registrar DNS or Route53 depending on what is appropriate.
 3. Verify development preinfra exists with `./bin/docex preinfra development`
 	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
@@ -78,7 +78,7 @@ __PART III__: Infrastructure Smoke Test
 	+ This will produce `example.env`
 7. Write `dev.env` and `test.env` using `example.env` as a template.
 	+ You will need the values for these vars and secrets. For some, you might need to ask the operator.
-8. Bring project  infrastructure online with `./bin/docex projinfra up development`
+8. Bring project infrastructure online with `./bin/docex projinfra up development`
 9. Bring the `dev` environment up to smoke test that the infrastructure works.
 	1. Check that the environment comes up without error.
 10. Take the `dev` environment back down.

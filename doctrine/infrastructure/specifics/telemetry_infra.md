@@ -54,7 +54,7 @@ The sidecar's exporter destination is env-aware, implementing the dev/test vs. s
 | `stage` | `otlphttp` | `OBSERVABILITY_BACKEND_URL` with `Authorization: ${TELEMETRY_API_KEY}` | Both |
 | `prod` | `otlphttp` | `OBSERVABILITY_BACKEND_URL` with `Authorization: ${TELEMETRY_API_KEY}` | Both |
 
-In `dev` and `test`, telemetry signals are dumped to the sidecar's container stdout via otelcol's `debug` exporter. Developers and LLM agents read them with `docker logs -f <svc>-otelcol`. No backend setup or credentials required to run a dev stack.
+In `dev` and `test`, telemetry signals are dumped to the sidecar's container stdout via otelcol's `debug` exporter. Developers and LLM agents read them with `docker compose logs -f <svc>-otelcol`. No backend setup or credentials required to run a dev stack.
 
 In `stage` and `prod`, signals go to the project's observability backend via OTLP over HTTPS. Authentication is API-key in HTTP header per [telemetry.md § Authentication](../telemetry.md#authentication).
 
@@ -137,7 +137,7 @@ Each sidecar is doctrine-allocated:
 - **CPU**: 0.1 vCPU
 - **Memory**: 128 MB
 
-These are doctrine-prescribed defaults; not project-tunable in v1. The sizing is conservative for the v1 pipeline (otlp → batch → exporter) and assumes single-digit signals-per-second per service. Projects emitting at much higher rates may experience batch-processor drops; that is a v1 limitation per [telemetry.md § Storage Window](../telemetry.md#storage-window)'s in-memory-only buffering decision.
+These are doctrine-prescribed defaults; not project-tunable in v1. The sizing is conservative for the v1 pipeline (otlp → batch → exporter) and assumes single-digit signals-per-second per service. Projects emitting at much higher rates may experience batch-processor drops; the v1 pipeline buffers in memory only (no persistent queue), in keeping with [telemetry.md § Storage Window](../telemetry.md#storage-window)'s treatment of telemetry signals as near-ephemeral.
 
 ### Validation Rules
 
@@ -160,7 +160,7 @@ The reachability probe runs only when `stage` or `prod` are within the check's s
 
 | Failure | Symptom | Where to look |
 | ------- | ------- | ------------- |
-| Backend unreachable at runtime | Sidecar logs export errors; in-memory queue fills; oldest signals dropped on overflow | `docker logs <svc>-otelcol` (fixed) / CloudWatch task logs (elastic); backend's own health page |
+| Backend unreachable at runtime | Sidecar logs export errors; in-memory queue fills; oldest signals dropped on overflow | `docker compose logs <svc>-otelcol` (fixed) / CloudWatch task logs (elastic); backend's own health page |
 | Sidecar crashed | Core service's SDK can't reach `OTEL_EXPORTER_OTLP_ENDPOINT`; SDK buffers briefly, then drops | Sidecar container logs; on elastic, ECS task status — sidecar is `essential: false` so a crash doesn't tear down the task |
 | Sidecar config malformed at startup | Sidecar exits non-zero immediately; parse error in logs | `infra/output/<env>/...` — the rendered YAML is fully visible in compile output; compare against the spec in this document |
 | `TELEMETRY_API_KEY` missing in stage/prod env | Compile passes (it's syntactic). `docex release` succeeds but sidecar fails to start at runtime with `${env:TELEMETRY_API_KEY}` substitution error | `secrets/<env>.env` — confirm the key is present and non-empty |
@@ -194,11 +194,6 @@ Emitted compose entry shape (illustrative — actual emit lives in `src/docex/em
   environment:
     OBSERVABILITY_BACKEND_URL: ${OBSERVABILITY_BACKEND_URL:-}
     TELEMETRY_API_KEY: ${TELEMETRY_API_KEY:-}
-  healthcheck:
-    test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
-    interval: 10s
-    timeout: 5s
-    retries: 3
   deploy:
     resources:
       limits:
@@ -234,7 +229,7 @@ The `${VAR:-}` syntax (with empty default) means the variables are optional from
 
 ### Healthcheck and Startup Ordering
 
-The sidecar runs otelcol's `health_check` extension on `127.0.0.1:13133`, polled by the compose healthcheck for diagnostic visibility — `docker compose ps` shows the sidecar's health status, and the operator can use it to confirm the sidecar started cleanly.
+The sidecar runs otelcol's `health_check` extension on `127.0.0.1:13133`, but **no compose `healthcheck:` block is emitted** — the `otel/opentelemetry-collector` image is built `FROM scratch` and carries no probe tool (no wget, curl, or shell), so a container-level healthcheck could never succeed; emitting one would leave compose reporting the sidecar as `health: starting` forever while it actually works fine. The extension stays available for in-band diagnostics from inside the shared netns (e.g. curling `localhost:13133` from the core service's container).
 
 The core service does **not** declare a `depends_on` healthcheck on `<svc>-otelcol`. With `network_mode: "service:<svc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
 
@@ -260,7 +255,7 @@ container_definitions = jsonencode([
     name      = "<svc>"
     # ... core service definition ...
     dependsOn = [
-      { containerName = "<svc>-otelcol", condition = "HEALTHY" }
+      { containerName = "<svc>-otelcol", condition = "START" }
     ]
   },
   {
@@ -277,12 +272,6 @@ container_definitions = jsonencode([
     secrets = [
       { name = "TELEMETRY_API_KEY", valueFrom = "/<project>/<env>/TELEMETRY_API_KEY" }
     ]
-    healthCheck = {
-      command  = ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
-      interval = 10
-      timeout  = 5
-      retries  = 3
-    }
   }
 ])
 ```
@@ -325,11 +314,11 @@ The core service declares:
 
 ```hcl
 dependsOn = [
-  { containerName = "<svc>-otelcol", condition = "HEALTHY" }
+  { containerName = "<svc>-otelcol", condition = "START" }
 ]
 ```
 
-so the SDK has somewhere to send from `t=0`. ECS waits on the sidecar's healthcheck (the `health_check` extension on `:13133`) before starting the core service.
+so the sidecar container is started before the core service. The condition is `START`, not `HEALTHY` — the collector image is built `FROM scratch` with no probe tool, so an ECS container `healthCheck` (and therefore a `HEALTHY` gate) can never pass and would block the core container indefinitely. As on fixed, the OTel SDK's default batch queue absorbs anything emitted in the brief window between sidecar start and OTLP listening.
 
 ### Task-Level Resource Allocation
 

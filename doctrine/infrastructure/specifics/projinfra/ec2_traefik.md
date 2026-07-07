@@ -45,7 +45,7 @@ The doctrine prescribes a uniform instance shape across both variants. The trans
 | --------- | ------- | ---- |
 | Instance type | `t3.nano` (0.5 GB RAM, 2 vCPU burstable) | Sufficient for low single-digit RPS. Override via project-local transfer table. |
 | AMI | Latest Ubuntu 24.04 LTS published by Canonical | Looked up at apply time via `data "aws_ami"` with `owner = "099720109477"` (Canonical's AWS account) and a name pattern pinned at the docex-version level. |
-| Subnet | Master VPC's primary-AZ public subnet (`public-az-1`) | Public subnet because the instance needs an inbound-reachable public IP. Same AZ as the ECS services it routes to, to avoid cross-AZ data transfer to backends. |
+| Subnet | Master VPC's primary-AZ public subnet (`public-az1`) | Public subnet because the instance needs an inbound-reachable public IP. Same AZ as the ECS services it routes to, to avoid cross-AZ data transfer to backends. |
 | Root volume | 20 GB gp3 | Plenty for the OS + traefik + transient logs. |
 
 ## Routing Discovery
@@ -92,10 +92,10 @@ EC2-traefik uses Traefik's built-in Let's Encrypt client instead of the ALB opti
 
 **Cert SAN set:** The two-cert layout defined [here](../../cicl.md#elastic-tls) — i.e. the same two certs that ACM would issue for the ALB path. Identical SAN structure to the ACM certs in [`elastic_acm_certs.md`](./elastic_acm_certs.md); only the issuance mechanism differs (LE in traefik vs. ACM-managed). The dev/test certs are still issued via HTTP-01 by the dev-side per-project traefik per [fixed_reverse_proxy.md](./fixed_reverse_proxy.md), so the split is the same on both elastic reverse-proxy paths.
 
-**Cert persistence across instance replacement:** an EBS volume (8 GB gp3, in `public-az-1`) is attached to the instance at `/etc/traefik/acme/`. The volume holds traefik's `acme.json` (cert material + LE account key). It is:
+**Cert persistence across instance replacement:** an EBS volume (8 GB gp3, in `public-az1`) is attached to the instance at `/etc/traefik/acme/`. The volume holds traefik's `acme.json` (cert material + LE account key). It is:
 
 - Created by `./bin/docex projinfra up production` *only when* the project opts into EC2-traefik (not for ALB projects).
-- Tagged with the **projinfra** tag block from [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) (`shape_name=reverse_proxy`, `descriptor=acme-ebs`, plus the standard `managed_by=doctrine`/`infra_tier=project`/`project`/`Name` keys), **and additionally** the load-bearing resource-local tag `purpose = "ec2_traefik_acme"`. The instance's boot script and the IAM `AttachVolume` grant both match on `purpose=ec2_traefik_acme` + `project`, so that extra tag persists on top of the standard block. The other EC2-traefik resources (instance, SG, IAM role, log group, SSM config, EIP) all carry the same `shape_name=reverse_proxy` projinfra block, differentiated by `descriptor` (EC2 / SG / iam-role / logs / config / EIP); the old bespoke `purpose=ec2_traefik` tag on the SG is dropped (its descriptor now identifies it).
+- Tagged with the **projinfra** tag block from [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) (`shape_name=reverse_proxy`, `descriptor=acme-ebs`, plus the standard `managed_by=doctrine`/`infra_tier=project`/`project`/`Name` keys), **and additionally** the load-bearing resource-local tag `purpose = "ec2_traefik_acme"`. The instance's boot script and the IAM `AttachVolume` grant both match on `purpose=ec2_traefik_acme` + `project`, so that extra tag persists on top of the standard block. The other EC2-traefik resources (instance, SG, IAM role, log group, EIP) all carry the same `shape_name=reverse_proxy` projinfra block, differentiated by `descriptor` (EC2 / SG / iam-role / logs / EIP); the old bespoke `purpose=ec2_traefik` tag on the SG is dropped (its descriptor now identifies it).
 - Configured with `delete_on_termination = false` so it survives `tofu destroy` of the EC2 instance.
 
 When the instance is replaced (AMI bump, user_data change, manual termination), the new instance's boot script attaches the same EBS volume. Traefik finds the existing `acme.json` and skips reissuance — no LE rate-limit pressure on replacement events. The LE 5-duplicate-certs-per-week limit only bites if the volume itself is destroyed and reissuance happens from scratch within a week.

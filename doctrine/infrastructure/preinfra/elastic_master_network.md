@@ -4,13 +4,13 @@ stratum: conditional
 
 # Elastic Master Network
 
-On elastic, we use the "centralized egress" model for AWS. There will also be one "master" VPC which all projects, the NAT gateway, and main IGW live within.
+On elastic, we use the "centralized egress" model for AWS. There will also be one "master" VPC which all projects, the NAT gateway, and the main IGW live within.
 
 ## Design
 
 The elastic master network takes the form of one big VPC which contains all projects, an IGW, NAT for egress, and four standard subnets.
 
-Note that two AZ's are required per AWS mandate for ALB's and RDS deploys. The below structure has two subnets per AZ, and two AZ's, but the secondary AZ is effectively unused. See [this](../reasoning/ingress_and_egress.md#elastic-azs) for reasoning.
+Note that two AZs are required per AWS mandate for ALBs and RDS deploys. The below structure has two subnets per AZ, and two AZ's, but the secondary AZ is effectively unused. See [this](../reasoning/ingress_and_egress.md#elastic-azs) for reasoning.
 
 1. Master VPC
 	1. IGW
@@ -209,7 +209,7 @@ Exits 0 when the VPC, both public subnets (tagged `tier=public`), both private s
 
 ### Coexistence with other workloads in the same AWS account
 
-The master network is sized for one project per AWS account, but multiple projects can coexist within the same master VPC — each project's projinfra creates its own ALB / EC2-traefik, ECR repos, Route53 zone, and security groups, scoped by the `${project}` prefix. The master network itself doesn't carry project identity.
+There is one master network per AWS account, and multiple projects coexist within the same master VPC — each project's projinfra creates its own ALB / EC2-traefik, ECR repos, Route53 zone, and security groups, scoped by the `${project}` prefix. The master network itself doesn't carry project identity.
 
 If the AWS account is already hosting non-doctrine workloads (legacy VPCs, sandbox EC2 instances), the master VPC sits alongside them — pick a non-overlapping CIDR block and run the stand-up commands above. `docex preinfra production` tag-filters so it ignores anything tagged differently.
 

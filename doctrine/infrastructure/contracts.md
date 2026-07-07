@@ -26,7 +26,7 @@ In order for the `doctrine`'s infrastructure system to work, certain core servic
 
 ### Health Checks
 
-In order to pass staging tests, all hosted core services (e.g. `backend`, `web`, `worker`) must provide health checks, reachable from the open web. Not all core services are actually reachable, so those that are must expose the health checks of those that can't.
+In order to pass staging tests, all hosted core services (e.g. `backend`, `web`, `worker`) must provide health checks, reachable from the open web. Not all core services are actually reachable, so those that are must expose the health checks of those that aren't.
 
 The pattern used is pretty simple - all core services on the `web` network must expose:
 `/health` - A route which returns the health of the service as {version: "x.x.x"}.

@@ -12,7 +12,7 @@ A secret is any relatively small piece of information that is used by our infras
 
 ### Secret Information Flow
 
-The fundamental idea is that secrets originate and live on the developer's machine. They are used natively when docker builds the `dev` and `test` environments and are pushed from the developer's machine to `stage` and `production` during the [release process](./cicd.md#release-step).
+The fundamental idea is that secrets originate and live on the developer's machine. They are used natively when docker builds the `dev` and `test` environments and are pushed from the developer's machine to `stage` and `prod` during the [release process](./cicd.md#release-step).
 
 The `$pr/infra/secrets` folder constitutes the source of truth for all environments across a project. Each environment's secrets are stored in the form of environmental variables in `$pr/infra/secrets/${env}.env` files. Our CI/CD processes ensure that they are always injected into infrastructure properly.
 

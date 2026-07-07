@@ -127,7 +127,7 @@ Consistent naming and tagging conventions are employed wherever possible to ensu
 
 #### Fixed Foundation
 
-For `fixed`-foundation infrastructure resources, there are no tags. Naming standards to:
+For `fixed`-foundation infrastructure resources, there are no tags. Naming standards are:
 1. Docker networks: `${project_name}-${env_name}-${network_definition_name}`
 2. Docker containers `${project}-${env}-${service}`
 
@@ -162,7 +162,7 @@ envinfra_tags:
 + `Name`: "${project}_${env}_${service}"
 
 Notes on certain tags:
-+ `shape_name` - The name from the [shape table](./shape.md#elastic-foundation) for elastic resources. If no shape name apply, set to `etc`.
++ `shape_name` - The name from the [shape table](./shape.md#elastic-foundation) for elastic resources. If no shape name applies, set to `etc`.
 + `descriptor` - A looser descriptor for this resource. Use AWS abbreviations when possible e.g. ALB, IGW, etc. Not required, but useful for differentiating especially pre- and projinfra resources that belong to the same "shape name" from each other.
 + `Name` - Redundant; present only for AWS console ergonomics.
 
@@ -291,7 +291,7 @@ Furthermore, if Service A references Service B's information via magic ref, then
 
 ### Reverse Proxy
 
-Elastic foundations have two options for the reverse proxy resource - ALB for projects which require robust availability and ingress and an EC2 traefik instance for those which don't. ALB's cost substantially more than an EC2 instance doing the equivalent task. The EC2 instance can be backed with a regular Public IP or an Elastic IP. Public IP's will inevitably lead to some downtime if they change, but an infinite number of them are available, so both options are available.
+Elastic foundations have two options for the reverse proxy resource - ALB for projects which require robust availability and ingress and an EC2 traefik instance for those which don't. ALBs cost substantially more than an EC2 instance doing the equivalent task. The EC2 instance can be backed with a regular Public IP or an Elastic IP. Public IPs will inevitably lead to some downtime if they change, but an infinite number of them are available, so both options are available.
 
 
 This selection is defined with the `reverse_proxy` field. It can be:
@@ -309,7 +309,7 @@ The compiler is bundled into `docex` as a command e.g. `./bin/docex compile`.
 
 In order to simplify down the massive complexities of infrastructure, we make some simplifications:
 1. `elastic` foundations only use AWS as a provider and only use one region: "us-east-1".
-2. `elastic` foundations use "us-east-1a" as the primary AZ. We sometimes include a second AZ if required by AWS (e.g. for ALB's), but we avoid placing service containers in it [in practice](./reasoning/ingress_and_egress.md#elastic-azs).
+2. `elastic` foundations use "us-east-1a" as the primary AZ. We sometimes include a second AZ if required by AWS (e.g. for ALBs), but we avoid placing service containers in it [in practice](./reasoning/ingress_and_egress.md#elastic-azs).
 
 ### Shape Assumption and Declaration
 
@@ -329,7 +329,7 @@ Furthermore, the compiler documents all its derived infrastructure configuration
 
 In order to translate provider-agnostic CICL definitions into the specifics needed to actually construct or provision infrastructure, the compiler requires 'transfer tables'. These concretely define how we will actually implement different infrastructure roles.
 
-For example, many software projects need a relational database. The transfer tables will define `object_store` as a role and list the engines that are available for each foundation e.g. 'minio' for `fixed` and 'S3' for `elastic`. Each engine-foundation combination will contain detailed instructions on how to configure that combination with the relevant tools. These instructions are what allow automatic translation from something like `versioning: true` to `aws_s3_bucket_versioning` resource configuration.
+For example, many software projects need object storage. The transfer tables will define `object_store` as a role and list the engines that are available for each foundation e.g. 'minio' for `fixed` and 'S3' for `elastic`. Each engine-foundation combination will contain detailed instructions on how to configure that combination with the relevant tools. These instructions are what allow automatic translation from something like `versioning: true` to `aws_s3_bucket_versioning` resource configuration.
 
 These tables are formatted in plain YAML. The `doctrine` maintains transfer tables which ought to cover most cases. To provide flexibility, projects can also provide their own project-specific transfer tables in the `infra/transfer_tables` folder. These will be deep merged with the `doctrine` ones when the compiler runs. However, **care should be taken** when choosing design that calls upon this additional complexity. Most projects won't need it.
 
@@ -360,7 +360,7 @@ infra/output/<env>/
 	main.tf
 ```
 
-A single env `main.tf` contains the env-tier resources: provider config, state backend reference, networks (security groups), ECS, backing services, env-specific DNS records, ALB listener rules / EC2-traefik SSM config updates. OpenTofu does not require splitting, and a single file is simpler to read and review. Each env reads project-tier outputs (zone, certs, ALB/EC2-traefik ARNs, ECR repos, task-execution role) via `data "terraform_remote_state" "project"`.
+A single env `main.tf` contains the env-tier resources: provider config, state backend reference, networks (security groups), ECS, backing services, env-specific DNS records, and the reverse-proxy routing wiring — ALB listener rules + target groups on the `alb` path, or `traefik.*` `dockerLabels` on each `web`-service's task definition on the `ec2_traefik_*` path (discovered by the instance's traefik ECS provider). OpenTofu does not require splitting, and a single file is simpler to read and review. Each env reads project-tier outputs (zone, certs, ALB/EC2-traefik ARNs, ECR repos, task-execution role) via `data "terraform_remote_state" "project"`.
 
 **Project-tier output** (one subdirectory per side). Project-tier resources are sided per [`projinfra/projinfra.md`](./specifics/projinfra/projinfra.md), so output is split too:
 

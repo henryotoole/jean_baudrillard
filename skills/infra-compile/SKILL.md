@@ -25,6 +25,8 @@ How the compiler turns CICL into provider-ready output. **Read on demand.**
 
 [`networks.md`](../../doctrine/infrastructure/specifics/networks.md) — how a service's `networks:` list becomes docker attachment (fixed) or security-group membership (elastic). Shared with `network-design`.
 
+[`scheduler.md`](../../doctrine/infrastructure/specifics/scheduler.md) — the `scheduler` role: 5-field cron authoring, per-foundation translation (Ofelia on fixed, EventBridge Scheduler → ECS `RunTask` on elastic), and env/secret delivery to one-off jobs. Read when adding a cron-style scheduled service.
+
 ## Thread
 
 - Writing project-local transfer tables (the former `docex-transfer-table` activity, now folded here) goes in `infra/transfer_tables/`.

@@ -90,7 +90,7 @@ This backend is the endpoint of all signals. It indexes and stores them, and mak
 
 The preferred observability backend of the doctrine is HyperDX. This software is available both as a managed cloud service and in self-hosted form. The general plan for this backend is to start all projects off aimed at a self-hosted HyperDX server. This backend is prerequisite infrastructure and therefore maintained outside of project scope for many different projects. This self-hosted HyperDX is cheap and simple, but will suffer occasional downtime and outages.
 
-Any project which begins to see heavy use and scale in production should get switched over to a paid, managed cloud service HyperDX instance. This serves the dual purpose of removing heavy load from our small, self-hosted instance and provides profitable projects with appropriate telemetry reliability. The switch from self-hosted to managed HyperDX is a project-level choice and will ultimately be made by the human operator (although the LLM agent is welcome to suggest it).
+Any project which begins to see heavy use and scale in production should get switched over to a paid, managed cloud service HyperDX instance. This serves the dual purpose of removing heavy load from our small, self-hosted instance and providing profitable projects with appropriate telemetry reliability. The switch from self-hosted to managed HyperDX is a project-level choice and will ultimately be made by the human operator (although the LLM agent is welcome to suggest it).
 
 ### Authentication
 

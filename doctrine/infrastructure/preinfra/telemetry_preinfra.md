@@ -4,7 +4,7 @@ stratum: conditional
 
 # Telemetry Infrastructure Maintenance
 
-This document goes over the standards and practices needed by the LLM agent or operator to setup and maintain the prerequisite portion of doctrine-prescribed telemetry infrastructure. This is entirely out of the scope of a specific project.
+This document goes over the standards and practices needed by the LLM agent or operator to set up and maintain the prerequisite portion of doctrine-prescribed telemetry infrastructure. This is entirely out of the scope of a specific project.
 
 The only prerequisite infrastructure component is the [observability backend](../telemetry.md#observability-backend). This can either be self-hosted or a paid, managed cloud service. This guide is only concerned with the self-hosted version as the cloud service is maintained by a third party.
 
@@ -12,9 +12,9 @@ The only prerequisite infrastructure component is the [observability backend](..
 
 The shape of the self-hosted HyperDX is pretty similar whether on fixed or elastic. The main difference is whether HyperDX is built on an EC2 instance or a `fixed` server.
 
-`fixed`: A dedicated directory is chosen on the main fixed server. The HyperDX directory is cloned into it and run as a stack of containers with docker-compose. Per [fixed_master_network.md § Adding Preinfra To Machine](./fixed_master_network.md#adding-preinfra-to-machine), HyperDX is treated as its own "project" — alongside the HyperDX stack, a dedicated `traefik` container is brought up that joins HyperDX's internal network and the host's `docex-ingress` bridge network. The host's HAProxy `web_demux` routes inbound 443/80 traffic to that traefik by SNI/Host header; the traefik terminates TLS and forwards to HyperDX. Data is stored onto mounted volumes.
+`fixed`: A dedicated directory is chosen on the main fixed server. The HyperDX directory is cloned into it and run as a stack of containers with docker-compose. Per [fixed_master_network.md § Adding Preinfra To Machine](./fixed_master_network.md#adding-preinfra-to-machine), HyperDX is treated as its own "project" — alongside the HyperDX stack, a dedicated `traefik` container is brought up that joins HyperDX's internal network and the host's `docex-ingress` bridge network. The host's HAProxy `web_demux` routes inbound 443/80 traffic to that traefik by SNI/Host header; the traefik terminates TLS and forwards to HyperDX. Data is stored on mounted volumes.
 
-`elastic`: An EC2 instance with sufficient performance is requisitioned and exposed to the internet with an Elastic IP. The HyperDX directory is cloned into it and run as a stack of containers with docker-compose. A dedicated traefik compose container is brought up alongside HyperDX, binds the instance's 80/443 ports directly, and handles SSL termination and routing. Data is stored onto mounted volumes, which themselves are backed by EBS storage.
+`elastic`: An EC2 instance with sufficient performance is requisitioned and exposed to the internet with an Elastic IP. The HyperDX directory is cloned into it and run as a stack of containers with docker-compose. A dedicated traefik compose container is brought up alongside HyperDX, binds the instance's 80/443 ports directly, and handles SSL termination and routing. Data is stored on mounted volumes, which themselves are backed by EBS storage.
 
 ### Common
 
@@ -136,7 +136,7 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
 
 #### DNS
 
-The base domain used for HyperDX will depend on both *what* and *which* infrastructure foundation is used. Elastic-foundation projects that share a single AWS account will all use the same HyperDX instance and domain. However, this doctrine is used for many projects across many different AWS accounts. The base domain used for the instance will depend on this operating circumstance and can not be deterministically chosen in advance. Always ask the operator what base domain to use when setting this up.
+The base domain used for HyperDX will depend on both which infrastructure foundation is used and the AWS account structure (if elastic). Elastic-foundation projects that share a single AWS account will all use the same HyperDX instance and domain. However, this doctrine is used for many projects across many different AWS accounts. The base domain used for the instance will depend on this operating circumstance and can not be deterministically chosen in advance. Always ask the operator what base domain to use when setting this up.
 
 We can, however, specify that all HyperDX traffic go through a consistent *subdomain*: `hyperdx`.
 
@@ -190,7 +190,7 @@ If all four pass, the instance is ready for project sidecars to connect.
 
 ### Fixed
 
-The following describes how to setup HyperDX in fixed-foundation projects.
+The following describes how to set up HyperDX in fixed-foundation projects.
 
 1. **Choose Base Directory** for the HyperDX instance to live in. Default is `/opt/docex-preinfra/hyperdx`.
 
@@ -198,7 +198,7 @@ The following describes how to setup HyperDX in fixed-foundation projects.
 
 3. **Confirm host preinfra is in place.** The host's HAProxy `web_demux` and the `docex-ingress` bridge network must already exist on this machine (per [fixed_master_network.md](./fixed_master_network.md)). HyperDX's dedicated traefik joins `docex-ingress` and depends on HAProxy to receive inbound traffic; if either is missing, set it up before continuing.
 
-4. **Setup HyperDX's dedicated traefik.** HyperDX is treated as its own project (per [fixed_master_network.md § Adding Preinfra To Machine](./fixed_master_network.md#adding-preinfra-to-machine)), so it gets its own traefik container — distinct from any project's traefik on the same machine. The traefik does NOT bind host ports (HAProxy already owns 80/443 on the host); it only joins `docex-ingress`, where HAProxy reaches it by SNI/Host header.
+4. **Set up HyperDX's dedicated traefik.** HyperDX is treated as its own project (per [fixed_master_network.md § Adding Preinfra To Machine](./fixed_master_network.md#adding-preinfra-to-machine)), so it gets its own traefik container — distinct from any project's traefik on the same machine. The traefik does NOT bind host ports (HAProxy already owns 80/443 on the host); it only joins `docex-ingress`, where HAProxy reaches it by SNI/Host header.
 
    1. Create the external `hyperdx-internal` docker network HyperDX and its traefik will share:
 
@@ -287,17 +287,17 @@ The following describes how to setup HyperDX in fixed-foundation projects.
 
       Expect a `308 Permanent Redirect` to `https://hyperdx.${base_domain}/` — the `web` entrypoint config from step 4.4 redirects all HTTP traffic to HTTPS unconditionally, before any routing happens, so the redirect itself proves both that HAProxy is forwarding to this traefik and that traefik is reachable. A connection error means DNS hasn't propagated, HAProxy isn't routing here (no SNI/Host match), or traefik didn't start.
 
-5. **Setup HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `hyperdx-internal` network created in step 4.1.
+5. **Set up HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `hyperdx-internal` network created in step 4.1.
 
 6. **Test Reachability.** Follow the [common verification procedure](#verifying-reachability).
 
 ### Elastic
 
-The following describes how to setup HyperDX for elastic-foundation projects.
+The following describes how to set up HyperDX for elastic-foundation projects.
 
-1. **Double check that there's not already an EC2 instance setup that does this.** The easiest way is to look for an instance carrying the observability-backend preinfra tags — `shape_name=observability_backend` and `managed_by=doctrine-operator`. If a HyperDX instance has already been setup, don't create a redundant duplicate! Alert the operator and await instruction.
+1. **Double check that there's not already an EC2 instance set up that does this.** The easiest way is to look for an instance carrying the observability-backend preinfra tags — `shape_name=observability_backend` and `managed_by=doctrine-operator`. If a HyperDX instance has already been set up, don't create a redundant duplicate! Alert the operator and await instruction.
 
-2. **Requisition the server.** An EC2 instance (4GB RAM or more: `t3a.medium`) is needed with the current stable release of Ubuntu Server and an elastic IP assigned to it. The instance should be setup to be accessed via SSH so that developers have terminal access. Docker and Docker Compose shall be installed on it.
+2. **Requisition the server.** An EC2 instance (4GB RAM or more: `t3a.medium`) is needed with the current stable release of Ubuntu Server and an elastic IP assigned to it. The instance should be set up to be accessed via SSH so that developers have terminal access. Docker and Docker Compose shall be installed on it.
 
    The instance should be backed with 100GB of general purpose EBS storage. Currently this is `gp3` on AWS.
 
@@ -312,7 +312,7 @@ The following describes how to setup HyperDX for elastic-foundation projects.
 
 3. **Route DNS.** Use Route53 to route `hyperdx.${base_domain}` to the EC2 instance's elastic IP. A single `A` record is sufficient.
 
-4. **Setup Traefik.** As on fixed, HyperDX needs its own dedicated traefik to handle SSL termination and routing — the difference is that on elastic this traefik binds the EC2 instance's 80/443 ports directly (no HAProxy in front, no `docex-ingress` bridge). Procedure:
+4. **Set up Traefik.** As on fixed, HyperDX needs its own dedicated traefik to handle SSL termination and routing — the difference is that on elastic this traefik binds the EC2 instance's 80/443 ports directly (no HAProxy in front, no `docex-ingress` bridge). Procedure:
 
    1. Create the external `hyperdx-internal` docker network that traefik and HyperDX will share:
 
@@ -320,9 +320,9 @@ The following describes how to setup HyperDX for elastic-foundation projects.
       docker network create hyperdx-internal
       ```
 
-   2. Make a directory at `~/traefik` on the EC2 instance.
+   2. Make a directory at `/opt/docex-preinfra/hyperdx/traefik` on the EC2 instance — preinfra always lives under `/opt/docex-preinfra` (see [preinfra.md § Install Location](./preinfra.md#install-location)), and the HyperDX clone itself will sit beside it at `/opt/docex-preinfra/hyperdx`.
 
-   3. Create `~/traefik/docker-compose.yml`:
+   3. Create `/opt/docex-preinfra/hyperdx/traefik/docker-compose.yml`:
 
       ```yaml
       services:
@@ -345,7 +345,7 @@ The following describes how to setup HyperDX for elastic-foundation projects.
           external: true
       ```
 
-   4. Create `~/traefik/traefik.yml`:
+   4. Create `/opt/docex-preinfra/hyperdx/traefik/traefik.yml`:
 
       ```yaml
       entryPoints:
@@ -378,7 +378,7 @@ The following describes how to setup HyperDX for elastic-foundation projects.
    5. Create an empty `acme.json` with restricted permissions:
 
       ```bash
-      touch ~/traefik/acme.json && chmod 600 ~/traefik/acme.json
+      touch /opt/docex-preinfra/hyperdx/traefik/acme.json && chmod 600 /opt/docex-preinfra/hyperdx/traefik/acme.json
       ```
 
       Traefik refuses to write certificate data to a file with looser permissions.
@@ -386,7 +386,7 @@ The following describes how to setup HyperDX for elastic-foundation projects.
    6. Bring up traefik:
 
       ```bash
-      cd ~/traefik && docker compose up -d
+      cd /opt/docex-preinfra/hyperdx/traefik && docker compose up -d
       ```
 
    7. Verify traefik is up by curling its HTTP entrypoint:
@@ -397,6 +397,6 @@ The following describes how to setup HyperDX for elastic-foundation projects.
 
       Expect a `308 Permanent Redirect` to `https://hyperdx.${base_domain}/` — the `web` entrypoint config from step 4.4 redirects all HTTP traffic to HTTPS unconditionally, before any routing happens, so the redirect itself is what proves traefik is reachable even with no service registered yet. A connection error means DNS hasn't propagated, the security group is closed, or traefik didn't start. (A `404` would only appear via HTTPS once a `Host` rule fails to match — not relevant at this step.)
 
-5. **Setup HyperDX.** Follow the [common instructions](#hyperdx-installation). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `hyperdx-internal` network created in step 4.1.
+5. **Set up HyperDX.** Follow the [common instructions](#hyperdx-installation), cloning HyperDX into `/opt/docex-preinfra/hyperdx` (sibling to the traefik directory from step 4.2). The traefik instance HyperDX integrates with is the dedicated one from step 4, attached to the same external `hyperdx-internal` network created in step 4.1.
 
 6. **Test Reachability.** Follow the [common verification procedure](#verifying-reachability).

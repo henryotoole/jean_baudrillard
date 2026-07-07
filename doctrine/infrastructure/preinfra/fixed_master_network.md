@@ -21,7 +21,7 @@ The `web_demux` can infer routing target entirely from the domain of the request
 2. `<env>.<project_name>.<apex_domain>`
 3. `<project_name>.<apex_domain>`
 
-All of the above domains should be routed to the correct project traefik instance, which is the same for all three forms. HAProxy must determine project name; this is easy to do with simple string parsing as long as valid TLD's are known from a public suffix list. Once the TLD is removed from the domain (e.g. `dev.myproject.example.com` -> `dev.myproject.example`), project name can be found by splitting string with ".":
+All of the above domains should be routed to the correct project traefik instance, which is the same for all three forms. HAProxy must determine project name; this is easy to do with simple string parsing as long as valid TLDs are known from a public suffix list. Once the TLD is removed from the domain (e.g. `dev.myproject.example.com` -> `dev.myproject.example`), the project name can be found by splitting the string on ".":
 ```py
 project_name = domain_str_without_tld.split('.')[-2]
 ```
