@@ -15,6 +15,7 @@ from docex.cicl.categories import (
     Category,
     SourceKeyCategories,
     classify_source_keys,
+    config_manifest,
     minted_policies,
     secret_manifest,
 )
@@ -207,3 +208,39 @@ core_services:
     # `api` sorts before `worker`, so the first declaration wins.
     assert shared[0].source == "api"
     assert shared[0].desc == "shared across services"
+
+
+# ---------------------------------------------------------------------------
+# config_manifest — core-service-declared config keys only.
+# ---------------------------------------------------------------------------
+
+
+def test_config_manifest_yields_declared_config_with_service_source():
+    manifest = config_manifest(_doc(_MIXED), _tables())
+    by_key = {e.key: e for e in manifest}
+    # Only the core-declared config key — no doctrine-injected, no backing
+    # engine vars, no secrets.
+    assert set(by_key) == {"PARTNER_URL"}
+    assert by_key["PARTNER_URL"].source == "api"
+    assert by_key["PARTNER_URL"].desc == "Partner API base URL (per-env)"
+
+
+def test_config_manifest_empty_when_no_config_declared():
+    src = """
+cicl_version: "1"
+foundation: fixed
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+core_services:
+  api:
+    role: web
+    networks: [web, internal]
+    port: 8080
+    secrets:
+      STRIPE_KEY: "Stripe secret API key"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+"""
+    assert config_manifest(_doc(src), _tables()) == []

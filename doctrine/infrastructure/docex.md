@@ -127,6 +127,21 @@ Manages the per-environment secrets file `$pr/infra/secrets/<env>.env` without e
 
 All four operate on the local `<env>.env` — secrets are `<env>.env`-canonical on every foundation, so none reach out to SSM or a host.
 
+### `config`
+`./bin/docex config scaffold <env>`
+`./bin/docex config status <env> [--format json]`
+`./bin/docex config set <env> <KEY> [<value>]`
+`./bin/docex config get <env> <KEY>`
+`./bin/docex config copy <src_env> <tgt_env> <KEY>`
+
+Manages the per-environment config file `$pr/infra/config/<env>.env` — declared, **non-secret**, per-env values (e.g. a URL that differs by environment). Same command shape as [`secrets`](#secrets), but with the permission asymmetry inverted, because config values are not secret: this asymmetry *is* the secret/config category boundary made operational. The full model lives in [config_and_secrets.md](./specifics/config_and_secrets.md); this is the command surface.
+
+- **`scaffold`** reconciles the file's key set against the keys declared in each core service's `config:` block (adds missing empty, removes stale, preserves values). Idempotent.
+- **`status`** shows each key's `SET`/`UNSET` state, source, description, **and — unlike `secrets` — its value** (`--format json` includes the value too). Config is not secret, so surfacing it is fine.
+- **`set`** writes one key. It accepts the value as a **positional argument** (as well as `--from-file` / a prompt) — an agent may write config from its own context, since the value isn't secret.
+- **`get`** prints one key's value to stdout. There is deliberately no `secrets get`; `config get` exists precisely because config is readable.
+- **`copy`** is identical to [`secrets copy`](#secrets) — value-blind env→env copy, secrets/config only (**never TTE**), same-side blessed / cross-side warns / unset-source errors / target overwritten — just lower-stakes for non-secret values.
+
 ### `build`
 `./bin/docex build` to refresh `dist/` for all core services in the running dev environment.
 `./bin/docex build <core_service_name>` to refresh a specific core service.

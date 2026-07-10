@@ -43,6 +43,7 @@ _HELP_TEXT: dict[str, str] = {
     "stagetest": "Run staging tests against the deployed stage env.",
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
     "secrets": "Manage per-env secrets (scaffold/status/set/copy) value-blind.",
+    "config": "Manage per-env config (scaffold/status/set/get/copy) values visible.",
 }
 
 
@@ -55,7 +56,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Development", ("build", "test", "migrate")),
     ("Pipeline", ("check", "merge", "containerize", "release",
                   "stagetest", "rollback")),
-    ("Configuration", ("secrets",)),
+    ("Configuration", ("secrets", "config")),
 )
 
 
@@ -714,6 +715,80 @@ def _cmd_secrets(args: list[str]) -> int:
     return 64  # unreachable — argparse requires a valid subcommand
 
 
+def _cmd_config(args: list[str]) -> int:
+    """``docex config <scaffold|status|set|get|copy> ...`` — per-env config
+    management with inverted permissions (config_and_secrets.md § Tooling):
+    ``status``/``get`` show values, ``set`` accepts a positional value, and
+    ``copy`` stays value-blind (lower-stakes)."""
+    _ENVS = ["dev", "test", "stage", "prod"]
+    parser = argparse.ArgumentParser(prog="docex config", add_help=True)
+    sub = parser.add_subparsers(dest="op", required=True)
+
+    p_scaffold = sub.add_parser(
+        "scaffold", help="reconcile <env>.env against the required key set")
+    p_scaffold.add_argument("env", choices=_ENVS)
+
+    p_status = sub.add_parser(
+        "status", help="show SET/UNSET and the value per key")
+    p_status.add_argument("env", choices=_ENVS)
+    p_status.add_argument("--format", default="text", choices=["text", "json"])
+
+    p_set = sub.add_parser(
+        "set", help="set one key's value (positional value, tty, or --from-file)")
+    p_set.add_argument("env", choices=_ENVS)
+    p_set.add_argument("key", help="the config key to set")
+    p_set.add_argument("value", nargs="?", default=None,
+                       help="the value (positional; config is non-secret)")
+    p_set.add_argument("--from-file", default=None,
+                       help="read the value from a file (non-interactive)")
+
+    p_get = sub.add_parser(
+        "get", help="print one key's value")
+    p_get.add_argument("env", choices=_ENVS)
+    p_get.add_argument("key", help="the config key to print")
+
+    p_copy = sub.add_parser(
+        "copy", help="copy a key's value from one env to another")
+    p_copy.add_argument("src_env", choices=_ENVS)
+    p_copy.add_argument("tgt_env", choices=_ENVS)
+    p_copy.add_argument("key", help="the config key to copy")
+
+    ns = parser.parse_args(args)
+
+    from docex.context import load_project_context
+    from docex.secretsmgmt import (
+        CONFIG_POLICY,
+        copy_key,
+        get_key,
+        scaffold,
+        set_key,
+        status,
+    )
+
+    ctx = load_project_context(Path(os.getcwd()))
+    if ctx.infra is None:
+        print(
+            "error: no infra/infra.yml found; `docex config` needs the "
+            "declared key set to reconcile against.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if ns.op == "scaffold":
+        return scaffold(ctx, CONFIG_POLICY, ns.env)
+    if ns.op == "status":
+        return status(ctx, CONFIG_POLICY, ns.env, fmt=ns.format)
+    if ns.op == "set":
+        return set_key(
+            ctx, CONFIG_POLICY, ns.env, ns.key,
+            value=ns.value, from_file=ns.from_file)
+    if ns.op == "get":
+        return get_key(ctx, CONFIG_POLICY, ns.env, ns.key)
+    if ns.op == "copy":
+        return copy_key(ctx, CONFIG_POLICY, ns.src_env, ns.tgt_env, ns.key)
+    return 64  # unreachable — argparse requires a valid subcommand
+
+
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
@@ -745,6 +820,7 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         "rollback": _cmd_rollback,
         # Configuration
         "secrets": _cmd_secrets,
+        "config": _cmd_config,
     }
 
 

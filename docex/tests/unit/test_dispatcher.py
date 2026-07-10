@@ -38,6 +38,9 @@ def test_handler_table_has_new_surface_and_drops_old():
     # New commands present.
     for cmd in ("preinfra", "projinfra", "envinfra"):
         assert cmd in table
+    # Configuration group — both secrets (Mod 083) and config (Mod 084).
+    for cmd in ("secrets", "config"):
+        assert cmd in table
     # Old standalone commands removed.
     for cmd in ("up", "down", "bootstrap"):
         assert cmd not in table

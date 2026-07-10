@@ -16,8 +16,10 @@ from docex.cicl.model import CICLDocument, ProjectManifest
 from docex.cicl.transfer import load_transfer_tables
 from docex.context import ProjectContext
 from docex.secretsmgmt import (
+    CONFIG_POLICY,
     SECRET_POLICY,
     copy_key,
+    get_key,
     scaffold,
     set_key,
     status,
@@ -40,6 +42,8 @@ core_services:
     depends_on: [appdb]
     secrets:
       STRIPE_KEY: "Stripe secret API key"
+    config:
+      PARTNER_URL: "Partner API base URL (per-env)"
     resources:
       cpu: 1.0
       memory: 2GB
@@ -65,6 +69,10 @@ def _ctx(tmp_path) -> ProjectContext:
 
 def _secrets_file(tmp_path, env: str):
     return tmp_path / "infra" / "secrets" / f"{env}.env"
+
+
+def _config_file(tmp_path, env: str):
+    return tmp_path / "infra" / "config" / f"{env}.env"
 
 
 # ---------------------------------------------------------------------------
@@ -256,3 +264,142 @@ def test_set_confirmation_never_echoes_value(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "sk_super_secret" not in captured.out
     assert "sk_super_secret" not in captured.err
+
+
+# ---------------------------------------------------------------------------
+# config — the CONFIG_POLICY inverts the secret permissions
+# (config_and_secrets.md § Tooling): values visible, positional set OK, get
+# prints. copy stays value-blind.
+# ---------------------------------------------------------------------------
+
+
+def test_config_scaffold_writes_config_keys_not_secret_keys(tmp_path):
+    ctx = _ctx(tmp_path)
+    assert scaffold(ctx, CONFIG_POLICY, "dev") == 0
+    from docex.envfile import read_env_file
+    vals = read_env_file(_config_file(tmp_path, "dev"))
+    # The config manifest — PARTNER_URL only, never the secret keys.
+    assert vals == {"PARTNER_URL": ""}
+    assert "STRIPE_KEY" not in vals
+    assert "TELEMETRY_API_KEY" not in vals
+
+
+def test_config_scaffold_preserves_values(tmp_path):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import read_env_file, set_env_key
+    file = _config_file(tmp_path, "dev")
+    set_env_key(file, "PARTNER_URL", "https://partner.dev.example.com")
+    assert scaffold(ctx, CONFIG_POLICY, "dev") == 0
+    assert read_env_file(file)["PARTNER_URL"] == "https://partner.dev.example.com"
+
+
+def test_config_status_shows_value_text(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_config_file(tmp_path, "dev"), "PARTNER_URL", "https://p.example.com")
+    assert status(ctx, CONFIG_POLICY, "dev", fmt="text") == 0
+    out = capsys.readouterr().out
+    assert "PARTNER_URL" in out and "SET" in out
+    # config is non-secret — the value column is shown.
+    assert "https://p.example.com" in out
+
+
+def test_config_status_shows_value_json(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_config_file(tmp_path, "dev"), "PARTNER_URL", "https://p.example.com")
+    assert status(ctx, CONFIG_POLICY, "dev", fmt="json") == 0
+    import json
+    data = json.loads(capsys.readouterr().out)
+    partner = next(d for d in data if d["key"] == "PARTNER_URL")
+    assert partner["state"] == "SET"
+    assert partner["value"] == "https://p.example.com"  # values_visible=True
+
+
+def test_config_set_accepts_positional_value(tmp_path):
+    ctx = _ctx(tmp_path)
+    assert set_key(
+        ctx, CONFIG_POLICY, "dev", "PARTNER_URL",
+        value="https://positional.example.com",
+    ) == 0
+    from docex.envfile import read_env_file
+    assert read_env_file(_config_file(tmp_path, "dev"))["PARTNER_URL"] == (
+        "https://positional.example.com"
+    )
+
+
+def test_config_set_supports_from_file(tmp_path):
+    ctx = _ctx(tmp_path)
+    valfile = tmp_path / "url.txt"
+    valfile.write_text("https://fromfile.example.com\n")
+    assert set_key(
+        ctx, CONFIG_POLICY, "dev", "PARTNER_URL", from_file=str(valfile)
+    ) == 0
+    from docex.envfile import read_env_file
+    assert read_env_file(_config_file(tmp_path, "dev"))["PARTNER_URL"] == (
+        "https://fromfile.example.com"
+    )
+
+
+def test_config_get_prints_value(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_config_file(tmp_path, "dev"), "PARTNER_URL", "https://get.example.com")
+    assert get_key(ctx, CONFIG_POLICY, "dev", "PARTNER_URL") == 0
+    assert capsys.readouterr().out.strip() == "https://get.example.com"
+
+
+def test_config_get_unset_key_errors(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    scaffold(ctx, CONFIG_POLICY, "dev")  # declares PARTNER_URL empty
+    rc = get_key(ctx, CONFIG_POLICY, "dev", "MISSING")
+    assert rc == 1
+    assert "is not set in dev" in capsys.readouterr().err
+
+
+def test_get_refused_for_secret_policy(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_secret_value")
+    rc = get_key(ctx, SECRET_POLICY, "dev", "STRIPE_KEY")
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "not available for secret" in err
+    # The value must never be printed, even on the refusal path.
+    assert "sk_secret_value" not in err
+
+
+def test_config_copy_same_side_sets_target(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import read_env_file, set_env_key
+    set_env_key(_config_file(tmp_path, "dev"), "PARTNER_URL", "https://shared.example.com")
+    assert copy_key(ctx, CONFIG_POLICY, "dev", "test", "PARTNER_URL") == 0
+    assert read_env_file(_config_file(tmp_path, "test"))["PARTNER_URL"] == (
+        "https://shared.example.com"
+    )
+    assert "cross-side" not in capsys.readouterr().err
+
+
+def test_config_copy_cross_side_warns_but_proceeds(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import read_env_file, set_env_key
+    set_env_key(_config_file(tmp_path, "dev"), "PARTNER_URL", "https://dev.example.com")
+    assert copy_key(ctx, CONFIG_POLICY, "dev", "prod", "PARTNER_URL") == 0
+    assert read_env_file(_config_file(tmp_path, "prod"))["PARTNER_URL"] == (
+        "https://dev.example.com"
+    )
+    assert "cross-side" in capsys.readouterr().err
+
+
+def test_config_copy_unset_source_errors(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    rc = copy_key(ctx, CONFIG_POLICY, "dev", "test", "PARTNER_URL")
+    assert rc == 1
+    assert "unset in dev" in capsys.readouterr().err
+
+
+def test_config_copy_refuses_tte_key(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    rc = copy_key(ctx, CONFIG_POLICY, "dev", "test", "POSTGRES_PASSWORD")
+    assert rc == 1
+    assert "TTE key" in capsys.readouterr().err

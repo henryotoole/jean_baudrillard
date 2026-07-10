@@ -30,7 +30,7 @@ _DOCTRINE_INJECTED_SECRET_META: dict[str, tuple[str, str]] = {
 
 
 @dataclass(frozen=True)
-class SecretEntry:
+class ManifestEntry:
     key: str
     desc: str
     source: str   # declaring service name, or "doctrine"
@@ -38,20 +38,20 @@ class SecretEntry:
 
 def secret_manifest(
     doc: CICLDocument, tables: TransferTables
-) -> list[SecretEntry]:
+) -> list[ManifestEntry]:
     """Every required secret: key + description + declaring source. The single
     source of truth for ``example.env``, ``secrets scaffold``, and
     ``secrets status``. Order: doctrine-injected first, then core services
     (sorted), then backing services (sorted). A key shared across services
     keeps its first source + desc (dedup)."""
-    out: list[SecretEntry] = []
+    out: list[ManifestEntry] = []
     seen: set[str] = set()
 
     def add(key: str, desc: str, source: str) -> None:
         if key in seen:
             return
         seen.add(key)
-        out.append(SecretEntry(key, desc, source))
+        out.append(ManifestEntry(key, desc, source))
 
     for key in sorted(DOCTRINE_INJECTED_SECRETS):
         src_meta = _DOCTRINE_INJECTED_SECRET_META.get(key, ("doctrine", ""))
@@ -71,6 +71,25 @@ def secret_manifest(
             for k, spec in (entry.env or {}).items():
                 if spec.kind == "secret":
                     add(k, spec.desc, name)
+    return out
+
+
+def config_manifest(
+    doc: CICLDocument, tables: TransferTables
+) -> list[ManifestEntry]:
+    """Every declared config key: key + description + declaring core service.
+    Config is core-service-declared only — no doctrine-injected, no backing
+    engine vars. Source = the declaring service. (``tables`` is unused but kept
+    for signature symmetry with ``secret_manifest`` so the engine can call
+    either uniformly.)"""
+    out: list[ManifestEntry] = []
+    seen: set[str] = set()
+    for name in sorted(doc.core_services):
+        for k, desc in sorted((doc.core_services[name].config or {}).items()):
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(ManifestEntry(k, desc, name))
     return out
 
 

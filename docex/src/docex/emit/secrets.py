@@ -23,7 +23,7 @@ from itertools import groupby
 from pathlib import Path
 from typing import Mapping
 
-from docex.cicl.categories import SecretEntry, secret_manifest
+from docex.cicl.categories import ManifestEntry, secret_manifest
 from docex.cicl.model import CICLDocument
 from docex.cicl.transfer import TransferTables
 
@@ -44,26 +44,29 @@ def _group_header(source: str, doc: CICLDocument) -> str:
 
 
 def render_manifest_env(
+    entries: list[ManifestEntry],
     doc: CICLDocument,
-    tables: TransferTables,
     *,
     prefix_lines: list[str],
     values: Mapping[str, str],
 ) -> str:
-    """Render the grouped-by-source env text for the secret manifest.
+    """Render the grouped-by-source env text for a manifest.
 
-    ``prefix_lines`` are emitted verbatim (already ``#``-prefixed) at the top.
-    Each key is written as ``KEY=<value>`` using ``values`` (empty string when
-    absent) — example.env passes an empty mapping (keys only); ``secrets
-    scaffold`` passes the reconciled values so the two share one layout."""
+    ``entries`` are the ``ManifestEntry`` rows to render (the caller supplies
+    them — secret or config — so scaffold renders the right category rather
+    than always the secret manifest). ``doc`` is consulted only to build the
+    grouped ``#`` source headers. ``prefix_lines`` are emitted verbatim
+    (already ``#``-prefixed) at the top. Each key is written as ``KEY=<value>``
+    using ``values`` (empty string when absent) — example.env passes an empty
+    mapping (keys only); ``scaffold`` passes the reconciled values so the two
+    share one layout."""
     lines = list(prefix_lines)
-    manifest = secret_manifest(doc, tables)
-    if not manifest:
+    if not entries:
         lines.append("# (no backing services declare runtime env vars)")
         return "\n".join(lines)
-    for source, group in groupby(manifest, key=lambda e: e.source):
+    for source, group in groupby(entries, key=lambda e: e.source):
         lines.append(_group_header(source, doc))
-        entry: SecretEntry
+        entry: ManifestEntry
         for entry in group:
             if entry.desc:
                 lines.append(f"# {entry.desc}")
@@ -82,6 +85,10 @@ def emit_example_env(
         "# `docex secrets scaffold <env>`; never fill values in here.",
         "",
     ]
+    entries = secret_manifest(doc, tables)
     out_path.write_text(
-        render_manifest_env(doc, tables, prefix_lines=prefix, values={})
+        render_manifest_env(
+            entries, doc, prefix_lines=prefix,
+            values={e.key: "" for e in entries},
+        )
     )

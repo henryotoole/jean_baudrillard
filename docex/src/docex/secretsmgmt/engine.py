@@ -23,7 +23,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from docex.cicl.categories import SecretEntry, minted_policies, secret_manifest
+from docex.cicl.categories import (
+    ManifestEntry,
+    config_manifest,
+    minted_policies,
+    secret_manifest,
+)
 from docex.context import ProjectContext
 from docex.emit.secrets import render_manifest_env
 from docex.envfile import read_env_file, set_env_key
@@ -41,6 +46,13 @@ SECRET_POLICY = CategoryPolicy(
     "secret", "secrets", values_visible=False, set_positional_ok=False
 )
 
+# Config inverts the secret permissions: values are visible (status/get show
+# them) and a positional `set` value is accepted. See config_and_secrets.md
+# § Tooling.
+CONFIG_POLICY = CategoryPolicy(
+    "config", "config", values_visible=True, set_positional_ok=True
+)
+
 
 def _side(env: str) -> str:
     """The infrastructure side an env belongs to (config_and_secrets.md)."""
@@ -51,14 +63,13 @@ def _file(ctx: ProjectContext, policy: CategoryPolicy, env: str) -> Path:
     return ctx.project_root / "infra" / policy.subdir / f"{env}.env"
 
 
-def _manifest(ctx: ProjectContext, policy: CategoryPolicy) -> list[SecretEntry]:
-    """The required entries for this category. Secret uses
-    ``secret_manifest``; Mod 084 wires the config manifest here."""
+def _manifest(ctx: ProjectContext, policy: CategoryPolicy) -> list[ManifestEntry]:
+    """The required entries for this category — secret or config."""
     if policy.name == "secret":
         return secret_manifest(ctx.infra, ctx.transfer_tables)
-    raise NotImplementedError(
-        f"no manifest for category {policy.name!r} (Mod 084)"
-    )
+    if policy.name == "config":
+        return config_manifest(ctx.infra, ctx.transfer_tables)
+    raise NotImplementedError(f"no manifest for category {policy.name!r}")
 
 
 def scaffold(ctx: ProjectContext, policy: CategoryPolicy, env: str) -> int:
@@ -86,7 +97,7 @@ def scaffold(ctx: ProjectContext, policy: CategoryPolicy, env: str) -> int:
     file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(
         render_manifest_env(
-            ctx.infra, ctx.transfer_tables,
+            manifest, ctx.infra,
             prefix_lines=prefix, values=new_values,
         )
     )
@@ -124,8 +135,12 @@ def status(
         return 0
 
     width = max((len(r[0]) for r in rows), default=0)
-    for key, state, source, desc, _val in rows:
-        print(f"{key:<{width}}  {state:<5}  [{source}]  {desc}")
+    for key, state, source, desc, val in rows:
+        line = f"{key:<{width}}  {state:<5}  [{source}]  {desc}"
+        # Only config exposes the value; secrets stay value-blind here.
+        if policy.values_visible and val != "":
+            line += f"  = {val}"
+        print(line)
     return 0
 
 
@@ -177,6 +192,27 @@ def set_key(
     # Redacted confirmation — never echo the value (even for config, keep it
     # off the terminal here; `status`/`get` are the read paths).
     print(f"set {key} in {env} ({policy.subdir})")
+    return 0
+
+
+def get_key(
+    ctx: ProjectContext, policy: CategoryPolicy, env: str, key: str
+) -> int:
+    """Print one key's value. Config only — refuses when not
+    ``policy.values_visible`` (secrets have no ``get``; a value never goes to
+    stdout)."""
+    if not policy.values_visible:
+        print(
+            f"error: `get` is not available for {policy.name} "
+            f"(values never printed)",
+            file=sys.stderr,
+        )
+        return 1
+    val = read_env_file(_file(ctx, policy, env)).get(key)
+    if val is None:
+        print(f"error: {key} is not set in {env}", file=sys.stderr)
+        return 1
+    print(val)  # config is non-secret — printing is fine
     return 0
 
 
