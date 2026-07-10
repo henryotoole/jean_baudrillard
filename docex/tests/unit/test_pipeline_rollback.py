@@ -10,9 +10,28 @@ delegation shape; the release machinery itself is covered by
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+
+
+@dataclass
+class _StubSSH:
+    """Minimal in-module ``SSHClient`` stub (avoids importing the shared
+    ``conftest`` fake, which is ambiguous across the repo's two conftests)."""
+
+    capture_out: str = ""
+    capture_rc: int = 0
+    calls: list = field(default_factory=list)
+
+    def run(self, host, key_path, command, *, user="deploy"):
+        self.calls.append(("run", host, str(key_path), command, user))
+        return 0
+
+    def capture(self, host, key_path, command, *, user="deploy"):
+        self.calls.append(("capture", host, str(key_path), command, user))
+        return (self.capture_rc, self.capture_out)
 
 from docex.errors import (
     EnvNotSupported,
@@ -101,6 +120,7 @@ def _invoke(
     env="prod",
     target_version="0.0.5",
     dry_run=False,
+    ssh=None,
 ):
     return run_rollback(
         ctx,
@@ -113,6 +133,7 @@ def _invoke(
         tofu_init=fake_tofu_init,
         tofu_apply=fake_tofu_apply,
         tofu_plan=fake_tofu_plan,
+        ssh=ssh if ssh is not None else _StubSSH(),
         dry_run=dry_run,
     )
 
@@ -410,6 +431,85 @@ def test_rollback_mirrors_gitignored_creds_into_worktree(
         "the mirror step in run_rollback regressed"
     )
     assert len(fake_ansible.calls) == 1
+
+
+def test_rollback_fixed_mirrors_config_into_worktree(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
+):
+    """Mod 081: the fixed release recompiles + reads ``infra/config/<env>.env``
+    from the worktree, but that file is gitignored so ``git worktree add``
+    does not carry it. ``run_rollback`` must mirror it in alongside the
+    deploy key + secrets. We prove the mirror by having the worktree
+    populator SKIP the config file (as a real worktree would) and asserting
+    a recording ansible runner sees it present at invocation time."""
+    fake_git.clean = True
+    fake_git.branch = "main"
+    fake_git.tags = ["v0.0.5"]
+
+    # Give the source a config file with a sentinel value.
+    from docex.envfile import write_env_file
+    write_env_file(
+        sample_ctx.project_root / "infra" / "config" / "prod.env",
+        {"PARTNER_URL": "https://partner.example"},
+    )
+
+    skip_rel = Path("infra/config") / "prod.env"
+    original_worktree_add = fake_git.worktree_add
+
+    def populating_worktree_add(cwd, path, *, branch=None, ref="HEAD"):
+        rc = original_worktree_add(cwd, path, branch=branch, ref=ref)
+        if rc != 0:
+            return rc
+        src_root = sample_ctx.project_root
+        for src_path in src_root.rglob("*"):
+            if src_path.is_dir():
+                continue
+            rel = src_path.relative_to(src_root)
+            if rel.parts[0] == ".docex" or rel == skip_rel:
+                continue
+            dst = Path(path) / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, dst)
+        return rc
+
+    fake_git.worktree_add = populating_worktree_add  # type: ignore[method-assign]
+
+    seen: dict[str, bool] = {}
+
+    def recording_runner(playbook, inventory, **kwargs):
+        # playbook == <worktree>/infra/output/prod/playbook.yml
+        worktree_root = Path(playbook).parents[3]
+        seen["config_present"] = (
+            worktree_root / "infra" / "config" / "prod.env"
+        ).is_file()
+        return 0
+
+    rc = _invoke(
+        sample_ctx, fake_git, fake_docker, fake_aws, recording_runner,
+        fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+    )
+    assert rc == 0
+    assert seen.get("config_present") is True, (
+        "run_rollback did not mirror infra/config/<env>.env into the worktree"
+    )
+
+
+def test_rollback_fixed_threads_ssh_to_release(
+    worktree_populator, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
+):
+    """The injected SSH client reaches the fixed release path: the host TTE
+    store is read via ``capture`` during rollback (host-authoritative)."""
+    ctx, fake_git = worktree_populator
+    ssh = _StubSSH(capture_out="POSTGRES_PASSWORD=live\n")
+    rc = _invoke(
+        ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+        fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        ssh=ssh,
+    )
+    assert rc == 0
+    assert any(c[0] == "capture" and "tte.env" in c[3] for c in ssh.calls)
 
 
 def test_rollback_elastic_still_pushes_ssm(

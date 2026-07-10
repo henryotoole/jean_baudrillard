@@ -80,6 +80,51 @@ def test_playbook_migration_uses_compose_run(tmp_path: Path):
     assert cmd == "docker compose run --rm sample-stage-api /service/migrate.sh", cmd
 
 
+def _find_task(root: Path, env: str, name: str) -> dict:
+    doc = _playbook_doc(root, env)
+    for task in doc[0]["tasks"]:
+        if task.get("name") == name:
+            return task
+    raise AssertionError(
+        f"no task named {name!r} in {env} playbook; "
+        f"got {[t.get('name') for t in doc[0]['tasks']]}"
+    )
+
+
+def test_playbook_renders_env_from_aggregate(tmp_path: Path):
+    """Mod 081: the '.env' copy task sources the release aggregate handed in
+    as the ``agg_env_file`` extra-var, not the raw operator secrets file."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    task = _find_task(root, "stage", "Render .env onto host")
+    copy = task["ansible.builtin.copy"]
+    assert copy["src"] == "{{ agg_env_file }}", copy
+    assert copy["dest"].endswith("/.env"), copy
+    # The old raw-secrets src must be gone.
+    content = (root / "infra" / "output" / "stage" / "playbook.yml").read_text()
+    assert "/../../secrets/" not in content, content
+
+
+def test_playbook_has_tte_store_copy_task(tmp_path: Path):
+    """Mod 081: a task renders the staged host-TTE superset onto the host at
+    ``<deploy_root>/tte.env`` from the ``tte_store_file`` extra-var."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    task = _find_task(root, "stage", "Render TTE store onto host")
+    copy = task["ansible.builtin.copy"]
+    assert copy["src"] == "{{ tte_store_file }}", copy
+    assert copy["dest"].endswith("/tte.env"), copy
+    # Neither copy task carries the migrate tag (so `--tags migrate` skips
+    # them and never renders the extra-var paths).
+    assert "migrate" not in (task.get("tags") or [])
+    env_task = _find_task(root, "stage", "Render .env onto host")
+    assert "migrate" not in (env_task.get("tags") or [])
+
+
 def test_playbook_migration_does_not_use_auto_remove(tmp_path: Path):
     """Per mod 003: migration tasks must NOT set auto_remove: true,
     which masks the exit code on failure. The compose-run approach

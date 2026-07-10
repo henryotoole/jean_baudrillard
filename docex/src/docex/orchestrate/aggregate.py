@@ -1,18 +1,29 @@
 """Aggregation — merge the three configurable-value categories into the
 container-facing env just before bring-up. Foundation-dispatched like
-run_migrate. Mod 080 implements dev/test; stage/prod land in Mods 081/082.
+run_migrate. Mod 080 implements dev/test; Mod 081 the fixed stage/prod
+release; elastic stage/prod lands in Mod 082.
 See config_and_secrets.md § Aggregation."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from pathlib import Path
 
 from docex.cicl.categories import minted_policies
 from docex.cicl.generate import generate
 from docex.context import ProjectContext
-from docex.envfile import read_env_file, write_env_file
+from docex.envfile import parse_env_text, read_env_file, write_env_file
 from docex.errors import AggregationError
 
+if TYPE_CHECKING:
+    from docex.ssh.client import SSHClient
+
 _DEV_TEST = ("dev", "test")
+_STAGE_PROD = ("stage", "prod")
+
+# Host layout on a fixed stage/prod machine — the deploy dir the playbook
+# renders into. The persistent TTE store and the runtime aggregate both
+# live here; docex reads the store back over SSH (host-authoritative).
+_HOST_DEPLOY_ROOT = "/opt/{project}/{env}"
 
 
 def _tte_store_path(ctx: ProjectContext, env: str) -> Path:
@@ -29,6 +40,32 @@ def _config_path(ctx: ProjectContext, env: str) -> Path:
 
 def aggregate_path(ctx: ProjectContext, env: str) -> Path:
     return ctx.project_root / ".docex" / "agg" / f"{env}.env"
+
+
+def _staged_tte_path(ctx: ProjectContext, env: str) -> Path:
+    return ctx.project_root / ".docex" / "agg" / f"{env}.tte.env"
+
+
+def _host_for(ctx: ProjectContext, env: str) -> str:
+    from docex.naming import dns_label
+
+    apex = ctx.infra.apex_domain
+    return f"{env}.{dns_label(ctx.project.name)}.{apex}"
+
+
+def _disjoint_union(*sources: tuple[str, dict[str, str]]) -> dict[str, str]:
+    """Merge ordered (name, map) sources, refusing any cross-source key
+    collision. Compile guarantees disjointness (rule 20); this is defensive."""
+    merged: dict[str, str] = {}
+    for _name, src in sources:
+        for k, v in src.items():
+            if k in merged:
+                raise AggregationError(
+                    f"aggregation key collision on {k!r} — should have been "
+                    f"caught at compile; check infra.yml categories."
+                )
+            merged[k] = v
+    return merged
 
 
 def ensure_tte(ctx: ProjectContext, *, env: str) -> dict[str, str]:
@@ -66,16 +103,7 @@ def aggregate(ctx: ProjectContext, *, env: str) -> Path:
     tte = ensure_tte(ctx, env=env)
     secrets = read_env_file(_secrets_path(ctx, env))
     config = read_env_file(_config_path(ctx, env))
-    merged: dict[str, str] = {}
-    for _source_name, src in (("tte", tte), ("secrets", secrets), ("config", config)):
-        for k, v in src.items():
-            if k in merged:
-                # Compile guarantees disjointness (rule 20); defensive only.
-                raise AggregationError(
-                    f"aggregation key collision on {k!r} (env {env}) — should "
-                    f"have been caught at compile; check infra.yml categories."
-                )
-            merged[k] = v
+    merged = _disjoint_union(("tte", tte), ("secrets", secrets), ("config", config))
     out = aggregate_path(ctx, env)
     write_env_file(
         out,
@@ -86,3 +114,68 @@ def aggregate(ctx: ProjectContext, *, env: str) -> Path:
         ],
     )
     return out
+
+
+def ensure_tte_fixed(
+    ctx: ProjectContext, *, env: str, ssh: "SSHClient", key: Path
+) -> dict[str, str]:
+    """fixed stage/prod: the HOST tte.env is authoritative. SSH-capture it,
+    mint only the *missing* minted keys (preserving every host value), and
+    stage the resulting superset to .docex/agg/<env>.tte.env for ansible to
+    render back onto the host. Returns the current minted key->value map.
+
+    WHY host-authoritative: re-minting a key the host already has would lock
+    the host's running containers out of their own credentials on the next
+    release (config_and_secrets.md § authoritative-store rule)."""
+    host = _host_for(ctx, env)
+    remote = _HOST_DEPLOY_ROOT.format(project=ctx.project.name, env=env) + "/tte.env"
+    # ``|| true`` so a not-yet-provisioned store (first release) reads as
+    # empty rather than a non-zero cat; a real connection failure is 255.
+    rc, out = ssh.capture(host, key, f"cat {remote} 2>/dev/null || true")
+    if rc == 255:
+        raise AggregationError(
+            f"cannot reach host {host!r} to read the TTE store (ssh 255)"
+        )
+    existing = parse_env_text(out, source=f"{host}:{remote}")
+    policies = minted_policies(ctx.infra, ctx.transfer_tables)
+    updated = dict(existing)
+    for k, policy in policies.items():
+        if k not in updated:
+            updated[k] = generate(policy)  # impure — never at compile
+    write_env_file(
+        _staged_tte_path(ctx, env),
+        updated,
+        header=[
+            "docex TTE store (host-authoritative superset).",
+            "Rendered to /opt/<project>/<env>/tte.env by the playbook.",
+        ],
+    )
+    # Only currently-declared minted keys go to the aggregate.
+    return {k: updated[k] for k in policies}
+
+
+def aggregate_fixed_prod(
+    ctx: ProjectContext, *, env: str, ssh: "SSHClient", key: Path
+) -> tuple[Path, Path]:
+    """fixed stage/prod: build the runtime aggregate AND stage the host TTE
+    superset. Returns (aggregate_path, staged_tte_path); the caller hands both
+    to ansible to render onto the host (`.env` and `tte.env` respectively)."""
+    if env not in _STAGE_PROD:
+        raise AggregationError(
+            f"aggregate_fixed_prod({env!r}) — fixed release aggregation is "
+            f"stage/prod only; dev/test use aggregate()."
+        )
+    tte = ensure_tte_fixed(ctx, env=env, ssh=ssh, key=key)
+    secrets = read_env_file(_secrets_path(ctx, env))
+    config = read_env_file(_config_path(ctx, env))
+    merged = _disjoint_union(("tte", tte), ("secrets", secrets), ("config", config))
+    out = aggregate_path(ctx, env)
+    write_env_file(
+        out,
+        merged,
+        header=[
+            "Generated by docex aggregation — derived, ephemeral.",
+            "TTE ∪ secrets ∪ config. Do not edit; regenerated every release.",
+        ],
+    )
+    return out, _staged_tte_path(ctx, env)

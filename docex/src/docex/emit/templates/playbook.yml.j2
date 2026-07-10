@@ -23,9 +23,15 @@
         dest: "{{ '{{' }} deploy_root {{ '}}' }}/docker-compose.yml"
         mode: "0640"
 
+    - name: Render TTE store onto host
+      ansible.builtin.copy:
+        src: "{{ '{{' }} tte_store_file {{ '}}' }}"
+        dest: "{{ '{{' }} deploy_root {{ '}}' }}/tte.env"
+        mode: "0600"
+
     - name: Render .env onto host
       ansible.builtin.copy:
-        src: "{{ '{{' }} playbook_dir {{ '}}' }}/../../secrets/{{ env }}.env"
+        src: "{{ '{{' }} agg_env_file {{ '}}' }}"
         dest: "{{ '{{' }} deploy_root {{ '}}' }}/.env"
         mode: "0600"
 

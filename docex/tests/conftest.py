@@ -749,15 +749,26 @@ class FakeSSHClient:
     "sample.example.com": 1}``). Hosts not in the map fall back to
     ``default_exit`` (0). Every invocation is recorded in ``calls`` so
     tests can assert which hosts were (and weren't) probed.
+
+    ``capture`` (mod 081) reads a remote file into docex. It returns
+    ``(capture_rc, capture_out)`` — ``capture_out`` is the canned host
+    ``tte.env`` string (default empty = an unprovisioned first-release
+    store). Every capture is recorded in ``calls`` too.
     """
 
     results: dict[str, int] = field(default_factory=dict)
     default_exit: int = 0
+    capture_out: str = ""
+    capture_rc: int = 0
     calls: list[tuple] = field(default_factory=list)
 
     def run(self, host, key_path, command, *, user="deploy"):
         self.calls.append(("run", host, str(key_path), command, user))
         return self.results.get(host, self.default_exit)
+
+    def capture(self, host, key_path, command, *, user="deploy"):
+        self.calls.append(("capture", host, str(key_path), command, user))
+        return (self.capture_rc, self.capture_out)
 
 
 @pytest.fixture

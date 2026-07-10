@@ -33,3 +33,17 @@ class SSHClient(Protocol):
         ``255`` is SSH's own connection-failure code (host unreachable /
         auth refused)."""
         ...
+
+    def capture(
+        self,
+        host: str,
+        key_path: Path,
+        command: str,
+        *,
+        user: str = "deploy",
+    ) -> tuple[int, str]:
+        """Run ``command`` over SSH and return (exit_code, stdout). stderr
+        inherits (so auth/host-key errors stay visible). Used to read a small
+        remote file (the host TTE store) into docex. 255 = SSH connection
+        failure."""
+        ...

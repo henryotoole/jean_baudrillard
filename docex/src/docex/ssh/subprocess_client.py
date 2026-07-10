@@ -56,3 +56,33 @@ class SubprocessSSHClient:
             # ssh not installed; fatal exit-code shape (mirrors git client).
             return 127
         return res.returncode
+
+    def capture(
+        self,
+        host: str,
+        key_path: Path,
+        command: str,
+        *,
+        user: str = "deploy",
+    ) -> tuple[int, str]:
+        # Same connection flags as ``run`` (see that method for the -o
+        # rationale). Unlike ``run``, stdout is captured so docex can read
+        # a small remote file (the host TTE store); stderr still inherits so
+        # auth / host-key failures stay visible to the operator.
+        args = [
+            self._ssh,
+            "-i", str(key_path),
+            "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=10",
+            f"{user}@{host}",
+            command,
+        ]
+        try:
+            res = subprocess.run(  # noqa: S603
+                args, check=False, stdout=subprocess.PIPE, text=True,
+            )
+        except FileNotFoundError:
+            return (127, "")
+        return (res.returncode, res.stdout or "")

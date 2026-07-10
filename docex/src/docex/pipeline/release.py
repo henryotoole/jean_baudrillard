@@ -28,6 +28,7 @@ from docex.errors import (
 )
 from docex.naming import apply_policy
 from docex.orchestrate._common import ensure_compiled, services_with_schema
+from docex.ssh.client import SSHClient
 
 
 # Type alias for the injected ansible runner (Phase 3, fixed branch).
@@ -46,13 +47,14 @@ def run_release(
     aws: AWSClient | None = None,
     tofu_init: TofuInit | None = None,
     tofu_apply: TofuApply | None = None,
+    ssh: SSHClient | None = None,
 ) -> int:
     """Deploy the containerized build to ``env``. Returns exit code.
 
-    ``ansible_runner`` is required for the fixed-foundation branch;
-    ``aws`` and the tofu runners are required for the elastic branch.
-    The dispatcher always passes all four (some are unused depending
-    on foundation).
+    ``ansible_runner`` (+ ``ssh`` to read the host TTE store) is required
+    for the fixed-foundation branch; ``aws`` and the tofu runners are
+    required for the elastic branch. The dispatcher always passes all of
+    them (some are unused depending on foundation).
     """
     if env in ("dev", "test"):
         raise EnvNotSupported(
@@ -86,14 +88,14 @@ def run_release(
         )
 
     # ---- Fixed-foundation path ---------------------------------------
-    if ansible_runner is None:
+    if ansible_runner is None or ssh is None:
         print(
-            "error: fixed release requires an ansible runner. "
-            "(Internal dispatch bug.)",
+            "error: fixed release requires an ansible runner and an SSH "
+            "client. (Internal dispatch bug.)",
             file=sys.stderr,
         )
         return 1
-    return _release_fixed(ctx, env=env, ansible_runner=ansible_runner)
+    return _release_fixed(ctx, env=env, ansible_runner=ansible_runner, ssh=ssh)
 
 
 def _release_fixed(
@@ -101,6 +103,7 @@ def _release_fixed(
     *,
     env: str,
     ansible_runner: RunPlaybook,
+    ssh: SSHClient,
     skip_migrations: bool = False,
     dry_run: bool = False,
 ) -> int:
@@ -145,6 +148,23 @@ def _release_fixed(
             )
             return 1
 
+    extra_vars: dict[str, str] = {}
+    if not dry_run:
+        # Build the runtime aggregate + host-TTE superset. WHY skip under
+        # dry_run: ``ansible --check`` mutates nothing, so minting into the
+        # host store (impure) and pushing a fresh aggregate would be a real
+        # side effect on a supposedly side-effect-free path (mirrors the
+        # elastic dry-run's no-SSM-push rule).
+        from docex.orchestrate.aggregate import aggregate_fixed_prod
+
+        agg_file, tte_file = aggregate_fixed_prod(
+            ctx, env=env, ssh=ssh, key=private_key
+        )
+        extra_vars = {
+            "agg_env_file": str(agg_file),
+            "tte_store_file": str(tte_file),
+        }
+
     rc = ansible_runner(
         playbook,
         inventory,
@@ -152,6 +172,7 @@ def _release_fixed(
         private_key=private_key,
         skip_tags=["migrate"] if skip_migrations else None,
         check_mode=dry_run,
+        extra_vars=extra_vars or None,
     )
     if rc != 0:
         raise AnsibleRunFailed(

@@ -530,8 +530,9 @@ def _cmd_release(args: list[str]) -> int:
     ctx = load_project_context(Path(os.getcwd()))
     # Thread every transport ``run_release`` may need. The fixed branch
     # ignores ``aws`` / ``tofu_*``; the elastic branch ignores
-    # ``ansible_runner``. The function dispatches on foundation.
+    # ``ansible_runner`` / ``ssh``. The function dispatches on foundation.
     aws = _make_aws_client()
+    ssh = _make_ssh_client()
     return run_release(
         ctx,
         env=ns.env,
@@ -539,6 +540,7 @@ def _cmd_release(args: list[str]) -> int:
         aws=aws,
         tofu_init=tofu_init,
         tofu_apply=tofu_apply,
+        ssh=ssh,
     )
 
 
@@ -580,6 +582,7 @@ def _cmd_rollback(args: list[str]) -> int:
     docker = _require_docker()
     git = _require_git()
     aws = _make_aws_client()
+    ssh = _make_ssh_client()
     return run_rollback(
         ctx,
         env=ns.env,
@@ -591,6 +594,7 @@ def _cmd_rollback(args: list[str]) -> int:
         tofu_init=tofu_init,
         tofu_apply=tofu_apply,
         tofu_plan=tofu_plan,
+        ssh=ssh,
         dry_run=ns.dry_run,
     )
 

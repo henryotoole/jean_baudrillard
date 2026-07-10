@@ -10,11 +10,13 @@ from __future__ import annotations
 import pytest
 
 from docex.errors import EnvNotSupported
-from docex.pipeline.release import run_release
+from docex.pipeline.release import _release_fixed, run_release
 
 
-def test_release_stage_fixed_calls_ansible(sample_ctx, fake_ansible):
-    rc = run_release(sample_ctx, env="stage", ansible_runner=fake_ansible)
+def test_release_stage_fixed_calls_ansible(sample_ctx, fake_ansible, fake_ssh):
+    rc = run_release(
+        sample_ctx, env="stage", ansible_runner=fake_ansible, ssh=fake_ssh,
+    )
     assert rc == 0
     assert len(fake_ansible.calls) == 1
     call = fake_ansible.calls[0]
@@ -27,10 +29,37 @@ def test_release_stage_fixed_calls_ansible(sample_ctx, fake_ansible):
     # use check-mode — those are rollback-only behaviours.
     assert call.get("skip_tags") in (None, [])
     assert call.get("check_mode") is False
+    # Mod 081: the aggregate + host-TTE superset are handed to ansible as
+    # extra-vars pointing at the staged files under .docex/agg/.
+    extra = call.get("extra_vars") or {}
+    assert "infra" not in extra  # sanity: not the raw secrets path
+    assert extra["agg_env_file"].endswith(".docex/agg/stage.env")
+    assert extra["tte_store_file"].endswith(".docex/agg/stage.tte.env")
+    # The host store was read over SSH before minting.
+    assert any(c[0] == "capture" for c in fake_ssh.calls)
 
 
-def test_release_prod_fixed_calls_ansible(sample_ctx, fake_ansible):
-    rc = run_release(sample_ctx, env="prod", ansible_runner=fake_ansible)
+def test_release_fixed_dry_run_does_not_aggregate(sample_ctx, fake_ansible, fake_ssh):
+    """dry_run must be side-effect-free: no host TTE read, no mint, and no
+    aggregate extra-vars handed to ansible (only ``--check`` runs)."""
+    rc = _release_fixed(
+        sample_ctx, env="stage", ansible_runner=fake_ansible, ssh=fake_ssh,
+        dry_run=True,
+    )
+    assert rc == 0
+    # No SSH capture attempted (no host store read → no minting).
+    assert fake_ssh.calls == []
+    call = fake_ansible.calls[0]
+    assert call.get("check_mode") is True
+    assert call.get("extra_vars") in (None, {})
+    # No aggregate file was written under dry-run.
+    assert not (sample_ctx.project_root / ".docex" / "agg" / "stage.env").exists()
+
+
+def test_release_prod_fixed_calls_ansible(sample_ctx, fake_ansible, fake_ssh):
+    rc = run_release(
+        sample_ctx, env="prod", ansible_runner=fake_ansible, ssh=fake_ssh,
+    )
     assert rc == 0
     assert fake_ansible.calls
     assert "infra/output/prod" in str(fake_ansible.calls[0]["playbook"])
@@ -340,13 +369,15 @@ def test_release_elastic_steady_state_aborts_when_targeted_apply_fails(
     assert "ecs_run_task" not in names, names
 
 
-def test_release_rejects_dev_test(sample_ctx, fake_ansible):
+def test_release_rejects_dev_test(sample_ctx, fake_ansible, fake_ssh):
     for env in ("dev", "test"):
         with pytest.raises(EnvNotSupported):
-            run_release(sample_ctx, env=env, ansible_runner=fake_ansible)
+            run_release(
+                sample_ctx, env=env, ansible_runner=fake_ansible, ssh=fake_ssh,
+            )
 
 
-def test_release_surfaces_ansible_failure(sample_ctx):
+def test_release_surfaces_ansible_failure(sample_ctx, fake_ssh):
     """Non-zero ansible exit → AnsibleRunFailed."""
     from docex.errors import AnsibleRunFailed
 
@@ -354,23 +385,33 @@ def test_release_surfaces_ansible_failure(sample_ctx):
         return 9
 
     with pytest.raises(AnsibleRunFailed):
-        run_release(sample_ctx, env="stage", ansible_runner=failing)
+        run_release(sample_ctx, env="stage", ansible_runner=failing, ssh=fake_ssh)
 
 
-def test_release_refuses_when_deploy_key_missing(sample_ctx, fake_ansible, capsys):
+def test_release_refuses_when_deploy_key_missing(
+    sample_ctx, fake_ansible, fake_ssh, capsys
+):
     """Without infra/deploy_creds/<env>, release must refuse before invoking ansible."""
     # Remove the stage deploy key from this temp copy of the fixture.
     (sample_ctx.project_root / "infra" / "deploy_creds" / "stage").unlink()
-    rc = run_release(sample_ctx, env="stage", ansible_runner=fake_ansible)
+    rc = run_release(
+        sample_ctx, env="stage", ansible_runner=fake_ansible, ssh=fake_ssh,
+    )
     assert rc == 1
     err = capsys.readouterr().err
     assert "deploy_creds/stage" in err
     assert fake_ansible.calls == []
+    # Refused before touching the host — no SSH capture attempted.
+    assert fake_ssh.calls == []
 
 
-def test_release_refuses_when_secrets_missing(sample_ctx, fake_ansible, capsys):
+def test_release_refuses_when_secrets_missing(
+    sample_ctx, fake_ansible, fake_ssh, capsys
+):
     """Without infra/secrets/<env>.env, release must refuse."""
     (sample_ctx.project_root / "infra" / "secrets" / "stage.env").unlink()
-    rc = run_release(sample_ctx, env="stage", ansible_runner=fake_ansible)
+    rc = run_release(
+        sample_ctx, env="stage", ansible_runner=fake_ansible, ssh=fake_ssh,
+    )
     assert rc == 1
     assert fake_ansible.calls == []

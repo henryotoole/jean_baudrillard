@@ -33,6 +33,7 @@ from docex.errors import (
 )
 from docex.git.client import GitClient
 from docex.orchestrate._common import core_services
+from docex.ssh.client import SSHClient
 from docex.pipeline._worktree import (
     cleanup_worktree,
     make_temp_branch,
@@ -60,6 +61,7 @@ def run_rollback(
     tofu_init: TofuInit,
     tofu_apply: TofuApply,
     tofu_plan: TofuPlan,
+    ssh: SSHClient,
     dry_run: bool = False,
 ) -> int:
     """Roll ``env`` back to ``target_version``. Returns exit code.
@@ -159,11 +161,17 @@ def run_rollback(
 
         # WHY: the release functions read env-scoped credentials and
         # secrets via worktree_ctx.project_root. Those files
-        # (infra/deploy_creds/<env>, infra/secrets/<env>.env) are
-        # gitignored per doctrine bootstrap defaults, so they don't
-        # follow `git worktree add` — they live only in the operator's
-        # main project tree. Mirror them in before dispatching.
-        for src_rel in (f"infra/deploy_creds/{env}", f"infra/secrets/{env}.env"):
+        # (infra/deploy_creds/<env>, infra/secrets/<env>.env,
+        # infra/config/<env>.env) are gitignored per doctrine bootstrap
+        # defaults, so they don't follow `git worktree add` — they live
+        # only in the operator's main project tree. Mirror them in before
+        # dispatching. (The fixed release also reads the host tte.env, but
+        # that is fetched over SSH from the host, not from the worktree.)
+        for src_rel in (
+            f"infra/deploy_creds/{env}",
+            f"infra/secrets/{env}.env",
+            f"infra/config/{env}.env",
+        ):
             src = project_root / src_rel
             if src.is_file():
                 dst = worktree / src_rel
@@ -186,6 +194,7 @@ def run_rollback(
             worktree_ctx,
             env=env,
             ansible_runner=ansible_runner,
+            ssh=ssh,
             skip_migrations=True,
             dry_run=dry_run,
         )
