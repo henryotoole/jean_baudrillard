@@ -88,6 +88,11 @@ class CoreService(_ServiceBase):
     # tokens). KEY -> human description. Surfaced in example.env and wired into
     # the container as a secret. See cicl.md.
     secrets: dict[str, str] = Field(default_factory=dict)
+    # Declared, non-secret, per-env config values (e.g. a URL that differs by
+    # environment). KEY -> human description. Each key is auto-injected into the
+    # container as an env var of the same name, sourced from infra/config/<env>.env
+    # (a plain SSM String, not SecureString, on elastic). See config_and_secrets.md.
+    config: dict[str, str] = Field(default_factory=dict)
     replicas: int = Field(default=1, ge=1)
     command: str | list[str] | None = None
 

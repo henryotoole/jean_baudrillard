@@ -1,0 +1,137 @@
+"""Mod 078 — the pure source-key classifier (`cicl/categories.py`).
+
+`classify_source_keys` partitions every source key into exactly one of
+TTE / secret / config, from `(infra.yml, transfer tables)` alone. These
+tests exercise the partition itself and the reporting helpers
+(`conflicts`, `category_of`) that later mods (079 validation, 082 push)
+build on. See config_and_secrets.md § The Three Categories.
+"""
+
+from __future__ import annotations
+
+import yaml
+
+from docex.cicl.categories import (
+    Category,
+    SourceKeyCategories,
+    classify_source_keys,
+)
+from docex.cicl.model import CICLDocument
+from docex.cicl.transfer import load_transfer_tables
+
+
+def _doc(src: str) -> CICLDocument:
+    return CICLDocument.model_validate(yaml.safe_load(src))
+
+
+def _tables():
+    return load_transfer_tables(project_root=None)
+
+
+# A postgres backing (POSTGRES_PASSWORD minted -> TTE, POSTGRES_USER fixed ->
+# in no category) plus a core service with one bespoke secret and one config.
+_MIXED = """
+cicl_version: "1"
+foundation: fixed
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+core_services:
+  api:
+    role: web
+    networks: [web, internal]
+    port: 8080
+    depends_on: [appdb]
+    secrets:
+      STRIPE_KEY: "Stripe secret API key"
+    config:
+      PARTNER_URL: "Partner API base URL (per-env)"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+backing_services:
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    port: 5432
+    schema_owned_by: api
+"""
+
+
+def test_mixed_project_partitions_into_three_categories():
+    cats = classify_source_keys(_doc(_MIXED), _tables())
+    # POSTGRES_PASSWORD is minted -> TTE; POSTGRES_USER is fixed -> in none.
+    assert cats.tte == frozenset({"POSTGRES_PASSWORD"})
+    # Bespoke core secret + doctrine-injected TELEMETRY_API_KEY.
+    assert cats.secret == frozenset({"STRIPE_KEY", "TELEMETRY_API_KEY"})
+    assert cats.config == frozenset({"PARTNER_URL"})
+
+
+def test_disjoint_project_has_no_conflicts():
+    cats = classify_source_keys(_doc(_MIXED), _tables())
+    assert cats.conflicts() == {}
+
+
+def test_cross_category_collision_is_reported():
+    # Same key declared as both a secret and a config on the one service.
+    src = _MIXED.replace(
+        "    config:\n      PARTNER_URL:",
+        "    config:\n      STRIPE_KEY: \"colliding key\"\n      PARTNER_URL:",
+    )
+    cats = classify_source_keys(_doc(src), _tables())
+    conflicts = cats.conflicts()
+    assert "STRIPE_KEY" in conflicts
+    assert set(conflicts["STRIPE_KEY"]) == {Category.SECRET, Category.CONFIG}
+
+
+def test_category_of_resolves_each_category_and_unknowns():
+    cats = classify_source_keys(_doc(_MIXED), _tables())
+    assert cats.category_of("POSTGRES_PASSWORD") is Category.TTE
+    assert cats.category_of("STRIPE_KEY") is Category.SECRET
+    assert cats.category_of("PARTNER_URL") is Category.CONFIG
+    assert cats.category_of("NOT_A_KEY") is None
+
+
+def test_two_core_services_sharing_a_secret_dedupe():
+    src = """
+cicl_version: "1"
+foundation: fixed
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+core_services:
+  api:
+    role: web
+    networks: [web, internal]
+    port: 8080
+    secrets:
+      SHARED_KEY: "shared across services"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+  worker:
+    role: web
+    networks: [internal]
+    port: 8081
+    secrets:
+      SHARED_KEY: "shared across services"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+"""
+    cats = classify_source_keys(_doc(src), _tables())
+    # A frozenset dedupes structurally; the assertion also guards conflicts()
+    # from ever seeing the same key twice within one category.
+    assert cats.secret == frozenset({"SHARED_KEY", "TELEMETRY_API_KEY"})
+    assert cats.conflicts() == {}
+
+
+def test_all_keys_is_the_union():
+    cats = SourceKeyCategories(
+        tte=frozenset({"A"}),
+        secret=frozenset({"B"}),
+        config=frozenset({"C"}),
+    )
+    assert cats.all_keys() == frozenset({"A", "B", "C"})

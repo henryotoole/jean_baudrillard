@@ -714,6 +714,13 @@ def compile_env(
             # in example.env. Validation forbids a key in both env and secrets.
             for key in sorted(svc.secrets):
                 env_block[key] = f"$[{key}]"
+            # Core-service `config:` are declared, non-secret, per-env values.
+            # Wired exactly like secrets — a self-referential runtime ref that
+            # the existing secret path delivers (compose ${KEY} / ECS secrets[]).
+            # The value is non-secret (String on elastic); the compiled shape is
+            # identical to a secret. See config_and_secrets.md.
+            for key in sorted(getattr(svc, "config", {}) or {}):
+                env_block[key] = f"$[{key}]"
             # Doctrine-injected: PROJECT_VERSION on every core service.
             # See transfer_tables.md § Per-core-service env (both foundations).
             # Plain string from project.yml — not a magic ref, not a secret.
