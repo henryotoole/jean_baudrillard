@@ -82,6 +82,17 @@ the live engine credential so a mint can't lock out a running database.
   per-service overlap check; rule 20 added for project-wide cross-category
   disjointness; doctrine-injected keys reserved in every category.
 
+### Fixed
+
+- **Fixed projinfra single-host convergence** (mod 087) — the project-tier
+  Compose `--project-name` was per-side (`<project>-projinfra-<side>`), so on a
+  single-machine fixed host `docex projinfra up production` after `up
+  development` collided on the shared traefik `container_name` instead of being
+  the idempotent no-op the doctrine requires (`projinfra.md` §35/§96). The name
+  is now side-independent (`<project>-projinfra`); split-machine fixed is
+  unaffected. Pre-existing since mod 053; surfaced by the 1.5.0 pre-cut fixed
+  smoke walk.
+
 ## [1.4.4] - 2026-07-05
 
 ### Fixed
