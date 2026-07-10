@@ -89,6 +89,14 @@ class MigrationFailed(DocexError):
     """``migrate.sh`` for a service exited non-zero."""
 
 
+class AggregationError(DocexError):
+    """Aggregation (``TTE ∪ secrets ∪ config``) failed.
+
+    Covers an unsupported env for the current mod's aggregation surface
+    and the defensive cross-source key-collision check (rule 20
+    disjointness is guaranteed at compile, so a collision here is a bug)."""
+
+
 # ---------------------------------------------------------------------------
 # Phase 3 — pipeline-layer errors
 # ---------------------------------------------------------------------------

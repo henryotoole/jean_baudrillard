@@ -28,9 +28,9 @@ from docex.orchestrate._common import (
     compose_service_key,
     ensure_compiled,
     env_compose_project,
-    env_file_for,
     services_with_schema,
 )
+from docex.orchestrate.aggregate import aggregate
 
 # Mod 060: single source of truth for the master-VPC identity tags. The
 # migrate RunTask discovers the VPC by the SAME semantic tags the preinfra
@@ -86,7 +86,9 @@ def run_migrate(
 
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, env)
-    env_file = env_file_for(ctx, env)
+    # dev/test migrate is a bring-up site: aggregate so the migration exec
+    # sees the minted TTE credentials the running container was started with.
+    env_file = aggregate(ctx, env=env)
     project_name = env_compose_project(ctx, env)
     schema_owners = services_with_schema(ctx)
     if not schema_owners:

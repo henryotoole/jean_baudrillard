@@ -58,16 +58,16 @@ def compose_file_for(ctx: ProjectContext, env: str) -> Path:
 
 
 def env_file_for(ctx: ProjectContext, env: str) -> Path | None:
-    """Return the path to ``infra/secrets/<env>.env`` if it exists.
-
-    Compose's default behavior is to read ``.env`` next to the compose
-    file, but the doctrine puts secrets under ``infra/secrets/``. We
-    pass that file via ``--env-file`` so ``${VAR}`` substitutions in
-    the compose YAML resolve. Returns None if the file doesn't exist,
-    so compose's behavior degrades to "no substitutions" rather than
-    erroring on a missing path.
+    """The container-facing env file compose reads: the derived aggregate at
+    ``.docex/agg/<env>.env`` (TTE ∪ secrets ∪ config), if it exists. Pure —
+    does NOT build it (that's ``aggregate()``); returns None when absent so
+    teardown / read-only paths degrade gracefully rather than error.
     """
-    candidate = ctx.project_root / "infra" / "secrets" / f"{env}.env"
+    # WHY: local import avoids any import-cycle risk — aggregate.py imports
+    # from categories/generate/envfile, never from _common.
+    from docex.orchestrate.aggregate import aggregate_path
+
+    candidate = aggregate_path(ctx, env)
     return candidate if candidate.is_file() else None
 
 

@@ -24,6 +24,7 @@ non-zero if any failed.
 
 from __future__ import annotations
 
+import shutil
 import socket
 import sys
 import urllib.error
@@ -725,7 +726,8 @@ def run_check(
 
         # 6. Build everything --------------------------------------------
         from docex.cicl.compile import run_compile
-        from docex.orchestrate._common import compose_file_for, env_file_for
+        from docex.orchestrate._common import compose_file_for
+        from docex.orchestrate.aggregate import aggregate
 
         rc = run_compile(worktree_ctx)
         if rc != 0:
@@ -735,12 +737,25 @@ def run_check(
             )
             return rc
 
-        # Secret files are gitignored, so the worktree doesn't have
-        # them — use the MAIN project's env file for variable
-        # substitution. Build doesn't need real values; this just
-        # silences "${VAR} not set" warnings that otherwise drown the
-        # real build output.
-        env_file = env_file_for(ctx, "test")
+        # The configurable-value source files (secrets/config/tte) are
+        # gitignored per doctrine, so `git worktree add` does NOT carry
+        # them — they live only in the operator's main project tree.
+        # Mirror the `test` env's source files in (same pattern rollback.py
+        # uses for gitignored deploy creds), then build the worktree's
+        # aggregate there. The build + test steps below both consume it as
+        # the compose --env-file so `${VAR}` substitutions resolve and the
+        # worktree stack gets its real (minted-in-worktree) TTE values.
+        for src_rel in (
+            "infra/secrets/test.env",
+            "infra/config/test.env",
+            "infra/tte/test.env",
+        ):
+            src = ctx.project_root / src_rel
+            if src.is_file():
+                dst = worktree / src_rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+        env_file = aggregate(worktree_ctx, env="test")
 
         # Override compose's --project-directory to the worktree path
         # so build contexts and bind-mounts resolve against the

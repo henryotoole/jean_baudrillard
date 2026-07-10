@@ -15,6 +15,7 @@ from docex.cicl.categories import (
     Category,
     SourceKeyCategories,
     classify_source_keys,
+    minted_policies,
 )
 from docex.cicl.model import CICLDocument
 from docex.cicl.transfer import load_transfer_tables
@@ -126,6 +127,20 @@ core_services:
     # from ever seeing the same key twice within one category.
     assert cats.secret == frozenset({"SHARED_KEY", "TELEMETRY_API_KEY"})
     assert cats.conflicts() == {}
+
+
+def test_minted_policies_maps_postgres_password_to_password_policy():
+    doc = _doc(_MIXED)
+    tables = _tables()
+    policies = minted_policies(doc, tables)
+    # postgres declares exactly one minted var (POSTGRES_PASSWORD); its
+    # policy is the ``password`` generation policy.
+    assert set(policies) == {"POSTGRES_PASSWORD"}
+    assert policies["POSTGRES_PASSWORD"] is tables.generation_policies.get(
+        "password"
+    )
+    # The minted set matches the TTE category exactly (no drift).
+    assert set(policies) == set(classify_source_keys(doc, tables).tte)
 
 
 def test_all_keys_is_the_union():

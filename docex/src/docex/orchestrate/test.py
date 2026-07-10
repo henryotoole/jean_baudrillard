@@ -27,9 +27,9 @@ from docex.orchestrate._common import (
     core_services,
     ensure_compiled,
     env_compose_project,
-    env_file_for,
     services_with_schema,
 )
+from docex.orchestrate.aggregate import aggregate
 
 
 _TEST_ENV = "test"
@@ -47,11 +47,12 @@ def run_test(
 
     ``project_dir`` and ``env_file_override`` exist for ``docex check``,
     which calls ``run_test`` against an ephemeral worktree whose
-    secret files (gitignored) don't exist on disk. The check pipeline
-    passes the host path of the worktree as ``project_dir`` so compose
-    resolves build contexts and bind-mounts to the worktree, and the
-    main project's ``infra/secrets/test.env`` as ``env_file_override``
-    so compose's ``${VAR}`` substitutions resolve cleanly.
+    configurable-value files (gitignored) don't exist on disk. The check
+    pipeline passes the host path of the worktree as ``project_dir`` so
+    compose resolves build contexts and bind-mounts to the worktree, and
+    the worktree's aggregate (``.docex/agg/test.env``, built after
+    mirroring the source files in) as ``env_file_override`` so compose's
+    ``${VAR}`` substitutions resolve cleanly.
 
     ``project_name`` overrides the compose ``--project-name``; ``docex
     check`` passes a worktree-unique name so its throwaway ``test`` stack
@@ -60,7 +61,15 @@ def run_test(
     """
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, _TEST_ENV)
-    env_file = env_file_override if env_file_override is not None else env_file_for(ctx, _TEST_ENV)
+    # Bring-up site. With no override this builds the test aggregate here;
+    # ``docex check`` passes its own already-built worktree aggregate as the
+    # override (it mirrors the gitignored source files into the worktree and
+    # aggregates there — see pipeline/check.py).
+    env_file = (
+        env_file_override
+        if env_file_override is not None
+        else aggregate(ctx, env=_TEST_ENV)
+    )
     if project_name is None:
         project_name = env_compose_project(ctx, _TEST_ENV)
 

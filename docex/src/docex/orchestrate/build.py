@@ -27,8 +27,8 @@ from docex.orchestrate._common import (
     core_services,
     ensure_compiled,
     env_compose_project,
-    env_file_for,
 )
+from docex.orchestrate.aggregate import aggregate
 
 
 _BUILD_ENV = "dev"
@@ -56,7 +56,9 @@ def run_build(
             "should have created it)."
         )
 
-    env_file = env_file_for(ctx, _BUILD_ENV)
+    # Bring-up site: aggregate so the build exec sees the same env the dev
+    # stack was brought up with (compose interpolation on the running stack).
+    env_file = aggregate(ctx, env=_BUILD_ENV)
     project_name = env_compose_project(ctx, _BUILD_ENV)
     # Verify dev is running by asking compose what services are up.
     running = set(docker.compose_ps(

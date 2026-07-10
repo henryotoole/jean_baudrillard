@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from docex.cicl.generate import GenerationPolicy
 from docex.cicl.model import CICLDocument
 from docex.cicl.transfer import TransferTables
 
@@ -91,3 +92,25 @@ def classify_source_keys(
     return SourceKeyCategories(
         tte=frozenset(tte), secret=frozenset(secret), config=frozenset(config)
     )
+
+
+def minted_policies(
+    doc: CICLDocument, tables: TransferTables
+) -> dict[str, GenerationPolicy]:
+    """minted source key -> its resolved GenerationPolicy. Used by ensure_tte.
+
+    Reuses the same candidate-engine walk as ``classify_source_keys`` so the
+    set of minted keys can never drift from the TTE category.
+    """
+    out: dict[str, GenerationPolicy] = {}
+    for _name, svc in doc.backing_services.items():
+        cands = svc.engine if isinstance(svc.engine, list) else [svc.engine]
+        for cand in cands:
+            try:
+                entry = tables.engine(svc.role, cand)
+            except Exception:
+                continue
+            for var_name, spec in (entry.env or {}).items():
+                if spec.kind == "minted":
+                    out[var_name] = tables.generation_policies.get(spec.policy)
+    return out

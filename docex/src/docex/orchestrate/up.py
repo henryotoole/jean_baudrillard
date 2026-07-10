@@ -24,10 +24,10 @@ from docex.orchestrate._common import (
     core_services,
     ensure_compiled,
     env_compose_project,
-    env_file_for,
     scheduler_services,
     services_with_schema,
 )
+from docex.orchestrate.aggregate import aggregate
 
 
 def _ensure_initial_dev_build(
@@ -175,7 +175,9 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     ensure_compiled(ctx)
 
     compose_file = compose_file_for(ctx, env)
-    env_file = env_file_for(ctx, env)
+    # Bring-up: build the aggregate (TTE ∪ secrets ∪ config), minting the
+    # env's TTE store if absent, and feed it to compose as the --env-file.
+    env_file = aggregate(ctx, env=env)
     project_name = env_compose_project(ctx, env)
 
     # 1a. Dev only: pre-populate the host dist/ for each core service
@@ -211,11 +213,12 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     # Compose interpolates it into any scheduler's ofelia INI `volume`
     # source. A relative source fails at the Docker API (ofelia spawns the
     # job outside Compose). Harmless when the stack has no scheduler.
-    abs_env_file = ctx.project_root / "infra" / "secrets" / f"{env}.env"
+    # Mod 080: this is the aggregate — the scheduler job needs TTE + secrets
+    # + config, not just the raw secrets file (which no longer holds TTE).
     rc = docker.compose_up(
         compose_file, build=True, detach=True, env_file=env_file,
         project_dir=ctx.project_root, project_name=project_name,
-        extra_env={"DOCEX_SECRETS_ENV_FILE": str(abs_env_file)},
+        extra_env={"DOCEX_SECRETS_ENV_FILE": str(env_file)},
     )
     if rc != 0:
         print(

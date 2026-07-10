@@ -48,11 +48,13 @@ def test_up_dev_builds_scheduler_image_from_prod_stage(
 
 
 def test_up_dev_passes_abs_secrets_env_file(scheduler_ctx, fake_docker):
-    """Mod 075: ``up`` passes DOCEX_SECRETS_ENV_FILE (absolute path to the
-    env's .env) to compose_up so Compose can interpolate it into the
-    scheduler's ofelia INI mount source."""
+    """Mod 075/080: ``up`` passes DOCEX_SECRETS_ENV_FILE (absolute path) to
+    compose_up so Compose can interpolate it into the scheduler's ofelia INI
+    mount source. Mod 080: the path is now the derived aggregate
+    (``.docex/agg/<env>.env`` = TTE ∪ secrets ∪ config), not the raw secrets
+    file — the scheduler job needs the minted TTE credentials too."""
     run_up(scheduler_ctx, fake_docker, env="dev")
-    abs_env = str(scheduler_ctx.project_root / "infra" / "secrets" / "dev.env")
+    abs_env = str(scheduler_ctx.project_root / ".docex" / "agg" / "dev.env")
     extra_env_calls = [
         c for c in fake_docker.calls if c[0] == "compose_up_extra_env"
     ]
