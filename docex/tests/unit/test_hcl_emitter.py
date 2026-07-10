@@ -149,17 +149,25 @@ def test_elastic_image_uses_ecr_when_no_registry(compiled_prod_tf: str):
 
 
 def test_elastic_secret_named_by_consumer_key(compiled_prod_tf: str):
-    """Model-A symmetry: a referenced secret part becomes an ECS secret
-    named after the *consumer's* env key (``DATABASE_USER``), with
-    ``valueFrom`` pointing at the underlying secret's SSM path
-    (``POSTGRES_USER``). The app must never receive the engine's bare var
-    name — that would diverge from the fixed/compose side."""
+    """Model-A symmetry: a referenced *minted/secret* part becomes an ECS
+    secret named after the *consumer's* env key (``DATABASE_PASSWORD``),
+    with ``valueFrom`` pointing at the underlying secret's SSM path
+    (``POSTGRES_PASSWORD``). The app must never receive the engine's bare
+    var name — that would diverge from the fixed/compose side.
+
+    Mod 077: a `kind: fixed` part (``POSTGRES_USER`` → ``appuser``) is
+    inlined at compile time, so ``DATABASE_USER`` arrives as a plain
+    ``environment[]`` literal, never a secret, and ``POSTGRES_USER`` never
+    reaches SSM."""
     tf = compiled_prod_tf
+    # DATABASE_USER is an inlined literal, not a secret.
     assert 'name = "DATABASE_USER"' in tf
     assert 'name = "DATABASE_PASSWORD"' in tf
-    # valueFrom carries the engine's canonical SSM key, not the app's name.
-    assert "/prod/POSTGRES_USER" in tf
+    # valueFrom carries the engine's canonical SSM key, not the app's name —
+    # but only for the surviving minted secret POSTGRES_PASSWORD.
     assert "/prod/POSTGRES_PASSWORD" in tf
+    # Mod 077: the fixed POSTGRES_USER is inlined -> no SSM path for it.
+    assert "/prod/POSTGRES_USER" not in tf
     # The engine's bare var name must NOT be a container env/secret name.
     assert 'name = "POSTGRES_USER"' not in tf
     assert 'name = "POSTGRES_PASSWORD"' not in tf
@@ -191,10 +199,12 @@ def test_elastic_rds_password_uses_ssm_data_source(compiled_prod_tf: str):
     assert "data.aws_ssm_parameter.appdb_postgres_password.value" in compiled_prod_tf
 
 
-def test_elastic_rds_username_uses_ssm_data_source(compiled_prod_tf: str):
-    """Same pattern for username."""
-    assert 'data "aws_ssm_parameter" "appdb_postgres_user"' in compiled_prod_tf
-    assert "data.aws_ssm_parameter.appdb_postgres_user.value" in compiled_prod_tf
+def test_elastic_rds_username_is_inlined_literal(compiled_prod_tf: str):
+    """Mod 077: unlike the password, POSTGRES_USER is `kind: fixed`, so the
+    RDS username is inlined to its literal (``appuser``) at compile time and
+    never gets an SSM data source."""
+    assert 'username = "appuser"' in compiled_prod_tf
+    assert 'data "aws_ssm_parameter" "appdb_postgres_user"' not in compiled_prod_tf
 
 
 # ---------------------------------------------------------------------------

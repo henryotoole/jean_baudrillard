@@ -14,8 +14,9 @@
 #     `POSTGRES_PASSWORD` — are translated into a `data "aws_ssm_parameter"`
 #     block referencing /<project>/<env>/POSTGRES_PASSWORD. The release
 #     flow's SSM push step guarantees those parameters exist before tofu
-#     apply. (The `fixed`-inlining emitter change lands in Mod 077; today
-#     the emitter still SSM-sources every `$[…]` token.)
+#     apply. (The fixed-inlining happens in the compiler/resolver — see
+#     cicl/magic_refs.py — so a `fixed` var is already a literal before the
+#     emitter runs; the emitter itself is kind-agnostic.)
 #   - The `host` provides template uses `@aws_db_instance.${name}.address`
 #     (hostname only, no port) so consumers reading
 #     `${backing_services.<db>.host}` can compose `host:port` themselves

@@ -42,6 +42,9 @@ _MAGIC_RE = re.compile(
     r"\$\{(core_services|backing_services)\.([a-zA-Z][a-zA-Z0-9_-]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\}"
 )
 
+# Same shape as substitute._RUNTIME_RE — a ``$[VAR]`` runtime ref.
+_RUNTIME_REF_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
+
 
 @dataclass
 class MagicRefDependency:
@@ -137,6 +140,9 @@ class MagicRefResolver:
             rendered = substitute_string("@" + body, ctx, foundation=self.foundation)
         else:
             rendered = substitute_string(first_pass, ctx, foundation=self.foundation)
+        # Inline this consumer's own kind:fixed env vars to literals. A core
+        # consumer has no fixed vars (no-op); a backing body inlines its engine's.
+        rendered = self._inline_fixed(rendered, self.engines.get(consumer))
         rendered.runtime_refs |= runtime_refs
 
         # Track runtime refs by consumer for dependency propagation.
@@ -178,10 +184,46 @@ class MagicRefResolver:
         # Resolve any magic refs inside the provides template (rare but allowed).
         # We pass through resolve_in_string for the target as consumer.
         if _MAGIC_RE.search(template):
-            return self.resolve_in_string(template, consumer=target)
+            return self._inline_fixed(
+                self.resolve_in_string(template, consumer=target), engine
+            )
 
         # Plain substitution against the *target's* context.
-        return substitute_string(template, target_ctx, foundation=self.foundation)
+        return self._inline_fixed(
+            substitute_string(template, target_ctx, foundation=self.foundation), engine
+        )
+
+    def _inline_fixed(
+        self, rendered: RenderedValue, engine: EngineEntry | None
+    ) -> RenderedValue:
+        """Replace $[VAR] with its literal when ``engine`` declares VAR kind:fixed.
+
+        minted/secret vars are left as runtime refs. Inlined vars are also
+        dropped from ``rendered.runtime_refs`` (they no longer reach the runtime
+        layer). No-op when ``engine`` is None or declares no fixed env vars.
+        """
+        if engine is None or not engine.env:
+            return rendered
+        fixed = {n: s.value for n, s in engine.env.items() if s.kind == "fixed"}
+        if not fixed:
+            return rendered
+        inlined: set[str] = set()
+
+        def repl(m: re.Match[str]) -> str:
+            var = m.group(1)
+            if var in fixed:
+                inlined.add(var)
+                return fixed[var]  # the literal value
+            return m.group(0)  # leave minted/secret refs untouched
+
+        new_value = _RUNTIME_REF_RE.sub(repl, rendered.value)
+        if not inlined:
+            return rendered
+        return RenderedValue(
+            value=new_value,
+            raw_hcl=rendered.raw_hcl,
+            runtime_refs=rendered.runtime_refs - inlined,
+        )
 
 
 def find_magic_refs(template: str) -> list[tuple[str, str, str]]:

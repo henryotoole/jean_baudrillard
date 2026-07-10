@@ -323,11 +323,14 @@ def test_compile_resolves_magic_ref_in_env(tmp_path: Path):
     # host part resolves to the project-scoped service name.
     assert "DATABASE_HOST" in compose
     assert "sample-dev-appdb" in compose
-    # secret parts: compose runtime form uses ${VAR}, never $[VAR].
-    assert "DATABASE_USER" in compose
-    assert "${POSTGRES_USER}" in compose
-    assert "${POSTGRES_PASSWORD}" in compose
+    # Mod 077: the `kind: fixed` POSTGRES_USER is inlined to its literal, so
+    # DATABASE_USER carries `appuser` directly — never a ${POSTGRES_USER} ref.
+    assert "DATABASE_USER: appuser" in compose
+    assert "${POSTGRES_USER}" not in compose
     assert "$[POSTGRES_USER]" not in compose
+    # The minted password still flows as a runtime ref (compose ${VAR} form).
+    assert "${POSTGRES_PASSWORD}" in compose
+    assert "$[POSTGRES_PASSWORD]" not in compose
     # The composed url part is gone entirely.
     assert "DATABASE_URL" not in compose
     assert "postgres://" not in compose
@@ -420,13 +423,18 @@ def test_backing_service_compiled_port_falls_back_to_engine_default(tmp_path: Pa
 
 def test_composed_secret_in_env_fails_compile(tmp_path: Path):
     """Embedding a secret part inside a composed env value violates the
-    parts-only rule and must fail compile (on any foundation)."""
+    parts-only rule and must fail compile (on any foundation).
+
+    Mod 077: the composed value must embed a still-runtime part — the
+    minted ``password`` — because the ``user`` part is now inlined to a
+    fixed literal (``appuser``) and composing a plain literal is not a
+    parts-only violation."""
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
     infra_yml = root / "infra" / "infra.yml"
     text = infra_yml.read_text().replace(
         "      DATABASE_USER: ${backing_services.appdb.user}",
         "      DATABASE_USER: ${backing_services.appdb.user}\n"
-        "      DATABASE_URL: postgres://${backing_services.appdb.user}@h/db",
+        "      DATABASE_URL: postgres://u:${backing_services.appdb.password}@h/db",
     )
     infra_yml.write_text(text)
     ctx = load_project_context(root)

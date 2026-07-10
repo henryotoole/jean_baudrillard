@@ -119,12 +119,15 @@ def test_fixed_ini_env_secret_split(tmp_path: Path):
     )
     # Non-secret: DATABASE_HOST resolves to a literal -> inlined.
     assert "DATABASE_HOST=sample-dev-appdb" in env_lines
-    # Secrets are NOT in any environment line (neither the consumer key nor
-    # the provider var value is inlined).
-    assert "DATABASE_USER" not in env_lines
+    # Mod 077: DATABASE_USER resolves through the postgres `kind: fixed`
+    # POSTGRES_USER, so it is inlined as the literal `appuser` — NOT a secret.
+    assert "DATABASE_USER=appuser" in env_lines
+    # DATABASE_PASSWORD is still a minted secret -> NOT in any environment line
+    # (neither the consumer key nor the provider var value is inlined).
     assert "DATABASE_PASSWORD" not in env_lines
-    assert "POSTGRES_USER" not in env_lines
     assert "POSTGRES_PASSWORD" not in env_lines
+    # The fixed var's provider name never appears; only its literal value does.
+    assert "POSTGRES_USER" not in env_lines
 
 
 def test_fixed_ini_command_reexports_secrets_and_absolute_mount(tmp_path: Path):
@@ -137,7 +140,9 @@ def test_fixed_ini_command_reexports_secrets_and_absolute_mount(tmp_path: Path):
     ini = doc["configs"]["ofelia_nightly_cleanup"]["content"]
     cmd_line = _ini_line(ini, "command = ")
     assert cmd_line.startswith("command = sh -c '. /run/job.env")
-    assert 'export DATABASE_USER="$$POSTGRES_USER"' in cmd_line
+    # Mod 077: DATABASE_USER is now an inlined literal, not a secret, so it is
+    # NOT re-exported. Only the surviving minted secret DATABASE_PASSWORD is.
+    assert "DATABASE_USER" not in cmd_line
     assert 'export DATABASE_PASSWORD="$$POSTGRES_PASSWORD"' in cmd_line
     assert cmd_line.rstrip().endswith("exec python -m jobs.cleanup'")
     # Absolute, runtime-provided mount source — bare gcfg line, not the old

@@ -11,7 +11,7 @@ from docex.cicl.model import (
     CoreService,
     Resources,
 )
-from docex.cicl.transfer import EngineEntry, TransferTables
+from docex.cicl.transfer import EngineEntry, EnvVarSpec, TransferTables
 from docex.errors import SubstitutionError
 
 
@@ -29,9 +29,19 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
             "host": {"fixed": "${global_service_name}", "elastic": "@aws_db_instance.${name}.endpoint"},
             "port": {"fixed": "${port}", "elastic": "${port}"},
             "user": {"fixed": "$[POSTGRES_USER]", "elastic": "$[POSTGRES_USER]"},
+            "password": {"fixed": "$[POSTGRES_PASSWORD]", "elastic": "$[POSTGRES_PASSWORD]"},
             "sslmode": {"fixed": "disable", "elastic": "require"},
         },
-        env={"POSTGRES_USER": "the postgres user"},
+        env={
+            "POSTGRES_USER": EnvVarSpec(
+                name="POSTGRES_USER", kind="fixed", value="appuser",
+                desc="Postgres role name — doctrine-fixed, not a secret.",
+            ),
+            "POSTGRES_PASSWORD": EnvVarSpec(
+                name="POSTGRES_PASSWORD", kind="minted", policy="password",
+                desc="Postgres role password — generated once per env.",
+            ),
+        },
         naming="rds",
     )
     api_engine = EngineEntry(
@@ -117,17 +127,31 @@ def test_resolve_simple_magic_ref():
     assert rendered.value == "p-dev-db"
 
 
-def test_resolve_secret_part_propagates_runtime_ref():
-    """A magic ref to a secret part (whose template is a bare $[VAR])
+def test_resolve_minted_part_propagates_runtime_ref():
+    """A magic ref to a minted part (whose template is a bare $[VAR])
     resolves to that ref and propagates the VAR into the consumer's
     runtime refs, so the compiler can wire it into the container."""
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
+        "${backing_services.db.password}", consumer="api"
+    )
+    assert rendered.value == "$[POSTGRES_PASSWORD]"
+    assert "POSTGRES_PASSWORD" in rendered.runtime_refs
+    assert "POSTGRES_PASSWORD" in resolver.runtime_refs["api"]
+
+
+def test_resolve_fixed_part_inlines_literal():
+    """Mod 077: a magic ref to a `kind: fixed` part (POSTGRES_USER →
+    appuser) is inlined to its literal at compile time and never reaches
+    the runtime layer — so the var is absent from the consumer's
+    runtime refs."""
+    resolver, _ = _make_resolver()
+    rendered = resolver.resolve_in_string(
         "${backing_services.db.user}", consumer="api"
     )
-    assert rendered.value == "$[POSTGRES_USER]"
-    assert "POSTGRES_USER" in rendered.runtime_refs
-    assert "POSTGRES_USER" in resolver.runtime_refs["api"]
+    assert rendered.value == "appuser"
+    assert "POSTGRES_USER" not in rendered.runtime_refs
+    assert "POSTGRES_USER" not in resolver.runtime_refs.get("api", set())
 
 
 def test_magic_ref_hcl_passthrough_on_elastic():

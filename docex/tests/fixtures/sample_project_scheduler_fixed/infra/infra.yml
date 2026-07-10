@@ -30,8 +30,9 @@ core_services:
     env:
       # DATABASE_HOST resolves to a literal -> inlined into the INI.
       DATABASE_HOST: ${backing_services.appdb.host}
-      # DATABASE_USER / _PASSWORD resolve to $[VAR] secrets -> sourced
-      # from the mounted env file, NOT inlined.
+      # DATABASE_USER resolves through postgres' `kind: fixed` POSTGRES_USER,
+      # so it is inlined as the literal `appuser` (mod 077). DATABASE_PASSWORD
+      # resolves to a $[VAR] secret -> sourced from the mounted env file.
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
     resources:
