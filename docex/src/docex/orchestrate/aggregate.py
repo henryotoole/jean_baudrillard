@@ -130,9 +130,15 @@ def ensure_tte_fixed(
     release (config_and_secrets.md § authoritative-store rule)."""
     host = _host_for(ctx, env)
     remote = _HOST_DEPLOY_ROOT.format(project=ctx.project.name, env=env) + "/tte.env"
+    # WHY sudo: the playbook renders tte.env root:root 0600 (become=root), so
+    # the `deploy` SSH user must sudo to read it. A plain `cat` returns
+    # "Permission denied" — which `2>/dev/null` would mask into an empty read,
+    # making docex re-mint every release and clobber the live DB credential (the
+    # exact lockout the authoritative-store rule prevents). `deploy` has
+    # passwordless sudo (release_mechanism.md § Fixed Foundation: Ansible).
     # ``|| true`` so a not-yet-provisioned store (first release) reads as
     # empty rather than a non-zero cat; a real connection failure is 255.
-    rc, out = ssh.capture(host, key, f"cat {remote} 2>/dev/null || true")
+    rc, out = ssh.capture(host, key, f"sudo cat {remote} 2>/dev/null || true")
     if rc == 255:
         raise AggregationError(
             f"cannot reach host {host!r} to read the TTE store (ssh 255)"

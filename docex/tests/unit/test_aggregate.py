@@ -158,6 +158,25 @@ def test_ensure_tte_fixed_mints_when_host_store_empty(tmp_path):
     assert any(c[0] == "capture" and "tte.env" in c[3] for c in ssh.calls)
 
 
+def test_ensure_tte_fixed_reads_host_store_with_sudo(tmp_path):
+    """Mod 089: the host tte.env is rendered root:root 0600 by the playbook,
+    so the `deploy` SSH user must `sudo` to read it. Reading without sudo
+    returns "Permission denied" (masked into an empty read), which would make
+    docex re-mint every release and lock the live DB out of its own credential.
+    Guard that the capture command uses `sudo cat`."""
+    ctx = _postgres_ctx(tmp_path, env="stage")
+    ssh = _fake_ssh(out="POSTGRES_PASSWORD=live\n")
+    key = ctx.project_root / "infra" / "deploy_creds" / "stage"
+
+    ensure_tte_fixed(ctx, env="stage", ssh=ssh, key=key)
+
+    tte_reads = [
+        c for c in ssh.calls if c[0] == "capture" and "tte.env" in c[3]
+    ]
+    assert tte_reads, ssh.calls
+    assert all("sudo cat" in c[3] for c in tte_reads), tte_reads
+
+
 def test_ensure_tte_fixed_preserves_host_value_no_remint(tmp_path):
     ctx = _postgres_ctx(tmp_path, env="stage")
     ssh = _fake_ssh(out="POSTGRES_PASSWORD=live\n")
