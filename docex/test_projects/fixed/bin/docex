@@ -98,6 +98,14 @@ if [[ -S "/var/run/docker.sock" ]]; then
   RUN_FLAGS+=(--group-add "$DOCKER_SOCK_GID")
 fi
 
+# Allocate a tty when the caller has an interactive terminal, so commands that
+# prompt with no echo (e.g. `docex secrets set`) can read a value the operator
+# types. Skipped for non-interactive/piped runs, which must use --from-file.
+# Additive + backward-compatible: an older image tolerates an extra -it.
+if [[ -t 0 && -t 1 ]]; then
+  RUN_FLAGS+=(-t -i)
+fi
+
 # ssh-agent forwarding: when the operator's SSH key only lives in
 # ssh-agent (no key file on disk), mounting ~/.ssh isn't enough — the
 # container needs to reach the agent socket. We forward the host's

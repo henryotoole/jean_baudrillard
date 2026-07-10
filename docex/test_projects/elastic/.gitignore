@@ -43,3 +43,13 @@ venv/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# docex TTE store (generated engine credentials) — never committed
+infra/tte/*
+!infra/tte/.gitignore
+!infra/tte/README.md
+
+# per-env config values (declarations live in infra.yml) — never committed
+infra/config/*
+!infra/config/.gitignore
+!infra/config/README.md
