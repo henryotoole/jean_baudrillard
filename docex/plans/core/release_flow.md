@@ -10,7 +10,7 @@ The compile phase that release reads is covered separately in [`compiler.md`](./
 
 - A clean, containerized build at the project's current `project.yml` version (precondition: `docex containerize` has already pushed the image to the registry).
 - The compiled output under `infra/output/<env>/` (precondition: `docex compile`).
-- Operator-maintained `infra/secrets/<env>.env` (gitignored per project bootstrap).
+- The three per-env category dirs — `infra/{secrets,config,tte}/<env>.env` — merged by *aggregation* into the container-facing value set (mods 080-084), not a single `<env>.env`. `secrets` and `config` are operator-maintained; `tte` is the doctrine-minted store. `infra/secrets/<env>.env` is gitignored per project bootstrap. See [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md).
 - Foundation-specific deploy credentials — SSH key at `infra/deploy_creds/<env>` for fixed, AWS creds at `~/.aws/credentials` for elastic.
 
 and converges the target environment to the declared desired state. Push-initiated, idempotent — re-running on a converged target produces zero changes.
@@ -46,13 +46,15 @@ docex release stage     (fixed)
 
 There is no first-release vs steady-state distinction on fixed. The playbook's tasks are idempotent (Ansible modules with `state: present` semantics); re-running on a converged host is a no-op.
 
+Before the playbook runs, docex builds the aggregate (mod 081). `ensure_tte_fixed` SSH-reads the host-authoritative `/opt/<project>/<env>/tte.env` (`SSHClient.capture`), mints any absent minted keys, and stages the resulting superset; `aggregate_fixed_prod` merges secrets + config + TTE and writes `.docex/agg/<env>.env`. The playbook then renders both `tte.env` (the store) and `.env` (the aggregate) onto the host via `--extra-vars`. Note: `docex migrate stage/prod` reads the host `.env` a prior release already rendered — the untagged copy tasks are skipped under `--tags migrate`.
+
 Adapter: `src/docex/ansible/subprocess_runner.py` shells out to `ansible-playbook` from inside the docex container. The playbook template lives at `src/docex/emit/templates/playbook.yml.j2`; the per-service migrate task is gated by an `ansible-playbook --tags migrate` invocation when `docex migrate <env>` is called standalone (the per-task `tags:` declaration enables that).
 
 ## Elastic-foundation flow
 
 `_release_elastic` runs AWS-API operations bracketing one or two `tofu apply` invocations:
 
-1. **Push secrets to SSM**. Every `KEY=value` line of `infra/secrets/<env>.env` becomes `/<project>/<env>/<KEY>` as a `SecureString` parameter (encrypted with the default `aws/ssm` KMS key). The compiled HCL's ECS `secrets[]` blocks reference these by ARN. Overwrite=True per doctrine — SSM is clobbered every release. See `_push_secrets`.
+1. **Aggregate into SSM**. `aggregate_elastic` (mod 082, replaces the removed `_push_secrets`) treats the SSM prefix `/<project>/<env>/` *as* the aggregate: TTE minted-if-absent (`SecureString`, put-if-absent — never clobbers a live value, so no RDS lockout), secrets overwritten (`SecureString`), config overwritten (`String`). Each `<KEY>` lands at `/<project>/<env>/<KEY>`; the compiled HCL's ECS `secrets[]` / `environment[]` blocks reference them. `dry_run` skips it; `skip_migrations`/rollback preserves the live TTE. See [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md).
 2. **Detect first-release vs steady-state**. `aws.ecs_cluster_has_services(apply_policy(f"{project}_{env}", ecs_policy))` — if the env's cluster holds no ECS services, this is the first release of this env. Mod 071 moved the ECS cluster to the project tier (it always exists now), so cluster *existence* no longer distinguishes a first release; env-service existence does. The cluster name is policy-aware (mod 007); earlier versions used a literal `f"{project}-{env}"` which never matched after mod 005's naming policies landed.
 3. **Branch on detection** — see [The four sequences](#the-four-sequences) below.
 
@@ -120,12 +122,16 @@ For ECS-container-level diagnostics: every container in a task definition emits 
 | The order/sequence of release steps | `src/docex/pipeline/release.py` (`_release_fixed`, `_release_elastic`) |
 | How migrate.sh is invoked on either foundation | `src/docex/orchestrate/migrate.py` (`_migrate_stage_prod`, `_migrate_elastic`) |
 | AWS API calls docex makes | `src/docex/aws/boto3_client.py` (sole importer of `boto3`) |
-| SSM push semantics | `src/docex/pipeline/release.py:_push_secrets` |
+| SSM push / aggregate semantics | `src/docex/orchestrate/aggregate.py:aggregate_elastic` (this replaced the removed `release.py:_push_secrets`) |
+| TTE minting (either foundation) | `src/docex/orchestrate/aggregate.py:ensure_tte_elastic` / `ensure_tte_fixed` |
+| The host TTE read (fixed) | `src/docex/ssh/client.py:capture` (`SSHClient`) |
+| A single SSM parameter read | `src/docex/aws/boto3_client.py:ssm_get_parameter` |
+| The fixed aggregate/store render onto the host | the playbook `agg_env_file` / `tte_store_file` `--extra-vars` (`templates/playbook.yml.j2`) |
 | First-release vs steady-state detection | `src/docex/pipeline/release.py:_release_elastic` (`ecs_cluster_has_services` probe — mod 071; the project-tier cluster always exists, so an empty cluster signals first release) |
 | Schema-owner discovery | `src/docex/orchestrate/_common.py:services_with_schema` |
 | Migration task-def family name | `src/docex/orchestrate/migrate.py:_migration_task_family` |
 
-For a new doctrine-prescribed step in the release flow (e.g. a pre-migrate validation, a post-migrate verification), the entry point is `_release_elastic` or `_release_fixed`. Mirror the existing helper pattern (`_do_apply`, `_do_migrate`, `_push_secrets`) — small, single-responsibility functions that the foundation branch composes.
+For a new doctrine-prescribed step in the release flow (e.g. a pre-migrate validation, a post-migrate verification), the entry point is `_release_elastic` or `_release_fixed`. Mirror the existing helper pattern (`_do_apply`, `_do_migrate`, and the aggregation call into `orchestrate/aggregate.py:aggregate_elastic`) — small, single-responsibility functions that the foundation branch composes.
 
 For a new failure mode worth catching before it reaches AWS: add the check at compile time in `cicl/validate.py` rather than at release time. A compile error is always preferable to a tofu-side or AWS-side error.
 
@@ -155,16 +161,17 @@ docex rollback <env> <target_version>
     1. Preconditions (cheap fail-fast, then fail-aggregated image probe)
     2. git worktree add  v<target_version>  →  .docex/worktrees/rollback-<version>/
     3. run_compile(worktree_ctx)  using *current* docex
-    4. Mirror gitignored creds + secrets from project_root into worktree:
+    4. Mirror gitignored creds + secrets + config from project_root into worktree:
          infra/deploy_creds/<env>     (SSH key for fixed)
          infra/secrets/<env>.env      (per-env secrets, both foundations)
+         infra/config/<env>.env       (per-env config, both foundations)
     5. Dispatch on infra.foundation:
          fixed   → _release_fixed(worktree_ctx, skip_migrations=True, dry_run=...)
          elastic → _release_elastic(worktree_ctx, skip_migrations=True, dry_run=..., tofu_plan=...)
     6. cleanup_worktree(...) in a finally block
 ```
 
-The mirror step (4) exists because the release functions read those two paths via `worktree_ctx.project_root`, but `git worktree add` does not carry gitignored files. Both paths are gitignored by doctrine bootstrap defaults. The mirror step is the complete fix; all other release inputs (compiled output, contracts, transfer tables, core service files) are tracked and follow the worktree normally.
+The mirror step (4) exists because the release functions read those paths via `worktree_ctx.project_root`, but `git worktree add` does not carry gitignored files. All three are gitignored by doctrine bootstrap defaults. The mirror step is the complete fix; all other release inputs (compiled output, contracts, transfer tables, core service files) are tracked and follow the worktree normally.
 
 `_release_fixed` and `_release_elastic` were extended (mod 029) with `skip_migrations` and `dry_run` kwargs — defaults `False`, so `release`'s call sites are unchanged.
 

@@ -69,6 +69,7 @@ The name is intentional: `docex` is *not* the doctrine. The doctrine is the body
    - `--rm` so containers don't accumulate.
    - `--user "$(id -u):$(id -g)"` so writes to the project tree land operator-owned on the host (not root) and so `git` doesn't trip on dubious-ownership.
    - `--group-add` for the host's docker-socket gid so the non-root in-container user can use `/var/run/docker.sock`.
+   - `-t -i` allocated **only** when the caller has an interactive terminal (both stdin and stdout are ttys) — needed for `docex secrets set`'s no-echo prompt; skipped for piped/non-interactive runs (which must use `--from-file`). Additive and backward-compatible: an older image tolerates the extra `-it` (mod 084).
    - `-e "HOME=$HOME"` — mirror host HOME inside the container.
    - `-w "$PROJECT_ROOT"` — working directory matches the host's project path.
    - `-v "$PROJECT_ROOT:$PROJECT_ROOT"` — project tree at its host path.
@@ -105,6 +106,8 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | Command | Foundation behavior | Reads | Writes / acts on |
 | ------- | ------------------- | ----- | ---------------- |
 | `compile` | both | `infra.yml`, transfer tables (bundled + project-local), `project.yml` | `infra/output/<env>/...`, `infra/secrets/example.env` |
+| `secrets <scaffold\|status\|set\|copy> <env>` | both | `infra/secrets/example.env`, `infra/secrets/<env>.env` | `infra/secrets/<env>.env` (value-blind: `set` reads a no-echo tty prompt or `--from-file`; `status` never prints a value) |
+| `config <scaffold\|status\|set\|get\|copy> <env>` | both | `infra/config/<env>.env` | `infra/config/<env>.env` (values visible: `set` takes a positional value, `get`/`status` print them) |
 | `describe [<env>] [--format <format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
 | `why <resource>` | both | bundled doctrine excerpts | stdout |
 | `bootstrap` | elastic only (no-op on fixed) | `project.yml`, AWS creds | AWS: S3 bucket + DynamoDB table for tofu state |
@@ -159,6 +162,8 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `infra/transfer_tables/` (optional) — project-local table extensions
 - `infra/contracts/<svc>.<fmt>.yml` — per-provider contracts (validated during `check`)
 - `infra/secrets/<env>.env` — operator-maintained secret values
+- `infra/config/<env>.env` — operator-maintained non-secret per-env config values
+- `infra/tte/<env>.env` — dev/test TTE (transient-to-env) store, read during aggregation (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md))
 - `infra/deploy_creds/<env>` — SSH private key for fixed `release`
 - `infra/stage/{Dockerfile, stage_test.sh, tests/}` — stage tester definition and tests
 - `core/<svc>/{Dockerfile, build.sh, test.sh, migrate.sh, src/, migrations/, tests/}` — per-service source and shims
@@ -169,6 +174,8 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `infra/output/<env>/...` — `compile` output (compose + ansible for fixed envs; HCL for elastic envs)
 - `infra/secrets/example.env` — `compile` output, committed
 - `core/<svc>/dist/` — `build` output (dev iteration only; formal builds keep artifacts inside `docker build`)
+- `infra/tte/<env>.env` — dev/test TTE minting (mint-if-absent during aggregation)
+- `.docex/agg/<env>.env` — the derived container-facing aggregate (gitignored, under the existing `.docex/`)
 - Ephemeral git worktrees under `.docex/worktrees/` (or similar) — created and destroyed by `check`
 
 **Conspicuously not touched by docex:** anything outside the project tree. The container is sandboxed to the project root plus the explicitly-mounted credential paths under the operator's HOME.

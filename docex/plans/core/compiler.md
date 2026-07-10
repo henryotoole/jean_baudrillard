@@ -46,7 +46,10 @@ Each env is compiled independently (a project compiles all four). Cross-env stat
 In `src/docex/cicl/`:
 
 - **`TransferTables`** — the loaded, merged tables. `by_role[role][engine] → EngineEntry`, plus `naming_policies: NamingPolicies`. Built by `load_transfer_tables` (does the doctrine-bundled + project-local deep-merge).
-- **`EngineEntry`** — one engine of one role. Carries `foundation` (`fixed`/`elastic`/`both`), `defaults`, `fields`, `provides`, `env`, `naming` (string ref into `naming_policies`), `default_port`, `reserved_names`.
+- **`EngineEntry`** — one engine of one role. Carries `foundation` (`fixed`/`elastic`/`both`), `defaults`, `fields`, `provides`, `env` (now `dict[str, EnvVarSpec]` — mod 076), `naming` (string ref into `naming_policies`), `default_port`, `reserved_names`.
+- **`EnvVarSpec`** — the per-var schema of an engine `env:` block (mod 076, `cicl/transfer.py`). Carries `name`, `kind` (`fixed`/`minted`/`secret`, default `secret`), `value` (fixed only), `policy` (minted only — a `generation_policies` ref), and `desc`. The `kind` drives how the var is treated at compile and emit (see Substitution grammar below).
+- **`GenerationPolicy` / `generate`** (`cicl/generate.py`, a sibling to `naming.py`) — a minted var's value is drawn by the CSPRNG `generate` from a named policy (`{length, alphabet}`, alphabets `url_safe`/`alnum`); policies load from `tables/generation_policies.yml`. Minting itself runs during aggregation at bring-up/release, never in `compile` — see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md).
+- **`SourceKeyCategories` / `classify_source_keys`** (`cicl/categories.py`, mod 078) — a pure partition of a service's source-key namespace into TTE / secret / config. `secret_manifest` / `config_manifest` derive the per-category key sets (mods 083/084) and `minted_policies` derives the minted key→policy map. These back the three-category model in [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md); don't re-derive it here.
 - **`NamingPolicy` / `NamingPolicies`** — see [`transfer_tables.md § Naming Policies`](../../../doctrine/infrastructure/specifics/transfer_tables.md#naming-policies). Lifted from inline engine `naming` structs in mod 005 so structural emitters can share the table.
 - **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads.
 
@@ -74,6 +77,8 @@ The doctrine spec is in [`transfer_tables.md § Substitution Grammar`](../../../
 | `@<expr>` | tofu apply | Emitted as HCL (after stripping `@`). Compile errors if a `@<expr>` appears on the fixed branch. |
 
 A compile-time `${var}` embedded inside a `@<expr>` is resolved during emit; the outer `@` survives so OpenTofu sees a real HCL expression.
+
+**Engine-env `kind` short-circuits `$[VAR]` (mod 077).** When a `$[VAR]` names a `kind: fixed` engine env var, `magic_refs.py::_inline_fixed` substitutes the var's literal `value:` at compile time rather than emitting a runtime ref. `minted`/`secret` vars stay runtime pass-through. So `POSTGRES_USER` inlines to `appuser` everywhere and the fixed var's backing-body / `provides` `$[VAR]` never reaches emit — no emitter change was needed. The elastic SSM data-source / `secrets[]` therefore fire only for the non-fixed vars (e.g. `POSTGRES_PASSWORD`).
 
 ## Naming flow
 
@@ -156,7 +161,7 @@ networks in mod 036. Ansible artifacts (``playbook.yml``,
 ``inventory.yml``, ``ansible.cfg``) at project tier are deferred to mod
 036's "fixed + remote prod host" path.
 
-`infra/secrets/example.env` is also a compile output (`emit/secrets.py`), derived from every backing-service engine's `env:` block plus every core-service `secrets:` block.
+`infra/secrets/example.env` is also a compile output (`emit/secrets.py`), now a **secrets-only keys manifest** rendered from `secret_manifest` (core `secrets:` + backing `kind: secret` env vars + doctrine-injected secrets — mods 076/083). `kind: fixed` and `kind: minted` vars are absent — they are inlined at compile and minted during aggregation respectively (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md)).
 
 The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-tier HCL), `project.tf.j2` (project-tier HCL), `playbook.yml.j2`, `inventory.yml.j2`, `ansible.cfg.j2`. Pre-translated names (state bucket, ALB name, ECS cluster, etc.) are computed in Python and passed to the templates as context; the templates do not do naming translation themselves.
 
@@ -173,6 +178,10 @@ Validation lives at two layers:
 - Every `naming:` value references a defined policy (mod 005).
 - Every backing-service name avoids the engine's `reserved_names` (mod 006 extended postgres's list).
 - Every magic-ref dependency between services has a matching `depends_on` declaration.
+- A minted var's `policy:` names a defined `generation_policies` entry (rule 13, load-time — mod 076).
+- `kind: fixed` ⇒ a `value` and no `policy`; `kind: minted` ⇒ a `policy` and no `value` (rule 14, mod 076).
+- Per service, the `env` / `secrets` / `config` key sets do not overlap (rule 16, mod 079).
+- Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
 
 A compile-time error is always preferable to a tofu/AWS-side error. A load-time error is preferable to a compile-time error. When in doubt, add validation at the earliest layer where the problem is detectable.
 
@@ -194,6 +203,12 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What `example.env` looks like | `src/docex/emit/secrets.py` |
 | What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
 | How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
+| An engine env var's `kind` / a fixed literal / a minted policy | `tables/roles/<role>.yml` `env:` + `tables/generation_policies.yml`; loader in `cicl/transfer.py` |
+| How a minted value is generated | `src/docex/cicl/generate.py` |
+| How `$[VAR]` resolves per kind (fixed inline vs runtime ref) | `src/docex/cicl/magic_refs.py::_inline_fixed` |
+| The declared config block | `src/docex/cicl/model.py` (`CoreService.config`) + the config loop in `src/docex/cicl/compile.py` |
+| Which category a source key falls in | `src/docex/cicl/categories.py` (`classify_source_keys`, `secret_manifest`, `config_manifest`) |
+| The container-facing env file (dev/test aggregate) | `src/docex/orchestrate/aggregate.py` + `src/docex/envfile.py` |
 
 For a new doctrine-prescribed AWS resource that isn't owned by any `infra.yml` service (a new structural emit): pick a policy from `naming_policies.yml` (or add one), call `apply_policy` from the emit site (mirror `bootstrap.py`'s pattern), and add a validation rule if the resource has its own constraints. If the structural set keeps growing, that's the signal to lift `structural_resources:` into the transfer tables (see mod 005 overview for the deferred design).
 
