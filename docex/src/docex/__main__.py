@@ -42,6 +42,7 @@ _HELP_TEXT: dict[str, str] = {
     "release": "Deploy the containerized build to stage or prod.",
     "stagetest": "Run staging tests against the deployed stage env.",
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
+    "secrets": "Manage per-env secrets (scaffold/status/set/copy) value-blind.",
 }
 
 
@@ -54,6 +55,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Development", ("build", "test", "migrate")),
     ("Pipeline", ("check", "merge", "containerize", "release",
                   "stagetest", "rollback")),
+    ("Configuration", ("secrets",)),
 )
 
 
@@ -646,6 +648,73 @@ def _cmd_role(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Configuration handlers (secrets)
+# ---------------------------------------------------------------------------
+
+
+def _cmd_secrets(args: list[str]) -> int:
+    """``docex secrets <scaffold|status|set|copy> ...`` — value-blind secret
+    management. ``set`` never accepts a positional value (tty prompt or
+    ``--from-file`` only) and nothing here ever prints a secret value."""
+    _ENVS = ["dev", "test", "stage", "prod"]
+    parser = argparse.ArgumentParser(prog="docex secrets", add_help=True)
+    sub = parser.add_subparsers(dest="op", required=True)
+
+    p_scaffold = sub.add_parser(
+        "scaffold", help="reconcile <env>.env against the required key set")
+    p_scaffold.add_argument("env", choices=_ENVS)
+
+    p_status = sub.add_parser(
+        "status", help="show SET/UNSET per key (never the value)")
+    p_status.add_argument("env", choices=_ENVS)
+    p_status.add_argument("--format", default="text", choices=["text", "json"])
+
+    p_set = sub.add_parser(
+        "set", help="set one key's value (tty prompt or --from-file only)")
+    p_set.add_argument("env", choices=_ENVS)
+    p_set.add_argument("key", help="the secret key to set")
+    p_set.add_argument("--from-file", default=None,
+                       help="read the value from a file (non-interactive)")
+
+    p_copy = sub.add_parser(
+        "copy", help="copy a key's value from one env to another (blind)")
+    p_copy.add_argument("src_env", choices=_ENVS)
+    p_copy.add_argument("tgt_env", choices=_ENVS)
+    p_copy.add_argument("key", help="the secret key to copy")
+
+    ns = parser.parse_args(args)
+
+    from docex.context import load_project_context
+    from docex.secretsmgmt import (
+        SECRET_POLICY,
+        copy_key,
+        scaffold,
+        set_key,
+        status,
+    )
+
+    ctx = load_project_context(Path(os.getcwd()))
+    if ctx.infra is None:
+        print(
+            "error: no infra/infra.yml found; `docex secrets` needs the "
+            "declared key set to reconcile against.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if ns.op == "scaffold":
+        return scaffold(ctx, SECRET_POLICY, ns.env)
+    if ns.op == "status":
+        return status(ctx, SECRET_POLICY, ns.env, fmt=ns.format)
+    if ns.op == "set":
+        return set_key(
+            ctx, SECRET_POLICY, ns.env, ns.key, from_file=ns.from_file)
+    if ns.op == "copy":
+        return copy_key(ctx, SECRET_POLICY, ns.src_env, ns.tgt_env, ns.key)
+    return 64  # unreachable — argparse requires a valid subcommand
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -674,6 +743,8 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         "release": _cmd_release,
         "stagetest": _cmd_stagetest,
         "rollback": _cmd_rollback,
+        # Configuration
+        "secrets": _cmd_secrets,
     }
 
 

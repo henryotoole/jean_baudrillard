@@ -18,6 +18,61 @@ from docex.cicl.transfer import TransferTables
 # emit/secrets.py may import this in a later cleanup.
 DOCTRINE_INJECTED_SECRETS: frozenset[str] = frozenset({"TELEMETRY_API_KEY"})
 
+# desc + source for each doctrine-injected secret (single source of truth;
+# replaces emit/secrets.py's hardcoded TELEMETRY_API_KEY comment).
+_DOCTRINE_INJECTED_SECRET_META: dict[str, tuple[str, str]] = {
+    "TELEMETRY_API_KEY": (
+        "doctrine",
+        "The OTel collector sidecar's auth key against observability_backend_url. "
+        "Required in stage/prod; dev/test sidecars use the debug exporter and ignore it.",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class SecretEntry:
+    key: str
+    desc: str
+    source: str   # declaring service name, or "doctrine"
+
+
+def secret_manifest(
+    doc: CICLDocument, tables: TransferTables
+) -> list[SecretEntry]:
+    """Every required secret: key + description + declaring source. The single
+    source of truth for ``example.env``, ``secrets scaffold``, and
+    ``secrets status``. Order: doctrine-injected first, then core services
+    (sorted), then backing services (sorted). A key shared across services
+    keeps its first source + desc (dedup)."""
+    out: list[SecretEntry] = []
+    seen: set[str] = set()
+
+    def add(key: str, desc: str, source: str) -> None:
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(SecretEntry(key, desc, source))
+
+    for key in sorted(DOCTRINE_INJECTED_SECRETS):
+        src_meta = _DOCTRINE_INJECTED_SECRET_META.get(key, ("doctrine", ""))
+        source, desc = src_meta
+        add(key, desc, source)
+    for name in sorted(doc.core_services):
+        for k, desc in sorted((doc.core_services[name].secrets or {}).items()):
+            add(k, desc, name)
+    for name in sorted(doc.backing_services):
+        svc = doc.backing_services[name]
+        cands = svc.engine if isinstance(svc.engine, list) else [svc.engine]
+        for cand in cands:
+            try:
+                entry = tables.engine(svc.role, cand)
+            except Exception:
+                continue
+            for k, spec in (entry.env or {}).items():
+                if spec.kind == "secret":
+                    add(k, spec.desc, name)
+    return out
+
 
 class Category(str, Enum):
     TTE = "tte"

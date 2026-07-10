@@ -55,3 +55,38 @@ def write_env_file(
     for k in sorted(values):
         lines.append(f"{k}={values[k]}")
     path.write_text("\n".join(lines) + "\n")
+
+
+def set_env_key(path: Path, key: str, value: str) -> None:
+    """Set KEY=value in `path`, replacing the existing KEY= line in place (all
+    other lines/comments preserved) or appending if absent. Creates the file
+    (and parents) if missing. `key` must match [A-Z][A-Z0-9_]*.
+
+    Structure-preserving (unlike ``write_env_file``, which rewrites sorted):
+    the ``secrets``/``config`` tooling edits one key at a time and must keep
+    the grouped comment layout scaffold produced."""
+    if not _KEY_RE.match(key):
+        raise ValueError(f"invalid key {key!r} (must match [A-Z][A-Z0-9_]*)")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = path.read_text() if path.is_file() else ""
+    lines = text.split("\n")
+    new_line = f"{key}={value}"
+    replaced = False
+    for i, raw in enumerate(lines):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#") or "=" not in raw:
+            continue
+        if raw.partition("=")[0].strip() == key:
+            lines[i] = new_line
+            replaced = True
+            break
+    if not replaced:
+        # Drop a single trailing empty element so we append cleanly rather than
+        # after a blank line left by the file's own trailing newline.
+        if lines and lines[-1] == "":
+            lines.pop()
+        lines.append(new_line)
+    out = "\n".join(lines)
+    if not out.endswith("\n"):
+        out += "\n"
+    path.write_text(out)

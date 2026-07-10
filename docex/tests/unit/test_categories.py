@@ -16,6 +16,7 @@ from docex.cicl.categories import (
     SourceKeyCategories,
     classify_source_keys,
     minted_policies,
+    secret_manifest,
 )
 from docex.cicl.model import CICLDocument
 from docex.cicl.transfer import load_transfer_tables
@@ -150,3 +151,59 @@ def test_all_keys_is_the_union():
         config=frozenset({"C"}),
     )
     assert cats.all_keys() == frozenset({"A", "B", "C"})
+
+
+# ---------------------------------------------------------------------------
+# secret_manifest — the single source of truth for example.env + tooling.
+# ---------------------------------------------------------------------------
+
+
+def test_secret_manifest_keys_sources_and_order():
+    manifest = secret_manifest(_doc(_MIXED), _tables())
+    by_key = {e.key: e for e in manifest}
+    # Doctrine-injected + the core bespoke secret; POSTGRES_* (minted/fixed)
+    # are never operator-supplied so they are absent.
+    assert set(by_key) == {"TELEMETRY_API_KEY", "STRIPE_KEY"}
+    assert "POSTGRES_PASSWORD" not in by_key
+    assert "POSTGRES_USER" not in by_key
+    # Sources: doctrine-injected -> "doctrine"; core key -> its service.
+    assert by_key["TELEMETRY_API_KEY"].source == "doctrine"
+    assert by_key["STRIPE_KEY"].source == "api"
+    assert by_key["STRIPE_KEY"].desc == "Stripe secret API key"
+    # Doctrine-injected surfaces first.
+    assert manifest[0].key == "TELEMETRY_API_KEY"
+
+
+def test_secret_manifest_dedupes_shared_key_keeping_first_source():
+    src = """
+cicl_version: "1"
+foundation: fixed
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+core_services:
+  api:
+    role: web
+    networks: [web, internal]
+    port: 8080
+    secrets:
+      SHARED_KEY: "shared across services"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+  worker:
+    role: web
+    networks: [internal]
+    port: 8081
+    secrets:
+      SHARED_KEY: "declared again on worker"
+    resources:
+      cpu: 1.0
+      memory: 2GB
+"""
+    manifest = secret_manifest(_doc(src), _tables())
+    shared = [e for e in manifest if e.key == "SHARED_KEY"]
+    assert len(shared) == 1
+    # `api` sorts before `worker`, so the first declaration wins.
+    assert shared[0].source == "api"
+    assert shared[0].desc == "shared across services"

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from docex.envfile import read_env_file, write_env_file
+from docex.envfile import read_env_file, set_env_key, write_env_file
 
 
 def test_round_trip_preserves_values(tmp_path):
@@ -88,3 +88,54 @@ def test_header_written_as_comments(tmp_path):
     assert text.startswith("# line one\n# line two\n")
     # Header lines don't parse back as keys.
     assert read_env_file(path) == {"K": "v"}
+
+
+# ---------------------------------------------------------------------------
+# set_env_key — single-key, structure-preserving writer.
+# ---------------------------------------------------------------------------
+
+
+def test_set_env_key_replaces_in_place_preserving_other_lines(tmp_path):
+    path = tmp_path / "s.env"
+    path.write_text(
+        "# a header comment\n"
+        "ALPHA=one\n"
+        "# a comment between\n"
+        "BETA=two\n"
+    )
+    set_env_key(path, "ALPHA", "changed")
+    text = path.read_text()
+    # Comments and the untouched key are preserved verbatim.
+    assert "# a header comment\n" in text
+    assert "# a comment between\n" in text
+    assert read_env_file(path) == {"ALPHA": "changed", "BETA": "two"}
+    # In place — line order unchanged (ALPHA still before BETA).
+    assert text.index("ALPHA=") < text.index("BETA=")
+
+
+def test_set_env_key_appends_when_absent(tmp_path):
+    path = tmp_path / "a.env"
+    path.write_text("# header\nALPHA=one\n")
+    set_env_key(path, "GAMMA", "three")
+    assert read_env_file(path) == {"ALPHA": "one", "GAMMA": "three"}
+    # No blank line wedged in before the appended key.
+    assert "\n\nGAMMA=" not in path.read_text()
+
+
+def test_set_env_key_creates_file_and_parents(tmp_path):
+    path = tmp_path / "nested" / "dir" / "new.env"
+    set_env_key(path, "KEY", "value")
+    assert path.is_file()
+    assert read_env_file(path) == {"KEY": "value"}
+
+
+def test_set_env_key_rejects_bad_key(tmp_path):
+    path = tmp_path / "b.env"
+    with pytest.raises(ValueError):
+        set_env_key(path, "lower_case", "nope")
+
+
+def test_set_env_key_value_is_raw_literal(tmp_path):
+    path = tmp_path / "raw.env"
+    set_env_key(path, "KEY", "A=B=C ${X}")
+    assert read_env_file(path) == {"KEY": "A=B=C ${X}"}
