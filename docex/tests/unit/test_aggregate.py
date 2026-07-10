@@ -19,11 +19,14 @@ import pytest
 from docex.context import load_project_context
 from docex.envfile import read_env_file, write_env_file
 from docex.errors import AggregationError
+from docex.errors import SSMPushFailed
 from docex.orchestrate.aggregate import (
     aggregate,
+    aggregate_elastic,
     aggregate_fixed_prod,
     aggregate_path,
     ensure_tte,
+    ensure_tte_elastic,
     ensure_tte_fixed,
 )
 
@@ -214,3 +217,119 @@ def test_aggregate_fixed_prod_rejects_dev(tmp_path):
     key = ctx.project_root / "infra" / "deploy_creds" / "dev"
     with pytest.raises(AggregationError):
         aggregate_fixed_prod(ctx, env="dev", ssh=ssh, key=key)
+
+
+# ---------------------------------------------------------------------------
+# Mod 082 — elastic stage/prod release aggregation (SSM push).
+# ---------------------------------------------------------------------------
+#
+# On elastic there is no aggregate FILE — the SSM prefix /<project>/<env>/ IS
+# the aggregate. TTE is minted-if-absent (put-if-absent, SSM is authoritative;
+# never clobber the live RDS credential), secrets overwrite as SecureString,
+# config overwrite as String. Tests use the FakeAWSClient's in-memory SSM.
+
+
+def _elastic_ctx(tmp_path, *, env="stage", secrets=None, config=None):
+    """A fresh elastic postgres-backed project (``sample_project_elastic``),
+    with optional bespoke secrets/config files written for ``env``. The
+    committed secrets file is comment-only (engine creds are minted TTE)."""
+    fixture = _REPO_ROOT / "tests" / "fixtures" / "sample_project_elastic"
+    dest = tmp_path / "proj_elastic"
+    shutil.copytree(fixture, dest, dirs_exist_ok=False)
+    out = dest / "infra" / "output"
+    if out.exists():
+        shutil.rmtree(out)
+    if secrets is not None:
+        write_env_file(dest / "infra" / "secrets" / f"{env}.env", secrets)
+    if config is not None:
+        write_env_file(dest / "infra" / "config" / f"{env}.env", config)
+    return load_project_context(dest)
+
+
+def test_ensure_tte_elastic_mints_when_ssm_empty(tmp_path, fake_aws):
+    ctx = _elastic_ctx(tmp_path)
+    minted = ensure_tte_elastic(ctx, env="stage", aws=fake_aws)
+    assert minted == 1
+    path = "/sample/stage/POSTGRES_PASSWORD"
+    value, ptype = fake_aws.ssm_store[path]
+    assert value  # non-empty generated credential
+    assert ptype == "SecureString"
+    # Put-if-absent: it was minted with overwrite=False.
+    put = [c for c in fake_aws.calls if c[0] == "ssm_put_parameter"]
+    assert put and put[0][2]["overwrite"] is False
+
+
+def test_ensure_tte_elastic_preserves_live_value_no_remint(tmp_path, fake_aws):
+    """SSM is authoritative on elastic: a present TTE param is never re-minted
+    or clobbered (the lost-copy → RDS-lockout hazard)."""
+    ctx = _elastic_ctx(tmp_path)
+    path = "/sample/stage/POSTGRES_PASSWORD"
+    fake_aws.ssm_store[path] = ("live-rds-password", "SecureString")
+
+    minted = ensure_tte_elastic(ctx, env="stage", aws=fake_aws)
+    assert minted == 0
+    # The live value is untouched — no put was issued for it.
+    assert fake_aws.ssm_store[path] == ("live-rds-password", "SecureString")
+    assert not [c for c in fake_aws.calls if c[0] == "ssm_put_parameter"]
+
+
+def test_aggregate_elastic_pushes_all_three_categories(tmp_path, fake_aws):
+    ctx = _elastic_ctx(
+        tmp_path,
+        secrets={"STRIPE_KEY": "sk_live_abc"},
+        config={"PARTNER_URL": "https://partner.example"},
+    )
+    n = aggregate_elastic(ctx, env="stage", aws=fake_aws)
+    assert n == 3  # 1 minted TTE + 1 secret + 1 config
+
+    store = fake_aws.ssm_store
+    # TTE — SecureString, minted-if-absent.
+    assert store["/sample/stage/POSTGRES_PASSWORD"][1] == "SecureString"
+    # secret — SecureString, overwritten.
+    assert store["/sample/stage/STRIPE_KEY"] == ("sk_live_abc", "SecureString")
+    # config — String (non-secret; fine in task defs/logs), overwritten.
+    assert store["/sample/stage/PARTNER_URL"] == (
+        "https://partner.example",
+        "String",
+    )
+    # secrets/config were pushed with overwrite=True.
+    puts = {c[1][0]: c[2] for c in fake_aws.calls if c[0] == "ssm_put_parameter"}
+    assert puts["/sample/stage/STRIPE_KEY"]["overwrite"] is True
+    assert puts["/sample/stage/PARTNER_URL"]["overwrite"] is True
+
+
+def test_aggregate_elastic_preserves_live_tte_but_repushes_rest(tmp_path, fake_aws):
+    """A present TTE value stays put (0 minted) while secrets/config are still
+    overwritten — the rollback-safe shape."""
+    ctx = _elastic_ctx(tmp_path, secrets={"STRIPE_KEY": "sk_new"})
+    fake_aws.ssm_store["/sample/stage/POSTGRES_PASSWORD"] = ("live", "SecureString")
+
+    n = aggregate_elastic(ctx, env="stage", aws=fake_aws)
+    assert n == 1  # 0 minted + 1 secret
+    assert fake_aws.ssm_store["/sample/stage/POSTGRES_PASSWORD"] == (
+        "live",
+        "SecureString",
+    )
+    assert fake_aws.ssm_store["/sample/stage/STRIPE_KEY"] == ("sk_new", "SecureString")
+
+
+def test_aggregate_elastic_secret_tte_collision_raises(tmp_path, fake_aws):
+    # A secret shadowing the minted TTE key — compile would have caught this
+    # (rule 20); aggregation refuses defensively before any SSM write.
+    ctx = _elastic_ctx(tmp_path, secrets={"POSTGRES_PASSWORD": "shadow"})
+    with pytest.raises(AggregationError):
+        aggregate_elastic(ctx, env="stage", aws=fake_aws)
+    assert fake_aws.ssm_store == {}  # nothing pushed
+
+
+def test_aggregate_elastic_rejects_dev(tmp_path, fake_aws):
+    ctx = _elastic_ctx(tmp_path, env="dev")
+    with pytest.raises(AggregationError):
+        aggregate_elastic(ctx, env="dev", aws=fake_aws)
+
+
+def test_aggregate_elastic_wraps_put_failure_as_ssm_push_failed(tmp_path, fake_aws):
+    ctx = _elastic_ctx(tmp_path)
+    fake_aws.raise_on["ssm_put_parameter"] = RuntimeError("network down")
+    with pytest.raises(SSMPushFailed):
+        aggregate_elastic(ctx, env="stage", aws=fake_aws)

@@ -515,6 +515,12 @@ class FakeAWSClient:
     # repository name -> image count (default 0, i.e. empty repo).
     rds_protected_results: dict[str, list[str]] = field(default_factory=dict)
     ecr_image_count_results: dict[str, int] = field(default_factory=dict)
+    # Mod 082: in-memory SSM Parameter Store. Maps path -> (value, type).
+    # ``ssm_get_parameter`` reads it; ``ssm_put_parameter`` writes it and
+    # honours ``overwrite`` (a put-if-absent against a present key raises,
+    # modelling boto3's ParameterAlreadyExists) so ``ensure_tte_elastic``'s
+    # read-before-mint guard is actually exercised.
+    ssm_store: dict[str, tuple[str, str]] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
     _task_counter: int = 0
 
@@ -534,10 +540,28 @@ class FakeAWSClient:
 
     # -- SSM -----------------------------------------------------------
 
+    def ssm_get_parameter(self, name: str) -> str | None:
+        self._record("ssm_get_parameter", name)
+        entry = self.ssm_store.get(name)
+        return None if entry is None else entry[0]
+
     def ssm_put_parameter(
-        self, name: str, value: str, *, overwrite: bool = True
+        self,
+        name: str,
+        value: str,
+        *,
+        overwrite: bool = True,
+        param_type: str = "SecureString",
     ) -> None:
-        self._record("ssm_put_parameter", name, value, overwrite=overwrite)
+        self._record(
+            "ssm_put_parameter", name, value,
+            overwrite=overwrite, param_type=param_type,
+        )
+        if not overwrite and name in self.ssm_store:
+            # Models boto3's ParameterAlreadyExists — a put-if-absent must
+            # never clobber a live value.
+            raise RuntimeError(f"ParameterAlreadyExists: {name!r}")
+        self.ssm_store[name] = (value, param_type)
 
     def ssm_delete_parameters(self, path_prefix: str) -> None:
         self._record("ssm_delete_parameters", path_prefix)

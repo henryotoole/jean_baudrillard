@@ -93,14 +93,27 @@ class Boto3AWSClient:
     # SSM
     # ------------------------------------------------------------------
 
+    def ssm_get_parameter(self, name: str) -> str | None:
+        ssm = self._client("ssm")
+        try:
+            resp = ssm.get_parameter(Name=name, WithDecryption=True)
+        except ssm.exceptions.ParameterNotFound:
+            return None
+        return str(resp["Parameter"]["Value"])
+
     def ssm_put_parameter(
-        self, name: str, value: str, *, overwrite: bool = True
+        self,
+        name: str,
+        value: str,
+        *,
+        overwrite: bool = True,
+        param_type: str = "SecureString",
     ) -> None:
         ssm = self._client("ssm")
         ssm.put_parameter(
             Name=name,
             Value=value,
-            Type="SecureString",
+            Type=param_type,
             Overwrite=overwrite,
         )
 

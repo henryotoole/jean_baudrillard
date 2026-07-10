@@ -40,13 +40,36 @@ class AWSClient(Protocol):
     # SSM Parameter Store
     # ------------------------------------------------------------------
 
-    def ssm_put_parameter(self, name: str, value: str, *, overwrite: bool = True) -> None:
-        """Upsert an SSM ``SecureString`` parameter at the given path.
+    def ssm_get_parameter(self, name: str) -> str | None:
+        """Return the decrypted value of the SSM parameter at ``name``, or
+        None if it does not exist.
 
-        Used by ``release`` to push ``infra/secrets/<env>.env`` values
-        to ``/<project>/<env>/<KEY>``. ``overwrite=True`` is the docex
-        default — the doctrine deliberately clobbers SSM on every
-        release; see release_mechanism.md § Secrets.
+        Used for TTE put-if-absent: SSM is the authoritative store on
+        elastic (ECS reads it), so ``aggregate_elastic`` reads a minted
+        key back before minting and only mints when SSM has none — a
+        lost local copy can never clobber the live RDS credential.
+        See config_and_secrets.md § authoritative-store rule (elastic).
+        """
+        ...
+
+    def ssm_put_parameter(
+        self,
+        name: str,
+        value: str,
+        *,
+        overwrite: bool = True,
+        param_type: str = "SecureString",
+    ) -> None:
+        """Upsert an SSM parameter at the given path.
+
+        Used by ``release`` to push the three configurable-value
+        categories to ``/<project>/<env>/<KEY>``. ``param_type`` is one
+        of ``SecureString`` (TTE + secrets) or ``String`` (config — a
+        non-secret, fine to appear in task defs/logs); it defaults to
+        ``SecureString`` so every legacy caller is unchanged.
+        ``overwrite=True`` is the default — secrets/config are clobbered
+        on every release; TTE is pushed with ``overwrite=False``
+        (put-if-absent). See config_and_secrets.md § 4.2.
         """
         ...
 

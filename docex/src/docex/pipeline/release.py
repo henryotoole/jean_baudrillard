@@ -15,7 +15,6 @@ begins.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Callable
 
 from docex.aws.client import AWSClient
@@ -23,7 +22,6 @@ from docex.context import ProjectContext
 from docex.errors import (
     AnsibleRunFailed,
     EnvNotSupported,
-    SSMPushFailed,
     TofuApplyFailed,
 )
 from docex.naming import apply_policy
@@ -269,9 +267,18 @@ def _release_elastic(
         )
         return 0
 
-    # 1. Push secrets to SSM.
-    pushed = _push_secrets(aws, env_file, project=project_name, env=env)
-    print(f"release: pushed {pushed} secret(s) to SSM under /{project_name}/{env}/")
+    # 1. Aggregate the three configurable-value categories into SSM (the
+    # elastic aggregate is the /<project>/<env>/ prefix itself). TTE is
+    # minted-if-absent (SecureString, put-if-absent so a lost local copy
+    # never clobbers the live RDS credential); secrets/config are
+    # overwritten. See config_and_secrets.md § 4.2.
+    from docex.orchestrate.aggregate import aggregate_elastic
+
+    pushed = aggregate_elastic(ctx, env=env, aws=aws)
+    print(
+        f"release: pushed {pushed} configurable value(s) to SSM under "
+        f"/{project_name}/{env}/ (TTE minted-if-absent, secrets/config overwritten)"
+    )
 
     # Mod 070: ec2_traefik projects no longer push routing config at release
     # time. The project traefik discovers routes from each task's traefik.*
@@ -391,54 +398,3 @@ def _release_elastic(
 
     print(f"release: {env} deployed successfully via OpenTofu.")
     return 0
-
-
-def _push_secrets(
-    aws: AWSClient,
-    env_file: Path,
-    *,
-    project: str,
-    env: str,
-) -> int:
-    """Read ``env_file`` and push each ``KEY=value`` pair to SSM.
-
-    Returns the number of secrets pushed. Raises ``SSMPushFailed`` on
-    the first error so the release aborts before any AWS-side mutation
-    of running services. Per release_mechanism.md § Secrets, SSM is
-    clobbered every release (``overwrite=True``).
-    """
-    count = 0
-    try:
-        text = env_file.read_text()
-    except OSError as e:
-        raise SSMPushFailed(f"cannot read {env_file}: {e}") from e
-
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            # Tolerate but warn. The .env format is forgiving by spec
-            # (release_mechanism.md doesn't mandate strict parsing).
-            print(
-                f"warning: skipping unparseable line in {env_file.name}: {line!r}",
-                file=sys.stderr,
-            )
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        # Strip optional surrounding quotes on the value.
-        if (value.startswith('"') and value.endswith('"')) or (
-            value.startswith("'") and value.endswith("'")
-        ):
-            value = value[1:-1]
-        path = f"/{project}/{env}/{key}"
-        try:
-            aws.ssm_put_parameter(path, value, overwrite=True)
-        except Exception as e:
-            raise SSMPushFailed(
-                f"failed pushing {key!r} to {path!r}: {e}"
-            ) from e
-        count += 1
-    return count

@@ -12,9 +12,10 @@ from docex.cicl.categories import minted_policies
 from docex.cicl.generate import generate
 from docex.context import ProjectContext
 from docex.envfile import parse_env_text, read_env_file, write_env_file
-from docex.errors import AggregationError
+from docex.errors import AggregationError, SSMPushFailed
 
 if TYPE_CHECKING:
+    from docex.aws.client import AWSClient
     from docex.ssh.client import SSHClient
 
 _DEV_TEST = ("dev", "test")
@@ -179,3 +180,95 @@ def aggregate_fixed_prod(
         ],
     )
     return out, _staged_tte_path(ctx, env)
+
+
+def _ssm_path(project: str, env: str, key: str) -> str:
+    return f"/{project}/{env}/{key}"
+
+
+def _ssm_put(
+    aws: "AWSClient", path: str, value: str, *, overwrite: bool, param_type: str
+) -> None:
+    """Push one parameter, translating any boto-level failure into
+    ``SSMPushFailed`` so a release aborts before touching tofu (mirrors the
+    fail-fast semantics of the superseded ``_push_secrets``)."""
+    try:
+        aws.ssm_put_parameter(
+            path, value, overwrite=overwrite, param_type=param_type
+        )
+    except SSMPushFailed:
+        raise
+    except Exception as e:
+        raise SSMPushFailed(f"failed pushing {path!r} to SSM: {e}") from e
+
+
+def ensure_tte_elastic(ctx: ProjectContext, *, env: str, aws: "AWSClient") -> int:
+    """elastic stage/prod: mint-if-absent each minted key into SSM as a
+    ``SecureString`` (put-if-absent). SSM is the authoritative store on
+    elastic — a present value is left untouched (write-once). Returns the
+    count newly minted.
+
+    WHY read-before-mint: re-minting a key SSM already holds would lock the
+    live ECS tasks (and RDS) out of their own credentials. A lost local copy
+    can never clobber the live value because docex only mints when SSM is
+    empty (config_and_secrets.md § authoritative-store rule)."""
+    project = ctx.project.name
+    policies = minted_policies(ctx.infra, ctx.transfer_tables)
+    minted = 0
+    for key, policy in policies.items():
+        path = _ssm_path(project, env, key)
+        if aws.ssm_get_parameter(path) is None:
+            _ssm_put(
+                aws,
+                path,
+                generate(policy),  # impure — never at compile
+                overwrite=False,
+                param_type="SecureString",
+            )
+            minted += 1
+    return minted
+
+
+def aggregate_elastic(ctx: ProjectContext, *, env: str, aws: "AWSClient") -> int:
+    """elastic stage/prod: push all three categories to the SSM prefix
+    ``/<project>/<env>/`` — the elastic aggregate is the prefix itself (there
+    is no aggregate file). TTE put-if-absent (SecureString), secrets overwrite
+    (SecureString), config overwrite (String). Returns total params written
+    (minted + pushed). See config_and_secrets.md § 4.2."""
+    if env not in _STAGE_PROD:
+        raise AggregationError(
+            f"aggregate_elastic({env!r}) — elastic release aggregation is "
+            f"stage/prod only; dev/test use aggregate()."
+        )
+    project = ctx.project.name
+    tte_keys = set(minted_policies(ctx.infra, ctx.transfer_tables))
+    secrets = read_env_file(_secrets_path(ctx, env))
+    config = read_env_file(_config_path(ctx, env))
+    # Defensive disjointness — compile guarantees the *declared* categories
+    # are disjoint (rule 20); the operator-maintained files are re-checked
+    # here, mirroring the fixed path's _disjoint_union guard.
+    overlaps = (
+        (tte_keys & set(secrets))
+        | (tte_keys & set(config))
+        | (set(secrets) & set(config))
+    )
+    if overlaps:
+        raise AggregationError(
+            f"SSM aggregation key collision for env {env!r}: {sorted(overlaps)} "
+            f"appear in more than one category — should have been caught at "
+            f"compile; check infra.yml / the secrets & config files."
+        )
+    n = ensure_tte_elastic(ctx, env=env, aws=aws)
+    for key, value in secrets.items():
+        _ssm_put(
+            aws, _ssm_path(project, env, key), value,
+            overwrite=True, param_type="SecureString",
+        )
+        n += 1
+    for key, value in config.items():
+        _ssm_put(
+            aws, _ssm_path(project, env, key), value,
+            overwrite=True, param_type="String",
+        )
+        n += 1
+    return n

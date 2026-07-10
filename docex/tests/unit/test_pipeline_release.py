@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from docex.errors import EnvNotSupported
-from docex.pipeline.release import _release_fixed, run_release
+from docex.pipeline.release import _release_elastic, _release_fixed, run_release
 
 
 def test_release_stage_fixed_calls_ansible(sample_ctx, fake_ansible, fake_ssh):
@@ -123,6 +123,49 @@ def test_release_elastic_pushes_ssm_before_tofu_apply(
     # Mod 008: steady-state path applies twice — targeted pre-migrate,
     # then full post-migrate.
     assert len(fake_tofu_apply.calls) == 2
+
+
+def test_release_elastic_aggregates_three_categories_before_apply(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply
+):
+    """Mod 082: step 1 aggregates all three categories into SSM (TTE
+    minted-if-absent as SecureString) BEFORE tofu apply. The env's SSM is
+    read (get) before minting (put-if-absent)."""
+    rc = run_release(
+        elastic_ctx,
+        env="stage",
+        aws=fake_aws,
+        tofu_init=fake_tofu_init,
+        tofu_apply=fake_tofu_apply,
+    )
+    assert rc == 0
+    # TTE minted into SSM as a SecureString under /<project>/<env>/.
+    assert fake_aws.ssm_store["/sample/stage/POSTGRES_PASSWORD"][1] == "SecureString"
+    names = [c[0] for c in fake_aws.calls]
+    # Read-before-mint: the get precedes the put.
+    assert names.index("ssm_get_parameter") < names.index("ssm_put_parameter")
+
+
+def test_release_elastic_dry_run_touches_no_ssm(
+    elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, fake_tofu_plan
+):
+    """dry_run must be side-effect-free: no SSM get/put, no apply — only
+    init + plan."""
+    rc = _release_elastic(
+        elastic_ctx,
+        env="stage",
+        aws=fake_aws,
+        tofu_init=fake_tofu_init,
+        tofu_apply=fake_tofu_apply,
+        tofu_plan=fake_tofu_plan,
+        dry_run=True,
+    )
+    assert rc == 0
+    assert fake_aws.ssm_store == {}
+    ssm_calls = [c for c in fake_aws.calls if c[0].startswith("ssm_")]
+    assert ssm_calls == []
+    assert fake_tofu_apply.calls == []
+    assert len(fake_tofu_plan.calls) == 1
 
 
 def test_release_elastic_aborts_when_ssm_push_fails(
