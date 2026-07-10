@@ -21,18 +21,46 @@ from pathlib import Path
 
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
+from docex.naming import dns_label
 from docex.orchestrate._common import (
     compose_file_for,
     compose_service_key,
     core_services,
     ensure_compiled,
     env_compose_project,
+    scheduler_services,
     services_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
 
 
 _TEST_ENV = "test"
+
+
+def _run_scheduler_tests(
+    ctx: ProjectContext,
+    docker: DockerClient,
+    svc: str,
+    *,
+    project_dir: "Path | None",
+) -> int:
+    """Run a scheduler service's test.sh via a one-off container.
+
+    A scheduler has no long-running container in the ``test`` stack
+    (scheduler.md § Caveats — the compiler emits no Ofelia container for
+    ``test``), so it cannot be ``compose exec``-ed like other core
+    services. Build its ``test``-stage image and run ``test.sh`` as a
+    one-off (mirrors ``up.py::_ensure_scheduler_image``'s build-directly
+    pattern). The scheduler's tests are self-contained unit/module tests
+    per the doctrine, so no env-tier stack/network is attached.
+    """
+    base = project_dir if project_dir is not None else ctx.project_root
+    svc_dir = base / "core" / svc
+    tag = f"docex-test-{dns_label(ctx.project.name)}-{svc}:latest"
+    rc = docker.build_image(svc_dir, target="test", tag=tag)
+    if rc != 0:
+        return rc
+    return docker.run_one_shot(tag, ["./test.sh"])
 
 
 def run_test(
@@ -105,14 +133,20 @@ def run_test(
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. test.sh for each core service.
+        # 3. test.sh for each core service. A scheduler has no exec-able
+        # container in the test stack (the compiler emits none), so its
+        # test.sh runs via a one-off built from the test-stage image.
+        schedulers = set(scheduler_services(ctx))
         for svc in core_services(ctx):
-            key = compose_service_key(ctx, _TEST_ENV, svc)
-            rc = docker.compose_exec(
-                compose_file, key, ["./test.sh"],
-                env_file=env_file, project_dir=project_dir,
-                project_name=project_name,
-            )
+            if svc in schedulers:
+                rc = _run_scheduler_tests(ctx, docker, svc, project_dir=project_dir)
+            else:
+                key = compose_service_key(ctx, _TEST_ENV, svc)
+                rc = docker.compose_exec(
+                    compose_file, key, ["./test.sh"],
+                    env_file=env_file, project_dir=project_dir,
+                    project_name=project_name,
+                )
             if rc != 0:
                 print(
                     f"error: test.sh for {svc!r} exited {rc}.",

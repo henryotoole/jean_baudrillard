@@ -231,7 +231,11 @@ directly, and needs no always-on rule resource.
   never reached for `test`). The scheduler service is otherwise inert in every
   env — it has no long-running container — so in `test` it produces no compiled
   output at all. Exercise a job's logic through its own unit/module tests, or in
-  `dev`, rather than relying on a `test`-window fire.
+  `dev`, rather than relying on a `test`-window fire. `docex test` still runs a
+  scheduler's `test.sh`: since there is no `test`-stack container to `exec` into,
+  docex builds the service's `test`-stage image and runs `test.sh` as a one-off
+  container (no env-tier stack attached), so keep a scheduler's tests
+  self-contained unit/module tests.
 - **No backfill / catch-up.** A missed fire (host down, instance replacement) is
   not retroactively run. Both Ofelia and EventBridge Scheduler fire forward-only
   in the v1 configuration.
