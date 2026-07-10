@@ -101,7 +101,42 @@ def test_rule_env_secrets_overlap():
         '    secrets:\n      SHARED: "desc"\n',
     )
     issues = validate_document(_doc(src), _tables())
-    assert any(i.rule == "rule_env_secrets_overlap" for i in issues)
+    assert any(i.rule == "rule_env_secrets_config_overlap" for i in issues)
+
+
+def test_rule_env_config_overlap():
+    # Same key in env: and config: — rule 16 three-way.
+    src = _BASE_FIXED.replace(
+        "    port: 8080\n",
+        '    port: 8080\n    env:\n      SHARED: literal\n'
+        '    config:\n      SHARED: "desc"\n',
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert any(i.rule == "rule_env_secrets_config_overlap" for i in issues)
+
+
+def test_rule_secrets_config_overlap():
+    # Same key in secrets: and config: — rule 16 three-way.
+    src = _BASE_FIXED.replace(
+        "    port: 8080\n",
+        '    port: 8080\n    secrets:\n      SHARED: "sdesc"\n'
+        '    config:\n      SHARED: "cdesc"\n',
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert any(i.rule == "rule_env_secrets_config_overlap" for i in issues)
+
+
+def test_rule_env_secrets_config_no_overlap_clean():
+    # Distinct keys across all three blocks — no overlap issue.
+    src = _BASE_FIXED.replace(
+        "    port: 8080\n",
+        '    port: 8080\n    env:\n      E: literal\n'
+        '    secrets:\n      S: "sdesc"\n    config:\n      C: "cdesc"\n',
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert not any(
+        i.rule == "rule_env_secrets_config_overlap" for i in issues
+    )
 
 
 def test_rule_2_unknown_role():
@@ -470,6 +505,111 @@ def test_validate_rejects_project_version_in_secrets():
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
     assert "rule_reserved_env_key" in rules
+
+
+def test_validate_rejects_project_version_in_config():
+    """config: is now checked against the reserved core env keys too. Mod 079."""
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    config:\n      PROJECT_VERSION: \"desc\"\n",
+        1,
+    )
+    doc = _doc(src)
+    issues = validate_document(doc, _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_reserved_env_key" in rules
+
+
+# ---------------------------------------------------------------------------
+# Mod 079 — cross-category disjointness (rule 20) + doctrine-injected reserved.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_source_key_category_conflict_config_vs_tte():
+    """A core config: key that collides with a backing engine's minted TTE key
+    (POSTGRES_PASSWORD from the postgres appdb) is a rule-20 conflict."""
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    config:\n      POSTGRES_PASSWORD: \"desc\"\n",
+        1,
+    )
+    issues = validate_document(_doc(src), _tables())
+    conflict = [
+        i for i in issues if i.rule == "rule_source_key_category_conflict"
+    ]
+    assert conflict
+    msg = conflict[0].message
+    assert "POSTGRES_PASSWORD" in msg
+    assert "tte" in msg and "config" in msg
+
+
+def test_rule_source_key_category_conflict_clean_mixed():
+    """A clean project with distinct TTE / secret / config keys has no
+    disjointness conflict."""
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    secrets:\n      API_KEY: \"desc\"\n"
+        "    config:\n      SOME_URL: \"desc\"\n",
+        1,
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert not any(
+        i.rule == "rule_source_key_category_conflict" for i in issues
+    )
+
+
+def test_doctrine_injected_key_reserved_in_secrets():
+    """Declaring TELEMETRY_API_KEY (doctrine-injected) in secrets: fails with
+    exactly one reserved diagnostic — and NOT a disjointness conflict (the
+    ownership split delegates the injected key to the reserved check)."""
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    secrets:\n      TELEMETRY_API_KEY: \"desc\"\n",
+        1,
+    )
+    issues = validate_document(_doc(src), _tables())
+    reserved = [
+        i for i in issues if i.rule == "rule_doctrine_injected_key_reserved"
+    ]
+    assert len(reserved) == 1
+    assert "TELEMETRY_API_KEY" in reserved[0].message
+    # Ownership split: the disjointness rule must NOT also fire on this key.
+    assert not any(
+        i.rule == "rule_source_key_category_conflict"
+        and "TELEMETRY_API_KEY" in i.message
+        for i in issues
+    )
+
+
+def test_doctrine_injected_key_reserved_in_config():
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    config:\n      TELEMETRY_API_KEY: \"desc\"\n",
+        1,
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert (
+        len([
+            i for i in issues
+            if i.rule == "rule_doctrine_injected_key_reserved"
+        ])
+        == 1
+    )
+    assert not any(
+        i.rule == "rule_source_key_category_conflict" for i in issues
+    )
+
+
+def test_doctrine_injected_key_reserved_in_env():
+    src = _BASE_FIXED.replace(
+        "      memory: 2GB\n",
+        "      memory: 2GB\n    env:\n      TELEMETRY_API_KEY: \"literal\"\n",
+        1,
+    )
+    issues = validate_document(_doc(src), _tables())
+    assert any(
+        i.rule == "rule_doctrine_injected_key_reserved" for i in issues
+    )
 
 
 # ---------------------------------------------------------------------------

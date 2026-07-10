@@ -80,10 +80,11 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_resources(doc))
     issues.extend(_validate_domain_default_service(doc))
     issues.extend(_validate_web_service_ports(doc))
-    issues.extend(_validate_env_secrets_overlap(doc))
+    issues.extend(_validate_env_secrets_config_overlap(doc))
     issues.extend(_validate_reserved_engine_names(doc, tables))
     issues.extend(_validate_emits(doc, tables))
     issues.extend(_validate_reserved_env_keys(doc))
+    issues.extend(_validate_source_key_disjointness(doc, tables))
     issues.extend(_validate_apex_domain_bare(doc))
     issues.extend(_validate_service_name_blacklist(doc))
     issues.extend(_validate_reverse_proxy_field(doc))
@@ -470,22 +471,28 @@ def _validate_web_service_ports(doc: CICLDocument) -> list[ValidationIssue]:
     return issues
 
 
-def _validate_env_secrets_overlap(doc: CICLDocument) -> list[ValidationIssue]:
-    """A core service's `env:` and `secrets:` must not declare the same key —
-    `env:` is compiler-resolved, `secrets:` is operator-supplied, so a shared
-    key has ambiguous provenance and wiring."""
+def _validate_env_secrets_config_overlap(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 16: a core service's `env:`, `secrets:`, and `config:` must not
+    share a key. Each has distinct provenance/wiring (`env:` is
+    compiler-resolved, `secrets:` is operator-supplied secret, `config:` is
+    operator-supplied per-env config), so a shared key is ambiguous."""
     issues: list[ValidationIssue] = []
     for name, svc in sorted(doc.core_services.items()):
-        overlap = set(svc.env or {}) & set(svc.secrets or {})
-        for key in sorted(overlap):
-            issues.append(ValidationIssue(
-                rule="rule_env_secrets_overlap",
-                message=(
-                    f"core service {name!r}: key {key!r} appears in both `env:` "
-                    f"and `secrets:` — declare it in exactly one"
-                ),
-                where=f"core_services.{name}",
-            ))
+        blocks = {
+            "env": set(svc.env or {}),
+            "secrets": set(svc.secrets or {}),
+            "config": set(getattr(svc, "config", {}) or {}),
+        }
+        for a, b in (("env", "secrets"), ("env", "config"), ("secrets", "config")):
+            for key in sorted(blocks[a] & blocks[b]):
+                issues.append(ValidationIssue(
+                    rule="rule_env_secrets_config_overlap",
+                    message=(
+                        f"core service {name!r}: key {key!r} appears in both "
+                        f"`{a}:` and `{b}:` — declare it in exactly one"
+                    ),
+                    where=f"core_services.{name}",
+                ))
     return issues
 
 
@@ -688,13 +695,17 @@ def _validate_reserved_env_keys(
     duplicating doctrine or trying to lie about its identity — both
     are mistakes. Mods 011 + 017.
     """
+    from docex.cicl.categories import DOCTRINE_INJECTED_SECRETS
+
     issues: list[ValidationIssue] = []
     for svc_name, svc in sorted(doc.core_services.items()):
         for source, block in (
             ("env", svc.env or {}),
             ("secrets", svc.secrets or {}),
+            ("config", getattr(svc, "config", {}) or {}),
         ):
-            for key in sorted(set(block) & _RESERVED_CORE_ENV_KEYS):
+            block_keys = set(block)
+            for key in sorted(block_keys & _RESERVED_CORE_ENV_KEYS):
                 issues.append(ValidationIssue(
                     rule="rule_reserved_env_key",
                     message=(
@@ -707,6 +718,57 @@ def _validate_reserved_env_keys(
                     ),
                     where=f"core_services.{svc_name}.{source}",
                 ))
+            # Doctrine-injected secrets (e.g. TELEMETRY_API_KEY) are managed by
+            # docex and surfaced in example.env — a project must not declare
+            # them in any block. This validator owns the diagnostic; the
+            # disjointness check skips these keys to avoid double-reporting.
+            for key in sorted(block_keys & DOCTRINE_INJECTED_SECRETS):
+                issues.append(ValidationIssue(
+                    rule="rule_doctrine_injected_key_reserved",
+                    message=(
+                        f"core service {svc_name!r} declares {key!r} under "
+                        f"`{source}:`. This is a doctrine-injected secret "
+                        f"managed by docex — it is surfaced in example.env and "
+                        f"filled by the operator; a project must not declare "
+                        f"it. Remove the declaration. See config_and_secrets.md "
+                        f"§ Doctrine-Injected Secrets."
+                    ),
+                    where=f"core_services.{svc_name}.{source}",
+                ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Rule 20: cross-category source-key disjointness (Mod 079).
+# ---------------------------------------------------------------------------
+
+
+def _validate_source_key_disjointness(
+    doc: CICLDocument, tables: TransferTables
+) -> list[ValidationIssue]:
+    """Rule 20: the three value categories (TTE / secret / config) are disjoint
+    project-wide by source key. A key claimed by two categories has ambiguous
+    provenance, value, and read/write permission. Doctrine-injected keys are
+    handled by the reserved-key check, so skip them here to avoid
+    double-reporting."""
+    from docex.cicl.categories import DOCTRINE_INJECTED_SECRETS, classify_source_keys
+
+    issues: list[ValidationIssue] = []
+    cats = classify_source_keys(doc, tables)
+    for key, categories in sorted(cats.conflicts().items()):
+        if key in DOCTRINE_INJECTED_SECRETS:
+            continue  # reserved-key check owns this diagnostic
+        names = ", ".join(c.value for c in categories)
+        issues.append(ValidationIssue(
+            rule="rule_source_key_category_conflict",
+            message=(
+                f"source key {key!r} is claimed by multiple value categories "
+                f"({names}) — the categories must be disjoint (a key's "
+                f"provenance, value, and read/write permission would be "
+                f"ambiguous). Declare it in exactly one. See "
+                f"config_and_secrets.md § Collision rules."
+            ),
+        ))
     return issues
 
 
