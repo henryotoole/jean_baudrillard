@@ -15,6 +15,73 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [1.5.0] - unreleased
+
+"Envmageddon" (campaign 003, mods 076-086) — splits the single per-environment
+`<env>.env` into three provenance-based categories, re-merged at deploy time by
+an aggregation step, plus value-blind tooling to manage them. Application code
+and the container-facing env are unchanged; only the source layout and
+release-time materialization move. Downstream projects upgrade per
+[`upgrades/upgrade_1.5.0.md`](./upgrades/upgrade_1.5.0.md) — an `incremental`
+repin + file-reorg (not a rebuild), whose one load-bearing step is preserving
+the live engine credential so a mint can't lock out a running database.
+
+> Date + the version-artifact bump (`docex/pyproject.toml`,
+> `docex/src/docex/__init__.py`) land at the cut per
+> [`RELEASING.md`](./RELEASING.md); this entry is written ready-to-cut.
+
+### Added
+
+- **The three configurable-value categories** (`config_and_secrets.md`): **TTE**
+  (transfer-table `kind: minted` engine vars, minted by `docex`, stored in
+  `infra/tte/`), **secret** (core `secrets:` + backing `kind: secret` +
+  doctrine-injected, in `infra/secrets/`), **config** (new core `config:` block,
+  non-secret per-env values, in `infra/config/`). Categories are disjoint by
+  source key — enforced at compile (rule 20).
+- **Engine `env:` `kind` schema** (mod 076) — each engine env var declares
+  `kind: fixed | minted | secret` (default secret); a new top-level
+  `generation_policies:` section (`{length, alphabet}`) + a CSPRNG generator
+  (`cicl/generate.py`, `url_safe`/`alnum`). Postgres now mints only
+  `POSTGRES_PASSWORD`; `POSTGRES_USER` is a `fixed` literal (`appuser`).
+- **`config:` block on core services** (mod 078) + `cicl/categories.py`, the
+  pure source-key classifier (`classify_source_keys`) + `secret_manifest` /
+  `config_manifest` / `minted_policies` used across validation, aggregation, and
+  tooling.
+- **Aggregation** (`orchestrate/aggregate.py`, mods 080-082) — `aggregate()`
+  merges the categories just before bring-up: dev/test → `.docex/agg/<env>.env`
+  fed to compose; fixed stage/prod → host `.env` (aggregate) + host `tte.env`
+  (authoritative store, read over SSH) rendered by ansible; elastic stage/prod →
+  the SSM prefix itself, TTE minted put-if-absent (`SecureString`), secrets
+  overwrite (`SecureString`), config overwrite (`String`). `ensure_tte`
+  generates a minted value only when its authoritative store lacks it.
+- **`docex secrets`** (mod 083) — `scaffold` / `status` / `set` / `copy`,
+  value-blind: `set` takes its value only from a no-echo tty prompt or
+  `--from-file`; `status` is redacted `SET`/`UNSET`; there is no `get`; `copy`
+  refuses TTE keys and warns cross-side.
+- **`docex config`** (mod 084) — `scaffold` / `status` / `set` / `get` / `copy`,
+  permissions inverted (values visible, positional `set` OK, `get` prints).
+- **`envfile.py`** — the standard flat `KEY=value` read/write (first-`=` split,
+  raw-literal values) shared by every store and the aggregate.
+
+### Changed
+
+- **Compiler inlines `kind: fixed` `$[VAR]` refs** to their literal at compile
+  (mod 077) — `POSTGRES_USER`→`appuser` everywhere; the elastic SSM data-source
+  / ECS `secrets[]` machinery now fires only for the surviving minted/secret
+  refs, with no emitter change.
+- **`example.env` is now a secrets-only keys manifest** rendered from
+  `secret_manifest` (mod 076/083) — `kind: fixed`/`minted` engine vars no longer
+  appear; reconcile a real `<env>.env` with `docex secrets scaffold`, not by
+  hand-copying.
+- **Elastic release SSM push** replaced `_push_secrets` with the three-category
+  `aggregate_elastic` (mod 082); the **fixed** release playbook renders `.env`
+  from the aggregate and a host `tte.env` from the authoritative store (mod 081).
+- **The shim allocates `-t -i`** only on an interactive terminal (mod 083), for
+  `docex secrets set`'s no-echo prompt — additive + backward-compatible.
+- **Validation** (mod 079) — rule 16 broadened to a three-way env/secrets/config
+  per-service overlap check; rule 20 added for project-wide cross-category
+  disjointness; doctrine-injected keys reserved in every category.
+
 ## [1.4.4] - 2026-07-05
 
 ### Fixed

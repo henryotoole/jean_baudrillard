@@ -4,12 +4,16 @@ A plan to break out our current env / secret handling into a more robust and
 well-considered system. The goal is to add as little complexity as possible
 while making the flows more sensible and usable.
 
-> **Status.** Design settled (all sections, incl. the aggregation walk). Moved
-> to **step-2 implementation** — the ordered docex mod sequence lives in
-> [`implementation_plan.md`](./implementation_plan.md). Operator decisions
-> settled: cut as **MINOR 1.5.0** + upgrade guide; autonomous run goes through
-> implementation + all automated tests + smoke-project migration, stopping
-> ready-to-cut; legacy-username hatch stays deferred.
+> **Status.** **Implemented — ready to cut (1.5.0).** Design settled (all
+> sections). Step-2 implementation complete: mods 076-086 (see
+> [`implementation_plan.md`](./implementation_plan.md)) landed the `kind` schema,
+> generation policies, `config:` block, the source-key classifier, cross-category
+> validation, aggregation across all three circumstances, the `docex secrets` /
+> `docex config` tooling, the smoke-project layout migration, and doc alignment +
+> the `upgrade_1.5.0.md` guide. Full unit suite green. **Remaining (operator, at
+> cut):** the real-infra smoke walk (both foundations) + the `RELEASING.md` cut
+> (version-artifact bump, `v1.5.0` tag, image build). Legacy-username hatch
+> stayed deferred.
 
 ## Current State
 
