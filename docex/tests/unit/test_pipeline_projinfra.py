@@ -55,10 +55,12 @@ def test_projinfra_fixed_up_runs_compose_up(sample_ctx, fake_docker, side):
     # Mod 053: an explicit, project-scoped --project-name is passed so
     # the projinfra stack (traefik + four -web networks) lives under a
     # stable name, not the bogus path-derived 'infra'.
+    # Mod 087: that name is now side-independent — BOTH sides yield the
+    # SAME project name so a single-host fixed dev/prod converge.
     name_calls = [
         c for c in fake_docker.calls if c[0] == "compose_up_project_name"
     ]
-    assert name_calls == [("compose_up_project_name", f"sample-projinfra-{side}")]
+    assert name_calls == [("compose_up_project_name", "sample-projinfra")]
 
 
 def test_projinfra_fixed_up_missing_compose_file_errors(
@@ -100,6 +102,29 @@ def test_projinfra_fixed_up_propagates_compose_failure(
     assert rc == 7
     out = capsys.readouterr().out
     assert "exit code 7" in out
+
+
+def test_projinfra_fixed_compose_name_is_side_independent(
+    sample_ctx, fake_docker,
+):
+    """Mod 087: both sides run under the SAME Compose project name so a
+    single-host fixed dev/prod converge (the second ``up`` adopts the
+    first's resources instead of colliding on the shared traefik
+    container). Unit-level guard for the bug the fixed smoke walk caught.
+    """
+    rc = run_compile(sample_ctx)
+    assert rc == 0
+
+    assert run_projinfra_fixed_up(sample_ctx, fake_docker, side="development") == 0
+    assert run_projinfra_fixed_up(sample_ctx, fake_docker, side="production") == 0
+
+    name_calls = [
+        c for c in fake_docker.calls if c[0] == "compose_up_project_name"
+    ]
+    assert name_calls == [
+        ("compose_up_project_name", "sample-projinfra"),
+        ("compose_up_project_name", "sample-projinfra"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -155,11 +180,13 @@ def test_projinfra_fixed_down_proceeds_when_env_clean(
     )
     # Mod 053: down must pass the SAME project name as up so it removes
     # the traefik AND the four -web networks.
+    # Mod 087: the name is side-independent, so down targets the same
+    # converged project regardless of side.
     name_calls = [
         c for c in fake_docker.calls if c[0] == "compose_down_project_name"
     ]
     assert name_calls == [
-        ("compose_down_project_name", "sample-projinfra-production")
+        ("compose_down_project_name", "sample-projinfra")
     ]
 
 

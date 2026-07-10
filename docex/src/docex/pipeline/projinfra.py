@@ -38,16 +38,25 @@ def _project_compose_path(ctx: ProjectContext, side: str) -> Path:
     )
 
 
-def _project_compose_project(ctx: ProjectContext, side: str) -> str:
+def _project_compose_project(ctx: ProjectContext) -> str:
     """The explicit compose ``--project-name`` for a project-tier stack.
 
-    ``<dns_label(project)>-projinfra-<side>`` — project-scoped, DNS-labeled,
-    and stable across docex versions. Passed at both ``up`` and ``down`` so
-    compose owns and can remove the per-project traefik AND the four ``-web``
-    networks (which previously leaked under the bogus path-derived name
-    ``infra``, per mod 053 / Cluster 1).
+    ``<dns_label(project)>-projinfra`` — deliberately **side-independent** so
+    that on a single-machine fixed host ``up development`` and ``up production``
+    run under the same Compose project; the second ``up`` adopts the first's
+    resources and converges to a no-op (per
+    ``doctrine/.../projinfra/projinfra.md`` §35, restated §96). A per-side
+    suffix (mod 053's original choice) broke that convergence: the second up
+    ran under a different Compose project and collided on the shared traefik
+    ``container_name``.
+
+    Passing an explicit ``--project-name`` (vs the path-derived ``infra``) is
+    still what keeps ``down`` able to remove the per-project traefik AND the
+    four ``-web`` networks (which previously leaked under ``infra``, per mod
+    053 / Cluster 1). This change keeps the explicit name; it only drops the
+    side suffix.
     """
-    return f"{dns_label(ctx.project.name)}-projinfra-{side}"
+    return f"{dns_label(ctx.project.name)}-projinfra"
 
 
 def run_projinfra_fixed_up(
@@ -58,8 +67,10 @@ def run_projinfra_fixed_up(
 
     On a single-machine fixed project the two sides operate on the same
     docker daemon and converge: running ``up production`` after ``up
-    development`` is a docker-compose-up no-op because both emitted
-    compose files declare the same resource set.
+    development`` is a docker-compose-up no-op because both emitted compose
+    files declare the same resource set AND run under the same, side-independent
+    Compose project name — so compose adopts the first side's resources and
+    reconciles rather than colliding.
     """
     compose_file = _project_compose_path(ctx, side)
     if not compose_file.is_file():
@@ -73,7 +84,7 @@ def run_projinfra_fixed_up(
     rc = docker.compose_up(
         compose_file, build=False, detach=True,
         project_dir=ctx.project_root,
-        project_name=_project_compose_project(ctx, side),
+        project_name=_project_compose_project(ctx),
     )
     if rc != 0:
         print(
@@ -109,7 +120,7 @@ def run_projinfra_fixed_down(
     return docker.compose_down(
         compose_file, preserve_volumes=True,
         project_dir=ctx.project_root,
-        project_name=_project_compose_project(ctx, side),
+        project_name=_project_compose_project(ctx),
     )
 
 
