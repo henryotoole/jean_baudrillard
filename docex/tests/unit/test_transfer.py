@@ -310,3 +310,96 @@ def test_project_local_naming_policy_override(tmp_path: Path):
     rds = tables.naming_policies.get("rds")
     assert rds.max_len == 50  # Overridden.
     assert rds.separator == "hyphen"  # Preserved from bundled.
+
+
+# ---------------------------------------------------------------------------
+# Mod 076 — env-var kind schema + generation policies.
+# ---------------------------------------------------------------------------
+
+
+def test_bundled_postgres_env_uses_kind_schema():
+    """The bundled postgres engine now carries kind-tagged env specs."""
+    tables = load_transfer_tables(project_root=None)
+    pg = tables.engine("relational_db", "postgres")
+    user = pg.env["POSTGRES_USER"]
+    assert user.kind == "fixed"
+    assert user.value == "appuser"
+    assert user.policy is None
+    pw = pg.env["POSTGRES_PASSWORD"]
+    assert pw.kind == "minted"
+    assert pw.policy == "password"
+    assert pw.value is None
+
+
+def test_bundled_loader_exposes_generation_policies():
+    tables = load_transfer_tables(project_root=None)
+    password = tables.generation_policies.get("password")
+    assert password.length == 32
+    assert password.alphabet == "url_safe"
+
+
+def test_env_scalar_shorthand_parses_as_secret(tmp_path: Path):
+    """`KEY: "desc"` shorthand == {kind: secret, desc: "desc"}."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    (proj / "infra" / "transfer_tables" / "extra.yml").write_text(
+        "roles:\n"
+        "  sidecar:\n"
+        "    nginx:\n"
+        "      foundation: both\n"
+        "      naming: ecs\n"
+        "      emits:\n"
+        "        fixed: [compose_service]\n"
+        "      env:\n"
+        "        NGINX_TOKEN: \"an operator secret\"\n"
+    )
+    tables = load_transfer_tables(project_root=proj)
+    spec = tables.engine("sidecar", "nginx").env["NGINX_TOKEN"]
+    assert spec.kind == "secret"
+    assert spec.desc == "an operator secret"
+    assert spec.value is None and spec.policy is None
+
+
+def test_env_full_form_kinds_parse(tmp_path: Path):
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    (proj / "infra" / "transfer_tables" / "extra.yml").write_text(
+        "generation_policies:\n"
+        "  password:\n"
+        "    length: 16\n"
+        "    alphabet: alnum\n"
+        "roles:\n"
+        "  sidecar:\n"
+        "    nginx:\n"
+        "      foundation: both\n"
+        "      naming: ecs\n"
+        "      emits:\n"
+        "        fixed: [compose_service]\n"
+        "      env:\n"
+        "        MODE:\n"
+        "          kind: fixed\n"
+        "          value: prod\n"
+        "          desc: run mode\n"
+        "        PW:\n"
+        "          kind: minted\n"
+        "          policy: password\n"
+    )
+    env = load_transfer_tables(project_root=proj).engine("sidecar", "nginx").env
+    assert env["MODE"].kind == "fixed" and env["MODE"].value == "prod"
+    assert env["PW"].kind == "minted" and env["PW"].policy == "password"
+
+
+def test_generation_policy_project_override_deep_merges(tmp_path: Path):
+    """A project may override `password.length` — sibling `alphabet` survives."""
+    proj = tmp_path / "proj"
+    (proj / "infra" / "transfer_tables").mkdir(parents=True)
+    (proj / "infra" / "transfer_tables" / "gen.yml").write_text(
+        "generation_policies:\n"
+        "  password:\n"
+        "    length: 64\n"
+    )
+    password = load_transfer_tables(project_root=proj).generation_policies.get(
+        "password"
+    )
+    assert password.length == 64  # Overridden.
+    assert password.alphabet == "url_safe"  # Preserved from bundled.

@@ -7,11 +7,15 @@
 #
 # Phase 4 elastic translation notes:
 #   - The `username` and `password` fields below carry `$[POSTGRES_USER]`
-#     / `$[POSTGRES_PASSWORD]`. The elastic HCL emitter detects these
-#     runtime-ref tokens in backing-service bodies and translates each
-#     into a `data "aws_ssm_parameter"` block referencing
-#     /<project>/<env>/POSTGRES_USER (etc.). The release flow's SSM
-#     push step guarantees those parameters exist before tofu apply.
+#     / `$[POSTGRES_PASSWORD]`. Resolution now depends on the env var's
+#     `kind` (see the `env:` block): `POSTGRES_USER` is `kind: fixed`, so
+#     the compiler inlines its literal `value` (appuser) at each site and
+#     it never reaches SSM. Only `minted`/`secret` vars — here just
+#     `POSTGRES_PASSWORD` — are translated into a `data "aws_ssm_parameter"`
+#     block referencing /<project>/<env>/POSTGRES_PASSWORD. The release
+#     flow's SSM push step guarantees those parameters exist before tofu
+#     apply. (The `fixed`-inlining emitter change lands in Mod 077; today
+#     the emitter still SSM-sources every `$[…]` token.)
 #   - The `host` provides template uses `@aws_db_instance.${name}.address`
 #     (hostname only, no port) so consumers reading
 #     `${backing_services.<db>.host}` can compose `host:port` themselves
@@ -173,8 +177,14 @@ roles:
           fixed: "disable"
           elastic: "require"
       env:
-        POSTGRES_USER: "The username of the postgres user"
-        POSTGRES_PASSWORD: "The password of the postgres user"
+        POSTGRES_USER:
+          kind: fixed
+          value: appuser
+          desc: "Postgres role name — doctrine-fixed, not a secret."
+        POSTGRES_PASSWORD:
+          kind: minted
+          policy: password
+          desc: "Postgres role password — generated once per env."
       # RDS forbids underscores in identifiers; the `rds` policy is hyphen +
       # lower + 63 chars. See tables/naming_policies.yml § rds.
       naming: rds

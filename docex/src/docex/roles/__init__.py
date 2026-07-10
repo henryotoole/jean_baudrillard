@@ -92,7 +92,10 @@ def _engine_payload(entry: EngineEntry) -> dict:
         "foundation": entry.foundation,
         "default_port": entry.default_port,
         "parts": parts,
-        "env": dict(entry.env or {}),
+        "env": {
+            k: {"kind": s.kind, "desc": s.desc}
+            for k, s in (entry.env or {}).items()
+        },
         "fields": sorted((entry.fields or {}).keys()),
     }
 
@@ -147,10 +150,13 @@ def describe_role(tables: TransferTables, role: str, *, fmt: str = "text") -> in
 
         env = entry.env or {}
         if env:
-            console.print("    required env (infra/secrets/<env>.env):")
+            console.print("    engine env vars:")
             ewidth = max(len(k) for k in env)
             for k in sorted(env):
-                console.print(f"      {k.ljust(ewidth)}  {env[k]}")
+                spec = env[k]
+                console.print(
+                    f"      {k.ljust(ewidth)}  ({spec.kind}) {spec.desc}"
+                )
 
         fields = entry.fields or {}
         if fields:

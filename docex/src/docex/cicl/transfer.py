@@ -24,6 +24,10 @@ from typing import Any, Iterable
 
 import yaml
 
+from docex.cicl.generate import (
+    GenerationPolicies,
+    parse_generation_policies,
+)
 from docex.errors import TransferTableError
 from docex.naming import NamingPolicies, parse_policies
 
@@ -45,6 +49,7 @@ _BUNDLED_TABLES_CANDIDATES: list[Path] = [
 _ALLOWED_TOPLEVEL_KEYS: frozenset[str] = frozenset({
     "roles",
     "naming_policies",
+    "generation_policies",
 })
 
 # Role-level keys reserved for metadata. Anything else under a role is
@@ -90,6 +95,33 @@ EMIT_DESTINATIONS: dict[str, frozenset[str]] = {
 }
 
 
+# Env-var `kind` and full-form sub-keys. Per transfer_tables.md
+# § Anatomy of a Role Definition. `kind` defaults to `secret`.
+_ALLOWED_ENV_KINDS: frozenset[str] = frozenset({"fixed", "minted", "secret"})
+_ALLOWED_ENV_ENTRY_KEYS: frozenset[str] = frozenset({
+    "kind",
+    "desc",
+    "value",
+    "policy",
+})
+
+
+@dataclass(frozen=True)
+class EnvVarSpec:
+    """One engine `env:` entry. `kind` drives compile resolution + storage.
+
+    - fixed:  `value` is inlined at compile; `policy` must be None.
+    - minted: `policy` names a generation_policy; `value` must be None.
+    - secret: operator-supplied; both None.
+    """
+
+    name: str
+    kind: str            # 'fixed' | 'minted' | 'secret'
+    desc: str = ""
+    value: str | None = None    # fixed only
+    policy: str | None = None   # minted only
+
+
 @dataclass
 class EngineEntry:
     """A single role/engine entry from a transfer table."""
@@ -100,7 +132,7 @@ class EngineEntry:
     defaults: dict[str, Any] = field(default_factory=dict)
     fields: dict[str, Any] = field(default_factory=dict)
     provides: dict[str, Any] = field(default_factory=dict)
-    env: dict[str, str] = field(default_factory=dict)
+    env: dict[str, EnvVarSpec] = field(default_factory=dict)
     # Reference into ``naming_policies:`` — resolved against
     # TransferTables.naming_policies by callers (compile.py,
     # orchestrate/migrate.py). See doctrine § Naming Policies.
@@ -198,6 +230,12 @@ class TransferTables:
     # engines reference one by name via ``EngineEntry.naming``.
     naming_policies: NamingPolicies = field(
         default_factory=lambda: NamingPolicies(by_name={})
+    )
+    # Top-level generation policies (how docex mints `kind: minted` env
+    # vars); minted env vars reference one by name via
+    # ``EnvVarSpec.policy``. See doctrine § Generation Policies.
+    generation_policies: GenerationPolicies = field(
+        default_factory=lambda: GenerationPolicies(by_name={})
     )
 
     def roles(self) -> list[str]:
@@ -406,6 +444,23 @@ def _validate_file(display_path: str, doc: dict[str, Any]) -> None:
         from docex.naming import _validate_policy_keys
         _validate_policy_keys(display_path, policy_name, body)
 
+    # generation_policies block.
+    gen_policies = doc.get("generation_policies") or {}
+    if not isinstance(gen_policies, dict):
+        raise TransferTableError(
+            f"{display_path}: `generation_policies:` must be a mapping"
+        )
+    for policy_name, body in gen_policies.items():
+        if not isinstance(body, dict):
+            raise TransferTableError(
+                f"{display_path}: generation_policies.{policy_name}: "
+                f"must be a mapping"
+            )
+        # Delegate sub-key validation to generate.py — same code path
+        # that parses bundled policies. Lazy import mirrors naming's.
+        from docex.cicl.generate import _validate_generation_policy_keys
+        _validate_generation_policy_keys(display_path, policy_name, body)
+
     # roles block.
     roles = doc.get("roles") or {}
     if not isinstance(roles, dict):
@@ -546,6 +601,85 @@ def _validate_engine_entry(
                 f"(got {ps.get('mount_path')!r})"
             )
 
+    # env-var shape (only when present). Source-attributed, per-file — the
+    # minted->generation-policy cross-reference (rule 13) is deferred to
+    # load_transfer_tables since it needs the merged generation_policies.
+    if "env" in raw:
+        env_block = raw["env"] or {}
+        if not isinstance(env_block, dict):
+            raise TransferTableError(
+                f"{display_path}: roles.{role}.{engine}.env: must be a mapping"
+            )
+        where = f"{display_path}: roles.{role}.{engine}.env"
+        for key, spec in env_block.items():
+            _parse_env_var(where, key, spec)
+
+
+def _parse_env_var(where: str, key: str, raw: Any) -> EnvVarSpec:
+    """Parse+validate one engine `env:` entry (scalar shorthand or full form).
+
+    ``where`` is the error-message prefix up to (not including) the var key,
+    e.g. ``"tables/roles/x.yml: roles.r.e.env"`` (per-file) or
+    ``"role 'r' engine 'e': env"`` (post-merge). Enforces rule 14 (the
+    fixed⇒value / minted⇒policy invariants) but NOT rule 13 (the minted
+    policy cross-reference) — that needs the merged generation_policies.
+    """
+    # Scalar shorthand: `KEY: "desc"` == {kind: secret, desc: "desc"}.
+    if isinstance(raw, str):
+        return EnvVarSpec(name=key, kind="secret", desc=raw)
+    if not isinstance(raw, dict):
+        raise TransferTableError(
+            f"{where}.{key}: must be a string (desc) or a mapping "
+            f"({{kind, desc, value, policy}})"
+        )
+    for sub in raw:
+        if sub not in _ALLOWED_ENV_ENTRY_KEYS:
+            raise TransferTableError(
+                f"{where}.{key}: unknown key {sub!r}"
+                + _did_you_mean(sub, _ALLOWED_ENV_ENTRY_KEYS)
+            )
+    kind = raw.get("kind", "secret")
+    if kind not in _ALLOWED_ENV_KINDS:
+        raise TransferTableError(
+            f"{where}.{key}.kind: {kind!r} is not a valid kind"
+            + _did_you_mean(str(kind), _ALLOWED_ENV_KINDS)
+        )
+    value = raw.get("value")
+    policy = raw.get("policy")
+    # Rule 14: fixed => value present & policy absent; minted => policy
+    # present & value absent; secret => neither.
+    if kind == "fixed":
+        if value is None:
+            raise TransferTableError(
+                f"{where}.{key}: kind 'fixed' requires a `value:` literal"
+            )
+        if policy is not None:
+            raise TransferTableError(
+                f"{where}.{key}: kind 'fixed' must not declare a `policy:`"
+            )
+    elif kind == "minted":
+        if policy is None:
+            raise TransferTableError(
+                f"{where}.{key}: kind 'minted' requires a `policy:` reference"
+            )
+        if value is not None:
+            raise TransferTableError(
+                f"{where}.{key}: kind 'minted' must not declare a `value:`"
+            )
+    else:  # secret
+        if value is not None or policy is not None:
+            raise TransferTableError(
+                f"{where}.{key}: kind 'secret' must not declare a `value:` "
+                f"or `policy:` (secrets are operator-supplied)"
+            )
+    return EnvVarSpec(
+        name=key,
+        kind=kind,
+        desc=raw.get("desc", ""),
+        value=value,
+        policy=policy,
+    )
+
 
 def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
     # WHY: schema-shape and emit-destination validation ran in
@@ -577,7 +711,10 @@ def _parse_entry(role: str, engine: str, raw: dict[str, Any]) -> EngineEntry:
         defaults=raw.get("defaults", {}) or {},
         fields=raw.get("fields", {}) or {},
         provides=raw.get("provides", {}) or {},
-        env=raw.get("env", {}) or {},
+        env={
+            k: _parse_env_var(f"role {role!r} engine {engine!r}: env", k, v)
+            for k, v in (raw.get("env") or {}).items()
+        },
         naming=naming_ref,
         default_port=raw.get("default_port"),
         reserved_names=[
@@ -617,8 +754,18 @@ def load_transfer_tables(project_root: Path | None) -> TransferTables:
                 raw_merged = _deep_merge(
                     raw_merged, {"naming_policies": doc["naming_policies"]}
                 )
+            if "generation_policies" in doc and isinstance(
+                doc["generation_policies"], dict
+            ):
+                raw_merged = _deep_merge(
+                    raw_merged,
+                    {"generation_policies": doc["generation_policies"]},
+                )
 
     policies = parse_policies(raw_merged.get("naming_policies", {}))
+    gen_policies = parse_generation_policies(
+        raw_merged.get("generation_policies", {})
+    )
 
     by_role: dict[str, dict[str, EngineEntry]] = {}
     descriptions: dict[str, str] = {}
@@ -640,9 +787,21 @@ def load_transfer_tables(project_root: Path | None) -> TransferTables:
                 raise TransferTableError(
                     f"roles.{role}.{engine}.naming: {exc}"
                 ) from exc
+            # Rule 13: every minted env var's policy must resolve against
+            # the merged generation policies. Deferred to here (post-merge)
+            # because a project-local table may define the policy.
+            for var in entry.env.values():
+                if var.kind == "minted":
+                    try:
+                        gen_policies.get(var.policy)
+                    except TransferTableError as exc:
+                        raise TransferTableError(
+                            f"roles.{role}.{engine}.env.{var.name}.policy: {exc}"
+                        ) from exc
             by_role.setdefault(role, {})[engine] = entry
     return TransferTables(
         by_role=by_role,
         descriptions=descriptions,
         naming_policies=policies,
+        generation_policies=gen_policies,
     )

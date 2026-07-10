@@ -1,0 +1,7 @@
+# Generation policies — how docex mints `kind: minted` engine env vars.
+# Sibling to naming_policies (formatter) — this is the generator surface.
+# See doctrine/infrastructure/specifics/transfer_tables.md § Generation Policies.
+generation_policies:
+  password:
+    length: 32
+    alphabet: url_safe

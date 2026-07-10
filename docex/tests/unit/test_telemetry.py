@@ -336,17 +336,25 @@ def test_example_env_contains_telemetry_api_key(tmp_path: Path):
 def test_example_env_telemetry_key_position(tmp_path: Path):
     """The doctrine-injected secrets group must appear before any
     per-service header in the rendered file."""
-    doc = _doc(_MINIMAL_FIXED)
+    # postgres declares no `kind: secret` env vars, so key off a core
+    # service's own `secrets:` header instead of a backing header.
+    src = _MINIMAL_FIXED.replace(
+        "    resources:\n      cpu: 1.0\n      memory: 2GB\n",
+        "    secrets:\n      API_KEY: \"bespoke api key\"\n"
+        "    resources:\n      cpu: 1.0\n      memory: 2GB\n",
+        1,
+    )
+    doc = _doc(src)
     out = tmp_path / "example.env"
     emit_example_env(doc, _tables(), out)
     text = out.read_text()
     telemetry_idx = text.index("TELEMETRY_API_KEY=")
-    # `appdb` is a backing service in the fixture; its header appears
+    # `api` is a core service with a `secrets:` block; its header appears
     # later in the file.
-    appdb_idx = text.index("# appdb")
-    assert telemetry_idx < appdb_idx, (
+    api_idx = text.index("# api (core service)")
+    assert telemetry_idx < api_idx, (
         f"TELEMETRY_API_KEY should precede per-service sections; got "
-        f"telemetry_idx={telemetry_idx}, appdb_idx={appdb_idx}"
+        f"telemetry_idx={telemetry_idx}, api_idx={api_idx}"
     )
 
 

@@ -35,7 +35,7 @@ def test_unknown_toplevel_key_unrelated_lists_allowed(tmp_path: Path) -> None:
         load_transfer_tables(tmp_path)
     msg = str(exc.value)
     assert "frobnicate" in msg
-    assert "allowed: naming_policies, roles" in msg
+    assert "allowed: generation_policies, naming_policies, roles" in msg
 
 
 def test_unknown_engine_subkey_with_typo(tmp_path: Path) -> None:
@@ -224,3 +224,134 @@ def test_persistent_storage_requires_mount_path(tmp_path: Path) -> None:
         load_transfer_tables(tmp_path)
     msg = str(exc.value)
     assert "mount_path" in msg
+
+
+# ---------------------------------------------------------------------------
+# Mod 076 — env-var kind schema + generation policies validation.
+# ---------------------------------------------------------------------------
+
+
+_ENGINE_HEAD = (
+    "roles:\n"
+    "  sidecar:\n"
+    "    nginx:\n"
+    "      foundation: both\n"
+    "      naming: ecs\n"
+    "      emits:\n"
+    "        fixed: [compose_service]\n"
+    "      env:\n"
+)
+
+
+def test_env_unknown_kind_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path, _ENGINE_HEAD + "        FOO:\n          kind: sneaky\n"
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "sneaky" in str(exc.value)
+
+
+def test_env_unknown_subkey_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path,
+        _ENGINE_HEAD
+        + "        FOO:\n          kind: secret\n          descr: typo\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    msg = str(exc.value)
+    assert "descr" in msg
+    assert "did you mean 'desc'" in msg
+
+
+def test_env_fixed_without_value_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path, _ENGINE_HEAD + "        FOO:\n          kind: fixed\n"
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "value" in str(exc.value)
+
+
+def test_env_fixed_with_policy_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path,
+        _ENGINE_HEAD
+        + "        FOO:\n          kind: fixed\n          value: x\n"
+        "          policy: password\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "policy" in str(exc.value)
+
+
+def test_env_minted_without_policy_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path, _ENGINE_HEAD + "        FOO:\n          kind: minted\n"
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "policy" in str(exc.value)
+
+
+def test_env_minted_with_value_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path,
+        _ENGINE_HEAD
+        + "        FOO:\n          kind: minted\n          policy: password\n"
+        "          value: x\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "value" in str(exc.value)
+
+
+def test_env_minted_unknown_policy_rejected(tmp_path: Path) -> None:
+    """Rule 13: a minted var whose policy names no generation policy fails."""
+    _write_project_table(
+        tmp_path,
+        _ENGINE_HEAD
+        + "        FOO:\n          kind: minted\n          policy: nonesuch\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    msg = str(exc.value)
+    assert "nonesuch" in msg
+    assert "sidecar.nginx.env.FOO.policy" in msg
+
+
+def test_generation_policy_unknown_subkey_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path,
+        "generation_policies:\n"
+        "  custom:\n"
+        "    length: 8\n"
+        "    alphabets: alnum\n",  # typo
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    msg = str(exc.value)
+    assert "generation_policies.custom" in msg
+    assert "alphabets" in msg
+    assert "did you mean 'alphabet'" in msg
+
+
+def test_generation_policy_bad_alphabet_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path,
+        "generation_policies:\n  custom:\n    length: 8\n    alphabet: hex\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "alphabet" in str(exc.value)
+
+
+def test_generation_policy_bad_length_rejected(tmp_path: Path) -> None:
+    _write_project_table(
+        tmp_path,
+        "generation_policies:\n  custom:\n    length: -1\n    alphabet: alnum\n",
+    )
+    with pytest.raises(TransferTableError) as exc:
+        load_transfer_tables(tmp_path)
+    assert "length" in str(exc.value)

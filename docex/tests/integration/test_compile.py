@@ -434,14 +434,20 @@ def test_composed_secret_in_env_fails_compile(tmp_path: Path):
         run_compile(ctx)
 
 
-def test_example_env_includes_postgres_keys(tmp_path: Path):
+def test_example_env_excludes_postgres_keys(tmp_path: Path):
+    """Mod 076: postgres' env vars are now `fixed` (POSTGRES_USER, inlined)
+    and `minted` (POSTGRES_PASSWORD, TTE store) — neither is operator-
+    supplied, so neither belongs in the secrets-only manifest. The backing
+    section is therefore empty and omitted entirely."""
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     example = (root / "infra" / "secrets" / "example.env").read_text()
-    assert "POSTGRES_USER=" in example
-    assert "POSTGRES_PASSWORD=" in example
-    assert "# appdb" in example
+    assert "POSTGRES_USER=" not in example
+    assert "POSTGRES_PASSWORD=" not in example
+    assert "# appdb" not in example
+    # The doctrine-injected key still surfaces.
+    assert "TELEMETRY_API_KEY=" in example
 
 
 _SECRET_INFRA = """\
