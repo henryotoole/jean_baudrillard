@@ -46,6 +46,42 @@ def pytest_collection_modifyitems(config, items):  # noqa: D401
             item.add_marker(skipper)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_shared_stacks():
+    """Wipe the sample fixture's shared compose stacks + data volumes around
+    every integration test.
+
+    WHY: the postgres data volume is named by the compose *project*
+    (``sample-dev`` / ``sample-test``), derived from the fixture's
+    ``project.yml`` name, NOT the per-test tmp dir — so it is shared across
+    integration tests. Under the pre-envmageddon world the postgres password
+    was a static committed fixture value, so a carried-over volume was benign.
+    It is now a per-env **minted** TTE value (a fresh CSPRNG password per fresh
+    project copy), so a volume left by a prior test holds a *stale* password and
+    the next ``run_up``'s migrate step auth-fails. Forcing a clean slate before
+    and after each test makes postgres re-initialize with the current mint.
+    """
+    def _clean() -> None:
+        if not _docker_available():
+            return
+        for proj in ("sample-dev", "sample-test"):
+            subprocess.run(
+                ["docker", "compose", "-p", proj, "down", "-v", "--remove-orphans"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+            )
+        # Belt-and-suspenders: the data volume name is deterministic
+        # (<project>-<env>-appdb_data); remove it directly in case a `down`
+        # without a compose file didn't resolve it.
+        for vol in ("sample-dev-appdb_data", "sample-test-appdb_data"):
+            subprocess.run(
+                ["docker", "volume", "rm", "-f", vol],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+            )
+    _clean()
+    yield
+    _clean()
+
+
 @pytest.fixture
 def fresh_project(tmp_path: Path) -> Path:
     """Copy the sample fixture into a fresh temp dir.

@@ -16,6 +16,7 @@ import pytest
 
 from docex.context import load_project_context
 from docex.docker import SubprocessDockerClient
+from docex.naming import dns_label
 from docex.orchestrate.down import run_down
 from docex.orchestrate.up import run_up
 from docex.pipeline.stagetest import run_stagetest
@@ -42,20 +43,23 @@ def test_stagetest_against_local_dev(fresh_project: Path):
     if rc != 0:
         pytest.skip(f"could not bring up dev stack: rc={rc}")
 
-    project = ctx.project.name  # "sample"
+    # Both the container name and the env web network are project-env-scoped,
+    # HYPHENATED data-plane identifiers (mods 030/035/046): the api container is
+    # `<dns_label(project)>-dev-api` (`sample-dev-api`) on the env web network
+    # `<dns_label(project)>-dev-web` (`sample-dev-web`). The old `sample_dev_api`
+    # / bare-`web` overrides predated that hyphenation and were stale — the
+    # integration suite hadn't been re-run since, so they went unnoticed. (Both
+    # are orthogonal to envmageddon, which changed no networking or naming.)
+    seg = dns_label(ctx.project.name)
+    api_host = f"{seg}-dev-api"
     try:
         rc = run_stagetest(
             ctx,
             docker,
-            # Reached by container name on the bare external `web` docker
-            # network — fixed-foundation `web` compiles to a single bare
-            # network shared with the machine-wide reverse proxy, not
-            # `${project}_${env}_web` (per networks.md's explicit
-            # exception). Container names use the `docker` / `ecs`
-            # naming policy (underscore-preserving), so the api host is
-            # `${project}_dev_api`, not hyphenated.
-            staging_url_override=f"http://{project}_dev_api:8080",
-            network_override="web",
+            # Reached by container name on the env's web docker network (web
+            # services publish no host ports).
+            staging_url_override=f"http://{api_host}:8080",
+            network_override=f"{seg}-dev-web",
         )
         assert rc == 0
     finally:
@@ -65,7 +69,7 @@ def test_stagetest_against_local_dev(fresh_project: Path):
             ["docker", "compose",
              "-f", str(fresh_project / "infra" / "output" / "dev" / "docker-compose.yml"),
              "--project-directory", str(fresh_project),
-             "--env-file", str(fresh_project / "infra" / "secrets" / "dev.env"),
+             "--env-file", str(fresh_project / ".docex" / "agg" / "dev.env"),
              "down", "-v"],
             check=False,
         )

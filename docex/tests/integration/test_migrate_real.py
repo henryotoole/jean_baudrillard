@@ -25,8 +25,11 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
         assert rc == 0
 
         # Confirm the migration's table exists by asking psql.
-        # We exec into the appdb container.
-        env_file = fresh_project / "infra" / "secrets" / "dev.env"
+        # We exec into the appdb container. The container-facing env now comes
+        # from the derived aggregate (TTE ∪ secrets ∪ config), not the raw
+        # secrets file — POSTGRES_PASSWORD is a minted TTE value that lives
+        # there, so point compose's --env-file at the aggregate.
+        env_file = fresh_project / ".docex" / "agg" / "dev.env"
         # Find appdb service's project-scoped global name.
         # Mod 053: match docex's explicit env-tier --project-name
         # (<dns_label>-<env> = "sample-dev") so these probes address the
@@ -52,7 +55,9 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
                 "--project-name", "sample-dev",
                 "--env-file", str(env_file),
                 "exec", "-T", db_key,
-                "psql", "-U", "sample", "-d", "appdb",
+                # POSTGRES_USER is now the doctrine-fixed literal `appuser`
+                # (kind: fixed), not the old committed `sample`.
+                "psql", "-U", "appuser", "-d", "appdb",
                 "-c", "\\dt health",
             ],
             capture_output=True,
@@ -69,7 +74,7 @@ def test_migrate_dev_creates_health_table(fresh_project, docker_client):
             ["docker", "compose", "-f", str(compose_file),
              "--project-directory", str(fresh_project),
              "--project-name", "sample-dev",
-             "--env-file", str(fresh_project / "infra" / "secrets" / "dev.env"),
+             "--env-file", str(fresh_project / ".docex" / "agg" / "dev.env"),
              "down", "-v"],
             check=False,
         )
