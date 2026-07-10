@@ -103,7 +103,7 @@ Hold those until Phase B is verified complete.
    `infra/secrets/{stage,prod}.env` — must be present and complete, because
    re-release re-pushes from it. Confirm `TELEMETRY_API_KEY` is set for stage/prod
    (doctrine-injected secret; see
-   [`secrets.md`](../doctrine/infrastructure/specifics/secrets.md)).
+   [`config_and_secrets.md`](../doctrine/infrastructure/specifics/config_and_secrets.md)).
 
 4. **Confirm the old compiled output and state are intact.** `infra/output/`
    should be committed and match what's deployed (the old `docex compile`

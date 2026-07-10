@@ -4,23 +4,7 @@ stratum: conditional
 
 # Credentials
 
-This file provides a general overview of how secrets and deploy credentials are handled under doctrine infrastructure.
-
-## Secrets
-
-A secret is any relatively small piece of information that is used by our infrastructure to operate and shouldn't ever be made public. Secrets should never be git tracked.
-
-### Secret Information Flow
-
-The fundamental idea is that secrets originate and live on the developer's machine. They are used natively when docker builds the `dev` and `test` environments and are pushed from the developer's machine to `stage` and `prod` during the [release process](./cicd.md#release-step).
-
-The `$pr/infra/secrets` folder constitutes the source of truth for all environments across a project. Each environment's secrets are stored in the form of environmental variables in `$pr/infra/secrets/${env}.env` files. Our CI/CD processes ensure that they are always injected into infrastructure properly.
-
-### The Drawback
-
-The advantage to this method is that secret handling and storage is the same for all environments and foundations. There are, however, a few drawbacks:
-1. Synchronization across developers - if a project has multiple developers, they must keep their production environment files synchronized. Otherwise they will overwrite each other on releases.
-2. Rotation not possible - rotation techniques aren't provided for at this time.
+This file provides a general overview of how deploy credentials are handled under doctrine infrastructure.
 
 ## Deploy Credentials
 

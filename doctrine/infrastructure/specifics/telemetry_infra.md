@@ -297,12 +297,12 @@ The rendered config YAML is embedded as a literal string into the task definitio
 otelcol's `env:` config-source provider reads its entire config from the named env var at startup. The HCL diff for the task definition (in `infra/output/<env>/main.tf`) contains the full literal YAML — operators can see exactly what the sidecar will run by reading the HCL.
 
 This is an embedded-YAML approach rather than an external config source (S3, SSM) for two reasons:
-1. Keeps the secret-flow surface narrow — SSM is reserved for actual secrets per [secrets.md](./secrets.md).
+1. Keeps the secret-flow surface narrow — SSM is reserved for actual secrets per [config_and_secrets.md](./config_and_secrets.md).
 2. The config diff is visible in the same HCL the operator already reviews, not in a separate fetch path.
 
 ### Secret Delivery
 
-`TELEMETRY_API_KEY` is delivered via an ECS `secrets[]` entry on the sidecar container, sourcing from `/<project>/<env>/TELEMETRY_API_KEY` in SSM Parameter Store, per [release.md § Elastic Foundation: OpenTofu](./release.md#elastic-foundation-opentofu) and [secrets.md](./secrets.md). `docex release` pushes the SSM parameter from `infra/secrets/<env>.env` on every deploy.
+`TELEMETRY_API_KEY` is delivered via an ECS `secrets[]` entry on the sidecar container, sourcing from `/<project>/<env>/TELEMETRY_API_KEY` in SSM Parameter Store, per [release.md § Elastic Foundation: OpenTofu](./release.md#elastic-foundation-opentofu) and [config_and_secrets.md](./config_and_secrets.md). `docex release` pushes the SSM parameter from `infra/secrets/<env>.env` on every deploy.
 
 `OBSERVABILITY_BACKEND_URL` is delivered as a regular `environment[]` entry — the URL is not sensitive.
 

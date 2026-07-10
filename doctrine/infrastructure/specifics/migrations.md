@@ -79,7 +79,7 @@ For `stage`/`prod` on elastic projects, the compiler emits a separate "migration
 
 `./bin/docex release <env>` sequences:
 
-1. **Push secrets to SSM** (the secrets step from [`secrets.md`](./secrets.md)).
+1. **Push secrets to SSM** (the secrets step from [`config_and_secrets.md`](./config_and_secrets.md)).
 2. **Update the migration task definition image tag** to the new version via the AWS API (`RegisterTaskDefinition`). This does not affect any running services.
 3. **`RunTask`** the migration task definition for each service with a schema. Each task starts, pulls the new image, runs `migrate.sh` against the existing RDS, and exits. The task runs in the master VPC's primary-AZ private subnet with the project's `${project}-${env}-internal` security group so it can reach RDS.
 4. **Poll for completion** via `DescribeTasks`. If any task's container exits non-zero, abort the release immediately — the application's main task definition is unchanged, so the existing service continues serving against (now-migrated) RDS.

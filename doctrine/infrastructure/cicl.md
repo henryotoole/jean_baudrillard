@@ -90,7 +90,8 @@ The table below lists all standard fields for services.
 | env | no | core | Contains fields which define infrastructure-driven environment variables for the container. |
 | replicas | no | core | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. |
 | command | no | core | The command to run to launch the core service. Required for the `scheduler` role (the job entrypoint). |
-| secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Used to construct `example.env` later. |
+| secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Surfaced in the project's secrets file (`<env>.env`) and the `example.env` manifest. |
+| config | no | core | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [config_and_secrets.md](./specifics/config_and_secrets.md). |
 | engine | yes | backing | The underlying software package the service will use e.g. 'postgres', 'redis', etc. Can define two options if `fixed` and `elastic` foundations require different engines. |
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
 | schema_owned_by | sometimes | backing | Required for database roles (e.g. `relational_db`) to denote which core service owns the database schema and drives migrations. |
@@ -109,9 +110,15 @@ Restrictions with infra providers (particularly AWS SSM) mean that provided fiel
 
 The provided fields for each role live in the `docex` transfer tables, not in this doctrine. To discover them, run `./bin/docex role <role>` — it lists the role's engines and their provided fields (which are secrets, the required env vars, and the role-specific fields). `./bin/docex roles` lists every available role. See [docex.md](./docex.md#role).
 
-### Secret and Env Fields
+### Env, Secret, and Config Fields
 
-Two fields define a core service's container environmental variables. `env:` holds values the compiler resolves - literals and magic refs to provided parts. `secrets:` holds bespoke secrets the operator supplies via `<env>.env` (and SSM on elastic), never committed. A given key may appear in at most one of them.
+Three fields define a core service's container environment variables, distinguished by *where the value comes from* and *how it is handled*:
+
+- **`env:`** — values the compiler resolves at compile time: literals and magic refs to other services' provided parts.
+- **`secrets:`** — bespoke secrets the operator supplies, never committed. Each declared key is delivered to the container as an env var of the same name, sourced from `infra/secrets/<env>.env` (and SSM on elastic).
+- **`config:`** — non-secret, deployment-specific, per-env values (e.g. a third-party URL that differs by environment). Each declared key is delivered to the container the same way a secret is, differing only in that the value is non-secret: it lives in the non-tracked, LLM-readable `infra/config/<env>.env` (a plain SSM `String`, not `SecureString`, on elastic). Config is the doctrine's escape valve for per-environment values that are neither compile-resolvable nor secret.
+
+A given key may appear in **at most one** of `env:`, `secrets:`, and `config:` on a service. Across the whole project the three value *categories* are disjoint by key — an overlap is a compile error. See [config_and_secrets.md](./specifics/config_and_secrets.md) for the full model, the standard file form, and the tooling.
 
 ### Rules
 
@@ -380,9 +387,9 @@ The development side is always fixed-style (docker-compose) regardless of projec
 
 The project-tier elastic HCL uses a distinct state key (`key = "project/terraform.tfstate"`) in the project's S3 state backend. See [`projinfra/elastic_state_backend.md`](./specifics/projinfra/elastic_state_backend.md).
 
-**Secret declarations** (both foundations):
+**Env value surfaces** (both foundations):
 
-Alongside the env-specific output, the compiler emits `infra/secrets/example.env` documenting every runtime secret the project's services require. This is derived from the `env:` blocks of [transfer table](./specifics/transfer_tables.md) entries for each backing service and `secrets` blocks for core services in `infra.yml`. The developer never writes secret names into the project by hand — the surface stays in sync with doctrine knowledge automatically. See [secrets.md](./specifics/secrets.md) for the full layout of `infra/secrets/` and how the operator's `<env>.env` files are consumed at release time.
+Alongside the env-specific output, the compiler emits a committed, keys-only `infra/secrets/example.env` manifest documenting every secret the project's services require — derived from core `secrets:` blocks, backing engines' `kind: secret` env vars, and doctrine-injected keys. Because that key set is fully deterministic, the operator no longer copies the manifest by hand: `./bin/docex secrets scaffold <env>` reconciles the real `infra/secrets/<env>.env` from it (adding required keys, flagging stale ones, preserving values). Generated engine values (`kind: minted`) live in `infra/tte/`, and non-secret config in `infra/config/`. See [config_and_secrets.md](./specifics/config_and_secrets.md) for the full three-category model, the standard file form, the aggregation step, and the tooling.
 
 ### Validation Rules
 The following rules apply to whether or not an `infra.yml` file is valid.
@@ -402,6 +409,8 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 13. `apex_domain` must be a bare apex domain without subdomains.
 14. Service names can not be one of the following: [`dev`, `test`, `stage`, `prod`, `www`], because it makes domain parsing challenging.
 15. Every `web`-network service declares a `port`.
-16. A core service's `env:` and `secrets:` do not declare the same key.
+16. A core service's `env:`, `secrets:`, and `config:` do not declare the same key.
 17. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).
 18. `reverse_proxy` can only appear on `foundation: elastic` projects.
+19. Every key a core service consumes from `config:` is declared in that service's `config:` block; config values live in the non-tracked `infra/config/<env>.env`. See [config_and_secrets.md](./specifics/config_and_secrets.md).
+20. The three env-value categories — engine-minted (transfer-table `kind: minted`), secret (core `secrets:` + doctrine-injected), and config (core `config:`) — are disjoint across the whole project by source key. A key claimed by more than one category is a compile error, and doctrine-injected keys (e.g. `TELEMETRY_API_KEY`) are reserved and may not be redeclared in any category.

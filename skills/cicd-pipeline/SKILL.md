@@ -15,7 +15,7 @@ The pipeline shape and how credentials and secrets are handled. **Read these now
 
 [`cicd.md`](../../doctrine/infrastructure/cicd.md) — the full pipeline: check → merge → containerize → release → stagetest → rollback, with each step's process and `docex` command.
 
-[`credentials.md`](../../doctrine/infrastructure/credentials.md) — how secrets and deploy credentials are stored and how they flow into each environment.
+[`credentials.md`](../../doctrine/infrastructure/credentials.md) — how deploy credentials are stored and how they flow into each environment.
 
 ## Specific Information
 
@@ -25,7 +25,7 @@ The mechanism behind the heavier steps. **Read on demand.**
 
 [`migrations.md`](../../doctrine/infrastructure/specifics/migrations.md) — the `migrate.sh` contract and how migrations run per env category and foundation.
 
-[`secrets.md`](../../doctrine/infrastructure/specifics/secrets.md) — how `<env>.env` materializes into compose env vars (fixed) or SSM `secrets[]` entries (elastic).
+[`config_and_secrets.md`](../../doctrine/infrastructure/specifics/config_and_secrets.md) — how `<env>.env` materializes into compose env vars (fixed) or SSM `secrets[]` entries (elastic).
 
 ## Thread
 

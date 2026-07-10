@@ -160,7 +160,7 @@ the task definition):
        config.
 
 The two sets are disjoint (a provided part is either a literal or a single bare
-`$[REF]`, never both — see [secrets.md § Parts-Only Rule](./secrets.md#parts-only-rule)),
+`$[REF]`, never both — see [config_and_secrets.md § Parts-Only Rule](./config_and_secrets.md#parts-only-rule)),
 so the inlined `environment` and the sourced secrets compose into exactly the env
 surface a long-running service of that env would have.
 
