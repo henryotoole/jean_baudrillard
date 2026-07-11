@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.14] - 2026-07-11
+
+### Changed
+
+- Rollback-walk bump (second version so the pre-cut walk can roll prod back to 0.0.13).
+
+## [0.0.13] - 2026-07-11
+
+### Changed
+
+- Pre-cut smoke walk under the docex 1.5.0 release candidate (release + rollback
+  paths on the elastic foundation).
+
 ## [0.0.11] - 2026-07-07
 
 ### Added
