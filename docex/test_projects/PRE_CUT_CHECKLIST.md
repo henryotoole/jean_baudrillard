@@ -85,7 +85,8 @@ Verify each: `dig +short <subdomain>` returns `$DEV_IP`.
 `docex projinfra up production` creates a Route53 zone for `docex-smoke-elastic.luxrnd.tech` (project zone, child of `luxrnd.tech`). Between phase 1 and phase 2 of the projinfra apply, the operator NS-delegates from the parent `luxrnd.tech` zone.
 
 - [ ] Operator has Route53 admin on `luxrnd.tech`.
-- [ ] **Nothing else to pre-create.** Phase 1 prints the NS records to set on the parent.
+- [ ] **Elastic dev/test hosts must resolve before D.1.** `docex preinfra development` (D.1) also runs for the elastic project (its `dev`/`test` envs are local fixed stacks) and fails until `dev`, `*.dev`, `test`, `*.test`.`docex-smoke-elastic.luxrnd.tech` resolve to the dev machine. These are **out-of-band** dev/test A-records (deliberately not in projinfra — see the doctrine's elastic-dev-DNS note). Create them in the parent `luxrnd.tech` zone → `$DEV_IP` (low TTL) before D.1. They get shadowed once the child zone is delegated (D.3), which is fine — `preinfra development` only runs at D.1. Remove them at teardown (`verify_clean` checks the child *zone*, not parent-zone records).
+- [ ] The child zone itself: **nothing to pre-create** — D.3 phase 1 prints the NS records to delegate on the parent.
 
 ### A.5 Container registry — fixed
 
@@ -134,9 +135,9 @@ The doctrine's `infra/secrets/<env>.env` files are gitignored. They must exist w
 
 For each project (`fixed/`, `elastic/`), after step C.2's `docex compile` writes `example.env`:
 
-- [ ] Create `infra/secrets/dev.env`, `test.env`, `stage.env`, `prod.env` by copying `example.env` as a template.
-- [ ] Fill in every `POSTGRES_*` value (the agent chooses; these are also the prod credentials).
-- [ ] `stage.env` and `prod.env` additionally need `TELEMETRY_API_KEY=<value from A.6>`.
+- [ ] Reconcile each env with `./bin/docex secrets scaffold <env>` (dev/test/stage/prod). Under the envmageddon three-category model, `example.env` is a **secrets-only** manifest — `POSTGRES_USER` is a `kind: fixed` inline and `POSTGRES_PASSWORD` is a `kind: minted` TTE value (docex mints it into `infra/tte/`), so **neither belongs in `infra/secrets/`**. The only project secret here is the doctrine-injected `TELEMETRY_API_KEY`.
+- [ ] Set `TELEMETRY_API_KEY` (required for `stage`/`prod`) with `./bin/docex secrets set <env> TELEMETRY_API_KEY` (value from A.6), or confirm it via `./bin/docex secrets status <env>`. `dev`/`test` need no secrets (their sidecars use the debug exporter).
+- [ ] No `POSTGRES_*` values are entered anywhere — the TTE store is minted automatically during aggregation at first `up`/`release`.
 
 ---
 
@@ -195,6 +196,8 @@ Run this audit *once per cut*, against each project independently.
 ### C.6 Check + Containerize
 
 > **Feature-branch prerequisite (mod 053 / F8).** `check` and `merge` require a real feature-branch shape: `main` must sit at the **prior** release, and the **new** version (bumped `project.yml`) must live on a **feature branch** checked out now. `check` creates an ephemeral worktree merging the feature branch with `origin/main` and runs the gate checks (including "version bumped" and "version not yet released") against that merge. On a single-commit `main` with no feature branch the version-bump gate has nothing to compare against. Restructure the seed's git history to this shape by hand before C.6 if it isn't already (this is the by-hand restructure the smoke walk performs).
+>
+> **A reachable `origin` is required.** `check`/`merge` run `git fetch origin` from **inside** the docex container, which mounts the project root and specific `$HOME` subdirs (`~/.docker`, `~/.aws`, `~/.gitconfig`, `~/.ssh`) — **not** arbitrary `$HOME` paths. So a local bare remote must live **under the project root** to be container-visible. Create one in the gitignored `.docex/` (e.g. `git init --bare .docex/origin.git`), `git remote add origin .docex/origin.git`, and `git push origin main v<prior>` so `origin/main` sits at the prior release. The restructure: delete the current `v<new>` tag (merge recreates it), branch the new-version work onto a feature branch, move `main` back to `v<prior>`, push `main` to origin, and check out the feature branch.
 
 - [ ] `./bin/docex check` — exits 0. Runs gate checks against an ephemeral worktree (feature branch ⊕ `origin/main`).
 - [ ] `./bin/docex containerize` — succeeds; both `registry.luxrnd.tech/docex_smoke_fixed/web:<v>` and `registry.luxrnd.tech/docex_smoke_fixed/worker:<v>` push successfully. (ECR repo names preserve project-segment underscores per mod 030's structural emitter — this is correct.)

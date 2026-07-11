@@ -15,7 +15,7 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
-## [1.5.0] - unreleased
+## [1.5.0] - 2026-07-11
 
 "Envmageddon" (campaign 003, mods 076-086) — splits the single per-environment
 `<env>.env` into three provenance-based categories, re-merged at deploy time by
@@ -25,10 +25,6 @@ release-time materialization move. Downstream projects upgrade per
 [`upgrades/upgrade_1.5.0.md`](./upgrades/upgrade_1.5.0.md) — an `incremental`
 repin + file-reorg (not a rebuild), whose one load-bearing step is preserving
 the live engine credential so a mint can't lock out a running database.
-
-> Date + the version-artifact bump (`docex/pyproject.toml`,
-> `docex/src/docex/__init__.py`) land at the cut per
-> [`RELEASING.md`](./RELEASING.md); this entry is written ready-to-cut.
 
 ### Added
 
@@ -92,6 +88,22 @@ the live engine credential so a mint can't lock out a running database.
   is now side-independent (`<project>-projinfra`); split-machine fixed is
   unaffected. Pre-existing since mod 053; surfaced by the 1.5.0 pre-cut fixed
   smoke walk.
+- **`docex test` runs a scheduler service's `test.sh`** (mod 088) — a
+  `scheduler`-role core service has no exec-able container in the `test` stack
+  (the compiler emits no Ofelia container for `test`), so `docex test` now
+  builds its `test`-stage image and runs `test.sh` as a one-off container
+  instead of `compose exec` (which failed with "service not running"). Doctrine:
+  a clarifying sentence in `scheduler.md`. Pre-existing since mod 055; surfaced
+  by the 1.5.0 pre-cut fixed smoke walk.
+- **Fixed-foundation TTE store is read via `sudo`** (mod 089) — on fixed
+  stage/prod, `ensure_tte_fixed` SSH-read the host-authoritative `tte.env` (which
+  the playbook renders `root:root 0600`) as the unprivileged `deploy` user, so
+  the read hit "Permission denied", was masked into an empty result, and made
+  docex **re-mint the engine credential on every release**, locking the live
+  database out of its own password on the second release. The read now uses
+  `sudo cat` (deploy has passwordless sudo per doctrine). Elastic (SSM) and
+  dev/test (local file) were unaffected. Pre-existing in the envmageddon
+  campaign; surfaced by the 1.5.0 pre-cut fixed smoke walk.
 
 ## [1.4.4] - 2026-07-05
 
