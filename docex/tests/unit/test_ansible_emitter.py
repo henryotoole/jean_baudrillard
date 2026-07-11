@@ -147,6 +147,21 @@ def test_playbook_has_tte_store_copy_task(tmp_path: Path):
     assert "migrate" not in (env_task.get("tags") or [])
 
 
+def test_playbook_env_render_tasks_guarded_for_dryrun(tmp_path: Path):
+    """Mod 093: the two extra-var-dependent render tasks are gated on their
+    variable being defined, so a dry-run (``--check`` with no extra-vars) skips
+    them instead of failing on an undefined ``tte_store_file`` / ``agg_env_file``.
+    The real release always supplies both, so the tasks run unchanged."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    tte = _find_task(root, "stage", "Render TTE store onto host")
+    assert tte.get("when") == "tte_store_file is defined", tte
+    env = _find_task(root, "stage", "Render .env onto host")
+    assert env.get("when") == "agg_env_file is defined", env
+
+
 def test_playbook_migration_does_not_use_auto_remove(tmp_path: Path):
     """Per mod 003: migration tasks must NOT set auto_remove: true,
     which masks the exit code on failure. The compose-run approach

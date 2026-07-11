@@ -28,12 +28,18 @@
         src: "{{ '{{' }} tte_store_file {{ '}}' }}"
         dest: "{{ '{{' }} deploy_root {{ '}}' }}/tte.env"
         mode: "0600"
+      # Skipped in dry-run (--check passes no extra-vars); the real release
+      # always supplies tte_store_file. Mod 093.
+      when: tte_store_file is defined
 
     - name: Render .env onto host
       ansible.builtin.copy:
         src: "{{ '{{' }} agg_env_file {{ '}}' }}"
         dest: "{{ '{{' }} deploy_root {{ '}}' }}/.env"
         mode: "0600"
+      # Skipped in dry-run (--check passes no extra-vars); the real release
+      # always supplies agg_env_file. Mod 093.
+      when: agg_env_file is defined
 
     - name: Pull all images
       community.docker.docker_compose_v2:

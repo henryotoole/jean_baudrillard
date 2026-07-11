@@ -126,6 +126,15 @@ the live engine credential so a mint can't lock out a running database.
   Existing fixed deployments need a one-time old-stack teardown on the first
   1.5.0 release — see [`upgrades/upgrade_1.5.0.md`](./upgrades/upgrade_1.5.0.md).
   Pre-existing; surfaced by the 1.5.0 pre-cut fixed smoke walk.
+- **`docex rollback --dry-run` on fixed no longer aborts on an undefined
+  extra-var** (mod 093) — the release playbook's "Render TTE store" / "Render
+  .env" tasks templated `tte_store_file` / `agg_env_file` unconditionally, but a
+  dry-run runs `ansible --check` with no extra-vars (aggregation is skipped to
+  stay side-effect-free), so ansible failed resolving the undefined variable.
+  Both tasks are now gated `when: <var> is defined` — the real release still
+  renders them; dry-run skips them and previews the compose diff against the
+  host's existing files. Envmageddon regression; surfaced by the 1.5.0 pre-cut
+  fixed smoke walk.
 
 ## [1.4.4] - 2026-07-05
 
