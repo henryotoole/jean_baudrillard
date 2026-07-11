@@ -90,7 +90,7 @@ The table below lists all standard fields for services.
 | env | no | core | Contains fields which define infrastructure-driven environment variables for the container. |
 | replicas | no | core | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. |
 | command | no | core | The command to run to launch the core service. Required for the `scheduler` role (the job entrypoint). |
-| secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Surfaced in the project's secrets file (`<env>.env`) and the `example.env` manifest. |
+| secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Surfaced in the project's secrets file (`<env>.env`). See [configurable.md](./configurable.md#secrets). |
 | config | no | core | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [configurable.md](./configurable.md#config). |
 | engine | yes | backing | The underlying software package the service will use e.g. 'postgres', 'redis', etc. Can define two options if `fixed` and `elastic` foundations require different engines. |
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
@@ -386,10 +386,6 @@ infra/output/project/
 The development side is always fixed-style (docker-compose) regardless of project foundation, because `dev`/`test` always run as docker stacks. The production side mirrors that for fixed projects; for elastic projects it switches to HCL. Both sides are applied via `./bin/docex projinfra <direction> <side>`.
 
 The project-tier elastic HCL uses a distinct state key (`key = "project/terraform.tfstate"`) in the project's S3 state backend. See [`projinfra/elastic_state_backend.md`](./specifics/projinfra/elastic_state_backend.md).
-
-**Env value surfaces** (both foundations):
-
-Alongside the env-specific output, the compiler emits a committed, keys-only `infra/secrets/example.env` manifest documenting every secret the project's services require — derived from core `secrets:` blocks, backing engines' `kind: secret` env vars, and doctrine-injected keys. Because that key set is fully deterministic, the operator no longer copies the manifest by hand: `./bin/docex secrets scaffold <env>` reconciles the real `infra/secrets/<env>.env` from it (adding required keys, flagging stale ones, preserving values). Generated engine values (`kind: minted`) live in `infra/tte/`, and non-secret config in `infra/config/`. See [config_and_secrets.md](./specifics/config_and_secrets.md) for the full three-category model, the standard file form, the aggregation step, and the tooling.
 
 ### Validation Rules
 The following rules apply to whether or not an `infra.yml` file is valid.

@@ -18,7 +18,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 **Runtime Shape** - HTTP requests are routed to a [network] in order to interact with the codebase. [dns] routes a request by domain to the relevant project [network]. [network] machinery and a [reverse_proxy] then work together to terminate TLS with [cert_manager] and route the request to the correct [service] in a specific environment. Within an environment, many different [service]s work together by communicating over one or more [network]s. Any environment may have multiple different [core_service]s or [backing_service]s; but all environments have the same set of roles. `prod` environments may also have multiple [core_service] containers running in parallel, and in this case the [reverse_proxy] doubles as a load balancer. [service]s can communicate directly with each other, so long as they are in the same [network] and environment; [service_discovery] lets them find each other. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
 
-**Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry]. The `stage` and `prod` environments pull images from the [container_registry] and release them by combining with [environment_config] and [secrets].
+**Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry]. The `stage` and `prod` environments pull images from the [container_registry] and release them by combining with [environment_config] and [configurable_vars].
 
 ### Fixed-Foundation
 
@@ -26,7 +26,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 **Network Egress** - Outbound requests reach the internet via the host machine's Docker-managed `iptables` config. This handles address translation and requires no effort on the part of the developer or `docex` - it *just works*.
 
-**Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry], which is locally hosted. The `stage` and `prod` environments have [build_image]s pulled to them from [container_registry] with ansible and release them by combining with [environment_config] and [secrets]. 
+**Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry], which is locally hosted. The `stage` and `prod` environments have [build_image]s pulled to them from [container_registry] with ansible and release them by combining with [environment_config] and [configurable_vars]. 
 
 | Name | Infrastructure Tier | Means | Description |
 | ---- | ------------------- | ----- | ----------- |
@@ -47,7 +47,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | core_service | environment | Docker container | A container running the project's own code (one of the project's [build_image]s). |
 | backing_service | environment | Docker container | A container running pre-packaged third-party software (postgres, redis, minio, etc.). |
 | environment_config | environment | docker-compose config files | The `compose.yml` files which allow docker to orchestrate containers. |
-| secrets | environment | `.env` file | Stored in `$pr/infra/secrets/${environment}.env`. Used directly from there in `dev` and `test`; pushed by ansible to `stage` and `prod`. |
+| configurable_vars | environment | `.env` files | Sourced from TTE vars, secrets, and config `<env>.env` files; aggregated and injected by `docex`. |
 | telemetry_sidecar | environment | OTel Collector | Collector sidecar, distinct compose container for each [service] sharing at least one of its networks. Accepts telemetry signals from the [service] and forwards to [observability_backend] |
 
 ### Elastic-Foundation
@@ -56,7 +56,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 **Network Egress** - Outbound requests reach the internet by traveling through the [master_network]'s [nat_gateway] service and IGW.
 
-**Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry]. The `stage` and `prod` environments reference these images in their ECS task definitions and release them by combining with [environment_config] applied via OpenTofu and [secrets] pushed to AWS SSM Parameter Store.
+**Lifecycle Shape** - Development occurs on the `dev` environment within a clone of the project's [repo]. Formal new [build_image]s are containerized and pushed to a [container_registry]. The `stage` and `prod` environments reference these images in their ECS task definitions and release them by combining with [environment_config] applied via OpenTofu and [configurable_vars] pushed to AWS SSM Parameter Store.
 
 | Name | Infrastructure Tier | Means | Description |
 | ---- | ------------------- | ----- | ----------- |
@@ -77,7 +77,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | core_service | environment | AWS ECS Fargate task | A Fargate container running one of the project's [build_image]s from ECR. Rolled by ECS on image updates. |
 | backing_service | environment | AWS-native service (RDS, S3, ElastiCache, etc.) | A managed AWS service standing in for what would be a third-party container in `fixed`. The specific AWS resource depends on the service's role. |
 | environment_config | environment | OpenTofu HCL files | The `main.tf` per env which OpenTofu applies to provision env resources. |
-| secrets | environment | AWS SSM Parameter Store entries | Source of truth is `$pr/infra/secrets/${environment}.env`; pushed at release time to `/${project}/${env}/${KEY}` as a `SecureString`. |
+| configurable_vars | environment | AWS SSM Parameter Store entries | Sourced from TTE vars, secrets, and config `<env>.env` files; aggregated and pushed at release time to SSM `/${project}/${env}/${KEY}`. |
 | telemetry_sidecar | environment | OTel Collector | Collector sidecar, paired with a [service] in a task definition. Accepts telemetry signals from the [service] and forwards to [observability_backend] |
 
 ## Shape and Environment

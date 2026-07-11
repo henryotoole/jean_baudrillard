@@ -12,7 +12,8 @@
     "testing",
     "docex-edit",
     "doctrine-update",
-    "project-upgrade"
+    "project-upgrade",
+    "configurable-vars"
   ],
   "queries": [
     {
@@ -172,8 +173,8 @@
     },
     {
       "query": "my staging release isn't picking up a new secret i added to stage.env — what's wrong?",
-      "expect": "cicd-pipeline",
-      "note": "near-miss for docex-edit: this is using the pipeline, not fixing docex"
+      "expect": "configurable-vars",
+      "note": "secret is set but not reaching the container — an aggregation/materialization diagnosis (config_and_secrets.md), not pipeline mechanics; moved from cicd-pipeline"
     },
     {
       "query": "i think docex's release code has a bug where it reuses the previous release's task-def revision during migrate",
@@ -249,6 +250,51 @@
       "query": "i want to change what docex actually does during compile — edit its code, not just pull a newer release of it",
       "expect": "docex-edit",
       "note": "near-miss for doctrine-update: editing docex source vs pulling a doctrine release"
+    },
+    {
+      "query": "i need to fill in the stripe api key and a couple other secrets for prod without pasting the key anywhere it gets logged",
+      "expect": "configurable-vars",
+      "note": "secrets set — no-echo value channel, agent invokes / human supplies"
+    },
+    {
+      "query": "just cloned this project and infra/secrets/prod.env doesn't exist yet — how do i create it with the right keys?",
+      "expect": "configurable-vars",
+      "note": "secrets scaffold — files don't exist yet"
+    },
+    {
+      "query": "the release aborted saying a required secret is unset — how do i fix that?",
+      "expect": "configurable-vars",
+      "note": "required-secret guard remediation (scaffold→set); guard fires in pipeline but fix lives here"
+    },
+    {
+      "query": "i added a config value that differs per environment, how do i set it for dev and test?",
+      "expect": "configurable-vars",
+      "note": "config set — non-secret, positional value ok"
+    },
+    {
+      "query": "copy the database secret from stage into prod without me having to see the value",
+      "expect": "configurable-vars",
+      "note": "secrets copy — value-blind env→env"
+    },
+    {
+      "query": "which required secrets and config are still empty for stage before i try a release?",
+      "expect": "configurable-vars",
+      "note": "status — redacted SET/UNSET read"
+    },
+    {
+      "query": "i changed the secrets block in infra.yml, now i need the env files reconciled to match",
+      "expect": "configurable-vars",
+      "note": "scaffold after schema change — near-miss for infra-compile (editing infra.yml), but the act is reconciling value files"
+    },
+    {
+      "query": "help me get all the env values populated for a fresh prod environment",
+      "expect": "configurable-vars",
+      "note": "the core activity — done when every required var has a value"
+    },
+    {
+      "query": "how do i declare which secrets my web service requires in infra.yml?",
+      "expect": "infra-compile",
+      "note": "near-miss for configurable-vars: declaring the schema (secrets: block) not filling the values"
     }
   ]
 }

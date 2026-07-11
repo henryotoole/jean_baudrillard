@@ -75,9 +75,9 @@ __PART III__: Infrastructure Smoke Test
 	4. If this core service owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
 		+ These can be empty, they must merely exist.
 6. Compile `infra.yml`.
-	+ This will produce `example.env`
-7. Write `dev.env` and `test.env` using `example.env` as a template.
-	+ You will need the values for these vars and secrets. For some, you might need to ask the operator.
+7. Use `./bin/docex secrets scaffold` and `./bin/docex config scaffold` to create configurable var `<env>.env` files.
+	1. Set needed values in `$pr/infra/config/<env>.env` for `dev` and `test`.
+	2. Work with the operator and use `./bin/docex secrets` commands to set needed secret values for `dev` and `test`. 
 8. Bring project infrastructure online with `./bin/docex projinfra up development`
 9. Bring the `dev` environment up to smoke test that the infrastructure works.
 	1. Check that the environment comes up without error.
@@ -103,7 +103,9 @@ __PART V__: First Production Release
 Much time may separate __PART IV__ and __PART V__. The operator may wish to keep the project in development for a while and iterate with mod cycles. Eventually, however, the first real production release will need to occur. The following steps must be performed before the `docex` machinery can perform its first release.
 1. The relevant [deploy credentials](../infrastructure/credentials.md#deploy-credentials) must be provided.
 	1. Check if the credentials exist, and if they do not, tell the operator to get them.
-2. The `stage.env` and `prod.env` files must be written with the relevant secrets. Some of these may have to come from the operator.
+2. Set all needed configurable vars for `stage` and `prod`:
+	1. Set needed values in `$pr/infra/config/<env>.env` for `stage` and `prod`.
+	2. Work with the operator and use `./bin/docex secrets` commands to set needed secret values for `stage` and `prod`. 
 3. The `$pr/infra/stage` resources will need to be created. These are described in detail [here](../infrastructure/tests.md#staging-tests).
 4. Verify production preinfra exists with `./bin/docex preinfra production`
 	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
@@ -132,13 +134,18 @@ infra/output/**/*.tfstate*
 infra/secrets/*
 !infra/secrets/.gitignore
 !infra/secrets/README.md
-!infra/secrets/example.env
 
 # Deploy credentials — ignore private keys; allow public keys
 infra/deploy_creds/*
 !infra/deploy_creds/.gitignore
 !infra/deploy_creds/README.md
 !infra/deploy_creds/*.pub
+
+# Config - ignore everything.
+infra/secrets/*
+
+# TTE - ignore everything.
+infra/tte/*
 
 # Python bytecode + tool caches
 __pycache__/
@@ -167,12 +174,11 @@ for their stack as needed — e.g. `node_modules/` (Node), `target/` (Rust/Cargo
 `bin/` (Go).
 
 ### Infra `.gitignore` Files
-One file to apply to both `secrets` and `deploy_creds`.
+One file to apply to `infra/secrets`, `infra/config`, `infra/tte`, and `infra/deploy_creds`.
 ```
 *
 !.gitignore
 !README.md
-!example.env
 !*.pub
 ```
 

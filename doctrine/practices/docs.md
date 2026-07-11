@@ -69,7 +69,7 @@ Some other specific files that might wind up in a service folder include:
 Other supporting docs may exist in the service folders too.
 
 #### The Masterplan
-The Masterplan, or `masterplan.md` is the most important document. As mentioned, it is the absolute toplevel architecture document for the project. It describes:
+The Masterplan, or `masterplan.md`, is the most important document. As mentioned, it is the absolute toplevel architecture document for the project. It describes:
 1. The project's name
 2. The objectives of the project
 3. Project specific terms and concepts

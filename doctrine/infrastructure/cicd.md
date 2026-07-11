@@ -195,14 +195,14 @@ This process is different depending on whether the project has a `fixed` or `ela
 1. Use ansible to:
 	1. SSH into the production machine in the target environment's location.
 	2. `docker pull` all core service container images.
-	3. Render relevant secrets from `$pr/infra/secrets/${env}.env` and config file from `$pr/infra/output/${env}/docker-compose.yml` into the target environment's location.
+	3. Render relevant configurable vars (from tte/secret/config aggregate) and compose config file from `$pr/infra/output/${env}/docker-compose.yml` into the target environment's location.
 	4. Run [Migrate Step](#migrate-step) against the target env using one-off containers from the new images. If any migration fails, abort the release before starting the new stack.
 	5. Use docker to start up the production stack with the new images.
 
 #### Process - Elastic-Foundation
-1. Update the SSM Parameter Store with the contents of `$pr/infra/secrets/${env}.env`.
+1. Update the SSM Parameter Store with configurable vars (from tte/secret/config aggregate).
 2. Run [Migrate Step](#migrate-step) against the target env via a one-off ECS task using the new image. If any migration fails, abort the release before applying service changes.
-3. Use `tofu apply` to propagate compiled HCL. This will kick off image updates, secret injection, and service config changes.
+3. Use `tofu apply` to propagate compiled HCL. This will kick off image updates, env var injection, and service config changes.
 
 **First-time release of an env.** On the very first release of an elastic environment, the env's ECS services and RDS the migration task targets don't exist yet — they're created by step 3. (The `<project>-<env>` ECS cluster itself already exists — it is project-tier, created empty by projinfra — so the detector keys off the env's *service*, not the cluster.) `./bin/docex release` detects this case (the env's ECS service is absent from its cluster) and swaps the order to `1 → 3 → 2`: secrets, then `tofu apply` to create infrastructure (and roll out the new image), then migrate against the now-live services + RDS. The migration still runs before the env is considered "deployed successfully". Subsequent releases find the cluster present and follow the steady-state order above.
 
@@ -254,7 +254,7 @@ Rollback reuses the standard [release](#release-step) machinery; what differs is
 3. Recompile `infra/output/<env>/` from the worktree's `infra.yml` using the current `docex`. The recompiled output lives only in the worktree.
 4. Apply the recompiled output to `<env>` using the standard [release process](#release-step) for the project's foundation, with migrations skipped:
 	+ Fixed: invoke the emitted ansible playbook against the host with `--skip-tags migrate`. Ansible pulls the older image, renders the older compose, and `docker compose up -d` converges the stack.
-	+ Elastic: push secrets from `$pr/infra/secrets/${env}.env` to SSM, then `tofu apply` directly against the recompiled HCL. No migration `RegisterTaskDefinition` / `RunTask` step.
+	+ Elastic: push configurable vars to SSM, then `tofu apply` directly against the recompiled HCL. No migration `RegisterTaskDefinition` / `RunTask` step.
 5. Discard the ephemeral worktree.
 
 After rollback, the operator's next step is a normal fix-forward release: bump `project.yml` past the broken version on `main`, ship a corrected build through the standard pipeline. The recompile and release at the new version naturally re-converges the env to a healthy state.

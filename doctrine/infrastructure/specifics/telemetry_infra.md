@@ -126,7 +126,7 @@ The sidecar never receives the application's env vars. Application code never se
 
 ### The TELEMETRY_API_KEY Secret
 
-Lives in `infra/secrets/<env>.env` as `TELEMETRY_API_KEY=<value>`. `docex compile` emits it as a required entry in `infra/secrets/example.env` for `stage` and `prod`; it is omitted from the example for `dev` and `test`.
+Lives in `infra/secrets/<env>.env` as `TELEMETRY_API_KEY=<value>`. It is a doctrine-injected secret in the [secret manifest](./config_and_secrets.md#doctrine-injected-secrets) — `docex secrets scaffold`/`status` surface it, and the stage/prod [required-secret guard](./config_and_secrets.md#required-secret-guard) enforces it. `dev`/`test` sidecars use the debug exporter and ignore it.
 
 The operator obtains the key from HyperDX (or the configured backend's equivalent) before first stage release per [telemetry_preinfra.md](../preinfra/telemetry_preinfra.md).
 

@@ -65,7 +65,7 @@ The `./bin/docex secrets ...` command gives the agent tooling to work with secre
 
 ### Config
 
-Config is the most free-form of all configurable var sources. The config keys which are *required* for a project's function are defined in `infra.yml`. However, unlike with secrets, the config `.env` files are not managed by the doctrine directly. Validation will fail if the required keys are not present; however, the structure of the config `.env` files are free-form. Values are not secure, so they can be loaded into LLM context at will and edited freely by agents and humans alike.
+Config is the most free-form of all configurable var sources. The config keys which are *required* for a project's function are defined in `infra.yml`. However, unlike with secrets, the config `.env` files are not managed by the doctrine directly. Validation will fail if the required keys are not present; however, the structure of the config `.env` files is free-form. Values are not secure, so they can be loaded into LLM context at will and edited freely by agents and humans alike.
 
 | Circumstance | Storage Location |
 | ------------ | ---------------- |

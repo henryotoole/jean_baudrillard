@@ -43,9 +43,8 @@ Subdir-per-category — the same *scheme* everywhere, only the *root* differs
 
 ```
 infra/
-  secrets/            # value files gitignored; example.env (manifest) committed
-    example.env       # keys-only manifest, emitted by `docex compile`
-    <env>.env         # operator-maintained secret values
+  secrets/            # gitignored — operator-supplied secret values
+    <env>.env
   tte/                # gitignored — generated engine credentials
     <env>.env
   config/             # gitignored — non-secret per-env config values
@@ -56,22 +55,27 @@ On the fixed prod host the parallel structure lives under
 `/opt/<project>/<env>/`; on elastic it is the SSM path prefix `/<project>/<env>/`.
 
 `.gitignore` (added by project inception) ignores the value files in all three
-directories; only `infra/secrets/example.env` and the `config:` declarations in
-`infra.yml` are committed.
+directories; nothing under them is committed. The key set a project requires is
+not committed as a file either — it is derived on demand from its committed
+sources (the `secrets:` / `config:` declarations in `infra.yml`, the transfer
+tables, and doctrine-injected keys).
 
 ### Direct generation, not copy-and-fill
 
-The secret **key set** is fully deterministic from `infra.yml` + doctrine (core
-`secrets:` blocks + backing engines' `kind: secret` env vars + doctrine-injected
-keys). `docex compile` emits `infra/secrets/example.env` — a committed,
-keys-only manifest documenting every required secret, grouped by service.
+The **secret manifest** — the set of secrets a project requires — is fully
+deterministic from `infra.yml` + doctrine (core `secrets:` blocks + backing
+engines' `kind: secret` env vars + doctrine-injected keys). It is never
+committed as a file; it is computed on demand from those committed sources.
 
-Rather than copy that manifest to `<env>.env` and fill it by hand, the operator
+Rather than copy a manifest to `<env>.env` and fill it by hand, the operator
 runs **`docex secrets scaffold <env>`**, which *reconciles* the real
-`<env>.env` against the deterministic key set: it adds every required key
-(empty), flags/removes keys no longer required, and **preserves all existing
-values**. It is idempotent — reconciliation, never regeneration (regenerating
-would wipe values).
+`<env>.env` against the manifest: it adds every required key (empty),
+flags/removes keys no longer required, and **preserves all existing values**. It
+is idempotent — reconciliation, never regeneration (regenerating would wipe
+values). `docex secrets status <env>` lists the manifest with per-key
+`SET`/`UNSET`. Config is symmetric: its key set derives from `infra.yml`
+`config:` blocks and is reconciled by `docex config scaffold <env>`; neither
+category keeps a committed manifest file.
 
 ## Standard Form
 
@@ -274,9 +278,9 @@ with URI-reserved characters would break that build (see
 ## Doctrine-Injected Secrets
 
 A small set of secrets is added by the doctrine itself rather than by project
-services. These appear in `example.env` for the envs that need them, are
-reserved (a project may not redeclare them), and the operator fills them like any
-other secret:
+services. These are part of the secret manifest for the envs that need them (so
+`docex secrets scaffold`/`status` surface them), are reserved (a project may not
+redeclare them), and the operator fills them like any other secret:
 
 | Secret | Required envs | Source | Consumer |
 | ------ | ------------- | ------ | -------- |

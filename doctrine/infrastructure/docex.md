@@ -172,7 +172,7 @@ Applies database migrations for each schema-owning core service in `<env>`. For 
 
 ### `release`
 `./bin/docex release <env>`
-Releases the previously-containerized build to `<env>` (typically `stage` or `prod`). For fixed-foundation projects, runs the emitted Ansible playbook against the env's host(s) to pull the new image and reconcile the deployment. For elastic-foundation projects, pushes secrets from `infra/secrets/<env>.env` to SSM Parameter Store and then runs `tofu apply` against the env's HCL. Both paths are push-initiated and idempotent — re-running on an already-converged target is a no-op. See [release.md](./specifics/release.md).
+Releases the previously-containerized build to `<env>` (typically `stage` or `prod`). For fixed-foundation projects, runs the emitted Ansible playbook against the env's host(s) to pull the new image and reconcile the deployment. For elastic-foundation projects, pushes aggregated configurable vars to SSM Parameter Store and then runs `tofu apply` against the env's HCL. Both paths are push-initiated and idempotent — re-running on an already-converged target is a no-op. See [release.md](./specifics/release.md).
 
 ### `stagetest`
 `./bin/docex stagetest`

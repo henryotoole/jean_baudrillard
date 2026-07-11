@@ -26,6 +26,7 @@ This guide defines special words and phrases that have unique context for all ma
 | Infrastructure Side | "production side", "development side" | Refers to project infrastructure which services `prod` / `stage` envs (for production side) and `dev` / `test` envs (for development side). What a side *is* depends on foundation; it can be a `fixed` development machine, a `fixed` production machine, or an `elastic` AWS platform. |
 | Shape |  | The fixed topology of a deployed stack: which resources exist, where they live, what depends on what. |
 | Stack |  | Loosely describes the machinery that is needed for one environment to run. |
+| Configurable Vars |  | The unique-per-deployment key/value pairs which are aggregated and injected into containers as environmental variables. Three sources: TTE vars, secrets, and config. |
 | CICL |  | The language / format in which [`infra.yml`](./infrastructure/cicl.md) is defined. |
 | docex |  | Software package which acts as the executor for parts of the doctrine which are so deterministic they can be written into code. |
 | build |  | The process by which source code is compiled into a build artifact. |
