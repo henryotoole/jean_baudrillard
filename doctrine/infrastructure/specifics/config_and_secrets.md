@@ -153,6 +153,31 @@ will subsume TTE rotation** (rotation is the same operation: push a value onto
 the live instance). Until then, divergence is an operational incident. This
 mirrors the doctrine's existing deferral of secret [rotation](#caveats).
 
+## Required-Secret Guard
+
+A stage/prod `docex release` **refuses to proceed if any required secret is
+unset**, and it checks this *before any side effect* — before aggregation, the
+SSM push, or the ansible/tofu apply. A **required secret** is any key in the
+[secret manifest](#direct-generation-not-copy-and-fill) (core `secrets:` blocks
++ backing engines' `kind: secret` vars + doctrine-injected secrets); **unset**
+means absent from `infra/secrets/<env>.env` or present with an empty value. The
+release aborts with a message naming every unset key and its
+`docex secrets set <env> <KEY>` remediation.
+
+The guard is scoped deliberately:
+
+- **Secrets only.** TTE values are docex-minted (put-if-absent during
+  [aggregation](#aggregation)), so they are never operator-unset; config is
+  non-secret and may legitimately be empty. Neither category gates a release.
+- **stage/prod only.** dev/test bring-up (`docex up`) tolerates incomplete
+  secrets so local iteration is never blocked. [Rollback](../cicd.md#rollback)
+  is emergency and code-only, and is likewise not gated.
+
+Without the guard an unset required secret is caught nowhere: aggregation is a
+plain union of whatever sits on disk, so the empty value flows into the
+container and surfaces only as a runtime failure — or, worse, a silently-broken
+prod. The guard converts that late, opaque failure into an early, explicit one.
+
 ## Aggregation
 
 A single **internal** step (not a top-level verb — a shared `aggregate(env, ctx)`
