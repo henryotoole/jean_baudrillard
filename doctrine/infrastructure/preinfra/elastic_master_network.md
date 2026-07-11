@@ -10,7 +10,7 @@ On elastic, we use the "centralized egress" model for AWS. There will also be on
 
 The elastic master network takes the form of one big VPC which contains all projects, an IGW, NAT for egress, and four standard subnets.
 
-Note that two AZs are required per AWS mandate for ALBs and RDS deploys. The below structure has two subnets per AZ, and two AZ's, but the secondary AZ is effectively unused. See [this](../reasoning/ingress_and_egress.md#elastic-azs) for reasoning.
+Note that two AZs are required per AWS mandate for ALBs and RDS deploys. The below structure has two subnets per AZ, and two AZs, but the secondary AZ is effectively unused. See [this](../reasoning/ingress_and_egress.md#elastic-azs) for reasoning.
 
 1. Master VPC
 	1. IGW
@@ -27,7 +27,7 @@ Note that two AZs are required per AWS mandate for ALBs and RDS deploys. The bel
 	5. "private" subnet (AZ 2), routes 0.0.0.0/0 to NAT in public subnet AZ 1
 		- Nothing in here
 
-NOTE: SG's live at the VPC level; the diagram shows where the *services* attached to those SGs run.
+NOTE: SGs live at the VPC level; the diagram shows where the *services* attached to those SGs run.
 
 EGRESS: We'll have one IGW and NAT. Outbound signals get address translated in NAT, and pass to the internet through the IGW.
 

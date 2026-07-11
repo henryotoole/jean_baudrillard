@@ -7,7 +7,7 @@ stratum: resident
 This document provides a high level overview of infrastructure, what it's formed of, and how we do it.
 
 Infrastructure includes:
-1. Computing Machinery - Servers, VM's, containers, etc.
+1. Computing Machinery - Servers, VMs, containers, etc.
 2. Networking - Load balancers, DNS, etc.
 3. Data Storage - Databases, object stores, caches, etc.
 4. CI/CD - Build, release, test pipeline
