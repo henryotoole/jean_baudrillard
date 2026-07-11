@@ -12,11 +12,10 @@ infra/output/**/*.tfstate*
 # docex ephemeral git worktrees
 .docex/
 
-# Secrets — ignore env files; allow the example template
+# Secrets — ignore all env files (values are never committed)
 infra/secrets/*
 !infra/secrets/.gitignore
 !infra/secrets/README.md
-!infra/secrets/example.env
 
 # Deploy credentials — ignore private keys; allow public keys
 infra/deploy_creds/*

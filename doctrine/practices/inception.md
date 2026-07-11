@@ -40,7 +40,7 @@ __PART I__: Setup
 	5. Create the project folder structure as specified in [infra](../infrastructure/infrastructure.md#codebase-structure) down to:
 		1. `core` folder, no subfolders.
 		2. `infra` folder, all direct child subfolders.
-			+ `secrets` and `deploy_creds` should be given [infra `.gitignore`](#infra-gitignore-files) files.
+			+ `secrets`, `config`, `tte`, and `deploy_creds` should each be given [infra `.gitignore`](#infra-gitignore-files) files.
 		3. `plans` folder, all direct child subfolders but no files.
 	6. Write `masterplan.md` verbatim into its place at `$pr/plans/core/masterplan.md`.
 8. Install `docex` (see [install instructions](../infrastructure/docex.md#project-installation)).
@@ -130,22 +130,9 @@ infra/output/**/*.tfstate*
 # docex ephemeral git worktrees
 .docex/
 
-# Secrets — ignore env files; allow the example template
-infra/secrets/*
-!infra/secrets/.gitignore
-!infra/secrets/README.md
-
-# Deploy credentials — ignore private keys; allow public keys
-infra/deploy_creds/*
-!infra/deploy_creds/.gitignore
-!infra/deploy_creds/README.md
-!infra/deploy_creds/*.pub
-
-# Config - ignore everything.
-infra/secrets/*
-
-# TTE - ignore everything.
-infra/tte/*
+# The infra value/credential dirs (secrets, config, tte, deploy_creds) are
+# gitignored per-directory by their own infra .gitignore files — see the
+# "Infra .gitignore Files" section below. Nothing about them is needed here.
 
 # Python bytecode + tool caches
 __pycache__/

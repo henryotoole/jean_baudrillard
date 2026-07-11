@@ -3,6 +3,7 @@
 @./doctrine/lexicon.md
 @./doctrine/hexagonal_architecture/hex_overview.md
 @./doctrine/hexagonal_architecture/internal_dependency_rules.md
+@./doctrine/infrastructure/configurable.md
 @./doctrine/infrastructure/infrastructure.md
 @./doctrine/infrastructure/version_control.md
 @./doctrine/practices/comments.md

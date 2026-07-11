@@ -72,10 +72,6 @@ the live engine credential so a mint can't lock out a running database.
   (mod 077) — `POSTGRES_USER`→`appuser` everywhere; the elastic SSM data-source
   / ECS `secrets[]` machinery now fires only for the surviving minted/secret
   refs, with no emitter change.
-- **`example.env` is now a secrets-only keys manifest** rendered from
-  `secret_manifest` (mod 076/083) — `kind: fixed`/`minted` engine vars no longer
-  appear; reconcile a real `<env>.env` with `docex secrets scaffold`, not by
-  hand-copying.
 - **Elastic release SSM push** replaced `_push_secrets` with the three-category
   `aggregate_elastic` (mod 082); the **fixed** release playbook renders `.env`
   from the aggregate and a host `tte.env` from the authoritative store (mod 081).

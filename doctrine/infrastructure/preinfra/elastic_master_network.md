@@ -29,7 +29,7 @@ Note that two AZs are required per AWS mandate for ALBs and RDS deploys. The bel
 
 NOTE: SG's live at the VPC level; the diagram shows where the *services* attached to those SGs run.
 
-EGRESS: We'll have one IGW and NAT. Outbound signals get address translated in NAT, and pass to internet thru IGW.
+EGRESS: We'll have one IGW and NAT. Outbound signals get address translated in NAT, and pass to the internet through the IGW.
 
 INGRESS: Will not be centralized. Instead, signals will be routed via Route53 down to the relevant "reverse proxy". There will be one reverse proxy / load balancer / TLS terminator per project, which will either be an ALB or EC2 instance performing the same role (more on that later).
 

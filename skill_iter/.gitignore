@@ -15,6 +15,8 @@ analysis.json
 trigger_*.json
 prev_run_*.json
 *.log
+*.out
+*.err
 
 # NOTE: benchmark.json is intentionally NOT ignored. It is the gated rollup read before
 # a docex cut — worth committing as a release-time record of skill quality. Commit it

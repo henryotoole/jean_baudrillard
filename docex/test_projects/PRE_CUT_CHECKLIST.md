@@ -133,9 +133,9 @@ Per [`release_mechanism.md § Fixed Foundation: Ansible`](../../doctrine/infrast
 
 The doctrine's `infra/secrets/<env>.env` files are gitignored. They must exist with real values before any `envinfra up`/`release` runs against an env.
 
-For each project (`fixed/`, `elastic/`), after step C.2's `docex compile` writes `example.env`:
+For each project (`fixed/`, `elastic/`):
 
-- [ ] Reconcile each env with `./bin/docex secrets scaffold <env>` (dev/test/stage/prod). Under the envmageddon three-category model, `example.env` is a **secrets-only** manifest — `POSTGRES_USER` is a `kind: fixed` inline and `POSTGRES_PASSWORD` is a `kind: minted` TTE value (docex mints it into `infra/tte/`), so **neither belongs in `infra/secrets/`**. The only project secret here is the doctrine-injected `TELEMETRY_API_KEY`.
+- [ ] Reconcile each env with `./bin/docex secrets scaffold <env>` (dev/test/stage/prod). This derives the required-secret key set on demand from `secret_manifest` (no `example.env` file is emitted — mod 092). Under the envmageddon three-category model, `POSTGRES_USER` is a `kind: fixed` inline and `POSTGRES_PASSWORD` is a `kind: minted` TTE value (docex mints it into `infra/tte/`), so **neither belongs in `infra/secrets/`**. The only project secret here is the doctrine-injected `TELEMETRY_API_KEY`.
 - [ ] Set `TELEMETRY_API_KEY` (required for `stage`/`prod`) with `./bin/docex secrets set <env> TELEMETRY_API_KEY` (value from A.6), or confirm it via `./bin/docex secrets status <env>`. `dev`/`test` need no secrets (their sidecars use the debug exporter).
 - [ ] No `POSTGRES_*` values are entered anywhere — the TTE store is minted automatically during aggregation at first `up`/`release`.
 
@@ -178,7 +178,7 @@ Run this audit *once per cut*, against each project independently.
 
 ### C.2 Compile
 
-- [ ] `./bin/docex compile` — succeeds, produces `infra/output/{dev,test,stage,prod}/docker-compose.yml`, `infra/output/stage/{playbook.yml,inventory.yml,ansible.cfg}`, same for `prod`, `infra/output/project/{development,production}/docker-compose.yml`, plus `infra/secrets/example.env`.
+- [ ] `./bin/docex compile` — succeeds, produces `infra/output/{dev,test,stage,prod}/docker-compose.yml`, `infra/output/stage/{playbook.yml,inventory.yml,ansible.cfg}`, same for `prod`, and `infra/output/project/{development,production}/docker-compose.yml`. Nothing is written under `infra/secrets/` (mod 092 removed the `example.env` emit; the secret key set is derived on demand by `docex secrets scaffold`/`status`).
 
 ### C.3 Secrets
 
@@ -261,7 +261,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 ### D.4 Compile
 
-- [ ] `./bin/docex compile` — succeeds; produces `infra/output/{dev,test}/docker-compose.yml`, `infra/output/{stage,prod}/main.tf`, `infra/output/project/{development/docker-compose.yml,production/main.tf}` (production was already applied by D.3), and `infra/secrets/example.env`.
+- [ ] `./bin/docex compile` — succeeds; produces `infra/output/{dev,test}/docker-compose.yml`, `infra/output/{stage,prod}/main.tf`, `infra/output/project/{development/docker-compose.yml,production/main.tf}` (production was already applied by D.3). Nothing is written under `infra/secrets/` (mod 092 — the secret key set is derived on demand by `docex secrets scaffold`/`status`).
 
 ### D.5 Secrets
 
