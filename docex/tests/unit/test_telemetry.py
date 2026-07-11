@@ -3,12 +3,10 @@
 Covers the ``observability_backend_url`` field validation, the four
 doctrine-injected OTel env vars on every core service, the
 generalized reserved-env-key validator, and the
-``TELEMETRY_API_KEY`` documented in ``example.env``.
+``TELEMETRY_API_KEY`` surfaced in the secret manifest.
 """
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 import yaml
@@ -18,7 +16,7 @@ from docex.cicl.compile import compile_env
 from docex.cicl.model import CICLDocument
 from docex.cicl.transfer import load_transfer_tables
 from docex.cicl.validate import validate_document
-from docex.emit.secrets import emit_example_env
+from docex.cicl.categories import secret_manifest
 
 
 def _doc(src: str) -> CICLDocument:
@@ -320,40 +318,34 @@ def test_reserved_env_keys_in_secrets_block_rejected(reserved_key: str):
 
 
 # ---------------------------------------------------------------------------
-# example.env TELEMETRY_API_KEY surfacing.
+# TELEMETRY_API_KEY surfacing in the secret manifest.
 # ---------------------------------------------------------------------------
 
 
-def test_example_env_contains_telemetry_api_key(tmp_path: Path):
-    doc = _doc(_MINIMAL_FIXED)
-    out = tmp_path / "example.env"
-    emit_example_env(doc, _tables(), out)
-    text = out.read_text()
-    assert "# Doctrine-injected secrets" in text
-    assert "TELEMETRY_API_KEY=" in text
+def test_secret_manifest_contains_telemetry_api_key():
+    manifest = secret_manifest(_doc(_MINIMAL_FIXED), _tables())
+    by_key = {e.key: e for e in manifest}
+    assert "TELEMETRY_API_KEY" in by_key
+    assert by_key["TELEMETRY_API_KEY"].source == "doctrine"
 
 
-def test_example_env_telemetry_key_position(tmp_path: Path):
-    """The doctrine-injected secrets group must appear before any
-    per-service header in the rendered file."""
+def test_secret_manifest_telemetry_key_position():
+    """The doctrine-injected TELEMETRY_API_KEY must precede a core service's
+    own bespoke secret in the manifest ordering."""
     # postgres declares no `kind: secret` env vars, so key off a core
-    # service's own `secrets:` header instead of a backing header.
+    # service's own `secrets:` entry instead of a backing one.
     src = _MINIMAL_FIXED.replace(
         "    resources:\n      cpu: 1.0\n      memory: 2GB\n",
         "    secrets:\n      API_KEY: \"bespoke api key\"\n"
         "    resources:\n      cpu: 1.0\n      memory: 2GB\n",
         1,
     )
-    doc = _doc(src)
-    out = tmp_path / "example.env"
-    emit_example_env(doc, _tables(), out)
-    text = out.read_text()
-    telemetry_idx = text.index("TELEMETRY_API_KEY=")
-    # `api` is a core service with a `secrets:` block; its header appears
-    # later in the file.
-    api_idx = text.index("# api (core service)")
+    manifest = secret_manifest(_doc(src), _tables())
+    keys = [e.key for e in manifest]
+    telemetry_idx = keys.index("TELEMETRY_API_KEY")
+    api_idx = keys.index("API_KEY")
     assert telemetry_idx < api_idx, (
-        f"TELEMETRY_API_KEY should precede per-service sections; got "
+        f"TELEMETRY_API_KEY should precede per-service secrets; got "
         f"telemetry_idx={telemetry_idx}, api_idx={api_idx}"
     )
 

@@ -155,7 +155,7 @@ def test_all_keys_is_the_union():
 
 
 # ---------------------------------------------------------------------------
-# secret_manifest — the single source of truth for example.env + tooling.
+# secret_manifest — the single source of truth for scaffold/status tooling.
 # ---------------------------------------------------------------------------
 
 

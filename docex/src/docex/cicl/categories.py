@@ -40,8 +40,8 @@ def secret_manifest(
     doc: CICLDocument, tables: TransferTables
 ) -> list[ManifestEntry]:
     """Every required secret: key + description + declaring source. The single
-    source of truth for ``example.env``, ``secrets scaffold``, and
-    ``secrets status``. Order: doctrine-injected first, then core services
+    source of truth for ``secrets scaffold``, ``secrets status``, and the
+    release-time required-secret guard. Order: doctrine-injected first, then core services
     (sorted), then backing services (sorted). A key shared across services
     keeps its first source + desc (dedup)."""
     out: list[ManifestEntry] = []

@@ -85,6 +85,17 @@ the live engine credential so a mint can't lock out a running database.
   per-service overlap check; rule 20 added for project-wide cross-category
   disjointness; doctrine-injected keys reserved in every category.
 
+### Removed
+
+- **`infra/secrets/example.env`** (mod 092) — the committed, keys-only secrets
+  manifest `docex compile` used to emit is gone. It was a derived cache checked
+  into git and asymmetric with config (which never had one). The required-secret
+  key set is fully derivable on demand from committed sources (`infra.yml` +
+  transfer tables + doctrine-injected keys) via `secret_manifest`, so `docex
+  secrets scaffold`/`status` obsolete it. `compile` now writes nothing under
+  `infra/secrets/`; `emit/secrets.py` keeps only the shared `render_manifest_env`
+  used by scaffold.
+
 ### Fixed
 
 - **Fixed projinfra single-host convergence** (mod 087) — the project-tier

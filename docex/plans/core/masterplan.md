@@ -105,8 +105,8 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 
 | Command | Foundation behavior | Reads | Writes / acts on |
 | ------- | ------------------- | ----- | ---------------- |
-| `compile` | both | `infra.yml`, transfer tables (bundled + project-local), `project.yml` | `infra/output/<env>/...`, `infra/secrets/example.env` |
-| `secrets <scaffold\|status\|set\|copy> <env>` | both | `infra/secrets/example.env`, `infra/secrets/<env>.env` | `infra/secrets/<env>.env` (value-blind: `set` reads a no-echo tty prompt or `--from-file`; `status` never prints a value) |
+| `compile` | both | `infra.yml`, transfer tables (bundled + project-local), `project.yml` | `infra/output/<env>/...` |
+| `secrets <scaffold\|status\|set\|copy> <env>` | both | `infra.yml` + transfer tables (via `secret_manifest`), `infra/secrets/<env>.env` | `infra/secrets/<env>.env` (value-blind: `set` reads a no-echo tty prompt or `--from-file`; `status` never prints a value) |
 | `config <scaffold\|status\|set\|get\|copy> <env>` | both | `infra/config/<env>.env` | `infra/config/<env>.env` (values visible: `set` takes a positional value, `get`/`status` print them) |
 | `describe [<env>] [--format <format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
 | `why <resource>` | both | bundled doctrine excerpts | stdout |
@@ -172,7 +172,6 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 
 **Write:**
 - `infra/output/<env>/...` — `compile` output (compose + ansible for fixed envs; HCL for elastic envs)
-- `infra/secrets/example.env` — `compile` output, committed
 - `core/<svc>/dist/` — `build` output (dev iteration only; formal builds keep artifacts inside `docker build`)
 - `infra/tte/<env>.env` — dev/test TTE minting (mint-if-absent during aggregation)
 - `.docex/agg/<env>.env` — the derived container-facing aggregate (gitignored, under the existing `.docex/`)

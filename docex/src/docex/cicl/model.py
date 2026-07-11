@@ -85,8 +85,8 @@ class CoreService(_ServiceBase):
     resources: Resources
     env: dict[str, Any] = Field(default_factory=dict)
     # Operator-supplied secret env vars with no in-project source (API keys,
-    # tokens). KEY -> human description. Surfaced in example.env and wired into
-    # the container as a secret. See cicl.md.
+    # tokens). KEY -> human description. Surfaced via `docex secrets scaffold`
+    # and wired into the container as a secret. See cicl.md.
     secrets: dict[str, str] = Field(default_factory=dict)
     # Declared, non-secret, per-env config values (e.g. a URL that differs by
     # environment). KEY -> human description. Each key is auto-injected into the

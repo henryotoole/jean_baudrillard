@@ -9,7 +9,6 @@ artifacts. The flow:
        project foundation).
      - Build a compiled in-memory representation.
      - Hand off to the appropriate emitter.
-  3. Always emit infra/secrets/example.env.
 
 Determinism: dicts are iterated in sorted-key order anywhere iteration
 would otherwise be undefined, so identical inputs produce byte-identical
@@ -710,8 +709,8 @@ def compile_env(
             # Core-service `secrets:` are operator-supplied secret env vars with
             # no in-project source (API keys, tokens). Wire each as a self-
             # referential runtime ref so the existing secret path delivers it —
-            # compose ${KEY} (fixed) / ECS secrets[] (elastic) — and surfaces it
-            # in example.env. Validation forbids a key in both env and secrets.
+            # compose ${KEY} (fixed) / ECS secrets[] (elastic). Validation
+            # forbids a key in both env and secrets.
             for key in sorted(svc.secrets):
                 env_block[key] = f"$[{key}]"
             # Core-service `config:` are declared, non-secret, per-env values.
@@ -919,7 +918,6 @@ def run_compile(ctx: Any) -> int:
     from docex.emit.compose import emit_compose, emit_project_compose
     from docex.emit.hcl import emit_hcl, emit_hcl_project
     from docex.emit.ansible import emit_ansible
-    from docex.emit.secrets import emit_example_env
     from docex.errors import InfraFileError
 
     if ctx.infra is None:
@@ -1019,14 +1017,8 @@ def run_compile(ctx: Any) -> int:
         )
         files_written += 1
 
-    # Always emit example.env.
-    secrets_dir = ctx.project_root / "infra" / "secrets"
-    secrets_dir.mkdir(parents=True, exist_ok=True)
-    emit_example_env(ctx.infra, ctx.transfer_tables, secrets_dir / "example.env")
-    files_written += 1
-
     print(
         f"Compiled {len(_ENVS)} environments. {files_written} files written "
-        f"under infra/output/ and infra/secrets/."
+        f"under infra/output/."
     )
     return 0

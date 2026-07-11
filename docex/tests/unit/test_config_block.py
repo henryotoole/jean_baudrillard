@@ -1,5 +1,5 @@
 """Mod 078 — a core-service `config:` key compiles to the same runtime-ref
-shape as a secret on both foundations, and never leaks into example.env.
+shape as a secret on both foundations, and never leaks into the secret manifest.
 
 A `config:` key is wired at compile as a self-referential runtime ref
 (`env_block[KEY] = "$[KEY]"`), so it flows through the *existing* secret
@@ -15,6 +15,7 @@ from pathlib import Path
 
 import yaml
 
+from docex.cicl.categories import secret_manifest
 from docex.cicl.compile import run_compile
 from docex.context import load_project_context
 
@@ -64,11 +65,11 @@ def test_elastic_config_key_wired_as_ecs_secret(tmp_path: Path):
     assert "$[PARTNER_URL]" not in tf
 
 
-def test_config_key_absent_from_example_env(tmp_path: Path):
-    """example.env is a secrets-only manifest; a `config:` key must not
-    appear there (config values float in infra/config/<env>.env)."""
+def test_config_key_absent_from_secret_manifest(tmp_path: Path):
+    """The secret manifest is secrets-only; a `config:` key must not appear
+    in it (config values float in infra/config/<env>.env)."""
     dest = _copy_with_api_config(_FIXED, tmp_path / "project")
     ctx = load_project_context(dest)
     assert run_compile(ctx) == 0
-    example = (dest / "infra" / "secrets" / "example.env").read_text()
-    assert "PARTNER_URL" not in example
+    keys = {e.key for e in secret_manifest(ctx.infra, ctx.transfer_tables)}
+    assert "PARTNER_URL" not in keys

@@ -31,9 +31,10 @@ runtime secrets. The values committed here are deliberate fixtures —
 they exist so docker compose has substitutions to plug in when this
 project is used to test docex itself.
 
-The Phase 1 compiler writes `infra/secrets/example.env` automatically;
-that file IS safe to commit and serves as the template developers copy
-into their gitignored per-env files.
+Secret keys are derived on demand from committed sources (`infra.yml`
+`secrets:` blocks + backing `kind: secret` vars + doctrine-injected keys)
+and reconciled into the gitignored per-env files via `docex secrets
+scaffold <env>`.
 
 ## Bumping docex version
 

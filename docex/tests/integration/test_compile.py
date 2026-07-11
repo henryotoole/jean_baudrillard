@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from docex.cicl.categories import secret_manifest
 from docex.cicl.compile import run_compile
 from docex.context import load_project_context
 from docex.errors import ValidationError
@@ -52,9 +53,6 @@ def test_compile_fixed_produces_all_expected_files(tmp_path: Path):
     for env in ("stage", "prod"):
         for fname in ("docker-compose.yml", "playbook.yml", "inventory.yml", "ansible.cfg"):
             assert (output / env / fname).is_file(), f"{env}/{fname} missing"
-
-    # example.env is always emitted.
-    assert (root / "infra" / "secrets" / "example.env").is_file()
 
 
 def test_compile_elastic_produces_main_tf(tmp_path: Path):
@@ -306,7 +304,6 @@ def test_compile_is_deterministic(tmp_path: Path):
         "infra/output/stage/docker-compose.yml",
         "infra/output/stage/playbook.yml",
         "infra/output/prod/docker-compose.yml",
-        "infra/secrets/example.env",
     ]:
         a = (root1 / relpath).read_bytes()
         b = (root2 / relpath).read_bytes()
@@ -442,22 +439,6 @@ def test_composed_secret_in_env_fails_compile(tmp_path: Path):
         run_compile(ctx)
 
 
-def test_example_env_excludes_postgres_keys(tmp_path: Path):
-    """Mod 076: postgres' env vars are now `fixed` (POSTGRES_USER, inlined)
-    and `minted` (POSTGRES_PASSWORD, TTE store) — neither is operator-
-    supplied, so neither belongs in the secrets-only manifest. The backing
-    section is therefore empty and omitted entirely."""
-    root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
-    ctx = load_project_context(root)
-    run_compile(ctx)
-    example = (root / "infra" / "secrets" / "example.env").read_text()
-    assert "POSTGRES_USER=" not in example
-    assert "POSTGRES_PASSWORD=" not in example
-    assert "# appdb" not in example
-    # The doctrine-injected key still surfaces.
-    assert "TELEMETRY_API_KEY=" in example
-
-
 _SECRET_INFRA = """\
 cicl_version: "1"
 foundation: __FND__
@@ -487,14 +468,15 @@ def _write_scratch(tmp_path: Path, foundation: str) -> Path:
     return proj
 
 
-def test_core_secret_in_example_env_and_compose(tmp_path: Path):
-    """A core service's `secrets:` key surfaces in example.env (grouped under
-    the service) and is wired into the container as a runtime secret."""
+def test_core_secret_in_manifest_and_compose(tmp_path: Path):
+    """A core service's `secrets:` key surfaces in the secret manifest (sourced
+    to the service) and is wired into the container as a runtime secret."""
     proj = _write_scratch(tmp_path, "fixed")
-    run_compile(load_project_context(proj))
-    example = (proj / "infra" / "secrets" / "example.env").read_text()
-    assert "# api (core service)" in example
-    assert "BESPOKE_API_KEY=" in example
+    ctx = load_project_context(proj)
+    run_compile(ctx)
+    by_key = {e.key: e for e in secret_manifest(ctx.infra, ctx.transfer_tables)}
+    assert "BESPOKE_API_KEY" in by_key
+    assert by_key["BESPOKE_API_KEY"].source == "api"
     compose = (proj / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
     # Delivered via compose ${VAR} substitution, never the literal $[VAR].
     assert "${BESPOKE_API_KEY}" in compose

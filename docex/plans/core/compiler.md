@@ -15,7 +15,11 @@ and writes, under `infra/output/`:
 - `dev/docker-compose.yml`, `test/docker-compose.yml` — always emitted (dev and test are always fixed-foundation per [`shape.md`](../../../doctrine/infrastructure/shape.md#shape-and-environment)).
 - `stage/docker-compose.yml`, `prod/docker-compose.yml` plus `playbook.yml`, `inventory.yml`, `ansible.cfg` — fixed-foundation projects.
 - `project/main.tf`, `stage/main.tf`, `prod/main.tf` — elastic-foundation projects.
-- `infra/secrets/example.env` — always.
+
+`compile` writes nothing outside `infra/output/`. The secret key set is not
+emitted as a file — it is derived on demand by `secret_manifest` and reconciled
+into `infra/secrets/<env>.env` by `docex secrets scaffold` (mod 092 removed the
+old `infra/secrets/example.env` manifest).
 
 The compiler is **offline-pure**: no AWS calls, no docker calls. Same inputs deterministically produce the same outputs.
 
@@ -36,7 +40,6 @@ transfer tables  ───────────┤    cicl/transfer.py      �
                     └──────────────────┘
                             ↓
                     infra/output/<env>/...
-                    infra/secrets/example.env
 ```
 
 Each env is compiled independently (a project compiles all four). Cross-env state is none — env A's compile never reads env B's outputs.
@@ -161,7 +164,13 @@ networks in mod 036. Ansible artifacts (``playbook.yml``,
 ``inventory.yml``, ``ansible.cfg``) at project tier are deferred to mod
 036's "fixed + remote prod host" path.
 
-`infra/secrets/example.env` is also a compile output (`emit/secrets.py`), now a **secrets-only keys manifest** rendered from `secret_manifest` (core `secrets:` + backing `kind: secret` env vars + doctrine-injected secrets — mods 076/083). `kind: fixed` and `kind: minted` vars are absent — they are inlined at compile and minted during aggregation respectively (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md)).
+The compiler no longer emits a secrets manifest file (mod 092 removed
+`infra/secrets/example.env`). The required-secret key set lives in
+`secret_manifest` (`cicl/categories.py`) — core `secrets:` + backing `kind: secret`
+env vars + doctrine-injected secrets — and is materialized on demand by `docex
+secrets scaffold`/`status`, never written by `compile`. `emit/secrets.py` retains
+only `render_manifest_env`, the shared grouped-`KEY=value` renderer those scaffold
+commands use (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md)).
 
 The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-tier HCL), `project.tf.j2` (project-tier HCL), `playbook.yml.j2`, `inventory.yml.j2`, `ansible.cfg.j2`. Pre-translated names (state bucket, ALB name, ECS cluster, etc.) are computed in Python and passed to the templates as context; the templates do not do naming translation themselves.
 
@@ -200,7 +209,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What project-tier HCL looks like | `src/docex/emit/hcl.py::emit_hcl_project` + `templates/project.tf.j2` |
 | How ec2_traefik discovers routes (the ECS-provider `traefik.*` labels on web-service task defs; the instance's `providers.ecs` static config) | `src/docex/emit/hcl.py::render_task_definition` (the `dockerLabels` block) + `templates/ec2_traefik_user_data.sh.j2`. Mod 070. Routing is label-driven, not release-pushed — there is no SSM routing param. |
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
-| What `example.env` looks like | `src/docex/emit/secrets.py` |
+| What the scaffold manifest render looks like | `src/docex/emit/secrets.py::render_manifest_env` |
 | What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
 | How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
 | An engine env var's `kind` / a fixed literal / a minted policy | `tables/roles/<role>.yml` `env:` + `tables/generation_policies.yml`; loader in `cicl/transfer.py` |

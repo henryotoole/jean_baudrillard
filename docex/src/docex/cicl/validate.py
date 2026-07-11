@@ -719,7 +719,7 @@ def _validate_reserved_env_keys(
                     where=f"core_services.{svc_name}.{source}",
                 ))
             # Doctrine-injected secrets (e.g. TELEMETRY_API_KEY) are managed by
-            # docex and surfaced in example.env — a project must not declare
+            # docex — a project must not declare
             # them in any block. This validator owns the diagnostic; the
             # disjointness check skips these keys to avoid double-reporting.
             for key in sorted(block_keys & DOCTRINE_INJECTED_SECRETS):
@@ -728,7 +728,8 @@ def _validate_reserved_env_keys(
                     message=(
                         f"core service {svc_name!r} declares {key!r} under "
                         f"`{source}:`. This is a doctrine-injected secret "
-                        f"managed by docex — it is surfaced in example.env and "
+                        f"managed by docex — it is surfaced by `docex secrets "
+                        f"scaffold`/`status` and "
                         f"filled by the operator; a project must not declare "
                         f"it. Remove the declaration. See config_and_secrets.md "
                         f"§ Doctrine-Injected Secrets."
