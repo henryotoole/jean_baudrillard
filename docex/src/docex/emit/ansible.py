@@ -34,6 +34,11 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
         project=compiled.project,
         project_version=compiled.project_version,
         env=compiled.env,
+        # Explicit, project-scoped Compose project name — matches docex's
+        # native env_compose_project (`<dns_label>-<env>`, mod 053). Without
+        # it the playbook's compose invocations derive the unscoped `<env>`
+        # from the deploy-dir basename and collide across projects (mod 090).
+        compose_project_name=f"{compiled.project_dns_label}-{compiled.env}",
         core_services_with_schema=core_with_schema,
     ))
 

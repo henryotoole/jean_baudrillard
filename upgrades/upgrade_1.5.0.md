@@ -166,6 +166,31 @@ change beyond the (preserved) credential and any config you added.
 
 ---
 
+## Fixed-foundation only: stage/prod Compose stack rename (mod 090)
+
+On **fixed** foundations, 1.5.0 scopes the release playbook's Compose **project
+name** from the unscoped `<env>` (derived from the `/opt/<project>/<env>` deploy
+dir) to `<dns_label>-<env>` — matching how docex already names dev/test stacks.
+This closes a latent collision between two fixed projects sharing one host.
+
+**If you already have a fixed `stage`/`prod` deployment**, the first 1.5.0
+release renames the project. Because the compiled compose file uses explicit
+`container_name`s, the newly-named `up` would collide with the still-running
+old-named stack rather than adopt it. One-time step **before** the first 1.5.0
+release, per deployed env, on the target host:
+
+```bash
+docker compose -p <env> -f /opt/<project>/<env>/docker-compose.yml down
+```
+
+This stops the old-named stack while **keeping named volumes** (your database
+survives — and the TTE credential is preserved per the aggregation change above,
+so the re-created stack reconnects). The next `docex release <env>` brings the
+stack back up under `<dns_label>-<env>`. Greenfield/first-ever deployments need
+nothing. Elastic foundations are unaffected (ECS, not Compose).
+
+---
+
 ## Rollback
 
 Standard `docex rollback <env> <prev_version>` applies — the rolled-back code

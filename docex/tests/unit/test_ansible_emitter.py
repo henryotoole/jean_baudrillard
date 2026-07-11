@@ -77,7 +77,29 @@ def test_playbook_migration_uses_compose_run(tmp_path: Path):
     # `no such service: api` because the compose file declares
     # `sample-stage-api:` etc. The cmd must reference that global form.
     # (Per mod 030: docker policy is hyphen for data-plane resolvability.)
-    assert cmd == "docker compose run --rm sample-stage-api /service/migrate.sh", cmd
+    # Mod 090: the migrate one-off passes `-p <dns_label>-<env>` so it joins
+    # the SAME project-scoped Compose stack (else it can't reach the DB).
+    assert cmd == "docker compose -p sample-stage run --rm sample-stage-api /service/migrate.sh", cmd
+
+
+def test_playbook_compose_tasks_are_project_scoped(tmp_path: Path):
+    """Mod 090: the release playbook's compose invocations pass an explicit,
+    project-scoped `project_name` (`<dns_label>-<env>`) instead of letting
+    Compose derive the unscoped `<env>` from the deploy-dir basename — else two
+    fixed projects on one host collide. All three sites (pull, bring-up,
+    migrate) must use the identical scoped name."""
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("stage", "prod"):
+        scoped = f"sample-{env}"
+        pull = _find_task(root, env, "Pull all images")
+        assert pull["community.docker.docker_compose_v2"]["project_name"] == scoped, pull
+        up = _find_task(root, env, "Bring up the stack")
+        assert up["community.docker.docker_compose_v2"]["project_name"] == scoped, up
+        migrate = _find_migration_task(root, env, "api")
+        assert f"docker compose -p {scoped} run --rm" in migrate["ansible.builtin.command"]["cmd"]
 
 
 def _find_task(root: Path, env: str, name: str) -> dict:
