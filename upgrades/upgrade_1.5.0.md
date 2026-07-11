@@ -116,9 +116,10 @@ circumstance:
 
 ### 4. Reconcile the secrets file
 
-Recompile (`./bin/docex compile`) — this emits the new secrets-only
-`infra/secrets/example.env` (keys = core `secrets:` + backing `kind: secret` +
-`TELEMETRY_API_KEY`; **no** `POSTGRES_*`). Then:
+Run `docex secrets scaffold <env>` per env. It derives the required-secret key
+set on demand from `secret_manifest` (core `secrets:` + backing `kind: secret` +
+`TELEMETRY_API_KEY`; **no** `POSTGRES_*`) — no committed manifest file is emitted
+(`compile` writes nothing under `infra/secrets/`).
 
 ```sh
 ./bin/docex secrets scaffold <env>   # per env
@@ -160,9 +161,9 @@ change beyond the (preserved) credential and any config you added.
 - `docex config status <env>` — declared config keys present with values.
 - After release: the app connects to its database (the credential was
   preserved), and `/health` is green.
-- `git status` — `infra/tte/` and `infra/config/` value files are ignored;
-  only their `.gitignore`/`README.md` (and `infra/secrets/example.env`) are
-  tracked.
+- `git status` — `infra/tte/`, `infra/config/`, and `infra/secrets/` value files
+  are ignored; only their `.gitignore`/`README.md` are tracked (mod 092 removed
+  the committed `example.env`).
 
 ---
 
