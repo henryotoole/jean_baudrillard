@@ -1,6 +1,6 @@
 ---
 name: infra-compile
-description: Doctrine for authoring a project's infra.yml and the transfer tables that compile it into per-foundation infrastructure. Use this whenever you are writing or changing infra.yml, adding a service/role/engine, or extending docex with a project-local transfer table for an engine it doesn't ship — and whenever reasoning about how CICL compiles to docker-compose or OpenTofu, even if you never name CICL or transfer tables.
+description: Doctrine for authoring a project's infra.yml and the transfer tables that compile it into per-foundation infrastructure. Use this whenever you are writing or changing infra.yml, adding a service/role/engine, declaring the secrets or config a service requires (its `secrets:` / `config:` blocks), or extending docex with a project-local transfer table for an engine it doesn't ship — and whenever reasoning about how CICL compiles to docker-compose or OpenTofu, even if you never name CICL or transfer tables.
 metadata:
   type: thread
 ---
