@@ -38,12 +38,13 @@
     - name: Pull all images
       community.docker.docker_compose_v2:
         project_src: "{{ deploy_root }}"
+        project_name: "docex-smoke-fixed-prod"
         pull: always
         state: present
 
     - name: Run migrations for web
       ansible.builtin.command:
-        cmd: docker compose run --rm docex-smoke-fixed-prod-web /service/migrate.sh
+        cmd: docker compose -p docex-smoke-fixed-prod run --rm docex-smoke-fixed-prod-web /service/migrate.sh
         chdir: "{{ deploy_root }}"
       register: web_migrate_result
       changed_when: true
@@ -53,5 +54,6 @@
     - name: Bring up the stack
       community.docker.docker_compose_v2:
         project_src: "{{ deploy_root }}"
+        project_name: "docex-smoke-fixed-prod"
         state: present
         remove_orphans: true
