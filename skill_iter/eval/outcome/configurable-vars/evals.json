@@ -1,0 +1,18 @@
+{
+  "skill_name": "configurable-vars",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm working on a project that follows a strict in-house engineering doctrine, driven by a `docex` CLI (invoked as `./bin/docex`). I just cloned the repo. It's an elastic-foundation project with a `web` core service and a postgres `appdb` backing service. `web` needs a Stripe API key. Before I can cut a production release, I need every per-environment configurable value populated for `prod` so the release won't fail partway through. Walk me through exactly what to run and what to put where. Be specific about the commands and which values go in which files. I have an LLM agent doing this with me, so be careful about how secret values are handled.",
+      "expected_output": "A prod configurable-value setup that: scaffolds the secret key set with `docex secrets scaffold prod`; sets the Stripe key and the doctrine-injected TELEMETRY_API_KEY via the value-blind `docex secrets set prod <KEY>` (no positional value — the human supplies it at a no-echo prompt / --from-file, so the agent never sees it); does NOT hand-set any POSTGRES_* value (POSTGRES_PASSWORD is a docex-minted TTE value, POSTGRES_USER a fixed inline literal — neither belongs in the secrets file); puts any non-secret per-env value in infra/config/prod.env via `docex config set` (positional value fine); and verifies completeness with `docex secrets status prod` before releasing.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): the Stripe secret is set with a value-blind command — `docex secrets set prod STRIPE_API_KEY` with NO secret value passed on the command line; the value is supplied out-of-band (no-echo tty prompt or --from-file) so the LLM agent never holds it. A plaintext value in the command (e.g. `docex secrets set prod STRIPE_API_KEY sk_live_...`) is a FAIL.",
+        "DELTA DRIVER (doctrine-specific, not inferable): does NOT instruct the operator to place any POSTGRES_* value (POSTGRES_PASSWORD / POSTGRES_USER) into infra/secrets/prod.env — POSTGRES_PASSWORD is a transfer-table `kind: minted` TTE value docex generates itself (put-if-absent during aggregation) and POSTGRES_USER is a `kind: fixed` inline literal; putting either in the secrets file is a FAIL.",
+        "DELTA DRIVER (doctrine-specific, not inferable): identifies TELEMETRY_API_KEY as a required (doctrine-injected) secret for prod that must be set before release, and notes a stage/prod release aborts up front if a required secret is unset (the required-secret guard).",
+        "DELTA DRIVER (doctrine-specific, not inferable): places non-secret per-env values in infra/config/prod.env (managed by `docex config`, values LLM-readable/editable) and secrets in infra/secrets/prod.env (managed by the value-blind `docex secrets` family) — the two are distinct categories in distinct files, disjoint by key.",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): reconciles the file's key set with a scaffold step (`docex secrets scaffold prod`) rather than hand-creating the file.",
+        "CONFIRMATORY (inferable, expect ~zero with/without-skill delta): uses a status/read command (`docex secrets status prod`) to confirm no required value is still unset before attempting the release."
+      ]
+    }
+  ]
+}

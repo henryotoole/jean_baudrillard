@@ -1,0 +1,159 @@
+{
+  "metadata": {
+    "skill_name": "<skill-name>",
+    "skill_path": "<path/to/skill>",
+    "executor_model": "<model-name>",
+    "analyzer_model": "<model-name>",
+    "timestamp": "2026-07-11T21:58:01Z",
+    "evals_run": [
+      1
+    ],
+    "runs_per_configuration": 3
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 6,
+        "failed": 0,
+        "total": 6,
+        "time_seconds": 55.0,
+        "tokens": 0,
+        "tool_calls": 3,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "DELTA DRIVER: Stripe secret set with a value-blind command \u2014 `docex secrets set prod STRIPE_API_KEY` with NO value on the command line; value supplied out-of-band so the LLM never holds it",
+          "passed": true,
+          "evidence": "Step 3: 'secrets set has no positional value argument. The agent invokes the command; the value channel is a no-echo tty prompt that you type into.' Command shown as `./bin/docex secrets set prod STRIPE_API_KEY` with no value; --from-file noted; 'never paste the Stripe key into the chat.'"
+        },
+        {
+          "text": "DELTA DRIVER: does NOT place any POSTGRES_* value into infra/secrets/prod.env \u2014 POSTGRES_PASSWORD is a minted TTE value, POSTGRES_USER a fixed inline literal",
+          "passed": true,
+          "evidence": "Category table maps POSTGRES_PASSWORD \u2192 TTE (infra/tte/prod.env, docex automatic). 'Do not scaffold or touch TTE. POSTGRES_PASSWORD is minted for you (POSTGRES_USER is the fixed literal appuser, stored nowhere).' TTE minted put-if-absent into SSM at release."
+        },
+        {
+          "text": "DELTA DRIVER: identifies TELEMETRY_API_KEY as a required doctrine-injected secret for prod and notes the release aborts up front if a required secret is unset (required-secret guard)",
+          "passed": true,
+          "evidence": "Step 1: 'TELEMETRY_API_KEY (doctrine-injected, required for stage/prod)'. Step 5: 'A docex release prod refuses before any side effect (before aggregation, the SSM push, or tofu apply) if any required secret is unset.'"
+        },
+        {
+          "text": "DELTA DRIVER: non-secret per-env values in infra/config/prod.env (docex config, LLM-readable) and secrets in infra/secrets/prod.env (value-blind docex secrets) \u2014 distinct categories, disjoint by key",
+          "passed": true,
+          "evidence": "Three-category table + Step 4: config non-secret, set positionally or edit infra/config/prod.env directly; secrets via value-blind docex secrets in infra/secrets/prod.env. Categories disjoint (one per file)."
+        },
+        {
+          "text": "CONFIRMATORY: reconciles the key set with a scaffold step rather than hand-creating the file",
+          "passed": true,
+          "evidence": "Step 1: `./bin/docex secrets scaffold prod` and `./bin/docex config scaffold prod`; 'you never hand-author the file skeletons.'"
+        },
+        {
+          "text": "CONFIRMATORY: uses a status/read command to confirm no required value is still unset before the release",
+          "passed": true,
+          "evidence": "Step 2 and Step 5: `./bin/docex secrets status prod` (redacted SET/UNSET) to confirm every key SET before releasing."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 0.833,
+        "passed": 5,
+        "failed": 1,
+        "total": 6,
+        "time_seconds": 32.0,
+        "tokens": 0,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {
+          "text": "DELTA DRIVER: Stripe secret set with a value-blind command \u2014 `docex secrets set prod STRIPE_API_KEY` with NO value on the command line; value supplied out-of-band so the LLM never holds it",
+          "passed": true,
+          "evidence": "'./bin/docex secrets set prod STRIPE_API_KEY \u2014 This prompts for the value and writes only that one key ... You (the human) supply the secret at the prompt; the agent never sees it.' Also warns against cat/Read of the secrets file."
+        },
+        {
+          "text": "DELTA DRIVER: does NOT place any POSTGRES_* value into infra/secrets/prod.env \u2014 POSTGRES_PASSWORD is a minted TTE value, POSTGRES_USER a fixed inline literal",
+          "passed": true,
+          "evidence": "'TTE vars (the postgres password) \u2014 leave them alone ... generated automatically and stored out-of-band (in SSM) ... nothing for you to populate.' Quick-reference table lists POSTGRES_PASSWORD as TTE, hands-off."
+        },
+        {
+          "text": "DELTA DRIVER: identifies TELEMETRY_API_KEY as a required doctrine-injected secret for prod and notes the release aborts up front if a required secret is unset (required-secret guard)",
+          "passed": false,
+          "evidence": "TELEMETRY_API_KEY is never mentioned anywhere in the output. No mention of any doctrine-injected secret or of a required-secret guard that aborts the release before side effects. The baseline lists only the Stripe key as a secret to populate."
+        },
+        {
+          "text": "DELTA DRIVER: non-secret per-env values in infra/config/prod.env (docex config, LLM-readable) and secrets in infra/secrets/prod.env (value-blind docex secrets) \u2014 distinct categories, disjoint by key",
+          "passed": true,
+          "evidence": "'Config is not sensitive ... File: infra/config/prod.env ... The agent can open and edit this file normally.' Secrets kept in infra/secrets/prod.env behind value-blind tooling. Validation notes 'no key is defined in more than one source.'"
+        },
+        {
+          "text": "CONFIRMATORY: reconciles the key set with a scaffold step rather than hand-creating the file",
+          "passed": true,
+          "evidence": "'./bin/docex secrets scaffold prod' and 'config scaffold prod' \u2014 'reconciles the required secret keys ... preserving any values already present.'"
+        },
+        {
+          "text": "CONFIRMATORY: uses a status/read command to confirm no required value is still unset before the release",
+          "passed": true,
+          "evidence": "'./bin/docex secrets status prod' reports each key SET/UNSET; 'Drive toward every key showing SET.' Also validate step before release."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 55.0,
+        "stddev": 0.0,
+        "min": 55.0,
+        "max": 55.0
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 0.833,
+        "stddev": 0.0,
+        "min": 0.833,
+        "max": 0.833
+      },
+      "time_seconds": {
+        "mean": 32.0,
+        "stddev": 0.0,
+        "min": 32.0,
+        "max": 32.0
+      },
+      "tokens": {
+        "mean": 0.0,
+        "stddev": 0.0,
+        "min": 0,
+        "max": 0
+      }
+    },
+    "delta": {
+      "pass_rate": "+0.17",
+      "time_seconds": "+23.0",
+      "tokens": "+0"
+    }
+  },
+  "notes": []
+}
