@@ -10,9 +10,17 @@ Paths are relative to the repo root (`~/.claude/jean_baudrillard/`).
 
 ---
 
-## Recommended (pending — apply against doctrine)
+## Applied against doctrine (post-implementation)
+
+Items 1 and 2 below were applied as doctrine-only edits (the implementation
+already behaved this way, so no code/table/test changes rode along).
 
 ### 1. Config delivery on elastic is imprecise — it is `secrets[]`-`valueFrom`, not `environment[]`
+
+**Status: APPLIED.** Both sites in `config_and_secrets.md` reworded — config on
+elastic is now described as an ECS `secrets[]` entry whose `valueFrom` sources a
+plain `String` SSM parameter (vs. `SecureString` for secret/TTE), never an
+`environment[]` entry.
 
 **File:** `doctrine/infrastructure/specifics/config_and_secrets.md`
 **Sites:** § *Materialization at Release* (line ~191) and § *How Values Reach
@@ -47,7 +55,7 @@ secret/TTE, plain String for config)`. Note `cicl.md` line 119 already states
 this correctly ("delivered to the container the same way a secret is") — only
 `config_and_secrets.md` carries the `environment[]` imprecision.
 
-### 2. Parts-only rule — clarify that `kind: fixed` literals are exempt (optional)
+### 2. Parts-only rule — clarify that `kind: fixed` literals are exempt
 
 **File:** `doctrine/infrastructure/specifics/config_and_secrets.md` § *Parts-Only
 Rule* (and the mirror in `transfer_tables.md`).
@@ -57,9 +65,19 @@ string. Since Mod 077, a `kind: fixed` engine var is inlined to its literal at
 compile, so it is a plain literal — not a runtime ref — by the time the
 compiler's parts-only guard runs. A fixed literal *can* therefore be freely
 composed (e.g. `postgres://appuser@host/db`), which the guard previously would
-have flagged. The rule text is still accurate (it scopes to *secrets*), but a
-one-line note that non-secret `fixed` literals are exempt would prevent a future
-reader from over-reading the guard. Low priority.
+have flagged.
+
+**Status: APPLIED** — and it was **more than the optional note** originally
+scoped. `config_and_secrets.md § Parts-Only Rule` got the one-line exemption
+note as planned. But the `transfer_tables.md` mirror (the § *Anatomy* `provides`
+hard-rule prose) carried **stale drift**, not just a missing clarification: it
+cited `$[POSTGRES_USER]` alongside `$[POSTGRES_PASSWORD]` as "secrets that never
+appear as inline values." Since Mod 077 `POSTGRES_USER` is `kind: fixed`
+(`value: appuser`, confirmed in `tables/roles/relational_db.yml`) — it is inlined
+and *does* appear inline. That sentence was corrected to cite only
+`$[POSTGRES_PASSWORD]` and to name `POSTGRES_USER` as the opposite (fixed-literal)
+case. `config_and_secrets.md` line ~231 already listed only `POSTGRES_PASSWORD`,
+so it needed no drift fix — only the new exemption note.
 
 ---
 

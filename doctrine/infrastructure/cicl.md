@@ -91,7 +91,7 @@ The table below lists all standard fields for services.
 | replicas | no | core | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. |
 | command | no | core | The command to run to launch the core service. Required for the `scheduler` role (the job entrypoint). |
 | secrets | no | core | Bespoke, project-supplied secret env vars with no in-project source. Surfaced in the project's secrets file (`<env>.env`) and the `example.env` manifest. |
-| config | no | core | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [config_and_secrets.md](./specifics/config_and_secrets.md). |
+| config | no | core | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [configurable.md](./configurable.md#config). |
 | engine | yes | backing | The underlying software package the service will use e.g. 'postgres', 'redis', etc. Can define two options if `fixed` and `elastic` foundations require different engines. |
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
 | schema_owned_by | sometimes | backing | Required for database roles (e.g. `relational_db`) to denote which core service owns the database schema and drives migrations. |
@@ -104,21 +104,21 @@ Some services will have additional fields. These are role specific, and will be 
 
 ### Provided Fields
 
-Every role may declare fields which are "provided" to other services. These tend to represent fundamental properties like `port` or even secrets like `password`. They are defined per role in the `docex` transfer tables so that `docex` is careful and consistent when compiling `infra.yml` - especially with secrets, which must be carefully handled in compiled output.
+Every role may declare fields which are "provided" to other services. These tend to represent fundamental properties like `port` or `host`. They are defined per role in the `docex` transfer tables so that `docex` is careful and consistent when compiling `infra.yml`.
 
 Restrictions with infra providers (particularly AWS SSM) mean that provided fields must be *values*, and can not be strings which are interpolated later. A role never exposes a pre-composed connection string. A consumer that needs a composed handle (e.g. a database url) builds it from the parts at startup. In the example above, `api` would need a database url to connect to the `database` backing service. We provide `DATABASE_HOST`, `DATABASE_PORT`, etc. as environmental variables so that the code within `api` can construct a database url at runtime. This produces an identical landscape across all four environments.
 
 The provided fields for each role live in the `docex` transfer tables, not in this doctrine. To discover them, run `./bin/docex role <role>` — it lists the role's engines and their provided fields (which are secrets, the required env vars, and the role-specific fields). `./bin/docex roles` lists every available role. See [docex.md](./docex.md#role).
 
-### Env, Secret, and Config Fields
+### Environmental Variables
 
 Three fields define a core service's container environment variables, distinguished by *where the value comes from* and *how it is handled*:
 
 - **`env:`** — values the compiler resolves at compile time: literals and magic refs to other services' provided parts.
-- **`secrets:`** — bespoke secrets the operator supplies, never committed. Each declared key is delivered to the container as an env var of the same name, sourced from `infra/secrets/<env>.env` (and SSM on elastic).
-- **`config:`** — non-secret, deployment-specific, per-env values (e.g. a third-party URL that differs by environment). Each declared key is delivered to the container the same way a secret is, differing only in that the value is non-secret: it lives in the non-tracked, LLM-readable `infra/config/<env>.env` (a plain SSM `String`, not `SecureString`, on elastic). Config is the doctrine's escape valve for per-environment values that are neither compile-resolvable nor secret.
+- **`secrets:`** — bespoke secrets the operator supplies, never committed. Each declared key is delivered to the container as an env var of the same name, defined in `infra/secrets/<env>.env`.
+- **`config:`** — non-secret, deployment-specific, per-env values (e.g. a third-party URL that differs by environment). Each declared key is delivered to the container the same way a secret is, differing only in that the value is non-secret. Defined in the non-tracked, LLM-readable `infra/config/<env>.env`. Config is the doctrine's escape valve for per-environment values that are neither compile-resolvable nor secret.
 
-A given key may appear in **at most one** of `env:`, `secrets:`, and `config:` on a service. Across the whole project the three value *categories* are disjoint by key — an overlap is a compile error. See [config_and_secrets.md](./specifics/config_and_secrets.md) for the full model, the standard file form, and the tooling.
+A given key may appear in **at most one** of `env:`, `secrets:`, and `config:` on a service. Across the whole project the three value *categories* are disjoint by key — an overlap is a compile error. See [configurable.md](./configurable.md) for the full model.
 
 ### Rules
 

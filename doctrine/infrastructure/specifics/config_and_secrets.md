@@ -188,8 +188,12 @@ them on every release, with the one TTE exception above.
 - **Elastic (OpenTofu):** before `tofu apply`, `docex release` pushes each
   aggregate entry to SSM at `/<project>/<env>/KEY` — secrets and TTE as
   `SecureString` (default `aws/ssm` KMS key), config as plain `String`. The
-  emitted HCL provisions ECS task definitions whose `secrets[]` / `environment[]`
-  blocks reference those paths.
+  emitted HCL provisions ECS task definitions whose `secrets[]` blocks
+  `valueFrom` those SSM paths — config rides `secrets[]` too, not
+  `environment[]`, because an ECS `environment[]` entry is a static inline
+  `name`/`value` pair and cannot source from SSM. `secrets[]` `valueFrom`
+  resolves a plain `String` (config) exactly as it does a `SecureString`
+  (secret/TTE).
 
 Manual edits to the host `.env` (fixed) or SSM parameters (elastic) are
 overwritten on the next deploy — by design, to preserve the deterministic
@@ -204,7 +208,7 @@ binds, is delivered under the consumer's own key:
 | Foundation | Mechanism | Effective container env |
 | ---------- | --------- | ----------------------- |
 | Fixed | Compose `environment:` line `DATABASE_PASSWORD: ${POSTGRES_PASSWORD}` reading from the host `.env` | `DATABASE_PASSWORD=<value>` |
-| Elastic | ECS `secrets[]` (secret/TTE) or `environment[]` (config) entry sourcing `/<project>/<env>/POSTGRES_PASSWORD` | `DATABASE_PASSWORD=<value>` |
+| Elastic | ECS `secrets[]` entry whose `valueFrom` sources `/<project>/<env>/POSTGRES_PASSWORD` (SSM `SecureString` for secret/TTE, plain `String` for config — the ECS delivery verb is `secrets[]` either way) | `DATABASE_PASSWORD=<value>` |
 
 The container sees the same key and value on both foundations; only the delivery
 mechanism differs. The compiler binds these end-to-end: a core service's
@@ -233,7 +237,11 @@ values in compiled artifacts — they flow through compose's runtime substitutio
 (fixed) or the ECS `secrets[]` block (elastic), staying out of any persisted task
 definition or compose snapshot. The compiler enforces this at compile time: a
 magic ref that would embed a secret inside a larger value fails compile with a
-clear error. It is also what makes a minted password's **url-safe alphabet**
+clear error. The guard scopes to *secrets and minted TTE values only*: a
+`kind: fixed` engine var is inlined to its plain literal before the guard runs
+(Mod 077), so composing a non-secret fixed literal (e.g. `POSTGRES_USER` →
+`appuser`) into a larger value is permitted — it is the password, not the
+username, that may never be embedded. It is also what makes a minted password's **url-safe alphabet**
 load-bearing — the app builds `scheme://user:pass@host/db` itself, so a password
 with URI-reserved characters would break that build (see
 [transfer_tables.md § Generation Policies](./transfer_tables.md#generation-policies)).
