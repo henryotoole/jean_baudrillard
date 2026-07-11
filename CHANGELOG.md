@@ -104,6 +104,14 @@ the live engine credential so a mint can't lock out a running database.
   `sudo cat` (deploy has passwordless sudo per doctrine). Elastic (SSM) and
   dev/test (local file) were unaffected. Pre-existing in the envmageddon
   campaign; surfaced by the 1.5.0 pre-cut fixed smoke walk.
+- **Fixed release Compose stacks are project-scoped** (mod 090) — the release
+  playbook's compose invocations (pull, bring-up, migrate) derived the unscoped
+  `<env>` project name from the host deploy-dir basename, so two fixed projects
+  on one host would collide. All three now pass an explicit
+  `<dns_label>-<env>` (matching docex's `env_compose_project`, mod 053).
+  Existing fixed deployments need a one-time old-stack teardown on the first
+  1.5.0 release — see [`upgrades/upgrade_1.5.0.md`](./upgrades/upgrade_1.5.0.md).
+  Pre-existing; surfaced by the 1.5.0 pre-cut fixed smoke walk.
 
 ## [1.4.4] - 2026-07-05
 
