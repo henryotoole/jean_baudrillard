@@ -22,6 +22,7 @@ from docex.context import ProjectContext
 from docex.errors import (
     AnsibleRunFailed,
     EnvNotSupported,
+    RequiredSecretsUnset,
     TofuApplyFailed,
 )
 from docex.naming import apply_policy
@@ -35,6 +36,25 @@ RunPlaybook = Callable[..., int]
 TofuInit = Callable[..., int]
 TofuApply = Callable[..., int]
 TofuPlan = Callable[..., int]
+
+
+def _require_secrets_present(ctx: ProjectContext, env: str) -> None:
+    """Abort a stage/prod release if a required secret is unset.
+
+    Required secret = any key in the secret manifest (core `secrets:` +
+    backing `kind: secret` + doctrine-injected). "Unset" = absent from
+    infra/secrets/<env>.env or present with an empty value. TTE (docex-minted,
+    put-if-absent) and config (non-secret) do NOT gate a release.
+    See config_and_secrets.md § Required-Secret Guard.
+    """
+    from docex.cicl.categories import secret_manifest
+    from docex.envfile import read_env_file
+
+    manifest = secret_manifest(ctx.infra, ctx.transfer_tables)
+    values = read_env_file(ctx.project_root / "infra" / "secrets" / f"{env}.env")
+    unset = [e.key for e in manifest if values.get(e.key, "") == ""]
+    if unset:
+        raise RequiredSecretsUnset(env, unset)
 
 
 def run_release(
@@ -71,6 +91,8 @@ def run_release(
             file=sys.stderr,
         )
         return 1
+
+    _require_secrets_present(ctx, env)
 
     if infra.foundation == "elastic":
         if aws is None or tofu_init is None or tofu_apply is None:

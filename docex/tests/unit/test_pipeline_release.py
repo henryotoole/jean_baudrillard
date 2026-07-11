@@ -451,10 +451,16 @@ def test_release_refuses_when_deploy_key_missing(
 def test_release_refuses_when_secrets_missing(
     sample_ctx, fake_ansible, fake_ssh, capsys
 ):
-    """Without infra/secrets/<env>.env, release must refuse."""
+    """Without infra/secrets/<env>.env, release must refuse. Mod 091: the
+    required-secret guard now catches this first — a missing file reads as {}
+    so every required secret is unset, and run_release aborts with
+    RequiredSecretsUnset before reaching the fixed branch (which used to
+    return 1 on its own env-file check)."""
+    from docex.errors import RequiredSecretsUnset
+
     (sample_ctx.project_root / "infra" / "secrets" / "stage.env").unlink()
-    rc = run_release(
-        sample_ctx, env="stage", ansible_runner=fake_ansible, ssh=fake_ssh,
-    )
-    assert rc == 1
+    with pytest.raises(RequiredSecretsUnset):
+        run_release(
+            sample_ctx, env="stage", ansible_runner=fake_ansible, ssh=fake_ssh,
+        )
     assert fake_ansible.calls == []

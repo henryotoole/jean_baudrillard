@@ -146,6 +146,24 @@ class AnsibleRunFailed(DocexError):
     dispatcher."""
 
 
+class RequiredSecretsUnset(DocexError):
+    """A stage/prod release was attempted while one or more required secrets
+    are unset (absent or empty) in infra/secrets/<env>.env. Raised as a
+    precondition in run_release, before any side effect. See
+    config_and_secrets.md § Required-Secret Guard."""
+
+    def __init__(self, env: str, keys: list[str]) -> None:
+        self.env = env
+        self.keys = keys
+        listing = "\n".join(f"  - {k}   (docex secrets set {env} {k})" for k in keys)
+        super().__init__(
+            f"release aborted — {len(keys)} required secret(s) unset for "
+            f"{env!r}:\n{listing}\n"
+            f"Set them (or run `docex secrets scaffold {env}` to reconcile the "
+            f"key set first), then retry."
+        )
+
+
 class StageTesterBuildFailed(DocexError):
     """Building the ephemeral stage-tester image failed."""
 

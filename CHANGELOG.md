@@ -50,6 +50,13 @@ the live engine credential so a mint can't lock out a running database.
   the SSM prefix itself, TTE minted put-if-absent (`SecureString`), secrets
   overwrite (`SecureString`), config overwrite (`String`). `ensure_tte`
   generates a minted value only when its authoritative store lacks it.
+- **Required-secret guard on release** (mod 091, `config_and_secrets.md §
+  Required-Secret Guard`) — a stage/prod `docex release` aborts before any side
+  effect if a required secret (secret manifest: core `secrets:` + backing
+  `kind: secret` + doctrine-injected) is unset in `infra/secrets/<env>.env`,
+  naming each unset key + its `docex secrets set` remediation. Secrets-only (TTE
+  is minted, config is non-secret) and stage/prod-only (rollback bypasses it).
+  `pipeline/release.py:_require_secrets_present`.
 - **`docex secrets`** (mod 083) — `scaffold` / `status` / `set` / `copy`,
   value-blind: `set` takes its value only from a no-echo tty prompt or
   `--from-file`; `status` is redacted `SET`/`UNSET`; there is no `get`; `copy`

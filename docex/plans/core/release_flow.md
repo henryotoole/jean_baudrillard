@@ -30,6 +30,10 @@ The two branches share almost nothing operationally. Fixed deploys are SSH-drive
 
 The decision point is the `foundation:` field in `infra.yml`. Compile has already encoded the right output for the env into `infra/output/<env>/`: a `docker-compose.yml` + `playbook.yml` for fixed, a `main.tf` for elastic.
 
+## Required-secret precondition
+
+Before the foundation branch, `run_release` calls `_require_secrets_present(ctx, env)` (mod 091). It reads `infra/secrets/<env>.env` and aborts — raising `RequiredSecretsUnset` — if any key in the secret manifest (core `secrets:` + backing `kind: secret` + doctrine-injected `TELEMETRY_API_KEY`) is absent or empty. This runs before any side effect (aggregation, SSM push, ansible/tofu apply), so an incomplete secret set fails fast and clearly instead of surfacing as a runtime container failure. It is **secrets-only** (TTE is docex-minted put-if-absent; config is non-secret) and **stage/prod-only** — rollback bypasses it by calling `_release_fixed`/`_release_elastic` directly. See [`config_and_secrets.md § Required-Secret Guard`](../../../doctrine/infrastructure/specifics/config_and_secrets.md#required-secret-guard).
+
 ## Fixed-foundation flow
 
 `_release_fixed` invokes the emitted Ansible playbook against the env's host(s):
@@ -102,6 +106,7 @@ The shim (`bin/docex`) bind-mounts all of these into the docex container so the 
 
 | What you'd see | Probable cause | Where to look |
 | -------------- | -------------- | ------------- |
+| `release aborted — N required secret(s) unset for '<env>'` | A required secret (core `secrets:` / backing `kind: secret` / `TELEMETRY_API_KEY`) is absent or empty in `infra/secrets/<env>.env` | mod 091 guard — set it with `docex secrets set <env> <KEY>` (or `docex secrets scaffold <env>` to reconcile keys first); `pipeline/release.py:_require_secrets_present` |
 | `InvalidBucketName` on bootstrap (precedes release on first elastic deploy) | Project-name policy mismatch | `pipeline/bootstrap.py` / `tables/naming_policies.yml` — mod 005 fixed this |
 | Migration task fails to start with `unable to retrieve secrets from ssm: context deadline exceeded` | Per-network SG missing egress | `templates/main.tf.j2` per-network SG block — mod 006 fixed this |
 | Migration task exits non-zero with `dial tcp: lookup <host>:<port>:<port>: no such host` | DB host part returning `host:port` instead of host | `tables/roles/relational_db.yml` `provides.host.elastic` — mod 007 fixed this |
@@ -118,6 +123,7 @@ For ECS-container-level diagnostics: every container in a task definition emits 
 | To change... | Touch... |
 | ------------ | -------- |
 | Foundation dispatch | `src/docex/pipeline/release.py:run_release` |
+| The required-secret precondition (stage/prod) | `src/docex/pipeline/release.py:_require_secrets_present` (runs before the foundation branch; rollback bypasses it) |
 | The fixed playbook tasks | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
 | The order/sequence of release steps | `src/docex/pipeline/release.py` (`_release_fixed`, `_release_elastic`) |
 | How migrate.sh is invoked on either foundation | `src/docex/orchestrate/migrate.py` (`_migrate_stage_prod`, `_migrate_elastic`) |
