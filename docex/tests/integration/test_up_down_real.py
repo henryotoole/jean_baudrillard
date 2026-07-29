@@ -37,8 +37,10 @@ def test_up_then_down_dev(fresh_project, docker_client):
             text=True,
         )
         running = [line.strip() for line in out.splitlines() if line.strip()]
-        # compose returns the project-scoped service keys (sample-dev-api).
-        assert any(s.endswith("api") for s in running), running
+        # compose returns the project-scoped service keys. Post-CICL-v2 these
+        # are two-segment (`sample-dev-api-web`) — one per PROCESS TYPE, not
+        # per codebase, so a bare `endswith("api")` no longer matches.
+        assert any(s.endswith("api-web") for s in running), running
         assert any(s.endswith("appdb") for s in running), running
     finally:
         run_down(ctx, docker_client, env="dev")

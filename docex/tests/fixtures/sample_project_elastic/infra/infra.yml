@@ -17,7 +17,7 @@ core_services:
     processes:
       web:
         role: web
-        command: ["python", "/service/dist/root.py"]
+        command: ["python", "/service/dist/app.py"]
         port: 8080
         networks: [web, internal]
         depends_on: [appdb]

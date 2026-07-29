@@ -51,7 +51,10 @@ def test_stagetest_against_local_dev(fresh_project: Path):
     # integration suite hadn't been re-run since, so they went unnoticed. (Both
     # are orthogonal to envmageddon, which changed no networking or naming.)
     seg = dns_label(ctx.project.name)
-    api_host = f"{seg}-dev-api"
+    # Post-CICL-v2: the routable container is the `web` PROCESS TYPE, so the
+    # data-plane name gains a second segment — `sample-dev-api-web`, not
+    # `sample-dev-api` (which now names no container at all).
+    api_host = f"{seg}-dev-api-web"
     try:
         rc = run_stagetest(
             ctx,
