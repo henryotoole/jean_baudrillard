@@ -10,6 +10,9 @@ from docex.describe.dag import (
     _PREREQ_ELASTIC,
     _PROJECT_FIXED,
     _PROJECT_ELASTIC,
+    collect_edges,
+    node_id,
+    target_id,
 )
 
 
@@ -34,19 +37,27 @@ def render_llm(compiled: CompiledEnv) -> str:
         env_resources.append({
             "kind": "core_service" if svc.is_core else "backing_service",
             "name": svc.global_name,
-            "short": svc.name,
+            "short": node_id(svc),
+            # Both axes independently readable, so a consumer never splits a
+            # hyphenated string to recover them (the same argument Mod 102 made
+            # for two OTel attributes over one fused `service.name`). None for a
+            # backing service, which has no process dimension.
+            "core_service": svc.core_service,
+            "process": svc.process,
             "role": svc.role,
             "engine": svc.engine,
             "networks": svc.networks,
             "port": svc.port,
             "depends_on": svc.depends_on,
+            # Display ids, so a node's relations join to node `short` values
+            # exactly as `depends_on` already does.
+            "consumes": [target_id(compiled, k) for k in svc.consumes],
         })
 
-    edges: list[dict[str, str]] = []
-    for name in sorted(compiled.services):
-        svc = compiled.services[name]
-        for dep in sorted(svc.depends_on):
-            edges.append({"from": name, "to": dep, "kind": "depends_on"})
+    edges = [
+        {"from": src, "to": dst, "kind": kind}
+        for src, dst, kind in collect_edges(compiled)
+    ]
 
     doc = {
         "project": compiled.project,

@@ -519,6 +519,17 @@ class CompiledService:
     # the prod-only clamp on top of it. Consumed by the fixed compose unroll
     # and by the elastic ECS `desired_count` (Mod 100).
     replicas: int = 1
+    # Rule 25's interface edges, as COMPILED identities (`api-worker`) — the
+    # same keys into `CompiledEnv.services` that `depends_on` holds, so an edge
+    # of either relation resolves with one dict lookup. Empty for a backing
+    # service, which has no `consumes:` (rule 14). Mod 104 compiles it for
+    # `describe`'s union view; it is a declared field on both models, so it
+    # cannot reach field translation and nothing is emitted from it.
+    # WHY here rather than beside `depends_on`, where it belongs conceptually:
+    # `depends_on` sits in this dataclass's non-defaulted region, and a field
+    # inserted there would break the three sites that construct
+    # `CompiledService` positionally/directly. Do not "correct" the placement.
+    consumes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1058,6 +1069,19 @@ def compile_env(
             ),
             service_env=service_env,
             replicas=(svc.replicas if is_core else 1),
+            # `consumes_refs()` (Mod 101) is the ONE parse of rule 25's field —
+            # it normalizes to the dotted reference form and drops entries that
+            # do not parse, so a malformed entry is reported once by rule 25 and
+            # never resurfaces here as a phantom node. Re-parsing dotted →
+            # compiled is the price of not writing a second parser; every entry
+            # is known-parseable by construction.
+            consumes=(
+                sorted(
+                    ProcessRef.parse(dotted).compiled
+                    for dotted in svc.consumes_refs()
+                )
+                if is_core else []
+            ),
         )
 
     return CompiledEnv(

@@ -912,7 +912,9 @@ def test_describe_dag_and_llm(tmp_path: Path):
     assert parsed["env"] == "prod"
     assert parsed["foundation"] == "fixed"
     assert any(
-        edge["from"] == "api-web" and edge["to"] == "appdb"
+        # Mod 104: `describe` node ids are the DOTTED reference form
+        # (cicl.md § Dots for reference, hyphens for emission).
+        edge["from"] == "api.web" and edge["to"] == "appdb"
         for edge in parsed["edges"]
     )
 
