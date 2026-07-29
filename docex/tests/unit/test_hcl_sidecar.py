@@ -174,8 +174,12 @@ def test_migration_task_def_has_no_sidecar(tmp_path: Path):
     hcl = _stage_hcl(root)
     mig_td = _slice_task_def(hcl, "api_migrate")
     # The container_definitions has the core container only — no sidecar.
-    assert 'name = "api-web"' in mig_td
-    assert 'name = "api-web-otelcol"' not in mig_td
+    # Mod 099: the container is named for the CODEBASE. A process segment in
+    # a per-codebase artifact names a process type the migration has nothing
+    # to do with.
+    assert 'name = "api"' in mig_td
+    assert 'name = "api-web"' not in mig_td
+    assert "otelcol" not in mig_td
 
 
 def test_sidecar_has_no_healthcheck(tmp_path: Path):

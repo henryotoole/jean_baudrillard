@@ -20,10 +20,10 @@ from docex.naming import dns_label
 from docex.orchestrate._common import (
     assert_fixed_env,
     compose_file_for,
-    compose_service_key,
     core_services,
     ensure_compiled,
     env_compose_project,
+    exec_service_key,
     scheduler_only_services,
     scheduler_services,
     services_with_schema,
@@ -141,11 +141,18 @@ def _diagnose_unhealthy(
     compose_file,
     env_file,
 ) -> None:
-    """Print one diagnostic line per non-running core service.
+    """Print one diagnostic line per non-running service in the stack.
 
     Diagnosis only — no auto-fix, no teardown (a half-up stack is what
     the developer needs to debug). Called on a compose/migrate failure
     where a partial or unhealthy stack is the likely culprit.
+
+    Mod 099: iterates the ``compose_ps_status`` map itself rather than
+    deriving a compose key per *core codebase*. The old form could only ever
+    report a core service, so an unhealthy backing service — the single most
+    likely reason ``up`` fails — was invisible to the very function that
+    exists to diagnose ``up`` failures. Reporting by compose key also names
+    the exact container the operator passes to ``docker logs``.
     """
     status = docker.compose_ps_status(
         compose_file,
@@ -155,14 +162,12 @@ def _diagnose_unhealthy(
     )
     if not status:
         return
-    for svc in core_services(ctx):
-        key = compose_service_key(ctx, env, svc)
-        state = status.get(key)
-        diag = _DIAGNOSTICS.get(state) if state else None
+    for key in sorted(status):
+        diag = _DIAGNOSTICS.get(status[key])
         if diag is None:
             continue
         print(
-            f"envinfra up: service {svc!r}: {diag.format(name=key)}",
+            f"envinfra up: service {key!r}: {diag.format(name=key)}",
             file=sys.stderr,
         )
 
@@ -234,13 +239,13 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
         )
         return rc
 
-    # 2. Migrations. dev/test migrations run inside the running container.
+    # 2. Migrations. dev/test migrations run as a one-off container built
+    # from the codebase's exec service (Mod 099), so `migrate.sh` sees
+    # codebase-scoped env only and needs no app container to exec into.
     schema_owners = services_with_schema(ctx)
     for svc in schema_owners:
-        # Compose's service key is the project-scoped global name, not
-        # the simple service name from infra.yml.
-        key = compose_service_key(ctx, env, svc)
-        rc = docker.compose_exec(
+        key = exec_service_key(ctx, env, svc)
+        rc = docker.compose_run_one_off(
             compose_file, key, ["./migrate.sh"], env_file=env_file,
             project_dir=ctx.project_root, project_name=project_name,
         )

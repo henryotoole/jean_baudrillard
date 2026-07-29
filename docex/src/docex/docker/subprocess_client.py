@@ -172,9 +172,13 @@ class SubprocessDockerClient:
         project_dir: Path | None = None,
         project_name: str | None = None,
     ) -> int:
+        # ``-T`` disables pseudo-tty allocation so this works when
+        # called non-interactively (e.g. from CI). ``run`` allocates a TTY
+        # by default, unlike ``exec``; the two must match here because
+        # every docex call site is non-interactive.
         cmd = self._compose_base(
             compose_file, env_file, project_dir, project_name
-        ) + ["run", "--rm"]
+        ) + ["run", "--rm", "-T"]
         for key, val in (env or {}).items():
             cmd.extend(["-e", f"{key}={val}"])
         cmd.append(service)

@@ -142,13 +142,68 @@ to inherit from.
 **`replicas`** is carried and nothing is emitted from it. Emission — the fixed
 unroll and elastic `desired_count` — is a later mod.
 
-**The migration carrier.** `schema_owned_by_db` is set on exactly one compiled
-service per codebase, so one codebase yields one migrate task definition rather
-than N. `primary_process()` (`cicl/model.py`) picks it: lowest-sorted
-non-`scheduler`, falling back to lowest-sorted. It is marked at the definition
-site as a temporary bridge — it also backs `orchestrate/_common.py`'s
-`compose_service_key`, and both go away when the per-codebase exec service
-lands.
+### Per-codebase artifacts
+
+Three things are emitted once per **codebase** rather than once per process
+type. All three iterate `group_by_codebase(compiled)` (`cicl/compile.py`), which
+is the single expression of the grouping rule — there is deliberately no rule
+for *picking a representative* process type, because every such rule is
+unstable under renames of process types that have nothing to do with the
+artifact.
+
+**The exec service** (`emit/compose.py`) — one `{project}-{env}-{codebase}-exec`
+block per codebase, in every fixed env. It is the container that *is* the
+codebase: `migrate`, `test` and `build` run one-off inside it via
+`docker compose run --rm`, rather than `compose exec`-ing into whichever process
+type's container happened to be chosen. Two properties carry it:
+
+- `profiles: [exec]` keeps `compose up` from ever starting it, while
+  `compose run` implicitly enables the profile of the service it names. The
+  block is inert until something runs in it. (It is the only `profiles:` key
+  the compiler emits.)
+- Its `environment:` is `service_env` — the service-level surface only, never a
+  process type's overlay. That is what makes *`migrate.sh`, `test.sh` and
+  `build.sh` may depend only on codebase-scoped env* an enforceable rule rather
+  than a convention: a process-level key is not discouraged there, it is absent.
+
+It carries the codebase's image ref (identical across the codebase's process
+types, so one tag and one build), the `build:` block in `dev`/`test`, the dev
+bind mounts in `dev`, the union of the codebase's non-`web` networks, and the
+union of its `depends_on` — which the emitter's existing second pass rewrites to
+`condition: service_healthy`, so a one-off gates on the database being ready
+instead of assuming the stack is already up.
+
+**The migration task definition** (`emit/hcl.py::render_migration_task_definitions`)
+— one `aws_ecs_task_definition "<codebase>_migrate"` per schema-owning codebase,
+plus the per-codebase `aws_cloudwatch_log_group` it writes to. Both halves are
+codebase-keyed or neither can be: log groups are addressed by compiled identity,
+so a codebase-keyed log reference with a per-process group would be a dangling
+address. `schema_owned_by_db` is an honest codebase property (true of every
+process type of a schema-owning codebase); the "exactly one" invariant comes
+from the grouping, not from a flag on a chosen carrier.
+
+Its **resources are the per-dimension maximum** across the codebase's process
+types, over the already-Fargate-tiered values. Max because it is commutative —
+the migration's size cannot move because an unrelated process type was renamed
+or added — and because it never under-provisions, which removes the need for
+any carve-out. A single-process codebase's max is that process's value, so the
+common case is byte-identical to a per-process emission. Fargate's allowed
+memory range is monotone non-decreasing in cpu, which makes `(max_cpu, max_mem)`
+provably a valid tier; the `fargate_pair_from_units` round-trip afterwards is
+what turns that proof into an enforced guarantee.
+
+**The fixed stage/prod migrate step** (`emit/ansible.py` + `playbook.yml.j2`) —
+one playbook task per schema-owning codebase, running
+`compose run --rm <codebase>-exec /service/migrate.sh`. This is why the exec
+service is emitted in all four fixed envs and not just `dev`/`test`: the
+codebase-scoped-env rule has to hold in production, or it does not hold.
+
+Outside the compiler, two identities are reconstructed from
+`codebase_global_name` and must match it byte-for-byte —
+`orchestrate/_common.py::exec_service_key` (`-exec`) and
+`orchestrate/migrate.py::_migration_task_family` (`-migrate`). Both derive the
+codebase's naming policy through `_codebase_naming_policy`, which resolves every
+process type's policy and requires agreement rather than reading one.
 
 ## Naming flow
 
@@ -266,7 +321,7 @@ Validation lives at two layers:
 - Per process type, the *effective* `env` (service-level merged under process-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
 - Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
 - `cicl_version` is `"2"`; `"1"` is rejected with a message naming the upgrade guide, not shimmed (rule 21, mod 096).
-- Rendered data-plane identities are unique after naming-policy normalization, across core process types **and** backing services (rule 5, mod 096). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions today's exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core process rendering `api-db` against a backing service literally named `api-db`.
+- Rendered data-plane identities are unique after naming-policy normalization, across core process types, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core process rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per process type, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a process type named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
 - `depends_on` names backing services only; a core process type in a `depends_on` list is an error pointing at `consumes:` (rule 24, mod 096). Because core process types are therefore leaves, cycle detection (rule 6) runs over the backing-service graph alone. **Do not "complete" that walk over `consumes` edges.** `consumes` is a cyclic digraph by doctrine — `web ↔ worker` is the most common topology there is and is legal — so there is one DAG (`depends_on`, cycles fatal) and one cyclic digraph (`consumes`, cycles fine). The legality is asserted rather than merely unchecked (mod 098).
 - `consumes` names only core process types, fully qualified as `<service>.<process>`; a bare name is an error, not shorthand, and a process type may not consume itself (rule 25, mod 098). `ProcessRef.parse` is the parser, so the bare-name rule lives in one place — but a bare entry naming a *backing* service is dispatched on the namespace first and answered with `depends_on:`, because that is the mistake the field invites. `consumes` is validated and read by CI only (contracts, health fan-out, rule 7): it is a declared pydantic field, so it never appears in `model_extra` and therefore cannot reach field translation or any emitted artifact. A test asserts the absence in compiled output, because "is not read" and "cannot be read" look identical until someone adds a read site.
 - `replicas` is not declared on a `scheduler`, and `worker` / `scheduler` process types do not declare `web` in `networks` (rules 26 + 27, mod 096) — the latter replaces a prose-only, unenforced note.

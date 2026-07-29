@@ -24,10 +24,10 @@ from docex.docker.client import DockerClient
 from docex.naming import dns_label
 from docex.orchestrate._common import (
     compose_file_for,
-    compose_service_key,
     core_services,
     ensure_compiled,
     env_compose_project,
+    exec_service_key,
     scheduler_only_services,
     services_with_schema,
 )
@@ -118,8 +118,8 @@ def run_test(
 
         # 2. migrate every schema-owning service.
         for svc in services_with_schema(ctx):
-            key = compose_service_key(ctx, _TEST_ENV, svc)
-            rc = docker.compose_exec(
+            key = exec_service_key(ctx, _TEST_ENV, svc)
+            rc = docker.compose_run_one_off(
                 compose_file, key, ["./migrate.sh"],
                 env_file=env_file, project_dir=project_dir,
                 project_name=project_name,
@@ -133,18 +133,20 @@ def run_test(
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. test.sh for each core service. A scheduler-ONLY codebase has no
-        # exec-able container in the test stack (the compiler emits none), so
-        # its test.sh runs via a one-off built from the test-stage image. A
-        # codebase that merely *contains* a scheduler process alongside a
-        # long-running one still has a container to exec into.
+        # 3. test.sh for each core service, in the codebase's exec service.
         schedulers = set(scheduler_only_services(ctx))
         for svc in core_services(ctx):
+            # MOD 103 DELETES THIS BRANCH. The carve-out existed because a
+            # scheduler-only codebase had no exec-able container in the test
+            # stack; Mod 099's exec service is emitted for every codebase,
+            # scheduler-only ones included, so the branch below is now
+            # unnecessary rather than merely awkward. It stays here only to
+            # keep the two mods' diffs separable.
             if svc in schedulers:
                 rc = _run_scheduler_tests(ctx, docker, svc, project_dir=project_dir)
             else:
-                key = compose_service_key(ctx, _TEST_ENV, svc)
-                rc = docker.compose_exec(
+                key = exec_service_key(ctx, _TEST_ENV, svc)
+                rc = docker.compose_run_one_off(
                     compose_file, key, ["./test.sh"],
                     env_file=env_file, project_dir=project_dir,
                     project_name=project_name,

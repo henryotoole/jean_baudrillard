@@ -63,13 +63,18 @@ def test_ansible_cfg_uses_modern_result_format(tmp_path: Path):
 def test_playbook_migration_uses_compose_run(tmp_path: Path):
     """Per mod 003: migration tasks use `docker compose run --rm
     <service> /service/migrate.sh` via ansible.builtin.command, so the
-    one-off migration container inherits the application service's full
-    environment (image, env vars, networks, env_file)."""
+    one-off migration container inherits the codebase's full environment
+    (image, env vars, networks, env_file).
+
+    Mod 099: the target is now the per-codebase EXEC service, not an app
+    service. Fixed production migration therefore reads codebase-scoped env
+    only — the half of the codebase-scoped-env rule a dev/test-only exec
+    service would have left open."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
 
-    task = _find_migration_task(root, "stage", "api-web")
+    task = _find_migration_task(root, "stage", "api")
     assert "ansible.builtin.command" in task, task
     cmd = task["ansible.builtin.command"]["cmd"]
     # The compose service KEY is the global name (project-scoped),
@@ -79,7 +84,13 @@ def test_playbook_migration_uses_compose_run(tmp_path: Path):
     # (Per mod 030: docker policy is hyphen for data-plane resolvability.)
     # Mod 090: the migrate one-off passes `-p <dns_label>-<env>` so it joins
     # the SAME project-scoped Compose stack (else it can't reach the DB).
-    assert cmd == "docker compose -p sample-stage run --rm sample-stage-api-web /service/migrate.sh", cmd
+    assert cmd == "docker compose -p sample-stage run --rm sample-stage-api-exec /service/migrate.sh", cmd
+    # The exec service is a real key in the env's compose file, or the
+    # playbook fails at deploy time with "no such service".
+    compose = yaml.safe_load(
+        (root / "infra" / "output" / "stage" / "docker-compose.yml").read_text()
+    )
+    assert "sample-stage-api-exec" in compose["services"]
 
 
 def test_playbook_compose_tasks_are_project_scoped(tmp_path: Path):
@@ -98,7 +109,7 @@ def test_playbook_compose_tasks_are_project_scoped(tmp_path: Path):
         assert pull["community.docker.docker_compose_v2"]["project_name"] == scoped, pull
         up = _find_task(root, env, "Bring up the stack")
         assert up["community.docker.docker_compose_v2"]["project_name"] == scoped, up
-        migrate = _find_migration_task(root, env, "api-web")
+        migrate = _find_migration_task(root, env, "api")
         assert f"docker compose -p {scoped} run --rm" in migrate["ansible.builtin.command"]["cmd"]
 
 

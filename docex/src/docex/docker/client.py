@@ -91,10 +91,12 @@ class DockerClient(Protocol):
     ) -> int:
         """Run a one-shot ``docker compose run --rm`` for a service.
 
-        Used when a command needs a fresh container rather than the
-        existing one (mostly future Phase 3 work; included here so
-        the protocol is stable). ``project_dir`` / ``project_name`` —
-        see :meth:`compose_up`.
+        Used when a command needs a fresh container rather than the existing
+        one. Mod 099 made this the transport for every per-codebase operation
+        — ``migrate``, ``test`` and ``build`` all run inside the codebase's
+        ``profiles: [exec]`` exec service, which ``up`` never starts and
+        ``run`` implicitly enables. Non-interactive, like :meth:`compose_exec`.
+        ``project_dir`` / ``project_name`` — see :meth:`compose_up`.
         """
         ...
 

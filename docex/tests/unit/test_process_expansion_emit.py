@@ -148,7 +148,8 @@ def test_29_fixed_one_build_context_and_codebase_bind_mounts(fixed_root: Path):
     contexts = [
         b["build"]["context"] for b in services.values() if isinstance(b.get("build"), dict)
     ]
-    assert contexts.count("./core/api") == 2  # web + worker, one codebase
+    # web + worker + the mod-099 exec service — one codebase, one context.
+    assert contexts.count("./core/api") == 3
     assert set(contexts) == {"./core/api"}
     for key in ("sample-dev-api-web", "sample-dev-api-worker"):
         vols = services[key]["volumes"]
@@ -200,6 +201,53 @@ def test_33_elastic_exactly_one_migrate_task_definition(elastic_root: Path):
     body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
     # Codebase-keyed: no process segment.
     assert 'family                   = "sample-stage-api-migrate"' in body
+
+
+def test_33b_elastic_migrate_resources_are_the_per_dimension_max(
+    elastic_root: Path,
+):
+    """Mod 099: the migration is sized at the per-dimension max across the
+    codebase's process types, taken over the already-Fargate-tiered values.
+
+    `max` is commutative, so — unlike the Mod 096 bridge, which picked the
+    lowest-sorted non-scheduler process — the migration's size cannot move
+    because a sibling process type was renamed or added. It also never
+    under-provisions, which is what lets the rule drop the scheduler
+    carve-out and have no exceptions at all.
+    """
+    hcl = _hcl(elastic_root, "stage")
+    body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
+    per_process = {
+        name: (
+            re.search(r'cpu                      = "(\d+)"', blk).group(1),
+            re.search(r'memory                   = "(\d+)"', blk).group(1),
+        )
+        for name in ("api-web", "api-worker", "api-nightly_cleanup")
+        if (blk := _slice(hcl, "aws_ecs_task_definition", name))
+    }
+    want_cpu = max(int(c) for c, _ in per_process.values())
+    want_mem = max(int(m) for _, m in per_process.values())
+    assert f'cpu                      = "{want_cpu}"' in body, per_process
+    assert f'memory                   = "{want_mem}"' in body, per_process
+    # Not vacuous: the codebase's process types really do differ in size, so
+    # a "pick one" rule could have produced a different answer.
+    assert len(set(per_process.values())) > 1, per_process
+
+
+def test_33c_elastic_migrate_log_group_is_per_codebase(elastic_root: Path):
+    """The migrate task definition is a per-codebase artifact, so it writes
+    to a per-codebase log group. Both halves have to move together: the
+    ordinary `aws_cloudwatch_log_group` resources are addressed by compiled
+    identity (`api-web`), so a codebase-keyed reference with no codebase-keyed
+    group is a dangling address `tofu validate` rejects."""
+    hcl = _hcl(elastic_root, "stage")
+    assert 'resource "aws_cloudwatch_log_group" "api" {' in hcl
+    body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
+    assert "awslogs-group = aws_cloudwatch_log_group.api.name" in body
+    # The container is named for the codebase too — a process segment in a
+    # per-codebase artifact names a process the migration has nothing to do
+    # with.
+    assert 'name = "api"' in body
 
 
 def test_34_elastic_migrate_env_is_codebase_scoped(elastic_root: Path):
@@ -276,12 +324,18 @@ def test_39_migration_task_family_matches_codebase_global_name(elastic_root: Pat
         ctx.infra, ctx.transfer_tables, env="stage",
         project_name=ctx.project.name, project_version=ctx.project.version,
     )
-    carrier = next(
+    # Mod 099: `schema_owned_by_db` is now an honest CODEBASE property, set on
+    # EVERY process type of a schema-owning codebase (the Mod 096 "carrier" is
+    # gone). All of them therefore agree on the codebase-keyed name — which is
+    # the point, and is asserted rather than assumed.
+    owners = [
         s for s in compiled.services.values() if s.is_core and s.schema_owned_by_db
-    )
+    ]
+    assert len(owners) == 3, [s.name for s in owners]
+    assert len({s.codebase_global_name for s in owners}) == 1
     assert _migration_task_family(
         ctx, project=ctx.project.name, env="stage", svc="api"
-    ) == f"{carrier.codebase_global_name}-migrate"
+    ) == f"{owners[0].codebase_global_name}-migrate"
 
 
 def test_40_ansible_emits_one_migration_task_per_codebase(fixed_root: Path):
@@ -292,9 +346,21 @@ def test_40_ansible_emits_one_migration_task_per_codebase(fixed_root: Path):
     playbook = yaml.safe_load(
         (fixed_root / "infra" / "output" / "stage" / "playbook.yml").read_text()
     )
-    names = [t.get("name") for t in playbook[0]["tasks"]]
+    tasks = playbook[0]["tasks"]
+    names = [t.get("name") for t in tasks]
     migrations = [n for n in names if n and n.startswith("Run migrations for")]
-    assert migrations == ["Run migrations for api-web"]
+    # Mod 099: named for the codebase, and one task even though the codebase
+    # now has three process types.
+    assert migrations == ["Run migrations for api"]
+    # ...and it targets the EXEC service, not an app service. Fixed
+    # stage/prod migration therefore reads codebase-scoped env only.
+    task = next(t for t in tasks if t.get("name") == "Run migrations for api")
+    cmd = task["ansible.builtin.command"]["cmd"]
+    assert "run --rm sample-stage-api-exec /service/migrate.sh" in cmd, cmd
+    compose = yaml.safe_load(
+        (fixed_root / "infra" / "output" / "stage" / "docker-compose.yml").read_text()
+    )
+    assert "sample-stage-api-exec" in compose["services"]
 
 
 def test_consumes_reaches_no_emitted_artifact(fixed_root: Path, elastic_root: Path):

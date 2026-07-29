@@ -8,16 +8,18 @@ The functions here cover concerns that are reused across ``up``,
   * Validate that the named env is one this command supports.
   * Locate the compiled compose file for an env.
   * Enumerate the core services / schema-owning services.
+  * Resolve a codebase to its emitted **exec service** — the container the
+    per-codebase operations (``migrate``, ``test``, ``build``) run inside.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from docex.cicl.compile import run_compile
+from docex.cicl.compile import codebase_global_name, run_compile
 from docex.context import ProjectContext
 from docex.errors import EnvNotSupported, InfraFileError
-from docex.naming import dns_label
+from docex.naming import NamingPolicy, dns_label
 
 
 _FIXED_ENVS = ("dev", "test")
@@ -163,48 +165,108 @@ def services_with_schema(ctx: ProjectContext) -> list[str]:
     return sorted(schema_owners & valid_core)
 
 
-def compose_service_key(ctx: ProjectContext, env: str, simple_name: str) -> str:
-    """Map a codebase key (``api``) to the compose-file key of the one
-    container that stands in for it.
+def _codebase_naming_policy(
+    ctx: ProjectContext, codebase: str, *, foundation: str
+) -> NamingPolicy | None:
+    """The naming policy for a codebase-keyed identity.
 
-    The compose emitter writes services under their project-scoped
-    global name (e.g. ``sample-dev-api-web``), so ``docker compose exec
-    <simple_name>`` fails with "service not running" — we have to
-    feed compose the global key. We parse it back out of the compiled
-    compose file rather than re-running naming logic, so the source
-    of truth stays in the compiler.
+    A codebase-keyed name has no process type and therefore no single role to
+    resolve an engine from. Every process type of the codebase must agree on
+    the policy for the name to be well-defined, so we resolve all of them and
+    require agreement rather than picking one — picking one is precisely the
+    instability Mod 099 removed from migration sizing. All bundled core roles
+    use ``ecs``.
 
-    !!! TEMPORARY — DELETED BY MOD 099, which replaces this with
-    ``exec_service_key`` against an emitted per-codebase exec service. Do
-    not build on it. The suffix scan already mis-resolves in principle (a
-    codebase named ``web`` matches ``sample-dev-api-web``, giving the wrong
-    container with no error); Mod 096 only keeps it working under
-    two-segment keys by matching the codebase's primary process, nothing
-    more.
+    Mirrors the compiler's own per-process engine resolution (first engine in
+    sorted order that supports ``foundation``), because the names derived from
+    this must match ``CompiledService.codebase_global_name`` byte-for-byte.
+    Both codebase-keyed identities outside the compiler come through here:
+    ``exec_service_key`` (``-exec``) and
+    ``migrate.py::_migration_task_family`` (``-migrate``).
+
+    Returns ``None`` when the policy cannot be derived at all (unknown
+    codebase, no process types, or no engine supporting ``foundation``); each
+    caller decides whether that is a hard error or a best-effort fallback.
+    Raises when the process types *disagree*, which is never a fallback case:
+    the name would be ambiguous and silently wrong.
+    """
+    core = (ctx.infra.core_services or {}).get(codebase) if ctx.infra else None
+    if core is None or not core.processes:
+        return None
+    tables = ctx.transfer_tables
+    # policy name -> the first process type that resolved to it (for the
+    # disagreement message; naming both sides is what makes it diagnosable).
+    resolved: dict[str, str] = {}
+    for proc_name in sorted(core.processes):
+        engines = tables.role(core.processes[proc_name].role)
+        entry = next(
+            (
+                engines[cand] for cand in sorted(engines)
+                if engines[cand].supports(foundation)
+            ),
+            None,
+        )
+        if entry is None:
+            continue
+        resolved.setdefault(entry.naming, proc_name)
+    if not resolved:
+        return None
+    if len(resolved) > 1:
+        detail = ", ".join(
+            f"{proc!r} → {pol!r}" for pol, proc in sorted(resolved.items())
+        )
+        raise InfraFileError(
+            f"core service {codebase!r}: its process types resolve to "
+            f"different naming policies ({detail}), so the codebase-keyed "
+            f"name is ambiguous. A codebase-scoped identity (the exec "
+            f"service, the migration task definition) needs one policy for "
+            f"the whole codebase."
+        )
+    return tables.naming_policies.get(next(iter(resolved)))
+
+
+def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
+    """The compose key of a codebase's **exec service** (``…-<cb>-exec``).
+
+    The exec service is the container that *is* the codebase — the per-codebase
+    operations container ``migrate``, ``test`` and ``build`` run one-off inside
+    (Mod 099). This replaced a codebase → app-container resolver that scanned
+    the emitted compose file for a key ending in the codebase's lowest-sorted
+    non-scheduler process type, and could resolve to the wrong container
+    outright: a codebase literally named ``web`` matched a *sibling*
+    codebase's ``…-api-web``, silently, with no error.
+
+    Construct-then-verify, deliberately: the key is *derived* from the same
+    ``codebase_global_name`` the compiler emits, then checked against the
+    compiled compose file. There is no suffix match to mis-resolve and no
+    silent fallback to a bare name — a mismatch is a loud error naming the
+    ``-exec`` keys that *are* present, which turns a stale-compile or
+    naming-policy mismatch from a mystery into a diagnosis.
     """
     import yaml
 
-    from docex.cicl.model import primary_process
+    # dev/test are always fixed, and so is a fixed project's stage/prod;
+    # compose output only ever exists for a fixed-compiled env.
+    policy = _codebase_naming_policy(ctx, codebase, foundation="fixed")
+    if policy is None:
+        raise InfraFileError(
+            f"cannot derive the exec service key for codebase {codebase!r} "
+            f"in {env!r}: it is not a core service in infra.yml, declares no "
+            f"process types, or none of its roles has an engine supporting "
+            f"the fixed foundation."
+        )
+    key = f"{codebase_global_name(ctx.project.name, env, codebase, policy)}-exec"
 
     compose_path = compose_file_for(ctx, env)
-    if not compose_path.is_file():
-        return simple_name  # Best-effort fallback.
-    doc = yaml.safe_load(compose_path.read_text())
-    services = (doc or {}).get("services") or {}
-    core = (ctx.infra.core_services or {}).get(simple_name) if ctx.infra else None
-    suffix = (
-        f"{simple_name}-{primary_process(core)}" if core is not None
-        else simple_name
-    )
-    # Sidecar (`-otelcol`) and ofelia (`-scheduler`) keys are emitted
-    # alongside the service they belong to and are never an exec target.
-    candidates = [
-        k for k in services
-        if not (k.endswith("-otelcol") or k.endswith("-scheduler"))
-    ]
-    for key in candidates:
-        if key == suffix:
-            return key
-        if key.endswith(f"-{suffix}") or key.endswith(f"_{suffix}"):
-            return key
-    return simple_name
+    if compose_path.is_file():
+        doc = yaml.safe_load(compose_path.read_text()) or {}
+        services = (doc.get("services") or {})
+        if key not in services:
+            present = sorted(k for k in services if k.endswith("-exec"))
+            raise InfraFileError(
+                f"no exec service {key!r} in {compose_path}; the compiled "
+                f"output is stale or was written under a different naming "
+                f"policy. Exec services present: {present or '(none)'}. "
+                f"Run 'docex compile'."
+            )
+    return key

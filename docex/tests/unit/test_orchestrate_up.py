@@ -99,31 +99,32 @@ def test_up_passes_env_tier_project_name(sample_ctx, fake_docker):
 
 
 def test_up_calls_compose_up_then_migrate(sample_ctx, fake_docker):
+    """Mod 099 test 14: the post-up migrate is a one-off run against the
+    codebase's exec service, after ``compose up``."""
     rc = run_up(sample_ctx, fake_docker, env="dev")
     assert rc == 0
 
     methods = [c[0] for c in fake_docker.calls]
-    # The order matters: compose_up must happen before the migration exec.
+    # The order matters: compose_up must happen before the migration.
     assert "compose_up" in methods
-    assert "compose_exec" in methods
-    assert methods.index("compose_up") < methods.index("compose_exec")
+    assert "compose_run_one_off" in methods
+    assert methods.index("compose_up") < methods.index("compose_run_one_off")
 
-    # Migration exec is the migrate.sh for the api service (it owns the
-    # appdb schema). The compose key is the project-scoped global
-    # name (sample-dev-api-web), not the codebase key (api).
+    # migrate.sh for the api codebase (it owns the appdb schema), in the
+    # per-codebase exec service — not a process type's app container.
     migrate_calls = [
         c for c in fake_docker.calls
-        if c[0] == "compose_exec" and "migrate.sh" in " ".join(c[3])
+        if c[0] == "compose_run_one_off" and "migrate.sh" in " ".join(c[3])
     ]
     assert len(migrate_calls) == 1
-    assert migrate_calls[0][2].endswith("api-web")
+    assert migrate_calls[0][2] == "sample-dev-api-exec"
+    assert [c for c in fake_docker.calls if c[0] == "compose_exec"] == []
 
 
 def test_up_short_circuits_on_migration_failure(sample_ctx, fake_docker):
-    # Script the api migrate.sh exec to fail. The compose service key
-    # is the project-scoped global name, not the simple name.
+    # Script the api migrate.sh one-off run to fail.
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api-web", ("./migrate.sh",))
+        ("exit", "compose_run_one_off", "sample-dev-api-exec", ("./migrate.sh",))
     ] = 17
 
     rc = run_up(sample_ctx, fake_docker, env="dev")
@@ -143,7 +144,7 @@ def test_up_short_circuits_on_compose_up_failure(sample_ctx, fake_docker):
     # No migration should have been attempted.
     migrate_calls = [
         c for c in fake_docker.calls
-        if c[0] == "compose_exec" and "migrate.sh" in " ".join(c[3])
+        if c[0] == "compose_run_one_off" and "migrate.sh" in " ".join(c[3])
     ]
     assert migrate_calls == []
 
@@ -153,7 +154,10 @@ def test_up_short_circuits_on_compose_up_failure(sample_ctx, fake_docker):
 
 def test_up_diagnoses_unhealthy_core_service(sample_ctx, fake_docker, capsys):
     """When compose up fails and a core service is unhealthy, emit a
-    per-service diagnostic naming the healthcheck cause."""
+    per-service diagnostic naming the healthcheck cause.
+
+    Mod 099: the line is keyed on the **compose key**, which is the name the
+    operator hands to ``docker logs``, rather than the codebase key."""
     fake_docker.exit_codes[("exit", "compose_up")] = 5
     fake_docker.ps_status = {"sample-dev-api-web": "unhealthy"}
 
@@ -161,7 +165,7 @@ def test_up_diagnoses_unhealthy_core_service(sample_ctx, fake_docker, capsys):
     assert rc == 5
 
     err = capsys.readouterr().err
-    assert "envinfra up: service 'api'" in err
+    assert "envinfra up: service 'sample-dev-api-web'" in err
     assert "healthcheck" in err
     # No teardown — diagnosis only.
     assert "compose_down" not in [c[0] for c in fake_docker.calls]
@@ -176,15 +180,40 @@ def test_up_diagnoses_restarting_core_service(sample_ctx, fake_docker, capsys):
     assert rc == 5
 
     err = capsys.readouterr().err
-    assert "envinfra up: service 'api'" in err
+    assert "envinfra up: service 'sample-dev-api-web'" in err
     assert "restart-looping" in err
+
+
+def test_up_diagnoses_unhealthy_backing_service(sample_ctx, fake_docker, capsys):
+    """Mod 099 test 14b — the case the old form could not report at all.
+
+    ``_diagnose_unhealthy`` used to iterate *core codebases* and derive a
+    compose key for each, so a sick backing service — an unhealthy postgres
+    being the single likeliest reason ``up`` fails — never appeared in the
+    output of the function whose entire job is diagnosing ``up`` failures.
+    It now reports whatever the status map contains.
+    """
+    fake_docker.exit_codes[("exit", "compose_up")] = 5
+    fake_docker.ps_status = {
+        "sample-dev-api-web": "running",
+        "sample-dev-appdb": "unhealthy",
+    }
+
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 5
+
+    err = capsys.readouterr().err
+    assert "envinfra up: service 'sample-dev-appdb'" in err
+    assert "healthcheck" in err
+    # The healthy core service is not reported.
+    assert "sample-dev-api-web" not in err
 
 
 def test_up_diagnoses_on_migration_failure(sample_ctx, fake_docker, capsys):
     """A migration failure also triggers the scan — a half-up stack is
     the likely culprit."""
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api-web", ("./migrate.sh",))
+        ("exit", "compose_run_one_off", "sample-dev-api-exec", ("./migrate.sh",))
     ] = 17
     fake_docker.ps_status = {"sample-dev-api-web": "exited"}
 
@@ -192,7 +221,7 @@ def test_up_diagnoses_on_migration_failure(sample_ctx, fake_docker, capsys):
     assert rc == 17
 
     err = capsys.readouterr().err
-    assert "envinfra up: service 'api'" in err
+    assert "envinfra up: service 'sample-dev-api-web'" in err
     assert "exited" in err
 
 

@@ -536,6 +536,24 @@ def test_envinfra_tags_log_group_and_task_def(compiled_elastic_project: Path):
     assert 'descriptor = "migrate-task-def"' in mig
 
 
+def test_migrate_resources_unchanged_for_a_single_process_codebase(
+    compiled_elastic_project: Path,
+):
+    """Mod 099 sizes the migration at the per-dimension max across the
+    codebase's process types. A single-process codebase's max is that
+    process's value, so its emitted resources are byte-identical to the
+    pre-mod emission — only a multi-process schema-owning codebase moves."""
+    tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
+    app = _block(tf, 'resource "aws_ecs_task_definition" "api-web"')
+    mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
+    for line in ("cpu", "memory"):
+        want = next(
+            ln for ln in app.splitlines()
+            if ln.strip().startswith(f"{line} ")
+        )
+        assert want in mig.splitlines(), (line, want, mig)
+
+
 def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
     assert 'data "terraform_remote_state" "project"' in tf

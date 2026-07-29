@@ -9,7 +9,9 @@ Per cicd.md § Build Step (dev iteration):
 
   1. Verify dev is running.
   2. Clear ``$pr/core/<svc>/dist/`` on the host.
-  3. ``compose exec`` the service's ``./build.sh``.
+  3. ``compose run --rm`` the codebase's exec service with ``./build.sh``
+     (Mod 099; ``cicd.md § Build Step`` still says ``exec`` and is Mod
+     106's to fix).
   4. Assert ``dist/`` is non-empty afterward.
 """
 
@@ -24,10 +26,10 @@ from docex.docker.client import DockerClient
 from docex.errors import BuildFailed, EnvNotRunning, EnvNotSupported
 from docex.orchestrate._common import (
     compose_file_for,
-    compose_service_key,
     core_services,
     ensure_compiled,
     env_compose_project,
+    exec_service_key,
 )
 from docex.orchestrate.aggregate import aggregate
 
@@ -84,7 +86,7 @@ def run_build(
 
     for svc in targets:
         rc = _build_one(
-            ctx, docker, compose_file, svc, running=running,
+            ctx, docker, compose_file, svc,
             env_file=env_file, project_name=project_name,
         )
         if rc != 0:
@@ -98,40 +100,26 @@ def _build_one(
     compose_file: Path,
     svc: str,
     *,
-    running: set[str],
     env_file: Path | None,
     project_name: str,
 ) -> int:
     """Run the full dev-iteration build path for a single service."""
-    # The compose service key is the project-scoped name (e.g.
-    # ``sample-dev-api-web``), not the codebase key. Mod 096: resolved
-    # through the one shared implementation in ``_common`` rather than a
-    # third copy of the suffix heuristic, so the codebase → container rule
-    # lives in exactly one place (and moves in one place when Mod 099
-    # replaces it with the exec service).
-    service_key = compose_service_key(ctx, _BUILD_ENV, svc)
-    if service_key not in running:
-        # ``compose_ps`` (above) lists only *running* services, so a
-        # crash-looping container reads as "not running" here. Consult
-        # the all-states view to tell a Restarting/unhealthy container
-        # apart from a genuinely-absent one and give the operator a
-        # diagnostic that points at the real problem. (Gap D, mod 050.)
-        status = docker.compose_ps_status(
-            compose_file, env_file=env_file,
-            project_dir=ctx.project_root, project_name=project_name,
-        )
-        state = status.get(service_key)
-        if state in ("restarting", "unhealthy"):
-            raise EnvNotRunning(
-                f"dev container for service {svc!r} is {state}, not "
-                f"running — check `docker logs` for it. `docex build` "
-                f"needs a healthy dev container; fix the crash (often a "
-                f"missing env var or a failed prior build) and retry."
-            )
-        raise EnvNotRunning(
-            f"dev container for service {svc!r} is not running; "
-            "run 'docex up dev' first."
-        )
+    # The codebase's exec service — the container that *is* the codebase
+    # (Mod 099). `build.sh` therefore sees codebase-scoped env only, and the
+    # codebase → container rule is a construction, not a suffix scan.
+    service_key = exec_service_key(ctx, _BUILD_ENV, svc)
+    # MOD 099 DELETED the per-service "is this container running" gate and
+    # its crash-loop diagnostic (Gap D, mod 050) that stood here. Mechanically
+    # it had to go: the exec service is `profiles:`-gated and so is never in
+    # the running set by construction. But it should have gone anyway — the
+    # gate refused to run `docex build` when the dev container was
+    # restarting/unhealthy, and the most common cause of a crash-looping dev
+    # container is an empty `dist/`, which is exactly what `docex build`
+    # fills. It blocked the one command that resolves the state it detected.
+    # Under `compose run` the dev container's health is simply irrelevant to
+    # refreshing `dist/`. If the diagnostic is ever wanted back, its place is
+    # `up.py::_diagnose_unhealthy`, not a precondition on `build`. The
+    # whole-stack `if not running: raise EnvNotRunning` in `run_build` stays.
 
     # Step 2: clear host-side dist/.
     dist_dir = ctx.project_root / "core" / svc / "dist"
@@ -146,8 +134,8 @@ def _build_one(
     else:
         dist_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 3: invoke build.sh inside the running container.
-    rc = docker.compose_exec(
+    # Step 3: invoke build.sh in a one-off exec-service container.
+    rc = docker.compose_run_one_off(
         compose_file, service_key, ["./build.sh"], env_file=env_file,
         project_dir=ctx.project_root, project_name=project_name,
     )

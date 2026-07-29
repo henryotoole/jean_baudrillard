@@ -50,20 +50,24 @@ def test_test_runs_migrate_then_test_then_teardown(sample_ctx, fake_docker):
     assert len(down_calls) == 1
     assert down_calls[0][2] is False, "test teardown must delete volumes"
 
-    # Migrate and test scripts both invoked for api.
-    exec_cmds = [c[3] for c in fake_docker.calls if c[0] == "compose_exec"]
-    assert ("./migrate.sh",) in exec_cmds
-    assert ("./test.sh",) in exec_cmds
+    # Mod 099 test 12: both scripts route through the codebase's exec
+    # service as one-off runs, never a `compose exec` into an app container.
+    run_calls = [c for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    assert [c[2] for c in run_calls] == [
+        "sample-test-api-exec", "sample-test-api-exec",
+    ]
+    run_cmds = [c[3] for c in run_calls]
+    assert ("./migrate.sh",) in run_cmds
+    assert ("./test.sh",) in run_cmds
     # Migrate must come before test.
-    migrate_idx = exec_cmds.index(("./migrate.sh",))
-    test_idx = exec_cmds.index(("./test.sh",))
-    assert migrate_idx < test_idx
+    assert run_cmds.index(("./migrate.sh",)) < run_cmds.index(("./test.sh",))
+    assert [c for c in fake_docker.calls if c[0] == "compose_exec"] == []
 
 
 def test_test_teardown_still_runs_after_test_failure(sample_ctx, fake_docker):
     """The try/finally guarantee: teardown always happens, even on test failure."""
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-test-api-web", ("./test.sh",))
+        ("exit", "compose_run_one_off", "sample-test-api-exec", ("./test.sh",))
     ] = 1
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 1
@@ -79,21 +83,21 @@ def test_test_teardown_still_runs_after_test_failure(sample_ctx, fake_docker):
 def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
     """A Python exception inside the try block still triggers teardown."""
 
-    # Patch compose_exec to raise on the test.sh call.
-    original_exec = fake_docker.compose_exec
+    # Patch the one-off runner to raise on the test.sh call.
+    original_run = fake_docker.compose_run_one_off
     boom_token = object()
 
-    def _raising_exec(compose_file, service, command, *, env_file=None,
-                      project_dir=None, project_name=None):
+    def _raising_run(compose_file, service, command, *, env=None,
+                     env_file=None, project_dir=None, project_name=None):
         if command and command[0] == "./test.sh":
             raise RuntimeError(boom_token)
-        return original_exec(
-            compose_file, service, command,
+        return original_run(
+            compose_file, service, command, env=env,
             env_file=env_file, project_dir=project_dir,
             project_name=project_name,
         )
 
-    fake_docker.compose_exec = _raising_exec  # type: ignore[method-assign]
+    fake_docker.compose_run_one_off = _raising_run  # type: ignore[method-assign]
 
     with pytest.raises(RuntimeError):
         run_test(sample_ctx, fake_docker)
@@ -104,24 +108,28 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
 
 def test_test_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-test-api-web", ("./migrate.sh",))
+        ("exit", "compose_run_one_off", "sample-test-api-exec", ("./migrate.sh",))
     ] = 4
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 4
 
     # No test.sh should have been invoked since migration failed first.
-    exec_cmds = [c[3] for c in fake_docker.calls if c[0] == "compose_exec"]
-    assert ("./test.sh",) not in exec_cmds
+    run_cmds = [c[3] for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    assert ("./test.sh",) not in run_cmds
     # Teardown still ran.
     methods = [c[0] for c in fake_docker.calls]
     assert "compose_down" in methods
 
 
 def test_run_test_scheduler_uses_one_off(scheduler_ctx, fake_docker):
-    """Mod 088: a scheduler service's test.sh runs via a one-off container
-    (``build_image(target="test")`` + ``run_one_shot(["./test.sh"])``),
-    never via ``compose_exec`` (no exec-able scheduler container exists in
-    the ``test`` stack). Non-scheduler services still use ``compose_exec``."""
+    """Mod 088: a scheduler-only service's test.sh runs via a bare one-off
+    container (``build_image(target="test")`` + ``run_one_shot(["./test.sh"])``)
+    rather than through compose.
+
+    Mod 099 left this carve-out standing deliberately — Mod 103 removes it now
+    that every codebase, scheduler-only ones included, has an exec service.
+    What changed here is the *other* branch: a non-scheduler codebase now runs
+    test.sh as a ``compose run --rm`` against its exec service."""
     rc = run_test(scheduler_ctx, fake_docker)
     assert rc == 0
 
@@ -136,16 +144,18 @@ def test_run_test_scheduler_uses_one_off(scheduler_ctx, fake_docker):
     ]
     assert len(one_shots) == 1
 
-    # The scheduler never went through compose_exec (nor was it exec'd under
-    # any bare/fallback key).
-    exec_test_services = [
+    # The scheduler never went through compose (nor under any bare/fallback
+    # key) — its exec service exists, but Mod 103 is what starts using it.
+    compose_test_services = [
         c[2] for c in fake_docker.calls
-        if c[0] == "compose_exec" and c[3] == ("./test.sh",)
+        if c[0] == "compose_run_one_off" and c[3] == ("./test.sh",)
     ]
-    assert all("nightly_cleanup" not in s for s in exec_test_services)
+    assert all(
+        "nightly" not in s for s in compose_test_services
+    ), compose_test_services
 
-    # The non-scheduler web service still runs test.sh via compose_exec.
-    assert any(s.endswith("api-web") for s in exec_test_services)
+    # The non-scheduler web codebase runs test.sh in its exec service.
+    assert compose_test_services == ["sample-test-api-exec"]
 
 
 def test_run_test_scheduler_build_failure_short_circuits(

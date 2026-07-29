@@ -31,7 +31,6 @@ from docex.cicl.model import (
     CoreService,
     ProcessRef,
     Resources,
-    primary_process,
 )
 from docex.cicl.substitute import HCLLiteral, substitute_tree
 from docex.cicl.transfer import EngineEntry, TransferTables
@@ -301,6 +300,20 @@ def _global_service_name(
     return apply_policy(raw, policy)
 
 
+def codebase_global_name(
+    project: str, env: str, codebase: str, policy: NamingPolicy
+) -> str:
+    """The codebase-keyed global name, ``{project}-{env}-{codebase}``.
+
+    Public because two identities outside the compiler derive from it and must
+    match it byte-for-byte: the per-codebase exec service's compose key
+    (``…-exec``, resolved by ``orchestrate/_common.py::exec_service_key``) and
+    the elastic migration task-definition family (``…-migrate``, reconstructed
+    by ``orchestrate/migrate.py::_migration_task_family``). Mod 099.
+    """
+    return _global_service_name(project, env, codebase, policy)
+
+
 def _network_name(project: str, env: str, network: str) -> str:
     return f"{project}_{env}_{network}"
 
@@ -541,6 +554,30 @@ class CompiledEnv:
     # Defaults to "alb" — the doctrine default when the project leaves
     # the CICL field unset on an elastic project.
     reverse_proxy: str = "alb"
+
+
+def group_by_codebase(
+    compiled: "CompiledEnv",
+) -> dict[str, list[CompiledService]]:
+    """Core compiled services grouped by codebase, both levels sorted.
+
+    The per-codebase emissions — the exec service (compose), the migration task
+    definition (HCL), the playbook's migrate task (ansible) — all iterate this
+    rather than picking a representative process type. Mod 099 deleted the
+    "pick one process type" bridge; this is what replaced it.
+
+    Backing services are excluded (they have no codebase). ``scheduler``
+    process types are INCLUDED: a scheduler-only codebase contributes no
+    long-running compose service, but it still has a source tree to build,
+    test, and migrate, so it still gets an exec service.
+    """
+    groups: dict[str, list[CompiledService]] = {}
+    for name in sorted(compiled.services):
+        svc = compiled.services[name]
+        if not svc.is_core or svc.core_service is None:
+            continue
+        groups.setdefault(svc.core_service, []).append(svc)
+    return {cb: groups[cb] for cb in sorted(groups)}
 
 
 def compile_env(
@@ -911,15 +948,19 @@ def compile_env(
                 env=env, bare_project=bare_project, policy=http_host_policy,
             ),
             schema_owned_by=getattr(svc, "schema_owned_by", None),
-            # Exactly ONE compiled service per schema-owning codebase carries
-            # the flag: the migrate task definition it gates must be emitted
-            # once per codebase, not once per process type. `primary_process`
-            # picks the carrier (a temporary bridge — see its docstring).
-            schema_owned_by_db=(
-                is_core
-                and svc_name in core_owning_schema
-                and proc_name == primary_process(core_svc)
-            ),
+            # Mod 099: an honest CODEBASE property — "this compiled service's
+            # codebase owns a backing DB schema" — and therefore true of EVERY
+            # process type of that codebase. Through Mod 096 it was set on
+            # exactly one "carrier" process type, picked by a now-deleted
+            # "pick one process type" bridge, so that the once-per-codebase
+            # migrate emissions it gates fired
+            # once. That invariant is now provided STRUCTURALLY by
+            # `group_by_codebase`: every consumer groups first and reads the
+            # flag off the group. Nothing downstream may reintroduce a
+            # "pick one process type" read of this flag — if you need the one
+            # container that stands in for a codebase, the answer is the exec
+            # service, not a process type.
+            schema_owned_by_db=(is_core and svc_name in core_owning_schema),
             target_extras=target_extras,
             emits={fnd: list(dests) for fnd, dests in (engine.emits or {}).items()},
             persistent_storage=(

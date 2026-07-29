@@ -10,6 +10,27 @@ The emitter:
 
 ``$[VAR]`` runtime refs that survive to here are translated to compose's
 ``${VAR}`` form so docker-compose reads them from ``.env`` at runtime.
+
+Mod 099 — the exec service
+--------------------------
+Alongside the per-process app containers, the emitter writes exactly one
+``<codebase>-exec`` block per codebase: the container that *is* the codebase,
+into which the three per-**codebase** operations (``migrate``, ``test``,
+``build``) run one-off via ``docker compose run --rm``. It exists because
+those operations previously had to *pick* one process type's container to
+``compose exec`` into, through a heuristic that was duplicated three times
+and wrong at least once.
+
+Two properties carry the design:
+
+- ``profiles: [exec]`` keeps ``compose up`` from ever starting it, while
+  ``compose run`` implicitly enables the profile of the service it names. The
+  block is inert until something runs in it.
+- Its ``environment:`` is the **service-level** ``env:`` surface only
+  (``CompiledService.service_env``), never a process type's overlay. That is
+  what turns *``migrate.sh``, ``test.sh`` and ``build.sh`` may depend only on
+  codebase-scoped env* from a convention into an enforceable rule: a
+  process-level key is not merely discouraged there, it is absent.
 """
 
 from __future__ import annotations
@@ -21,7 +42,7 @@ from typing import Any
 import yaml
 
 from docex import OFELIA_IMAGE, OTEL_COLLECTOR_IMAGE, TRAEFIK_IMAGE
-from docex.cicl.compile import CompiledEnv, CompiledService
+from docex.cicl.compile import CompiledEnv, CompiledService, group_by_codebase
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
 
@@ -571,6 +592,71 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             svc, compiled.project_dns_label, compiled.env,
             compiled.observability_backend_url,
         )
+
+    # Mod 099: one exec service per codebase — the per-codebase operations
+    # container. See the module docstring for why it exists and what makes it
+    # load-bearing. Emitted in ALL FOUR fixed envs (not just dev/test): the
+    # ansible playbook's stage/prod migration runs through it too, which is
+    # what makes the codebase-scoped-env rule true in the environment where
+    # violating it costs the most.
+    #
+    # This pass runs BEFORE the depends_on second pass below on purpose, so
+    # the exec block's short-form `depends_on` is rewritten to long-form
+    # `condition: service_healthy` by the existing machinery rather than by a
+    # duplicate of it.
+    for codebase, procs in group_by_codebase(compiled).items():
+        head = procs[0]
+        exec_block: dict[str, Any] = {
+            # `up` never starts it; `run` implicitly enables the profile of
+            # the service it names. The first `profiles:` key in the codebase.
+            "profiles": ["exec"],
+            # The image ref is codebase-keyed, so it is identical across every
+            # process type of the codebase: one tag, one build.
+            "image": head.body.get("image", ""),
+        }
+        if compiled.env in ("dev", "test"):
+            # Byte-identical to the app services' build block, so Docker's
+            # layer cache makes building the exec image free. stage/prod pull
+            # the registry ref, exactly as their app services do.
+            exec_block["build"] = {
+                "context": f"./core/{codebase}",
+                "dockerfile": "Dockerfile",
+                "target": compiled.env,
+            }
+        # WHY `service_env` and not `env`: the codebase-scoped surface. It is
+        # identical across a codebase's process types by construction (the
+        # compiler builds it from the service-level `env:` block alone), so
+        # reading it off `procs[0]` picks nothing — there is nothing to pick.
+        if head.service_env:
+            exec_block["environment"] = _translate_tree(head.service_env)
+        if compiled.env == "dev":
+            # Mirrors the app-service rule exactly: `test` bakes artifacts
+            # into the image, stage/prod ship them from the registry.
+            exec_block["volumes"] = [
+                f"./core/{codebase}/src:/service/src",
+                f"./core/{codebase}/dist:/service/dist",
+            ]
+        exec_nets = sorted({
+            n for p in procs for n in p.networks if n != "web"
+        })
+        if exec_nets:
+            # Never `web`: the exec container is a one-off operations shell
+            # and is never publicly routed.
+            exec_block["networks"] = exec_nets
+        exec_deps = sorted({d for p in procs for d in p.depends_on})
+        if exec_deps:
+            exec_block["depends_on"] = exec_deps
+        exec_block["labels"] = [
+            _docex_project_label(compiled.project_dns_label)
+        ]
+        # Deliberately unset: `container_name` (compose run generates its own
+        # `<project>-<svc>-run-<hash>`; a fixed name would collide or be
+        # ignored), `logging` (the container is `--rm`, there is no post-hoc
+        # log to rotate), `command` (supplied at the call site — the core
+        # service Dockerfiles declare no ENTRYPOINT, so `run --rm …-exec
+        # ./migrate.sh` executes the script directly under WORKDIR /service),
+        # and `restart`.
+        services[f"{head.codebase_global_name}-exec"] = exec_block
 
     # Second pass: rewrite each service's depends_on from compose short-form
     # (list of names) to long-form (map keyed by global name with a condition).

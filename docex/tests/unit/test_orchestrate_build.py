@@ -27,6 +27,9 @@ def test_build_errors_when_dev_not_running(sample_ctx, fake_docker):
 
 
 def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monkeypatch):
+    """Mod 099 test 13: ``build.sh`` runs in the codebase's exec service, and
+    the host-side ``dist/`` contract is unchanged — cleared before, asserted
+    non-empty after."""
     # Simulate dev is running. `compose ps --services` returns the compose
     # service KEYS, which are the project-scoped global names.
     fake_docker.ps_services = ["sample-dev-api-web"]
@@ -34,21 +37,26 @@ def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monk
     dist = _seed_dist(sample_ctx, "api", {"stale.txt": "old"})
     assert (dist / "stale.txt").is_file()
 
-    # Have the compose_exec callback simulate build.sh writing a new file.
-    def _exec_side_effect(compose_file, service, command, *, env_file=None,
-                          project_dir=None, project_name=None):
+    seen: list[str] = []
+
+    # Have the one-off-run callback simulate build.sh writing a new file.
+    def _run_side_effect(compose_file, service, command, *, env=None,
+                         env_file=None, project_dir=None, project_name=None):
         # build.sh writes to dist/
         if "./build.sh" in command:
+            seen.append(service)
             (dist / "fresh.py").write_text("print('hi')")
         # default success
         return 0
 
     # Replace the bound method on the fake.
-    fake_docker.compose_exec = _exec_side_effect  # type: ignore[method-assign]
+    fake_docker.compose_run_one_off = _run_side_effect  # type: ignore[method-assign]
 
     rc = run_build(sample_ctx, fake_docker, service="api")
     assert rc == 0
 
+    # It ran in the exec service, not in a process type's app container.
+    assert seen == ["sample-dev-api-exec"]
     # Stale file should be gone; fresh one written by "build.sh" should be there.
     assert not (dist / "stale.txt").exists()
     assert (dist / "fresh.py").is_file()
@@ -73,37 +81,51 @@ def test_build_returns_failure_exit_code_from_build_sh(sample_ctx, fake_docker):
     _seed_dist(sample_ctx, "api")
     # Script build.sh to fail.
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api-web", ("./build.sh",))
+        ("exit", "compose_run_one_off", "sample-dev-api-exec", ("./build.sh",))
     ] = 3
     rc = run_build(sample_ctx, fake_docker, service="api")
     assert rc == 3
 
 
-def test_build_diagnoses_restarting_container(sample_ctx, fake_docker):
-    """Gap D (mod 050): when the target service is not in the running set
-    but ``compose_ps_status`` reports it restarting, the refusal message
-    names the restarting state and points at logs — not the generic
-    'run docex up dev first'.
+def test_build_proceeds_when_the_app_container_is_restarting(
+    sample_ctx, fake_docker
+):
+    """Mod 099 RETIRED Gap D (mod 050) — deliberately, not incidentally.
 
-    The env-running gate (``run_build``) only needs *something* up, so a
-    different service running keeps us past it while the requested
-    ``api`` is absent from the running-only view and crash-looping in
-    the all-states view."""
+    Gap D refused ``docex build`` when the codebase's dev container was
+    ``restarting``/``unhealthy``. But the commonest cause of a crash-looping
+    dev container is an empty ``dist/`` — exactly what ``docex build`` fills —
+    so the gate blocked the one command that resolves the state it detected.
+    Under ``compose run`` against the exec service the app container's health
+    is irrelevant to refreshing ``dist/``, so the gate is gone and the build
+    goes through. (The diagnostic's proper home is now
+    ``up.py::_diagnose_unhealthy``, which this mod widened.)
+
+    This test is the inversion of the pre-mod
+    ``test_build_diagnoses_restarting_container``; it pins the retirement so
+    the gate cannot quietly come back.
+    """
     fake_docker.ps_services = ["sample-dev-other"]  # env is up, but api is absent
     fake_docker.ps_status = {"sample-dev-api-web": "restarting"}
-    with pytest.raises(EnvNotRunning) as excinfo:
-        run_build(sample_ctx, fake_docker, service="api")
-    msg = str(excinfo.value)
-    assert "restarting" in msg
-    assert "docker logs" in msg
-    assert "run 'docex up dev' first" not in msg
+
+    dist = _seed_dist(sample_ctx, "api")
+
+    def _run_side_effect(compose_file, service, command, *, env=None,
+                         env_file=None, project_dir=None, project_name=None):
+        if "./build.sh" in command:
+            (dist / "fresh.py").write_text("print('hi')")
+        return 0
+
+    fake_docker.compose_run_one_off = _run_side_effect  # type: ignore[method-assign]
+
+    assert run_build(sample_ctx, fake_docker, service="api") == 0
 
 
-def test_build_absent_container_keeps_generic_message(sample_ctx, fake_docker):
-    """When the service is genuinely absent (not in status either), the
-    original 'run docex up dev first' message stands."""
-    fake_docker.ps_services = ["sample-dev-other"]  # env is up, but api is absent
-    fake_docker.ps_status = {}  # api not present at all
+def test_build_still_requires_the_stack_to_be_up(sample_ctx, fake_docker):
+    """The *whole-stack* gate stays: ``cicd.md § Build Step`` step 1 still
+    says "verify dev is running" (Mod 106's to revisit). Only the
+    per-service container gate was retired."""
+    fake_docker.ps_services = []
     with pytest.raises(EnvNotRunning) as excinfo:
         run_build(sample_ctx, fake_docker, service="api")
     assert "run 'docex up dev' first" in str(excinfo.value)

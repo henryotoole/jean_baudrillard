@@ -35,7 +35,8 @@ from typing import Any, Callable
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from docex import ELASTIC_REGION, OTEL_COLLECTOR_IMAGE
-from docex.cicl.compile import CompiledEnv, CompiledService
+from docex.cicl.compile import CompiledEnv, CompiledService, group_by_codebase
+from docex.cicl.fargate import fargate_pair_from_units
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
 from docex.emit.tags import render_hcl_tags, standard_tags
@@ -309,14 +310,15 @@ def _container_env_entries(
 
 
 def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
-    """Emit one ``aws_ecs_task_definition``, plus a ``_migrate`` variant
-    for schema-owning core services.
+    """Emit one ``aws_ecs_task_definition`` — exactly one, nothing else.
 
-    Shared between core services and container-backing services — the
-    is_core gate applies only to the migration sub-emission and the
-    fact that backing services arrive with ``svc.env == {}`` (so
-    PROJECT_VERSION and other doctrine-injected env vars naturally
-    skip them).
+    Shared between core services and container-backing services; backing
+    services arrive with ``svc.env == {}`` (so PROJECT_VERSION and the other
+    doctrine-injected env vars naturally skip them).
+
+    Mod 099 moved the ``_migrate`` variant out of here into
+    :func:`render_migration_task_definitions`, because migration is a
+    per-codebase operation and this is a per-process renderer.
     """
     body = dict(svc.body)
     cpu = body.get("cpu", "256")
@@ -510,53 +512,123 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     )))
     out.append("}")
 
-    # Migration task definition: same image as main, but command runs
-    # /service/migrate.sh. Emitted only for core services that own a
-    # backing database schema. Backing services never own schemas, so
-    # this sub-emission is implicitly skipped for them. No sidecar is
-    # paired here: migration is one-shot, emits no application-origin
-    # telemetry signals (Mod 018).
-    if svc.is_core and svc.schema_owned_by_db:
-        out.append("")
-        # WHY: `-migrate` suffix (mod 030) — task family is a data-plane
+    return "\n".join(out)
+
+
+def render_migration_task_definitions(
+    compiled: CompiledEnv, ctx: _RenderCtx
+) -> str:
+    """Emit one ``aws_ecs_task_definition "<codebase>_migrate"`` — and the
+    ``aws_cloudwatch_log_group "<codebase>"`` it writes to — per schema-owning
+    codebase.
+
+    Same image as the codebase's app containers, but the command runs
+    ``/service/migrate.sh``. No sidecar is paired: migration is one-shot and
+    emits no application-origin telemetry signals (Mod 018).
+
+    A per-**codebase** pass (Mod 099). Through Mod 096 this block was emitted
+    inside :func:`render_task_definition` — a per-*process* renderer — and the
+    "exactly one per codebase" invariant was bought by setting
+    ``schema_owned_by_db`` on a single carrier process type, picked by a
+    "pick one process type" bridge that Mod 099 deleted outright. It has to
+    be exactly one, because
+    ``orchestrate/migrate.py::_migration_task_family`` and
+    ``pipeline/release.py``'s targeted pre-migrate apply each independently
+    reconstruct the codebase-keyed family and address. Grouping by codebase
+    provides that invariant structurally instead, so the carrier is gone and
+    ``schema_owned_by_db`` became an honest codebase property.
+
+    Returns the empty string when no codebase owns a schema, so the caller
+    emits no section at all rather than a blank one.
+    """
+    out: list[str] = []
+    for codebase, procs in group_by_codebase(compiled).items():
+        if not any(p.schema_owned_by_db for p in procs):
+            continue
+        head = procs[0]
+        # WHY: `-migrate` suffix (mod 030) — the task family is a data-plane
         # resolvable ECS identifier, so the joiner uses the unified hyphen.
-        #
-        # WHY the family and the resource address key on `codebase_global_name`
-        # / `core_service` rather than `svc.name` (Mod 096): migration is a
-        # per-CODEBASE operation. This block is emitted inside the per-process
-        # task-definition renderer, so keying it on the compiled identity would
-        # give a three-process codebase three `…-migrate` families — and
-        # `orchestrate/migrate.py::_migration_task_family` and
-        # `pipeline/release.py`'s targeted pre-migrate apply each independently
-        # reconstruct the codebase-keyed strings and would match none of them.
-        # The `schema_owned_by_db` carrier flag guarantees exactly one process
-        # type per codebase reaches here.
-        mig_family = f"{svc.codebase_global_name}-migrate"
-        # WHY `service_env`, not the app container's env (Mod 096): the
+        # The family keys on `codebase_global_name` and the resource address
+        # on `core_service`: both are what migrate.py / release.py
+        # reconstruct, and both must stay byte-stable.
+        mig_family = f"{head.codebase_global_name}-migrate"
+        # WHY `service_env`, not any app container's env (Mod 096): the
         # migration runs per codebase, so it may depend only on codebase-scoped
-        # env. Inheriting the carrier process type's `env:` overlay would make
-        # `migrate.sh` silently depend on whichever process happened to sort
-        # first. See overview.md § Migration carrier.
+        # env. Inheriting a process type's `env:` overlay would make
+        # `migrate.sh` silently depend on whichever process was picked.
         mig_env_entries, mig_secret_entries = _container_env_entries(
-            svc.service_env, ctx.project, ctx.env
+            head.service_env, ctx.project, ctx.env
         )
+        # WHY the container name and log-stream segment are the CODEBASE and
+        # not a compiled identity (Mod 099, a deliberate emitted-value
+        # change): they previously carried the carrier's two-segment name
+        # (`api-web`). This is a per-codebase artifact — a process segment in
+        # it names a process type that has nothing to do with the migration.
         mig_container = {
-            "name": svc.name,
-            "image": body.get("image", ""),
+            "name": codebase,
+            "image": head.body.get("image", ""),
             "essential": True,
             "command": ["/service/migrate.sh"],
             # Mod 052 (Gap E): migration stdout is the headline Class-2
             # case — a failing `migrate.sh` was previously invisible.
+            #
+            # The group is the per-CODEBASE one emitted just below, not any
+            # process type's. NOT optional bookkeeping: `aws_cloudwatch_log_group`
+            # resources are addressed by compiled identity (`api-web`), so a
+            # codebase-keyed reference with no codebase-keyed group would be a
+            # dangling address that `tofu validate` rejects. Either both are
+            # per-codebase or neither is.
             "logConfiguration": _log_configuration(
-                ctx.project, ctx.env, svc.name, "migrate"
+                ctx.project, ctx.env, codebase, "migrate"
             ),
         }
         if mig_env_entries:
             mig_container["environment"] = mig_env_entries
         if mig_secret_entries:
             mig_container["secrets"] = mig_secret_entries
+        # Resources: the PER-DIMENSION maximum across the codebase's process
+        # types, taken over the already-Fargate-tiered values.
+        #
+        # WHY max: it is commutative, so — unlike "pick one" — the migration's
+        # size cannot move because an unrelated process type was renamed or
+        # added. And it never under-provisions, which retires the OOM risk
+        # that motivated the old non-scheduler-first carve-out, so the rule
+        # has no exceptions. A single-process codebase's max is that process's
+        # value, i.e. byte-identical to the pre-Mod-099 emission.
+        #
+        # WHY per dimension and never over pairs: Fargate's allowed memory
+        # range is monotone non-decreasing in cpu, which makes
+        # (max_cpu, max_mem) provably a valid tier — see
+        # `plans/modifications/099_exec_service/overview.md`. Max over *pairs*
+        # under any single ordering does not give that property.
+        cpu = max(int(p.body.get("cpu", "256")) for p in procs)
+        memory = max(int(p.body.get("memory", "512")) for p in procs)
+        # The round-trip is a no-op for valid input by the argument above. It
+        # is here to turn that proof into an enforced guarantee — do not
+        # delete it as redundant; it is what fires if the argument is ever
+        # broken by a refactor.
+        cpu, memory = fargate_pair_from_units(
+            cpu, memory, service_name=codebase,
+            where=f"core_services.{codebase}.processes.*.resources",
+        )
+        if out:
+            out.append("")
+        # The migration's own log group, keyed on the codebase. Mirrors the
+        # per-service group emitted by `render_task_definition`, including the
+        # raw (underscore-preserving) `/<project>/<env>/` prefix that keeps it
+        # inside the task-execution role's IAM log-group scope.
+        out.append(f'resource "aws_cloudwatch_log_group" "{codebase}" {{')
+        out.append(f'  name              = "/{ctx.project}/{ctx.env}/{codebase}"')
+        out.append( '  retention_in_days = 30')
+        out.append(render_hcl_tags(standard_tags(
+            "environment", shape_name="core_service", descriptor="logs",
+            project=ctx.project, env=ctx.env,
+            service=codebase, role="etc",
+        )))
+        out.append("}")
+        out.append("")
         out.append(
-            f'resource "aws_ecs_task_definition" "{svc.core_service}_migrate" {{'
+            f'resource "aws_ecs_task_definition" "{codebase}_migrate" {{'
         )
         out.append(f'  family                   = "{mig_family}"')
         out.append( '  requires_compatibilities = ["FARGATE"]')
@@ -567,15 +639,22 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append("  container_definitions = jsonencode([")
         out.append(f"    {_hcl_value(mig_container, indent=4)},")
         out.append("  ])")
+        # WHY no `process=` and `role="etc"` (Mod 099): both used to carry the
+        # carrier process type's values. A per-codebase artifact has neither —
+        # any value for them would be a pick-one, and after the carrier's
+        # removal `procs[0]` is merely the alphabetically-first process type,
+        # so "preserving" them would silently change what they say (on the
+        # three-process fixture, role would flip `web` -> `scheduler`).
+        # `"etc"` is the established sentinel for "no single service/role
+        # applies"; `process` is omitted exactly as it is for backing
+        # services, which likewise have none.
         out.append(render_hcl_tags(standard_tags(
             "environment", shape_name="core_service",
             descriptor="migrate-task-def",
             project=ctx.project, env=ctx.env,
-        service=svc.core_service or svc.name, role=svc.role,
-        process=svc.process,
+            service=codebase, role="etc",
         )))
         out.append("}")
-
     return "\n".join(out)
 
 
@@ -1292,6 +1371,10 @@ def emit_hcl(
         networks_sorted=sorted(compiled.networks),
         services=services_ordered,
         render_service=_render,
+        # Mod 099: the per-codebase migration task definitions, rendered once
+        # here and dropped in after the per-service loop. Empty string when no
+        # codebase owns a schema, so the template emits no section at all.
+        migrations_hcl=render_migration_task_definitions(compiled, ctx),
         state_bucket=apply_policy(
             f"{compiled.project}_tofu_state", s3_p
         ),

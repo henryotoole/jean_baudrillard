@@ -113,7 +113,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `bootstrap` | elastic only (no-op on fixed) | `project.yml`, AWS creds | AWS: S3 bucket + DynamoDB table for tofu state |
 | `up <env>` | fixed envs only (`dev`/`test`) | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env` | host docker (compose up; runs migrations after) |
 | `down <env>` | fixed envs only | running compose stack | host docker (compose down; keeps named volumes) |
-| `build [<svc>]` | dev iteration | running `dev` containers, `core/<svc>/{src,build.sh}` | `core/<svc>/dist/` via bind mount |
+| `build [<svc>]` | dev iteration | a running `dev` stack, `core/<svc>/{src,build.sh}` | `core/<svc>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
 | `test` | fresh `test` env | full project | host docker (ephemeral test stack), exit code |
 | `migrate <env>` | both | service images at current version, `infra/secrets/<env>.env` | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test |
@@ -189,7 +189,7 @@ Several commands branch internally on `foundation:` from `infra.yml`. The shim a
 | `compile` | emits `docker-compose.yml` per env, plus `playbook.yml` / `inventory.yml` / `ansible.cfg` for stage/prod | emits `main.tf` per env (stage/prod); `dev`/`test` still get compose |
 | `containerize` | pushes to project-configured `container_registry` | pushes to project's auto-provisioned ECR (or override) |
 | `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` |
-| `migrate` (during release) | one-off container in the existing internal docker network on the host | ECS `RunTask` against the migration task definition |
+| `migrate` (during release) | `compose run --rm` of the codebase's exec service on the host, in the existing internal docker network | ECS `RunTask` against the per-codebase migration task definition |
 
 The `dev` and `test` environments are always fixed regardless of declared foundation, per [shape.md § Shape and Environment](../../../doctrine/infrastructure/shape.md#shape-and-environment).
 

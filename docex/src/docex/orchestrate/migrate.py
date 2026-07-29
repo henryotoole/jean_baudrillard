@@ -1,7 +1,10 @@
 """``docex migrate <env>`` — apply database migrations.
 
-dev/test: ``compose exec`` the ``./migrate.sh`` script inside each
-schema-owning service's running container.
+dev/test: ``docker compose run --rm`` the ``./migrate.sh`` script inside each
+schema-owning codebase's **exec service** — the per-codebase operations
+container the compiler emits (Mod 099). A one-off container rather than an
+``exec`` into a running one, so the migration sees codebase-scoped env only
+and does not depend on any process type's container being up.
 
 Stage/prod, fixed (Phase 3): invoke the ``migrate``-tagged step of the
 env's emitted Ansible playbook.
@@ -19,16 +22,17 @@ import sys
 from typing import Callable
 
 from docex.aws.client import AWSClient
-from docex.cicl.model import primary_process
+from docex.cicl.compile import codebase_global_name
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import AnsibleRunFailed, ECSTaskFailed, EnvNotSupported
 from docex.naming import apply_policy
 from docex.orchestrate._common import (
+    _codebase_naming_policy,
     compose_file_for,
-    compose_service_key,
     ensure_compiled,
     env_compose_project,
+    exec_service_key,
     services_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
@@ -62,8 +66,9 @@ def run_migrate(
 ) -> int:
     """Apply migrations against ``<env>``.
 
-    dev/test paths use docker compose exec (Phase 2). stage/prod paths
-    use ansible (Phase 3, fixed) or ECS RunTask (Phase 4, elastic).
+    dev/test paths use ``docker compose run --rm`` against the codebase's
+    exec service (Mod 099). stage/prod paths use ansible (Phase 3, fixed)
+    or ECS RunTask (Phase 4, elastic).
 
     The dispatcher passes whichever transports are relevant for the
     env + foundation; the unused ones are tolerated as None.
@@ -87,8 +92,9 @@ def run_migrate(
 
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, env)
-    # dev/test migrate is a bring-up site: aggregate so the migration exec
-    # sees the minted TTE credentials the running container was started with.
+    # dev/test migrate is a bring-up site: aggregate so the one-off migration
+    # container is started with the same minted TTE credentials the rest of
+    # the stack was.
     env_file = aggregate(ctx, env=env)
     project_name = env_compose_project(ctx, env)
     schema_owners = services_with_schema(ctx)
@@ -100,8 +106,8 @@ def run_migrate(
         return 0
 
     for svc in schema_owners:
-        key = compose_service_key(ctx, env, svc)
-        rc = docker.compose_exec(
+        key = exec_service_key(ctx, env, svc)
+        rc = docker.compose_run_one_off(
             compose_file, key, ["./migrate.sh"], env_file=env_file,
             project_dir=ctx.project_root, project_name=project_name,
         )
@@ -329,34 +335,25 @@ def _migration_task_family(
     """Derive the migration task definition family for a codebase.
 
     Must match the compiler's elastic HCL emitter
-    (`render_task_definition`: ``mig_family = svc.codebase_global_name +
-    "-migrate"``), i.e. ``CompiledService.codebase_global_name`` with the
-    ``-migrate`` suffix. We re-resolve the engine's naming policy so this
-    works without re-compiling the project context.
+    (``render_migration_task_definitions``: ``mig_family =
+    head.codebase_global_name + "-migrate"``), i.e.
+    ``CompiledService.codebase_global_name`` with the ``-migrate`` suffix.
+    Built from the exported ``codebase_global_name`` so the two derivations
+    are literally the same function, not two copies that can drift.
 
-    ``svc`` is a CODEBASE key, and ``raw`` below stays three-segment for
-    that reason: migration is a per-codebase operation, so one codebase
-    yields exactly one migrate family regardless of how many process types
-    it declares.
+    ``svc`` is a CODEBASE key: migration is a per-codebase operation, so one
+    codebase yields exactly one migrate family regardless of how many process
+    types it declares. Mod 099: the naming policy is therefore a *codebase*
+    property, resolved across all of the codebase's process types with an
+    agreement check (``_codebase_naming_policy``) — the same derivation
+    ``exec_service_key`` uses, which is why both call it. Through Mod 096 it
+    was read off a single carrier process type; that carrier is gone.
+
+    Both fallbacks are best-effort: the family is only a lookup key here, so
+    an undeducible policy degrades to the hyphen form (mod 030 data-plane
+    naming) and lets ECS report the miss rather than failing early.
     """
-    tables = ctx.transfer_tables
-    core = ctx.infra.core_services.get(svc) if ctx.infra else None
-    if core is None:
-        # Fallback: best-effort hyphen form (mod 030 data-plane naming).
+    policy = _codebase_naming_policy(ctx, svc, foundation="elastic")
+    if policy is None:
         return f"{project}-{env}-{svc}-migrate"
-    # `role` is per-process type in CICL v2. The compiler picks the naming
-    # policy from the engine of the SAME process type it emits the migrate
-    # block for — the schema carrier, which is `primary_process`.
-    proc = core.processes[primary_process(core)]
-    engines = tables.role(proc.role)
-    engine_entry = None
-    for eng_name in sorted(engines):
-        entry = engines[eng_name]
-        if entry.supports("elastic"):
-            engine_entry = entry
-            break
-    if engine_entry is None:
-        return f"{project}-{env}-{svc}-migrate"
-    policy = tables.naming_policies.get(engine_entry.naming)
-    raw = f"{project}_{env}_{svc}"
-    return f"{apply_policy(raw, policy)}-migrate"
+    return f"{codebase_global_name(project, env, svc, policy)}-migrate"

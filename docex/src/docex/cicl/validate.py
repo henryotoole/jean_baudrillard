@@ -785,17 +785,51 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     possible: ``api`` + ``web-v2`` vs ``api-web`` + ``v2``; core ``api`` +
     ``db`` vs a backing service named ``api-db``; ``my_api`` + ``web`` vs
     ``my`` + ``api_web``.
+
+    Mod 099 widened the domain a second time, to the derivatives the
+    *compiler* appends — ``-otelcol`` (collector sidecar), ``-scheduler``
+    (Ofelia trigger), ``-exec`` (per-codebase operations container) and
+    ``-migrate`` (migration task definition). They render into the same
+    namespace as the services the author wrote, so a process type named
+    ``exec`` on codebase ``api`` produces ``api-exec``, byte-identical to
+    ``api``'s exec container — one compose key, one silently clobbering the
+    other. Three of the four holes predate Mod 099; the rule is keyed on
+    COLLISION rather than on a reserved-name list precisely so it covers
+    every suffix the compiler learns in future with no further edit.
     """
     buckets: dict[str, list[str]] = {}
-    for svc_name, proc_name, _svc, _proc in doc.all_processes():
+    for svc_name, proc_name, _svc, proc in doc.all_processes():
         ref = ProcessRef(svc_name, proc_name)
         buckets.setdefault(_normalized_identity(ref.compiled), []).append(
             f"core process type {ref.dotted!r}"
         )
+        # Compiler-emitted, per process type. A scheduler has no long-running
+        # container to pair a collector with; it gets an Ofelia trigger
+        # instead. Exactly one of the two suffixes exists per process type.
+        if proc.role == "scheduler":
+            buckets.setdefault(
+                _normalized_identity(f"{ref.compiled}-scheduler"), []
+            ).append(f"the scheduler trigger for core process type {ref.dotted!r}")
+        else:
+            buckets.setdefault(
+                _normalized_identity(f"{ref.compiled}-otelcol"), []
+            ).append(f"the collector sidecar for core process type {ref.dotted!r}")
     for name in sorted(doc.backing_services):
         buckets.setdefault(_normalized_identity(name), []).append(
             f"backing service {name!r}"
         )
+    # Compiler-emitted, per codebase. Unconditional: `-migrate` is seeded even
+    # for a codebase that owns no schema today, because whether it owns one is
+    # a property of a *backing* service's `schema_owned_by` and can be added
+    # later without touching the codebase — a name that would collide the
+    # moment it is should not be legal in the meantime.
+    for codebase in sorted(doc.core_services):
+        buckets.setdefault(
+            _normalized_identity(f"{codebase}-exec"), []
+        ).append(f"the exec container for codebase {codebase!r}")
+        buckets.setdefault(
+            _normalized_identity(f"{codebase}-migrate"), []
+        ).append(f"the migration task definition for codebase {codebase!r}")
 
     issues: list[ValidationIssue] = []
     for rendered, members in sorted(buckets.items()):
@@ -807,9 +841,11 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
                 f"{' and '.join(sorted(members))} both render into the same "
                 f"data-plane identity {rendered!r}. Every emitted service "
                 f"shares the {{project}}_{{env}} prefix, so the suffix must be "
-                f"unique across core process types and backing services after "
-                f"naming-policy normalization (hyphenate + lowercase). Rename "
-                f"one of them. See cicl.md § Validation Rules rule 5."
+                f"unique across core process types, backing services, and the "
+                f"derivatives the compiler appends to them (-otelcol, "
+                f"-scheduler, -exec, -migrate) after naming-policy "
+                f"normalization (hyphenate + lowercase). Rename one of them. "
+                f"See cicl.md § Validation Rules rule 5."
             ),
         ))
     return issues

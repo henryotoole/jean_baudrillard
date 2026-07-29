@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from docex.cicl.compile import CompiledEnv
+from docex.cicl.compile import CompiledEnv, group_by_codebase
 
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -20,18 +20,29 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
         keep_trailing_newline=True,
     )
 
-    # WHY the compiler's carrier flag rather than a `schema_owned_by == s.name`
-    # scan (Mod 096): `schema_owned_by` names a CODEBASE (`api`) while
-    # `CompiledService.name` is the two-segment compiled identity (`api-web`),
-    # so the comparison could only ever be false — the playbook would emit zero
-    # migrate tasks and still report success. `schema_owned_by_db` is set on
-    # exactly one compiled service per schema-owning codebase, so this yields
-    # one migrate task per codebase by construction.
-    core_with_schema = sorted(
-        (s for s in compiled.services.values()
-         if s.is_core and s.schema_owned_by_db),
-        key=lambda s: s.name,
-    )
+    # WHY the playbook migrates in the EXEC service (Mod 099): fixed
+    # stage/prod migration is already a one-off `compose run --rm` container,
+    # but it used to target an *app* service — so production migration read
+    # that process type's `env:` overlay. That is the exact trap the exec
+    # service exists to close, and leaving it open here would have left
+    # justification #2 ("`migrate.sh` may depend only on codebase-scoped
+    # env") true in dev/test and false in prod. Routing through the exec
+    # service is why it is emitted in all four fixed envs and not just
+    # dev/test.
+    #
+    # WHY grouped by codebase rather than filtered by service: migration is
+    # per codebase. `schema_owned_by_db` is now true of every process type of
+    # a schema-owning codebase (the Mod 096 "carrier" is gone), so a filter
+    # over compiled services would emit one duplicate migrate task per process
+    # type. Grouping first makes "one per codebase" structural.
+    migrations = [
+        {
+            "codebase": codebase,
+            "exec_service": f"{procs[0].codebase_global_name}-exec",
+        }
+        for codebase, procs in group_by_codebase(compiled).items()
+        if any(p.schema_owned_by_db for p in procs)
+    ]
 
     playbook_tpl = env.get_template("playbook.yml.j2")
     (out_dir / "playbook.yml").write_text(playbook_tpl.render(
@@ -43,7 +54,7 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
         # it the playbook's compose invocations derive the unscoped `<env>`
         # from the deploy-dir basename and collide across projects (mod 090).
         compose_project_name=f"{compiled.project_dns_label}-{compiled.env}",
-        core_services_with_schema=core_with_schema,
+        migrations=migrations,
     ))
 
     inv_tpl = env.get_template("inventory.yml.j2")

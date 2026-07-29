@@ -141,6 +141,16 @@ resource "aws_service_discovery_private_dns_namespace" "env" {
 {{ render_service(svc) }}
 
 {% endfor %}
+{% if migrations_hcl %}
+# ---------------------------------------------------------------------------
+# Migration task definitions (Mod 099): one per schema-owning CODEBASE, not
+# per process type. Emitted here rather than inside the per-service loop
+# because migration is a per-codebase operation — `docex migrate` and the
+# release's targeted pre-migrate apply both address `<codebase>_migrate`.
+# ---------------------------------------------------------------------------
+{{ migrations_hcl }}
+
+{% endif %}
 
 {% if reverse_proxy == "alb" %}
 # ---------------------------------------------------------------------------

@@ -211,35 +211,12 @@ class CoreService(BaseModel):
         return data
 
 
-def primary_process(svc: CoreService) -> str:
-    """The process type that stands in for a codebase when exactly one
-    container must be chosen.
-
-    !!! TEMPORARY BRIDGE — DELETED BY MOD 099 !!!
-
-    Two consumers, both of which Mod 099 removes:
-
-    1. The migrate task definition's *resources* (its env is codebase-scoped
-       and does NOT come from here). Mod 099 hoists migration onto the
-       per-codebase exec service.
-    2. ``orchestrate/_common.py::compose_service_key``, which needs some
-       container to ``compose exec`` into. Mod 099 deletes that function and
-       replaces it with ``exec_service_key`` against an emitted exec service.
-
-    Do not add a third consumer. If you need "which container represents this
-    codebase", the answer after Mod 099 is the exec service, not this.
-
-    The rule — lowest-sorted non-``scheduler``, falling back to lowest-sorted
-    overall — is the design record's own named "cheaper fallback"
-    (service_processes_refactor.md § Per-Codebase Operations). Non-scheduler
-    first because a scheduler's ``resources:`` is sized for a small job and a
-    migration inheriting it could OOM.
-    """
-    names = sorted(svc.processes)
-    for n in names:
-        if svc.processes[n].role != "scheduler":
-            return n
-    return names[0]
+# Mod 099 deleted the "pick one process type to stand in for the codebase"
+# bridge that Mod 096 planted here. Both of its consumers are gone: migration
+# sizing is now the per-dimension max across the codebase's process types, and
+# "which container represents this codebase" is answered by the emitted
+# per-codebase exec service (`orchestrate/_common.py::exec_service_key`).
+# Do not reintroduce it.
 
 
 class BackingService(_ServiceBase):

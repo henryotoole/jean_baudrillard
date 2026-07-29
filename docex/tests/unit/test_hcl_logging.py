@@ -72,9 +72,15 @@ def test_migrate_container_has_awslogs_logconfiguration(tmp_path: Path):
     root = _copy_fixture(tmp_path)
     run_compile(load_project_context(root))
 
-    mig_td = _slice_task_def(_stage_hcl(root), "api_migrate")
+    hcl = _stage_hcl(root)
+    mig_td = _slice_task_def(hcl, "api_migrate")
     assert 'logDriver = "awslogs"' in mig_td
-    assert "awslogs-group = aws_cloudwatch_log_group.api-web.name" in mig_td
+    # Mod 099: the group is the per-CODEBASE one, matching the per-codebase
+    # task definition. It must actually be emitted — a codebase-keyed
+    # reference to a group that only exists per compiled identity would be a
+    # dangling address that `tofu validate` rejects.
+    assert "awslogs-group = aws_cloudwatch_log_group.api.name" in mig_td
+    assert 'resource "aws_cloudwatch_log_group" "api" {' in hcl
     assert 'awslogs-stream-prefix = "migrate"' in mig_td
 
 

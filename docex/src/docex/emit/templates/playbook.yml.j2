@@ -47,12 +47,12 @@
         project_name: "{{ compose_project_name }}"
         pull: always
         state: present
-{% for svc in core_services_with_schema %}
-    - name: Run migrations for {{ svc.name }}
+{% for svc in migrations %}
+    - name: Run migrations for {{ svc.codebase }}
       ansible.builtin.command:
-        cmd: docker compose -p {{ compose_project_name }} run --rm {{ svc.global_name }} /service/migrate.sh
+        cmd: docker compose -p {{ compose_project_name }} run --rm {{ svc.exec_service }} /service/migrate.sh
         chdir: "{{ '{{' }} deploy_root {{ '}}' }}"
-      register: {{ svc.name }}_migrate_result
+      register: {{ svc.codebase }}_migrate_result
       changed_when: true
       tags:
         - migrate

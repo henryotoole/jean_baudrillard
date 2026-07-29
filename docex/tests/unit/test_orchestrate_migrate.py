@@ -91,28 +91,33 @@ def test_migrate_stage_elastic_first_failure_aborts(
         )
 
 
-def test_migrate_dev_calls_compose_exec_per_schema_owner(sample_ctx, fake_docker):
+def test_migrate_dev_runs_one_off_in_the_exec_service(sample_ctx, fake_docker):
+    """Mod 099 test 11: dev migrate is a one-off ``compose run --rm`` against
+    the codebase's exec service, and issues **zero** ``compose exec`` calls —
+    the migration no longer borrows a process type's running container (and
+    with it that process type's ``env:`` overlay)."""
     rc = run_migrate(sample_ctx, fake_docker, env="dev")
     assert rc == 0
-    exec_calls = [c for c in fake_docker.calls if c[0] == "compose_exec"]
+    run_calls = [c for c in fake_docker.calls if c[0] == "compose_run_one_off"]
     # One per schema-owning service. Sample fixture has just api.
-    assert len(exec_calls) == 1
-    # The compose service key is the project-scoped global name.
-    assert exec_calls[0][2].endswith("api-web")
-    assert exec_calls[0][3] == ("./migrate.sh",)
+    assert len(run_calls) == 1
+    assert run_calls[0][2] == "sample-dev-api-exec"
+    assert run_calls[0][3] == ("./migrate.sh",)
+    assert [c for c in fake_docker.calls if c[0] == "compose_exec"] == []
 
 
-def test_migrate_test_calls_compose_exec(sample_ctx, fake_docker):
+def test_migrate_test_runs_one_off_in_the_exec_service(sample_ctx, fake_docker):
     rc = run_migrate(sample_ctx, fake_docker, env="test")
     assert rc == 0
-    exec_calls = [c for c in fake_docker.calls if c[0] == "compose_exec"]
-    assert len(exec_calls) == 1
-    assert exec_calls[0][2].endswith("api-web")
+    run_calls = [c for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    assert len(run_calls) == 1
+    assert run_calls[0][2] == "sample-test-api-exec"
+    assert [c for c in fake_docker.calls if c[0] == "compose_exec"] == []
 
 
 def test_migrate_dev_short_circuits_on_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api-web", ("./migrate.sh",))
+        ("exit", "compose_run_one_off", "sample-dev-api-exec", ("./migrate.sh",))
     ] = 9
     rc = run_migrate(sample_ctx, fake_docker, env="dev")
     assert rc == 9

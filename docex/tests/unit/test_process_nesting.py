@@ -221,6 +221,116 @@ def test_rule_5_distinct_identities_clean():
 
 
 # ---------------------------------------------------------------------------
+# Mod 099 — rule 5's domain grows to the compiler-emitted derivatives.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "process,derivative",
+    [
+        # The suffix Mod 099 adds: `api`'s exec container renders `api-exec`.
+        ("exec", "the exec container"),
+        # Pre-existing, and exposed the same way: `api`'s migration task
+        # definition renders `api-migrate`, whose HCL resource address
+        # `aws_ecs_task_definition.api_migrate` is the one migrate.py and
+        # release.py reconstruct.
+        ("migrate", "the migration task definition"),
+    ],
+)
+def test_rule_5_rejects_process_colliding_with_own_codebase_derivative(
+    process: str, derivative: str
+):
+    """A process type whose compiled identity is byte-identical to one of the
+    compiler's *codebase*-keyed derivatives. `api` + process `exec` renders
+    `api-exec`, the same compose key as `api`'s exec container: one would
+    silently clobber the other."""
+    src = _HEAD + f"""
+core_services:
+  api:
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
+      {process}:
+        role: worker
+        command: ["python", "-m", "x"]
+        networks: [internal]
+        resources:
+          cpu: 0.5
+          memory: 512MB
+"""
+    issues = validate_document(_doc(src), _tables())
+    rule5 = [i for i in issues if i.rule == "rule_5_rendered_identity_collision"]
+    assert rule5, [i.rule for i in issues]
+    # The message must name the DERIVATIVE, not a service the author never
+    # wrote — otherwise it is baffling.
+    assert derivative in rule5[0].message, rule5[0].message
+
+
+def test_rule_5_rejects_collision_with_a_siblings_collector_sidecar():
+    """`-otelcol` is a *per-process* derivative, so its collision form is
+    cross-codebase: codebase `api` process `web` gets the sidecar
+    `api-web-otelcol`, and a sibling codebase `api-web` with a process named
+    `otelcol` renders exactly that. A pre-existing, unguarded hole on both
+    foundations — Mod 099 is the occasion, not the cause."""
+    src = _two_process_doc("api", "web", "api-web", "otelcol")
+    issues = validate_document(_doc(src), _tables())
+    rule5 = [i for i in issues if i.rule == "rule_5_rendered_identity_collision"]
+    assert rule5, [i.rule for i in issues]
+    assert "the collector sidecar" in rule5[0].message, rule5[0].message
+
+
+def test_rule_5_rejects_collision_with_a_siblings_scheduler_trigger():
+    """The same shape for the Ofelia trigger: a `scheduler`-role process type
+    gets `-scheduler` instead of `-otelcol` (it has no long-running container
+    to pair a collector with), so codebase `api` process `job` yields
+    `api-job-scheduler` and a sibling codebase `api-job` with a process named
+    `scheduler` collides with it."""
+    src = _HEAD + """
+core_services:
+  api:
+    processes:
+      job:
+        role: scheduler
+        schedule: "0 3 * * *"
+        command: ["python", "-m", "jobs.cleanup"]
+        networks: [internal]
+        resources:
+          cpu: 0.25
+          memory: 512MB
+  api-job:
+    processes:
+      scheduler:
+        role: worker
+        command: ["python", "-m", "x"]
+        networks: [internal]
+        resources:
+          cpu: 0.5
+          memory: 512MB
+"""
+    issues = validate_document(_doc(src), _tables())
+    rule5 = [i for i in issues if i.rule == "rule_5_rendered_identity_collision"]
+    assert rule5, [i.rule for i in issues]
+    assert "the scheduler trigger" in rule5[0].message, rule5[0].message
+
+
+def test_rule_5_derivatives_do_not_over_reject():
+    """Not over-eager: codebase `api-exec` with a process `x` renders
+    `api-exec-x`, which does not collide with codebase `api`'s `api-exec`.
+    Rule 5 is keyed on collision, not on a reserved-name list — a name that
+    collides with nothing stays legal."""
+    src = _two_process_doc("api", "web", "api-exec", "x")
+    assert "rule_5_rendered_identity_collision" not in _issues(src)
+
+
+
+
+# ---------------------------------------------------------------------------
 # 12-14 — rule 24 (`depends_on` names backing services only) and rule 6.
 # ---------------------------------------------------------------------------
 

@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
-from docex.cicl.compile import CompiledService
+from docex.cicl.compile import CompiledEnv, CompiledService
 from docex.cicl.transfer import EMIT_DESTINATIONS
 from docex.emit.hcl import (
     _DESTINATION_RENDERERS,
     _RenderCtx,
     render_ecs_service,
+    render_migration_task_definitions,
     render_rds_instance,
     render_service,
     render_task_definition,
 )
 from docex.naming import NamingPolicy
+
+
+def _compiled(services: list[CompiledService]) -> CompiledEnv:
+    """Minimal CompiledEnv wrapper for the per-codebase renderers."""
+    return CompiledEnv(
+        env="stage",
+        foundation="elastic",
+        apex_domain="example.com",
+        subdomain="stage.proj.example.com",
+        bare_project_subdomain="proj.example.com",
+        project="proj",
+        project_dns_label="proj",
+        project_version="0.0.1",
+        container_registry=None,
+        services={s.name: s for s in services},
+        networks={"internal"},
+    )
 
 
 def _ctx(project: str = "proj", env: str = "stage") -> _RenderCtx:
@@ -125,13 +143,19 @@ def test_target_group_skipped_when_not_on_web_network():
     assert "aws_lb_listener_rule" not in rendered
 
 
-def test_migration_taskdef_only_for_schema_owning_core():
-    """A schema-owning core service emits both main and _migrate task definitions."""
+def test_migration_taskdef_is_a_separate_per_codebase_pass():
+    """Mod 099: ``render_task_definition`` renders exactly one task
+    definition. The ``_migrate`` variant moved to
+    ``render_migration_task_definitions``, a per-codebase pass — migration is
+    a per-codebase operation, so a per-process renderer is the wrong place
+    for it."""
     svc = _svc(
-        name="web",
+        name="web-app",
         role="web",
         engine="container",
         is_core=True,
+        core_service="web",
+        process="app",
         body={
             "image": "registry/proj/web:0.0.1",
             "cpu": "256",
@@ -141,14 +165,45 @@ def test_migration_taskdef_only_for_schema_owning_core():
     )
     svc.schema_owned_by_db = True  # owns the appdb schema
     rendered = render_task_definition(svc, _ctx())
-    assert 'resource "aws_ecs_task_definition" "web"' in rendered
-    assert 'resource "aws_ecs_task_definition" "web_migrate"' in rendered
-    # Backing services never own schemas, so no migrate variant for them
-    # even if some test were to flip the flag.
+    assert 'resource "aws_ecs_task_definition" "web-app"' in rendered
+    assert "_migrate" not in rendered
+
+    migrations = render_migration_task_definitions(_compiled([svc]), _ctx())
+    assert 'resource "aws_ecs_task_definition" "web_migrate"' in migrations
+    assert 'family                   = "proj-stage-web-migrate"' in migrations
+    # Backing services have no codebase, so they are never grouped and can
+    # never produce a migrate variant even with the flag flipped.
     backing = _svc(name="appdb", is_core=False)
-    backing.schema_owned_by_db = False
-    rendered_backing = render_task_definition(backing, _ctx())
-    assert "_migrate" not in rendered_backing
+    backing.schema_owned_by_db = True
+    assert render_migration_task_definitions(_compiled([backing]), _ctx()) == ""
+
+
+def test_migration_taskdef_resources_are_the_per_dimension_max():
+    """Mod 099: the migration is sized at the per-dimension max across the
+    codebase's process types — commutative, so it cannot move because a
+    sibling was renamed, and it never under-provisions."""
+    small = _svc(
+        name="api-web", role="web", engine="container", is_core=True,
+        core_service="api", process="web",
+        body={"image": "i:1", "cpu": "1024", "memory": "2048"},
+        emits={"elastic": ["task_definition"]},
+    )
+    big = _svc(
+        name="api-worker", role="worker", engine="container", is_core=True,
+        core_service="api", process="worker",
+        body={"image": "i:1", "cpu": "512", "memory": "4096"},
+        emits={"elastic": ["task_definition"]},
+    )
+    small.schema_owned_by_db = big.schema_owned_by_db = True
+    rendered = render_migration_task_definitions(
+        _compiled([big, small]), _ctx()
+    )
+    assert '  cpu                      = "1024"' in rendered
+    assert '  memory                   = "4096"' in rendered
+    # Order-independence is the whole point: the reversed input agrees.
+    assert rendered == render_migration_task_definitions(
+        _compiled([small, big]), _ctx()
+    )
 
 
 # ---------------------------------------------------------------------------

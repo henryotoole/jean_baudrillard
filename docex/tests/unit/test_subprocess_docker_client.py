@@ -156,3 +156,45 @@ def test_any_env_compose_up_false_when_no_matching_stack(monkeypatch):
     fake_run = MagicMock(return_value=MagicMock(returncode=0, stdout=payload, stderr=""))
     monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", fake_run)
     assert client.any_env_compose_up("docex_smoke_elastic") is False
+
+
+# ---------------------------------------------------------------------------
+# Mod 099: `compose run` is non-interactive, like `compose exec`.
+# ---------------------------------------------------------------------------
+
+
+def test_compose_run_one_off_is_non_interactive(monkeypatch, tmp_path):
+    """``run`` allocates a TTY by default where ``exec`` does not, and every
+    docex call site is non-interactive (``docex check`` runs the whole test
+    cycle unattended). Mod 099 routed migrate/test/build through ``run``, so
+    the two must agree on ``-T``."""
+    client = SubprocessDockerClient()
+    fake_run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", fake_run)
+
+    client.compose_run_one_off(
+        _compose_file(tmp_path), "sample-dev-api-exec", ["./migrate.sh"],
+    )
+    cmd = fake_run.call_args[0][0]
+    # -T must sit between the flags and the service name.
+    assert cmd[cmd.index("run"):] == [
+        "run", "--rm", "-T", "sample-dev-api-exec", "./migrate.sh",
+    ]
+    assert cmd[cmd.index("-T") + 1] == "sample-dev-api-exec"
+    assert cmd[-1] == "./migrate.sh"
+
+
+def test_compose_run_one_off_env_flags_precede_the_service(monkeypatch, tmp_path):
+    """``-e`` pairs are ``run`` options, so they must come before the service
+    name; anything after it is the container's own argv."""
+    client = SubprocessDockerClient()
+    fake_run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", fake_run)
+
+    client.compose_run_one_off(
+        _compose_file(tmp_path), "sample-dev-api-exec", ["./build.sh"],
+        env={"FOO": "bar"},
+    )
+    cmd = fake_run.call_args[0][0]
+    assert cmd[cmd.index("-e") + 1] == "FOO=bar"
+    assert cmd.index("-e") < cmd.index("sample-dev-api-exec")

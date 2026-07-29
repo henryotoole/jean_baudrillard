@@ -108,7 +108,17 @@ class FakeDockerClient:
     ) -> int:
         key = ("compose_run_one_off", str(compose_file), service, tuple(command))
         self.calls.append(key)
-        return self.exit_codes.get(key, self._fallback("compose_run_one_off"))
+        if project_dir is not None:
+            self.calls.append(("compose_run_one_off_project_dir", str(project_dir)))
+        if project_name is not None:
+            self.calls.append(("compose_run_one_off_project_name", project_name))
+        # Mod 099: same finer scripting shape ``compose_exec`` has, now that
+        # the per-codebase operations run through here — a test needs to be
+        # able to fail one service's ``./migrate.sh`` without failing all
+        # one-off runs. Key: ("exit", "compose_run_one_off", svc, cmd_tuple).
+        return self.exit_codes.get(
+            key, self._fallback("compose_run_one_off", service, tuple(command))
+        )
 
     def compose_exec(self, compose_file: Path, service: str, command: list[str],
                      *, env_file: Path | None = None,
