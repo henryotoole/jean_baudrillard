@@ -137,6 +137,77 @@ ddb_tables="$(aws dynamodb list-tables --query 'TableNames[]' --output text 2>/d
   | tr '\t' '\n' | grep -E "^(${PROJECT_NAME}|${PROJECT_AWS_PREFIX})[-_]" || true)"
 if [[ -n "$ddb_tables" ]]; then mark_fail "DynamoDB tables" "$ddb_tables"; else report_ok "DynamoDB tables"; fi
 
+# -- Env-tier resource types added after the 1.6.0 walk ------------------
+# WHY these exist: the 1.6.0 pre-cut elastic walk's FIRST `release stage`
+# died on seven `AlreadyExists` errors from orphans left by an earlier walk
+# — and this script had reported "clean" beforehand. None of the types below
+# were checked. Every one of them blocks a re-apply, so a false "clean" here
+# converts into a failed release later, at the least convenient moment.
+#
+# The Service Discovery namespace is the sharpest case: its backing Route53
+# hosted zone is named bare (`docex-smoke-elastic-stage.`, no parent suffix),
+# so it looks like a stray artifact rather than a project resource, and the
+# Route53 check above only looks for the project *zone*. It surfaced as
+# `CANNOT_CREATE_HOSTED_ZONE … already been associated with the hosted zone`.
+
+sgs="$(aws ec2 describe-security-groups \
+  --query "SecurityGroups[?starts_with(GroupName, '${PROJECT_AWS_PREFIX}')].GroupName" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$sgs" ]]; then mark_fail "Security groups" "$sgs"; else report_ok "Security groups"; fi
+
+sd_ns="$(aws servicediscovery list-namespaces \
+  --query "Namespaces[?starts_with(Name, '${PROJECT_AWS_PREFIX}')].Name" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$sd_ns" ]]; then
+  mark_fail "Service Discovery namespaces" "$sd_ns"
+else
+  report_ok "Service Discovery namespaces"
+fi
+
+db_subnet_groups="$(aws rds describe-db-subnet-groups \
+  --query "DBSubnetGroups[?starts_with(DBSubnetGroupName, '${PROJECT_AWS_PREFIX}')].DBSubnetGroupName" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$db_subnet_groups" ]]; then
+  mark_fail "RDS DB subnet groups" "$db_subnet_groups"
+else
+  report_ok "RDS DB subnet groups"
+fi
+
+# Log-group names use the ssm_path policy, which PRESERVES underscores.
+log_groups="$(aws logs describe-log-groups --log-group-name-prefix "/${PROJECT_NAME}" \
+  --query 'logGroups[].logGroupName' --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$log_groups" ]]; then mark_fail "CloudWatch log groups" "$log_groups"; else report_ok "CloudWatch log groups"; fi
+
+efs="$(aws efs describe-file-systems \
+  --query "FileSystems[?starts_with(CreationToken, '${PROJECT_AWS_PREFIX}')].CreationToken" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$efs" ]]; then mark_fail "EFS file systems" "$efs"; else report_ok "EFS file systems"; fi
+
+# Target-group names are truncated to fit ELB's 32-char cap, so match on the
+# hyphenated project prefix rather than a full emitted name.
+tgs="$(aws elbv2 describe-target-groups \
+  --query "TargetGroups[?starts_with(TargetGroupName, '${PROJECT_AWS_PREFIX}')].TargetGroupName" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$tgs" ]]; then mark_fail "ALB target groups" "$tgs"; else report_ok "ALB target groups"; fi
+
+# A task-definition family stays ACTIVE until every revision is deregistered;
+# `tofu destroy` deregisters only the revisions it owns, so families created
+# by an earlier walk (and revisions superseded mid-walk) linger. Harmless to
+# AWS, but they are project state and they mask what a walk actually left.
+td_families="$(aws ecs list-task-definition-families --status ACTIVE \
+  --query "families[?starts_with(@, '${PROJECT_AWS_PREFIX}')]" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$td_families" ]]; then
+  mark_fail "ECS task-definition families (ACTIVE)" "$td_families"
+else
+  report_ok "ECS task-definition families"
+fi
+
+schedules="$(aws scheduler list-schedules \
+  --query "Schedules[?starts_with(Name, '${PROJECT_AWS_PREFIX}')].Name" \
+  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
+if [[ -n "$schedules" ]]; then mark_fail "EventBridge schedules" "$schedules"; else report_ok "EventBridge schedules"; fi
+
 if [[ "$remaining" != "0" ]]; then
   echo
   echo "verify_clean: $remaining resource type(s) still present. teardown did not fully complete."

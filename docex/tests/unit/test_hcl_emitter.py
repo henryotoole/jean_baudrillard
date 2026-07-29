@@ -965,3 +965,153 @@ def test_mod038_project_tier_alb_outputs_present(compiled_elastic_project: Path)
         "alb_security_group_id",
     ):
         assert f'output "{out_name}"' in tf, f"missing project output {out_name!r}"
+
+
+# ---------------------------------------------------------------------------
+# Mod 108 — the process type's `command` reaches the ECS container definition.
+#
+# Regression guard for a cut-blocking defect found by the 1.6.0 pre-cut smoke
+# walk: `render_task_definition` built its container definition key-by-key and
+# never read `command`, so every elastic task ran the image's Dockerfile `CMD`.
+# The fixed side was always correct because `compose.py::_service_block` gets
+# the body by whole-body pass-through.
+#
+# Anti-vacuity note: a single-process codebase cannot detect this — its one
+# `CMD` is trivially "right". Every assertion below therefore runs against a
+# codebase with TWO process types, which is the only shape where no single
+# Dockerfile `CMD` can be correct.
+# ---------------------------------------------------------------------------
+
+
+def _container_objects(block: str) -> list[str]:
+    """Split a task definition's `container_definitions = jsonencode([...])`
+    payload into its top-level container objects.
+
+    WHY brace-balanced rather than a regex on `name = "<x>"`: container keys
+    render alphabetically, so `command` sorts *before* `name`, and
+    `logConfiguration` nests its own braces in between. Any attempt to walk
+    backwards from the name lands inside the nested object and silently misses
+    the key it was looking for.
+    """
+    start = block.find("container_definitions = jsonencode([")
+    assert start != -1, f"no container_definitions in:\n{block}"
+    i = block.index("[", start)
+    depth = 0
+    objects: list[str] = []
+    obj_start = None
+    for pos in range(i, len(block)):
+        ch = block[pos]
+        if ch == "{":
+            if depth == 0:
+                obj_start = pos
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and obj_start is not None:
+                objects.append(block[obj_start:pos + 1])
+                obj_start = None
+        elif ch == "]" and depth == 0:
+            break
+    return objects
+
+
+def _container_command(block: str, container_name: str) -> list[str]:
+    """The `command` list of the named container inside a rendered task
+    definition block. Fails if the key is absent."""
+    for obj in _container_objects(block):
+        if f'name = "{container_name}"' not in obj:
+            continue
+        m = re.search(r"command = \[(.*?)\]", obj, re.S)
+        assert m is not None, (
+            f"container {container_name!r} emitted no `command`; the Dockerfile "
+            f"CMD would decide which process type it runs:\n{obj}"
+        )
+        return re.findall(r'"([^"]*)"', m.group(1))
+    raise AssertionError(f"no container named {container_name!r} in:\n{block}")
+
+
+def test_mod108_each_process_type_emits_its_own_command(
+    multi_process_elastic_tf: str,
+):
+    """Two process types on ONE codebase (one image) must emit two DIFFERENT
+    commands. This is the assertion whose absence let the defect ship: with a
+    shared image, `command` is the only thing that distinguishes `api-web` from
+    `api-worker`, and infrastructure.md § Core Service Containers says the
+    Dockerfile `CMD` is not used."""
+    web = _container_command(
+        _block(multi_process_elastic_tf,
+               'resource "aws_ecs_task_definition" "api-web"'),
+        "api-web",
+    )
+    worker = _container_command(
+        _block(multi_process_elastic_tf,
+               'resource "aws_ecs_task_definition" "api-worker"'),
+        "api-worker",
+    )
+    assert web == ["python", "/service/dist/app.py"], web
+    assert worker == ["python", "-m", "entrypoints.worker"], worker
+    assert web != worker, (
+        "both process types of one codebase emitted the same command — the "
+        "image CMD would be doing the work"
+    )
+
+
+def test_mod108_scheduler_run_task_emits_its_command(tmp_path: Path):
+    """A scheduler process type is a RunTask, and `aws_scheduler_schedule`'s
+    target carries no containerOverrides — so if the task definition omits
+    `command`, a scheduled job has no second chance to supply one."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
+    infra_path = dest / "infra" / "infra.yml"
+    doc = yaml.safe_load(infra_path.read_text())
+    doc["core_services"]["api"]["processes"]["nightly"] = {
+        "role": "scheduler",
+        "schedule": "0 3 * * *",
+        "command": ["python", "-m", "jobs.cleanup"],
+        "networks": ["internal"],
+        "depends_on": ["appdb"],
+        "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
+    }
+    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run_compile(load_project_context(dest)) == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+
+    block = _block(tf, 'resource "aws_ecs_task_definition" "api-nightly"')
+    assert _container_command(block, "api-nightly") == [
+        "python", "-m", "jobs.cleanup",
+    ]
+
+
+def test_mod108_string_command_normalizes_to_list(tmp_path: Path):
+    """`ProcessType.command` is `str | list[str]`; ECS requires a list. A
+    string must split the same way the fixed side's scheduler wrapper splits
+    it, so one declaration means one thing on both foundations."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
+    infra_path = dest / "infra" / "infra.yml"
+    doc = yaml.safe_load(infra_path.read_text())
+    doc["core_services"]["api"]["processes"]["worker"] = {
+        **_MIGRATE_WORKER,
+        "command": "python -m entrypoints.worker --verbose",
+    }
+    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run_compile(load_project_context(dest)) == 0
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+
+    block = _block(tf, 'resource "aws_ecs_task_definition" "api-worker"')
+    assert _container_command(block, "api-worker") == [
+        "python", "-m", "entrypoints.worker", "--verbose",
+    ]
+
+
+def test_mod108_migrate_task_definition_command_unchanged(
+    multi_process_elastic_tf: str,
+):
+    """The per-codebase migrate task definition supplies its own command and
+    must not pick up any process type's. Guards the fix against bleeding into
+    `render_migration_task_definitions`."""
+    block = _block(multi_process_elastic_tf,
+                   'resource "aws_ecs_task_definition" "api_migrate"')
+    assert _container_command(block, "api") == ["/service/migrate.sh"]

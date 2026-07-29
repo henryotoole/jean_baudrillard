@@ -330,6 +330,33 @@ fix-forward message). Downstream projects upgrade per
 
 ### Fixed
 
+- **The elastic HCL emitter never emitted a process type's `command`** (mod 108,
+  found by the pre-cut smoke walk at `PRE_CUT_CHECKLIST § D.9`). Every
+  `aws_ecs_task_definition` shipped `command = null`, so every ECS task ran
+  whatever the image's Dockerfile `CMD` happened to be — and since one image
+  serves N process types, at most one could be correct. This inverted
+  [`infrastructure.md § Core Service Containers`](./doctrine/infrastructure/infrastructure.md#core-service-containers),
+  which says the `CMD` "is not used" and each process type's `command` is "what
+  the compiler emits": on elastic the `CMD` was the *only* thing used, making
+  1.6.0's headline feature inert on that foundation.
+
+  The data was present and correct all along — `cicl/compile.py` sets
+  `body["command"]` on both branches — but `render_task_definition` builds its
+  container definition key-by-key and never read it, where
+  `emit/compose.py::_service_block` gets the body by whole-body pass-through and
+  so had always been right. Three things hid it: the seed's Dockerfile `CMD`s
+  happen to match each codebase's *first* process type, so only a **second**
+  process type is visibly wrong (and before CICL v2 there were none); no HCL test
+  asserted `command` in rendered output; and the integration tests are dev/fixed
+  only. Observed live as `api-worker` running `entrypoints/web.py`, failing its
+  `:8081/health` probe, going `UNHEALTHY`, and being dropped from Service
+  Connect — surfacing as a `503` on the `/health/api/worker` fan-out. Fixed by
+  reading `command` off the compiled body (normalizing `str` via `shlex.split`,
+  as the fixed side's scheduler wrapper does) and merging it **after**
+  `target_extras`, so no transfer table can override which process type a
+  container is. Guarded by four new tests, all against a **two**-process
+  codebase, since a single-process one cannot detect the defect.
+
 - **Process expansion's four silent-failure sites, found by audit rather than by
   test** (mod 096). Each would have shipped as a success-reporting failure:
   `emit/ansible.py` compared a backing service's `schema_owned_by` — an

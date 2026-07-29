@@ -15,7 +15,7 @@ Every box below must be checked off on the dev machine before the walk begins.
 ### A.1 Tooling
 
 - [ ] Docker daemon running and reachable.
-- [ ] `~/.aws/credentials` present, with permissions covering Route53, ACM, ECR, ECS, RDS, EFS, S3, DynamoDB, SSM, IAM, EC2 (VPC + SG + EIP).
+- [ ] AWS credentials resolve, with permissions covering Route53, ACM, ECR, ECS, RDS, EFS, S3, DynamoDB, SSM, IAM, EC2 (VPC + SG + EIP). `aws sts get-caller-identity` succeeding is the check. **A `~/.aws/credentials` file is not required** — on a dev box that is itself an EC2 instance the instance role supplies them and `~/.aws` holds only `config` + `sso`. The shim mounts `~/.aws:ro` and in-container AWS calls work either way; a missing credentials file is not a finding.
 - [ ] AWS region: `us-east-1` (the doctrine's pinned region).
 - [ ] `~/.docker/config.json` present, with push permissions for the fixed-project container registry (see A.5) **and** for ECR (AWS creds handle this).
 - [ ] `~/.gitconfig` and `~/.ssh/` populated so git operations work from inside the docex container.
@@ -54,7 +54,7 @@ No traefik env vars are required. Fixed-foundation certs use the **HTTP-01** ACM
 
 #### A.3.2 Production side (elastic; only for the elastic walk)
 
-- [ ] **Master VPC** exists in the operator's AWS account with the tags `Name=docex-master-vpc` and `managed_by=docex-preinfra`. The four subnets (public + private in primary AZ `us-east-1a`; redundant public + private in a secondary AZ) carry `tier=public` / `tier=private` tags. The primary-AZ subnet is discovered via `availability-zone=us-east-1a` filter (no tag required for AZ). See [`elastic_master_network.md`](../../doctrine/infrastructure/preinfra/elastic_master_network.md) and mod 041.
+- [ ] **Master VPC** exists in the operator's AWS account with the tags `Name=master_network_VPC`, `managed_by=doctrine-operator`, `shape_name=master_network`, and `infra_tier=prerequisite` — matching the [`cicl.md § Elastic Foundation`](../../doctrine/infrastructure/cicl.md) preinfra convention. (Earlier revisions of this checklist named `Name=docex-master-vpc` / `managed_by=docex-preinfra`; that was always stale — the infrastructure was right and the checklist wrong. Discover with `--filters "Name=tag:shape_name,Values=master_network"`.) The four subnets (public + private in primary AZ `us-east-1a`; redundant public + private in a secondary AZ) carry `tier=public` / `tier=private` tags. The primary-AZ subnet is discovered via `availability-zone=us-east-1a` filter (no tag required for AZ). See [`elastic_master_network.md`](../../doctrine/infrastructure/preinfra/elastic_master_network.md) and mod 041.
 - [ ] **NAT gateway** is present in the public subnet of the primary AZ.
 - [ ] **`docex-preinfra` skill** at `~/.claude/skills/docex-preinfra/SKILL.md` documents the tag scheme above. If the skill is stale, fix it as part of pre-walk setup.
 
@@ -87,7 +87,16 @@ Verify each: `dig +short <subdomain>` returns `$DEV_IP`.
 `docex projinfra up production` creates a Route53 zone for `docex-smoke-elastic.luxrnd.tech` (project zone, child of `luxrnd.tech`). Between phase 1 and phase 2 of the projinfra apply, the operator NS-delegates from the parent `luxrnd.tech` zone.
 
 - [ ] Operator has Route53 admin on `luxrnd.tech`.
-- [ ] **Elastic dev/test hosts must resolve before D.1.** `docex preinfra development` (D.1) also runs for the elastic project (its `dev`/`test` envs are local fixed stacks) and fails until `dev`, `*.dev`, `test`, `*.test`.`docex-smoke-elastic.luxrnd.tech` resolve to the dev machine. These are **out-of-band** dev/test A-records (deliberately not in projinfra — see the doctrine's elastic-dev-DNS note). Create them in the parent `luxrnd.tech` zone → `$DEV_IP` (low TTL) before D.1. They get shadowed once the child zone is delegated (D.3), which is fine — `preinfra development` only runs at D.1. Remove them at teardown (`verify_clean` checks the child *zone*, not parent-zone records).
+- [ ] **Elastic dev/test hosts must resolve before D.1.** `docex preinfra development` (D.1) also runs for the elastic project (its `dev`/`test` envs are local fixed stacks) and fails until `dev`, `*.dev`, `test`, `*.test`.`docex-smoke-elastic.luxrnd.tech` resolve to the dev machine. These are **out-of-band** dev/test A-records (deliberately not in projinfra — see the doctrine's elastic-dev-DNS note). Create them in the parent `luxrnd.tech` zone → `$DEV_IP` (low TTL) before D.1.
+- [ ] **⚠ Re-create the same four records in the CHILD zone immediately after D.3 phase 1, before probing anything.** Delegating the child zone at D.3 makes it authoritative for everything under `docex-smoke-elastic.luxrnd.tech`, which **shadows** the parent-zone dev/test records. An earlier revision of this checklist said the shadowing "is fine — `preinfra development` only runs at D.1." **That is wrong: `envinfra up dev` re-runs `preinfra development` as a precondition**, so D.6 fails after D.3 with `dev host '…' does not resolve in public DNS`.
+
+  Two further traps make this expensive rather than merely annoying:
+
+  1. **A failed probe seeds a negative cache.** The child zone's SOA yields a 900 s negative TTL, and the AWS VPC resolver's caches expire independently across its backends — resolution *flapped* for ~9 minutes after the records were added. Create the child-zone records **before** anything queries those names and the stall never happens.
+  2. **The dev-side check now names two-segment process hostnames** (`api-web.dev.…`). The per-env `*.dev.…` wildcard covers them, so no extra records are needed — but only if the wildcard is in the *authoritative* zone.
+
+  The project-tier HCL already expects this: `aws_route53_zone.project` carries a `force_destroy` comment about "records tofu doesn't own — dev A-records". Alternatively, run D.6's dev sanity **before** D.3 and skip the child-zone copies entirely.
+- [ ] Remove both sets at teardown, **including the parent-zone `NS` delegation record**, which otherwise dangles at a deleted zone. `verify_clean` checks the child *zone*, not parent-zone records.
 - [ ] The child zone itself: **nothing to pre-create** — D.3 phase 1 prints the NS records to delegate on the parent.
 
 ### A.5 Container registry — fixed
@@ -175,7 +184,7 @@ Run this audit *once per cut*, against each project independently.
 
   A process type that owns a **loop** rather than a request cycle must report the *loop's* liveness, not the process's: an in-process **monotonic tick** bumped each iteration, ticking at least every **10 s even when idle**, and a handler that returns **503** once the tick is **30 s** stale. Both thresholds are doctrine-fixed — a project-local knob is a finding. Reference implementation: `test_projects/*/core/api/src/entrypoints/worker.py`. Per [`contracts.md § Health Checks`](../../doctrine/infrastructure/contracts.md#health-checks).
 - [ ] **B.11 Hex layout** — each core service contains **exactly one** `src/root.py` (composition root — never `root_web.py` / `root_worker.py`, which would put two drifting copies of the driven wiring in the tree); each hex module contains `domain/`, `ports/{driving,driven}/`, `adapters/{driving,driven}/`, `alogic/`. Per [`hex_overview.md § Project Structure`](../../doctrine/hexagonal_architecture/hex_overview.md#project-structure) and [`internal_dependency_rules.md § Composition Root`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#composition-root).
-- [ ] **B.11.1 `src/entrypoints/` present, one module per process type** — and each process type's `command` in `infra.yml` invokes exactly one of them. **The composition root constructs; it does not activate**: grep each `root.py` for a `uvicorn.run`, a `serve`, a `while True`, a `socket`, or an `if __name__ == "__main__"` block. Any of those is a failure — the runtime host (uvicorn, a broker's consume loop, a poll loop) belongs to the entrypoint, not to the root and not to an adapter. Without this item the audit cannot catch a project whose `root.py` still starts a server, which is precisely the shape CICL v2 makes inexpressible: with two process types on one image, at most one could be what `root.py` starts. Per [`internal_dependency_rules.md § Entrypoints`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints).
+- [ ] **B.11.1 `src/entrypoints/` present, one module per process type** — and each process type's `command` in `infra.yml` invokes exactly one of them. **The composition root constructs; it does not activate**: grep each `root.py` for a `uvicorn.run`, a `serve`, a `while True`, a bound/listening socket, or an `if __name__ == "__main__"` block. Any of those is a failure. **Grep `socket` with judgement, not mechanically:** a health handler that *constructs* a `socket.create_connection` to probe a backing service is legitimate (the seed's `api/src/root.py` does exactly this for `/health/events`) — what the rule forbids is the root *binding* or *listening*. The test is whether the root returns its graph un-activated — the runtime host (uvicorn, a broker's consume loop, a poll loop) belongs to the entrypoint, not to the root and not to an adapter. Without this item the audit cannot catch a project whose `root.py` still starts a server, which is precisely the shape CICL v2 makes inexpressible: with two process types on one image, at most one could be what `root.py` starts. Per [`internal_dependency_rules.md § Entrypoints`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints).
 - [ ] **B.12 Migrations idempotent + reversible** — every `core/<svc>/migrations/*.sql` has both `-- migrate:up` and `-- migrate:down` sections. Per [`databases.md § Migrations`](../../doctrine/practices/databases.md#migrations).
 - [ ] **B.13 Stage tester present** — `infra/stage/Dockerfile`, `infra/stage/stage_test.sh`, `infra/stage/tests/` all populated. Per [`tests.md § Staging Tests`](../../doctrine/infrastructure/tests.md#staging-tests).
 - [ ] **B.14 Foundation-irrelevant code parity** — `diff -r test_projects/fixed/core test_projects/elastic/core` produces no output (other than `__pycache__` / `dist/` which are gitignored). This covers the entrypoints too: a process type whose entrypoint differs by foundation means the parts-only env model is leaking foundation specifics into application code — that's a doctrine bug.
@@ -218,6 +227,7 @@ Run this audit *once per cut*, against each project independently.
 > **A reachable `origin` is required.** `check`/`merge` run `git fetch origin` from **inside** the docex container, which mounts the project root and specific `$HOME` subdirs (`~/.docker`, `~/.aws`, `~/.gitconfig`, `~/.ssh`) — **not** arbitrary `$HOME` paths. So a local bare remote must live **under the project root** to be container-visible. Create one in the gitignored `.docex/` (e.g. `git init --bare .docex/origin.git`), `git remote add origin .docex/origin.git`, and `git push origin main v<prior>` so `origin/main` sits at the prior release. The restructure: delete the current `v<new>` tag (merge recreates it), branch the new-version work onto a feature branch, move `main` back to `v<prior>`, push `main` to origin, and check out the feature branch.
 
 - [ ] `./bin/docex check` — exits 0. Runs gate checks against an ephemeral worktree (feature branch ⊕ `origin/main`).
+- [ ] `./bin/docex merge` — **required, and easy to miss: `containerize` refuses to run off `main`.** The real chain is `check` (on the feature branch) → `merge` → `containerize`. `merge` rebases onto `main`, tags `v<version>` at the new HEAD, and pushes both. Note it prints `error: failed to push some refs` while still **exiting 0** when the feature branch was never pushed to origin (it tries to delete a remote branch that does not exist) — alarming, harmless.
 - [ ] `./bin/docex containerize` — succeeds; **one image per codebase**: `registry.luxrnd.tech/docex_smoke_fixed/api:<v>` and `registry.luxrnd.tech/docex_smoke_fixed/reaper:<v>` push successfully. The old `…/web` and `…/worker` are gone: `api-web` and `api-worker` share the `api` tag and differ only by `command`. Confirm no third repo appears. (Repo names preserve project-segment underscores per mod 030's structural emitter — this is correct.)
 
 ### C.7 Release stage
@@ -293,7 +303,15 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 `dev` and `test` envs run as fixed compose stacks even on an elastic-foundation project (per [`shape.md § Shape and Environment`](../../doctrine/infrastructure/shape.md#shape-and-environment)).
 
-- [ ] `./bin/docex envinfra up dev` — stack comes up locally. (No DNS for `dev.docex-smoke-elastic.luxrnd.tech` exists pre-projinfra; hit the service directly via the dev machine or check the per-project traefik routes it.)
+> **`docex build` is required first on a fresh or restructured codebase.** The dev compose bind-mounts `./core/<svc>/dist:/service/dist`, so the **host's** `dist/` shadows whatever `docker build` put in the image. A codebase whose entrypoints changed (or that is new) leaves a stale host `dist/`, and every process type crash-loops with `python: can't open file '/service/dist/entrypoints/<proc>.py'` — taking its netns-paired otelcol sidecar down with it (`cannot join network namespace of container … is restarting`).
+>
+> `docex build` gates on the *whole stack* being up, not the individual container, so the working order is: `envinfra up dev` (backings come up, core crash-loops) → `docex build` → `envinfra up dev` again. Running `build` first does not work — there is nothing to `compose run` against.
+>
+> If `build` dies with `PermissionError: … dist/**/__pycache__`, a container running as root wrote those directories and the shim (running as the host uid) can never delete them:
+> `sudo find core -name __pycache__ -type d -prune -exec rm -rf {} +`
+
+- [ ] `./bin/docex build` — see the note above; run it before or after a failed first `envinfra up dev`.
+- [ ] `./bin/docex envinfra up dev` — stack comes up locally. With the A.4.2 child-zone records in place, `https://dev.docex-smoke-elastic.luxrnd.tech/health` and the two-segment `https://api-web.dev.…/health` both answer 200, and `/health/api/worker` exercises the fan-out on the fixed-style dev stack — worth probing here, because it isolates a *foundation-specific* fan-out failure from an application one.
 - [ ] `./bin/docex envinfra down dev`.
 
 ### D.7 Test
@@ -305,6 +323,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 > **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.7 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`.
 
 - [ ] `./bin/docex check` — exits 0.
+- [ ] `./bin/docex merge` — **required; `containerize` refuses to run off `main`** (see C.6 for the full note).
 - [ ] `./bin/docex containerize` — succeeds; **one ECR repo and one image per codebase**: `<account>.dkr.ecr.us-east-1.amazonaws.com/docex_smoke_elastic/{api,reaper}:<v>`. The old `{web,worker}` repos are gone — `api-web` and `api-worker` share the `api` tag. Confirm D.3 phase 2 provisioned exactly **two** ECR repos, not three or four. Authenticates against ECR via `aws ecr get-login-password` per invocation.
 
 ### D.9 Release stage

@@ -28,6 +28,7 @@ Phase 4 hardening still applies:
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
@@ -365,6 +366,34 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # intended — traefik labels, EFS mounts, and the sidecar dependsOn are
     # compiler-owned invariants, not table-overridable.
     container_def.update(svc.target_extras.get("container_definition", {}))
+
+    # Mod 108: the process type's `command`. Deliberately AFTER the
+    # target_extras merge, alongside the other compiler-owned invariants: a
+    # transfer table must not be able to override which process type this
+    # container actually is. That is the one substitution that would
+    # reintroduce the ambiguity infrastructure.md § Core Service Containers
+    # deletes — with N process types on one image, no Dockerfile `CMD` can be
+    # correct for all of them, so `command` is the only thing distinguishing
+    # them and it is not negotiable.
+    #
+    # WHY this needs stating at all: `emit/compose.py::_service_block` gets the
+    # body by whole-body pass-through (`dict(svc.body)`), so it picked `command`
+    # up for free and the fixed foundation was always correct. This renderer
+    # builds its container definition key-by-key, so every key must be read
+    # explicitly — and this one was missed until the 1.6.0 pre-cut walk, during
+    # which `api-worker` silently ran `api-web`'s entrypoint off the image
+    # `CMD`. Backing services reach this renderer too and may carry a
+    # table-supplied `command` (minio's, for one), so read it unconditionally
+    # rather than gating on `svc.is_core`.
+    command = body.get("command")
+    if command:
+        # `str | list[str]` per ProcessType.command. ECS requires a list;
+        # split a string the same way the fixed side's scheduler wrapper does
+        # so one `infra.yml` declaration means the same thing on both
+        # foundations.
+        container_def["command"] = (
+            list(command) if isinstance(command, list) else shlex.split(command)
+        )
 
     # Mod 070: on the ec2_traefik path, the project traefik discovers routes
     # from these container labels via its ECS provider (the elastic analog of

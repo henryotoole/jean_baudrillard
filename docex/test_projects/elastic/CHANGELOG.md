@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.16] - 2026-07-29
+
+### Changed
+
+- Rollback-walk version bump for the 1.6.0 pre-cut elastic smoke walk
+  (`PRE_CUT_CHECKLIST § D.12`). Two versions must coexist in ECR for
+  `docex rollback prod 0.0.15` to have a prior release to converge on. No
+  application or infrastructure change.
+
 ## [0.0.15] - 2026-07-29
 
 ### Changed
