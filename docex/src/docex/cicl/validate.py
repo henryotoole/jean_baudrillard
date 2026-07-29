@@ -90,6 +90,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_reverse_proxy_field(doc))
     issues.extend(_validate_reverse_proxy_role_removed(doc))
     issues.extend(_validate_scheduler_services(doc))
+    issues.extend(_validate_health_check_path_port(doc))
     return issues
 
 
@@ -919,6 +920,44 @@ def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
                     f"default)"
                 ),
                 where=f"core_services.{name}.command",
+            ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Rule 28 (Mod 095) — health_check_path obliges a port.
+# ---------------------------------------------------------------------------
+
+
+def _validate_health_check_path_port(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 28 (Mod 095): declaring ``health_check_path`` obliges a ``port``.
+
+    The path is only meaningful against a port — every role's translation
+    probes ``http://localhost:${port}${field_value}``. No role declares a
+    ``default_port`` (deliberately: an implicit health port would silently
+    oblige the application to bind it), so an omitted ``port`` substitutes
+    to the empty string and emits a malformed probe that surfaces as a
+    container which never becomes healthy instead of as a compile error.
+
+    Role-agnostic on purpose. It is vacuous for ``web``, whose port is
+    already required by rule 15 for any web-network service, and it must
+    stay that way rather than being special-cased per role.
+    """
+    issues: list[ValidationIssue] = []
+    for name, svc in sorted(doc.core_services.items()):
+        if (svc.model_extra or {}).get("health_check_path") is None:
+            continue
+        if svc.port is None:
+            issues.append(ValidationIssue(
+                rule="rule_28_health_check_path_needs_port",
+                message=(
+                    f"core service {name!r} declares `health_check_path` but "
+                    f"no `port`. The health probe is issued at "
+                    f"http://localhost:<port><path>, so the path is "
+                    f"meaningless without one, and no role supplies a default "
+                    f"health port. See cicl.md § Validation Rules rule 28."
+                ),
+                where=f"core_services.{name}.port",
             ))
     return issues
 

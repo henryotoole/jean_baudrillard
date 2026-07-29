@@ -1,0 +1,59 @@
+# Role: worker
+#
+# Core service process type — long-running, event-driven, never publicly
+# routed. Canonically a queue consumer; a stream processor or polling loop
+# fits the same shape. Shares its codebase and image with sibling process
+# types.
+#
+#   - fixed:   one compose service on the codebase's image with the process
+#              type's `command`.
+#   - elastic: task_definition + ecs_service. NO target_group — a worker is
+#              not an ingress target.
+#
+# `image:`, `cpu:`, `memory:`, `tmpfs:` are derived per-process by the
+# compiler, exactly as for `web`.
+
+roles:
+  worker:
+    description: "Core service process — long-running, event-driven, not publicly routed."
+    container:
+      foundation: both
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service, container_definition]
+      defaults:
+        fixed: {}
+        elastic:
+          launch_type: FARGATE
+          network_mode: awsvpc
+      fields:
+        health_check_path:
+          fixed:
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
+              interval: 30s
+              timeout: 5s
+              retries: 3
+          elastic:
+            # NOT target_group — a worker has none. Routes to the ECS
+            # container-level healthCheck, so a wedged consume loop gets the
+            # task killed and replaced by the service.
+            target: container_definition
+            healthCheck:
+              command: ["CMD-SHELL", "curl -f http://localhost:${port}${field_value} || exit 1"]
+              interval: 30
+              timeout: 5
+              retries: 3
+              startPeriod: 10
+      provides:
+        # A worker that declares a `port` registers as Service-Connect-
+        # discoverable on elastic (shape.md § service_discovery), which is what
+        # lets a sibling `web` process reach its /health one hop away.
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
+      naming: ecs

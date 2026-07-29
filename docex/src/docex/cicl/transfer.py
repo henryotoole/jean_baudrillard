@@ -91,6 +91,10 @@ EMIT_DESTINATIONS: dict[str, frozenset[str]] = {
         "s3_bucket",
         "efs_file_system",  # Mod 015
         "scheduled_task",  # Mod 055
+        # Mod 095: not a resource of its own — a *merge target*. The
+        # translation body is merged into the app container's JSON inside
+        # `render_task_definition`. See emit/hcl.py.
+        "container_definition",
     }),
 }
 

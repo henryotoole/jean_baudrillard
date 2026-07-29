@@ -350,6 +350,18 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     if secret_entries:
         container_def["secrets"] = secret_entries
 
+    # Mod 095: transfer-table fields routed to the `container_definition`
+    # destination land here — today that is the `worker` role's
+    # health_check_path -> ECS container-level `healthCheck`. Mirrors how
+    # render_target_group reads target_extras["target_group"].
+    #
+    # WHY this position: it sits after `environment`/`secrets` but ahead of
+    # the dockerLabels / mountPoints / dependsOn whole-key assignments below,
+    # which therefore win over anything a table supplies. That precedence is
+    # intended — traefik labels, EFS mounts, and the sidecar dependsOn are
+    # compiler-owned invariants, not table-overridable.
+    container_def.update(svc.target_extras.get("container_definition", {}))
+
     # Mod 070: on the ec2_traefik path, the project traefik discovers routes
     # from these container labels via its ECS provider (the elastic analog of
     # the fixed docker provider). No labels on the alb path — it routes via
@@ -924,6 +936,23 @@ def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
 # ---------------------------------------------------------------------------
 
 
+def render_container_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
+    """Emit nothing. `container_definition` is a MERGE TARGET, not a resource.
+
+    Mod 095. Fields routing to this destination modify the app container's
+    JSON inside `render_task_definition` (which reads
+    `svc.target_extras["container_definition"]`); there is no HCL block of
+    its own to emit. It is registered here anyway because
+    `_DESTINATION_RENDERERS` is the dispatch loop's lookup table — an
+    unregistered destination falls into `render_service`'s defensive branch
+    and writes a `# unknown destination` comment into the output. Registering
+    it also satisfies transfer-table validation rule 12 (a field's `target:`
+    must appear in the engine's `emits.<foundation>`) without a second
+    resource appearing in the plan.
+    """
+    return ""
+
+
 _DESTINATION_RENDERERS: dict[str, Callable[[CompiledService, _RenderCtx], str]] = {
     "task_definition": render_task_definition,
     "ecs_service": render_ecs_service,
@@ -933,6 +962,7 @@ _DESTINATION_RENDERERS: dict[str, Callable[[CompiledService, _RenderCtx], str]] 
     "s3_bucket": render_s3_bucket,
     "efs_file_system": render_efs_file_system,  # Mod 015
     "scheduled_task": render_scheduled_task,  # Mod 055
+    "container_definition": render_container_definition,  # Mod 095 (merge target)
 }
 
 
@@ -987,7 +1017,13 @@ def render_service(svc: CompiledService, ctx: _RenderCtx) -> str:
                 f"# unknown destination {dest!r} for service {svc.name!r}; no HCL emitted"
             )
             continue
-        parts.append(renderer(svc_view, ctx))
+        rendered = renderer(svc_view, ctx)
+        if not rendered.strip():
+            # A merge-target destination (Mod 095's container_definition)
+            # emits no resource of its own — don't leave a blank gap in the
+            # output for it.
+            continue
+        parts.append(rendered)
         parts.append("")
 
     return "\n".join(parts).rstrip() + "\n"
