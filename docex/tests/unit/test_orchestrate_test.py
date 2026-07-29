@@ -87,12 +87,16 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
     original_run = fake_docker.compose_run_one_off
     boom_token = object()
 
+    # ``build`` (Mod 103) must be in this stand-in's signature: ``run_test``
+    # passes it at every one-off call site, so omitting it turns the intended
+    # RuntimeError into a TypeError from the fake itself.
     def _raising_run(compose_file, service, command, *, env=None,
-                     env_file=None, project_dir=None, project_name=None):
+                     build=False, env_file=None, project_dir=None,
+                     project_name=None):
         if command and command[0] == "./test.sh":
             raise RuntimeError(boom_token)
         return original_run(
-            compose_file, service, command, env=env,
+            compose_file, service, command, env=env, build=build,
             env_file=env_file, project_dir=project_dir,
             project_name=project_name,
         )
@@ -121,61 +125,64 @@ def test_test_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     assert "compose_down" in methods
 
 
-def test_run_test_scheduler_uses_one_off(scheduler_ctx, fake_docker):
-    """Mod 088: a scheduler-only service's test.sh runs via a bare one-off
-    container (``build_image(target="test")`` + ``run_one_shot(["./test.sh"])``)
-    rather than through compose.
+def test_run_test_scheduler_only_codebase_uses_its_exec_service(
+    scheduler_ctx, fake_docker
+):
+    """Mod 103: EVERY codebase runs test.sh one way — ``compose run --rm``
+    against its own exec service. A scheduler-only codebase included.
 
-    Mod 099 left this carve-out standing deliberately — Mod 103 removes it now
-    that every codebase, scheduler-only ones included, has an exec service.
-    What changed here is the *other* branch: a non-scheduler codebase now runs
-    test.sh as a ``compose run --rm`` against its exec service."""
+    Replaces ``test_run_test_scheduler_uses_one_off``, whose subject was
+    ``orchestrate/test.py::_run_scheduler_tests`` — the mod-088 carve-out that
+    built the codebase's Dockerfile ``test`` stage directly
+    (``build_image(target="test")``) and ran ``test.sh`` through a bare
+    ``run_one_shot``, entirely outside compose. It existed because a
+    scheduler-only codebase had no exec-able container in the ``test`` stack
+    (mod 073 drops the Ofelia trigger there). Mod 099's exec service is emitted
+    for every codebase, so the carve-out had nothing left to solve and is
+    deleted. Consequence worth naming: the job's tests now get the codebase's
+    ``depends_on`` readiness gate and its networks, which the bare one-off had
+    neither of. (``git log -S_run_scheduler_tests``.)
+    """
     rc = run_test(scheduler_ctx, fake_docker)
     assert rc == 0
 
-    svc_dir = str(scheduler_ctx.project_root / "core" / "nightly_cleanup")
-    tag = "docex-test-sample-nightly_cleanup:latest"
-
-    # The scheduler was built from the test stage and run as a one-off.
-    assert ("build_image", svc_dir, "test", tag) in fake_docker.calls
-    one_shots = [
-        c for c in fake_docker.calls
-        if c[0] == "run_one_shot" and c[1] == tag and c[2] == ("./test.sh",)
-    ]
-    assert len(one_shots) == 1
-
-    # The scheduler never went through compose (nor under any bare/fallback
-    # key) — its exec service exists, but Mod 103 is what starts using it.
-    compose_test_services = [
+    test_services = [
         c[2] for c in fake_docker.calls
         if c[0] == "compose_run_one_off" and c[3] == ("./test.sh",)
     ]
-    assert all(
-        "nightly" not in s for s in compose_test_services
-    ), compose_test_services
+    # `core_services` is sorted, so `api` precedes `nightly_cleanup`.
+    assert test_services == [
+        "sample-test-api-exec", "sample-test-nightly-cleanup-exec",
+    ]
 
-    # The non-scheduler web codebase runs test.sh in its exec service.
-    assert compose_test_services == ["sample-test-api-exec"]
+    # The deleted helper's two docker verbs are now unreachable from run_test:
+    # no direct stage build, no bare `docker run`.
+    assert [c for c in fake_docker.calls if c[0] == "build_image"] == []
+    assert [c for c in fake_docker.calls if c[0] == "run_one_shot"] == []
 
 
-def test_run_test_scheduler_build_failure_short_circuits(
+def test_run_test_short_circuits_before_later_codebase(
     scheduler_ctx, fake_docker
 ):
-    """A failed scheduler test-image build returns that exit code and skips
-    the one-off run."""
-    tag = "docex-test-sample-nightly_cleanup:latest"
-    svc_dir = str(scheduler_ctx.project_root / "core" / "nightly_cleanup")
-    fake_docker.exit_codes[("build_image", svc_dir, "test", tag)] = 9
+    """Repurposed from ``test_run_test_scheduler_build_failure_short_circuits``,
+    whose literal subject (a failed scheduler test-STAGE build) no longer
+    exists. Its real subject — first-failure short-circuit semantics — does,
+    so the coverage moves to the surviving path: a failing ``test.sh`` in the
+    first codebase must stop the loop before the next codebase's exec service
+    is ever run, and teardown must still happen.
+    """
+    fake_docker.exit_codes[
+        ("exit", "compose_run_one_off", "sample-test-api-exec", ("./test.sh",))
+    ] = 9
 
     rc = run_test(scheduler_ctx, fake_docker)
     assert rc == 9
 
-    # The build failed, so no one-off run.sh should have fired.
-    one_shots = [
-        c for c in fake_docker.calls
-        if c[0] == "run_one_shot" and c[1] == tag
+    test_services = [
+        c[2] for c in fake_docker.calls
+        if c[0] == "compose_run_one_off" and c[3] == ("./test.sh",)
     ]
-    assert one_shots == []
+    assert test_services == ["sample-test-api-exec"]
     # Teardown still ran (try/finally).
     assert "compose_down" in [c[0] for c in fake_docker.calls]
 
@@ -183,10 +190,42 @@ def test_run_test_scheduler_build_failure_short_circuits(
 def test_run_test_scheduler_run_failure_returns_code(
     scheduler_ctx, fake_docker
 ):
-    """A failed scheduler one-off ``test.sh`` run surfaces its exit code."""
-    tag = "docex-test-sample-nightly_cleanup:latest"
-    fake_docker.exit_codes[("run_one_shot", tag, ("./test.sh",))] = 3
+    """A failing ``test.sh`` in the scheduler-only codebase's exec service
+    surfaces its exit code and still tears down. Same guarantee as before Mod
+    103; the failure is keyed on the exec-service one-off rather than on the
+    deleted helper's ``run_one_shot``."""
+    fake_docker.exit_codes[
+        (
+            "exit", "compose_run_one_off",
+            "sample-test-nightly-cleanup-exec", ("./test.sh",),
+        )
+    ] = 3
 
     rc = run_test(scheduler_ctx, fake_docker)
     assert rc == 3
     assert "compose_down" in [c[0] for c in fake_docker.calls]
+
+
+def test_run_test_one_offs_build_first(sample_ctx, fake_docker):
+    """Mod 103: every one-off ``run_test`` issues — migrate AND test — carries
+    ``--build``.
+
+    ``compose run`` builds only when the image is ABSENT; it reuses a stale one
+    silently. In ``test`` the image *is* the artifact under test, and for a
+    codebase with no non-gated compose service nothing else ever refreshes that
+    tag, so without this a run after the first tests a stale image.
+    """
+    rc = run_test(sample_ctx, fake_docker)
+    assert rc == 0
+
+    primary = [
+        (c[2], c[3]) for c in fake_docker.calls
+        if c[0] == "compose_run_one_off"
+    ]
+    built = [
+        (c[1], c[2]) for c in fake_docker.calls
+        if c[0] == "compose_run_one_off_build"
+    ]
+    assert primary  # guard: an empty-vs-empty comparison would pass vacuously
+    assert sorted(primary) == sorted(built)
+    assert {cmd for _svc, cmd in built} == {("./migrate.sh",), ("./test.sh",)}

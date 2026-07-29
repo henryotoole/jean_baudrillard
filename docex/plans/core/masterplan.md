@@ -130,7 +130,9 @@ Each command's authoritative behavior lives in [docex.md](../../../doctrine/infr
 A few commands compose others rather than duplicate logic:
 
 - `check` invokes `compile` (to verify it succeeds), `build` (via `docker build` during test), and `test`.
-- `up` and `test` cause `docker build` to run as needed, which in turn runs each service's `build.sh` inside the `build` stage.
+- `up` and `test` cause `docker build` to run as needed, which in turn runs each service's `build.sh` inside the `build` stage. Two gaps in that sentence are closed explicitly, both because **`compose up --build` does not build a `profiles:`-gated service** and `compose run` builds only when an image is *absent* (never when a present one is stale):
+  - **`test`-env one-offs pass `--build`.** In `test` the image *is* the artifact under test, and for a codebase with no non-gated compose service nothing else ever refreshes its tag. `dev` deliberately does not: there the source arrives by bind mount and the `dev` stage exists precisely so `build.sh` can be re-invoked *without* an image rebuild, so `docex build` — the hot iteration loop — must not pay for one.
+  - **`up dev` builds a scheduler-only codebase's image itself**, since no compose service of that codebase builds it. See [compiler.md § The scheduler trigger](./compiler.md#the-scheduler-trigger).
 - `release` invokes `migrate` against the target env before applying new application state.
 - The manual CI/CD chain — `docex merge && docex containerize && docex release stage && docex stagetest && docex release prod` — is a documented sequence, not a megacommand. Keeping it explicit preserves the doctrine's "developer can drive the pipeline by hand" property.
 

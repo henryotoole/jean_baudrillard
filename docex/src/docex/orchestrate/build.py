@@ -135,6 +135,14 @@ def _build_one(
         dist_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 3: invoke build.sh in a one-off exec-service container.
+    #
+    # WHY no `build=True` here, unlike the `test`-env one-offs (Mod 103):
+    # `docex build` is dev-only and IS the hot iteration loop the dev/test
+    # asymmetry exists to protect. The source arrives by bind mount and the
+    # Dockerfile `dev` stage exists precisely so `build.sh` can be re-invoked
+    # without rebuilding the image — adding `--build` would put a real,
+    # non-cached `RUN ./build.sh` image rebuild in front of the one command
+    # whose entire purpose is to avoid it. Do not "fix" this omission.
     rc = docker.compose_run_one_off(
         compose_file, service_key, ["./build.sh"], env_file=env_file,
         project_dir=ctx.project_root, project_name=project_name,

@@ -293,6 +293,48 @@ Outside the compiler, two identities are reconstructed from
 codebase's naming policy through `_codebase_naming_policy`, which resolves every
 process type's policy and requires agreement rather than reading one.
 
+### The scheduler trigger
+
+A `scheduler` process type has no long-running container in any env. What it
+emits is a **trigger**, one per process type, keyed on the two-segment identity:
+
+- **fixed** — one Ofelia container `{project}-{env}-{svc}-{proc}-scheduler` plus
+  its rendered INI, delivered through compose's top-level `configs:` block. The
+  INI's single `[job-run "<svc>-<proc>"]` section carries the two-segment
+  identity, and its `image =` is the **codebase's** image ref — the same tag
+  every sibling process type runs. `test` drops the trigger entirely (mod 073),
+  so in `test` a scheduler process type contributes nothing at all and its
+  codebase's only compose block is the exec service.
+- **elastic** — `task_definition` + `scheduled_task` + a scheduler-invocation
+  IAM role. No `ecs_service`, no target group, no sidecar.
+
+**No sidecar for a `scheduler` process type.** Per-process is strictly better
+than the service-level phrasing it replaces: a codebase with `web` +
+`nightly_cleanup` gets one sidecar for the web process and none for the job,
+which a service-level rule could not express — it needed the scheduler to be its
+own service to say anything at all.
+
+**In `dev`, the codebase tag is the Dockerfile `dev` stage — for every process
+type, including a cron job** (mod 103). Mod 074 built a separate, self-contained
+`prod`-stage image for a scheduler, on the correct observation that Ofelia spawns
+the job through the Docker API with **no bind mounts**. That stopped being viable
+once the image became codebase-keyed (mod 096) and the exec service began
+building the same tag at `target: dev` (mod 099): `compose run` builds only when
+the image is *absent*, so a `prod`-stage image sitting on that tag was reused by
+`build` / `test` / `migrate`, and the doctrinal `prod` stage carries neither
+`build.sh` nor `test.sh` — which broke `docex build dev` outright for any project
+with a scheduler-only codebase. Two consumers of one tag have to agree about what
+is inside it. The accepted consequence: a `dev` job runs the artifact the `dev`
+stage baked (`RUN ./build.sh`), refreshed on each `docex up dev`, rather than the
+host's current `dist/`.
+
+A **scheduler-only codebase** is the one shape whose image *no compose service
+builds* — `up --build` skips the `profiles: [exec]` exec service and there is no
+other block of that codebase to build — so `up dev` builds that tag itself
+(`orchestrate/up.py::_ensure_codebase_image`, scoped to
+`scheduler_only_services`). A mixed codebase needs nothing: `compose up --build`
+builds the same tag at the same target.
+
 ## Naming flow
 
 The compiler always joins parts with `_` internally; the policy decides what reaches the artifact. For the `web` process type of core service `api` in env `stage` of project `docex_smoke_elastic`:

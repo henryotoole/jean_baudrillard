@@ -180,3 +180,40 @@ def test_22_deleted_bridges_are_gone(module_name: str, attr: str):
     assert not hasattr(module, attr)
     with pytest.raises(ImportError):
         exec(f"from {module_name} import {attr}")
+
+
+# ---------------------------------------------------------------------------
+# Mod 103 — deletion pins, co-located with Mod 099's above.
+# ---------------------------------------------------------------------------
+
+_DELETED_103 = [
+    ("docex.orchestrate.test", "_run_scheduler_tests"),
+    ("docex.orchestrate._common", "scheduler_services"),
+]
+
+
+@pytest.mark.parametrize("module_name, attr", _DELETED_103)
+def test_mod_074_and_the_scheduler_test_carveout_are_gone(
+    module_name: str, attr: str
+):
+    """The two functions Mod 103 deleted, once ``scheduler`` became a process
+    type rather than its own species of service.
+
+    1. ``orchestrate/test.py::_run_scheduler_tests`` — the ``docex test``
+       carve-out that built a scheduler-only codebase's Dockerfile ``test``
+       stage directly and ran ``test.sh`` outside compose. Mod 099's exec
+       service is emitted for every codebase, so it had nothing left to solve.
+    2. ``orchestrate/_common.py::scheduler_services`` — "codebases with AT
+       LEAST ONE scheduler process type", whose sole consumer was mod 074's
+       self-contained job-image build. That build is gone (its ``prod``-stage
+       image on the codebase's dev tag is what broke ``docex build dev``), and
+       what replaced it is scoped to ``scheduler_only_services``.
+
+    Importing either must fail, so neither grows a quiet second consumer.
+    """
+    import importlib
+
+    module = importlib.import_module(module_name)
+    assert not hasattr(module, attr)
+    with pytest.raises(ImportError):
+        exec(f"from {module_name} import {attr}")

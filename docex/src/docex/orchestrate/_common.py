@@ -107,31 +107,25 @@ def core_services(ctx: ProjectContext) -> list[str]:
     return sorted(ctx.infra.core_services or {})
 
 
-def scheduler_services(ctx: ProjectContext) -> list[str]:
-    """Codebase keys with AT LEAST ONE ``scheduler`` process type, sorted.
-
-    Used by ``up`` to build each scheduler's self-contained job image
-    (mod 074) — any codebase carrying a scheduler job needs that image
-    built, whether or not it also runs long-running processes.
-    """
-    if ctx.infra is None:
-        return []
-    return sorted(
-        name
-        for name, svc in (ctx.infra.core_services or {}).items()
-        if any(p.role == "scheduler" for p in svc.processes.values())
-    )
-
-
 def scheduler_only_services(ctx: ProjectContext) -> list[str]:
     """Codebase keys with NO long-running process type, sorted.
 
-    Distinct from :func:`scheduler_services` because the two call sites
-    want different predicates: ``_ensure_scheduler_image`` must run for any
-    codebase carrying a scheduler job, while the dev-build skip and the
-    test-path branch apply only when there is no long-running container at
-    all — a mixed web+scheduler codebase still has a container to build
-    into and exec against.
+    Every process type of such a codebase is a ``scheduler``, so the
+    codebase contributes no ordinary compose service block at all — only
+    Ofelia triggers in ``dev``, and in ``test`` nothing but its exec
+    service (mod 073 drops the trigger there). That makes it the one
+    codebase shape whose image **no compose service builds**: ``up --build``
+    has no non-gated block of that codebase to build, and the
+    ``profiles: [exec]`` exec service is only ever reached through
+    ``compose run``, which builds solely when the image is absent.
+
+    Hence the two consumers: ``up``'s ``_ensure_codebase_image`` (docex
+    builds the tag itself) and ``up``'s host-``dist/`` pre-populate skip
+    (there is no bind-mounted long-running container to populate for).
+
+    A *mixed* web+scheduler codebase is deliberately excluded from both —
+    it has a container to build into and its tag is built by
+    ``compose up --build``.
     """
     if ctx.infra is None:
         return []

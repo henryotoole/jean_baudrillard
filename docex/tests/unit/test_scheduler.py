@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 from docex.cicl.compile import run_compile
@@ -22,6 +23,58 @@ from docex.context import load_project_context
 _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _FIXED = _FIXTURES / "sample_project_scheduler_fixed"
 _ELASTIC = _FIXTURES / "sample_project_scheduler_elastic"
+
+# The MIXED-codebase fixtures (Mod 103). `_FIXED` / `_ELASTIC` above put the
+# scheduler in its OWN codebase (`nightly_cleanup.nightly_cleanup`), where the
+# codebase and process names coincide — so "the identity is two-segment" is
+# unfalsifiable there and "exactly one sidecar per codebase" is unexpressible.
+# These add ONE scheduler process type to the existing `api` codebase, which is
+# the shape the per-process claims actually bite on.
+_MIXED_FIXED = _FIXTURES / "sample_project"
+_MIXED_ELASTIC = _FIXTURES / "sample_project_elastic"
+
+# `depends_on: [appdb]`: the fixtures declare their DATABASE_* magic refs at the
+# SERVICE level, and a service-level ref obliges every process type of that
+# codebase to carry the readiness edge (rule 7). `disk: 25GB` matches what the
+# elastic fixture's own process types use, so Fargate tiering accepts it.
+_JOB = {
+    "role": "scheduler",
+    "schedule": "0 3 * * *",
+    "command": ["python", "-m", "jobs.cleanup"],
+    "networks": ["internal"],
+    "depends_on": ["appdb"],
+    "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
+}
+
+
+def _web_plus_job_project(fixture: Path, tmp_path: Path) -> Path:
+    root = tmp_path / "project"
+    shutil.copytree(fixture, root, dirs_exist_ok=False)
+    shutil.rmtree(root / "infra" / "output", ignore_errors=True)
+
+    infra_path = root / "infra" / "infra.yml"
+    doc = yaml.safe_load(infra_path.read_text())
+    doc["core_services"]["api"]["processes"]["nightly_cleanup"] = dict(_JOB)
+    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    return root
+
+
+@pytest.fixture(scope="module")
+def web_plus_job_fixed(tmp_path_factory) -> Path:
+    root = _web_plus_job_project(
+        _MIXED_FIXED, tmp_path_factory.mktemp("mixed_fixed")
+    )
+    assert run_compile(load_project_context(root)) == 0
+    return root
+
+
+@pytest.fixture(scope="module")
+def web_plus_job_elastic(tmp_path_factory) -> Path:
+    root = _web_plus_job_project(
+        _MIXED_ELASTIC, tmp_path_factory.mktemp("mixed_elastic")
+    )
+    assert run_compile(load_project_context(root)) == 0
+    return root
 
 
 def _copy(fixture: Path, tmp_path: Path) -> Path:
@@ -277,6 +330,73 @@ def test_elastic_scheduler_runtask_targets_project_tier_cluster(tmp_path: Path):
         "arn      = data.terraform_remote_state.project.outputs."
         "ecs_cluster_stage_arn" in hcl
     )
+
+
+# ---------------------------------------------------------------------------
+# Mod 103 — the per-PROCESS claims, on a mixed web+scheduler codebase
+# ---------------------------------------------------------------------------
+
+
+def test_mixed_codebase_job_image_is_the_siblings_image(web_plus_job_fixed: Path):
+    """One codebase, one image: the Ofelia job's `image =` IS the sibling `web`
+    service's `image`.
+
+    Asserted as an equality between the two EMITTED values rather than against
+    a literal — a literal passes even if both drift together, and the invariant
+    is that they cannot diverge. This is what retires mod 074's separate,
+    self-contained job image: two consumers of one tag have to agree on what is
+    inside it.
+    """
+    doc = _dev_compose(web_plus_job_fixed)
+    web_image = doc["services"]["sample-dev-api-web"]["image"]
+    ini = doc["configs"]["ofelia_api-nightly_cleanup"]["content"]
+    job_image = _ini_line(ini, "image = ").removeprefix("image = ")
+    assert job_image == web_image
+
+
+def test_mixed_codebase_job_identity_is_two_segment(web_plus_job_fixed: Path):
+    """The job's identity is `<codebase>-<process>` everywhere it appears.
+
+    The scheduler-only fixtures cannot test this: there codebase and process are
+    both `nightly_cleanup`, so a one-segment emitter would produce identical
+    output. Here codebase (`api`) != process (`nightly_cleanup`).
+    """
+    doc = _dev_compose(web_plus_job_fixed)
+    ini = doc["configs"]["ofelia_api-nightly_cleanup"]["content"]
+    assert '[job-run "api-nightly_cleanup"]' in ini
+    assert "sample-dev-api-nightly_cleanup-scheduler" in doc["services"]
+
+
+def test_mixed_codebase_emits_exactly_one_sidecar(web_plus_job_fixed: Path):
+    """The per-PROCESS restatement of the sidecar rule: one codebase, a sidecar
+    for the `web` process, NONE for the job.
+
+    The old service-level phrasing ("a scheduler service gets no sidecar")
+    could not express this, because it needed the scheduler to be its own
+    service to say anything at all.
+    """
+    services = _dev_compose(web_plus_job_fixed)["services"]
+    sidecars = sorted(k for k in services if k.endswith("-otelcol"))
+    assert sidecars == ["sample-dev-api-web-otelcol"]
+
+
+def test_mixed_codebase_elastic_job_has_no_service_or_target_group(
+    web_plus_job_elastic: Path,
+):
+    """Elastic counterpart, at ONE codebase rather than across two: the job
+    process type gets a task definition and nothing else — no `aws_ecs_service`,
+    no `aws_lb_target_group`, no sidecar container — while its sibling `web`
+    process in the same codebase keeps all of them."""
+    hcl = _stage_hcl(web_plus_job_elastic)
+
+    job = _slice_td(hcl, "api-nightly_cleanup")
+    assert "otelcol" not in job
+    assert 'resource "aws_ecs_service" "api-nightly_cleanup"' not in hcl
+    assert 'resource "aws_lb_target_group" "api-nightly_cleanup"' not in hcl
+
+    web = _slice_td(hcl, "api-web")
+    assert 'name = "api-web-otelcol"' in web
+    assert 'resource "aws_ecs_service" "api-web"' in hcl
 
 
 # ---------------------------------------------------------------------------

@@ -278,9 +278,13 @@ def test_8_scheduler_only_codebase_gets_an_exec_service(scheduler_root: Path):
 
     The exec pass groups compiled services by codebase *before* compose.py's
     `if svc.role == "scheduler": continue` skip, so a scheduler-only codebase
-    gets its exec block regardless. **This is the seam Mod 103 removes the
-    carve-out against** — pinned here so it cannot regress between the two
-    mods.
+    gets its exec block regardless. **Mod 103 has removed that carve-out** on
+    the strength of this seam: `docex test` now routes every codebase through
+    its exec service, and `test_orchestrate_test.py::
+    test_run_test_scheduler_only_codebase_uses_its_exec_service` exercises the
+    seam from the orchestrate side. This test remains the emission-side pin —
+    if it regresses, `docex test` loses its only foothold in a scheduler-only
+    codebase.
     """
     dev = _services(scheduler_root, "dev")
     assert "sample-dev-nightly-cleanup-exec" in dev

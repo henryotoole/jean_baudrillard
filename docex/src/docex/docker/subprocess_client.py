@@ -168,6 +168,7 @@ class SubprocessDockerClient:
         command: list[str],
         *,
         env: dict[str, str] | None = None,
+        build: bool = False,
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
@@ -179,6 +180,13 @@ class SubprocessDockerClient:
         cmd = self._compose_base(
             compose_file, env_file, project_dir, project_name
         ) + ["run", "--rm", "-T"]
+        # WHY --build is not the default: `compose run` builds ONLY when the
+        # image is absent — a present-but-stale image is reused silently
+        # (verified against compose v5.1.3). Callers in the `test` env must
+        # opt in; callers in `dev` must not (the source arrives by bind mount
+        # there, and a real rebuild would sit on the hot `docex build` loop).
+        if build:
+            cmd.append("--build")
         for key, val in (env or {}).items():
             cmd.extend(["-e", f"{key}={val}"])
         cmd.append(service)

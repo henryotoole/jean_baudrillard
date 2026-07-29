@@ -349,15 +349,23 @@ def _ofelia_ini(
     svc: CompiledService, project_dns_label: str, env: str,
     env_file_source: str,
 ) -> str:
-    """Render the ofelia INI for one scheduler service.
+    """Render the ofelia INI for one scheduler process type.
 
-    One ``[job-run "<svc>"]`` section: the translated 6-field ofelia
-    schedule, the service's image, the job's docker network (its first
-    non-``web`` network — a scheduler is never on ``web``), ``delete =
-    true`` to auto-remove the one-off container, the NON-secret env
-    inlined into ``environment``, the secret-sourcing + re-exporting
-    command wrapper, and the env-file mount. See scheduler.md § Fixed
-    Foundation.
+    One section, whose name is the **two-segment compiled identity** of the
+    process type — ``[job-run "api-nightly_cleanup"]``, i.e.
+    ``<codebase>-<process>``, not the codebase alone. It carries: the
+    translated 6-field ofelia schedule, the **codebase's** image ref, the
+    job's docker network (its first non-``web`` network — a scheduler is
+    never on ``web``), ``delete = true`` to auto-remove the one-off
+    container, the NON-secret env inlined into ``environment``, the
+    secret-sourcing + re-exporting command wrapper, and the env-file mount.
+    See scheduler.md § Fixed Foundation.
+
+    The image is **shared with every sibling process type of the same
+    codebase** — a job and its sibling ``web`` run one tag. That is why
+    mod 074's separate, self-contained job image is gone (Mod 103): a second
+    consumer of one tag has to agree with the first about what is inside it,
+    and in ``dev`` that is the Dockerfile ``dev`` stage.
 
     ``env_file_source`` is the **absolute** host path of the env file the
     job sources — ``${DOCEX_SECRETS_ENV_FILE}`` in ``dev``/``test`` (docex
@@ -368,6 +376,8 @@ def _ofelia_ini(
     from docex.cicl.cron import to_ofelia_cron
 
     env_file_target = "/run/job.env"
+    # WHY no per-job image: `body["image"]` is keyed on the CODEBASE
+    # (compile.py:806), so a job and its sibling `web` run one tag.
     image = svc.body.get("image", "")
     # The job's docker network: the service's first non-web network,
     # rendered to its project-scoped data-plane name. Schedulers are never

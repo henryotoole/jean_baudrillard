@@ -21,46 +21,18 @@ from pathlib import Path
 
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
-from docex.naming import dns_label
 from docex.orchestrate._common import (
     compose_file_for,
     core_services,
     ensure_compiled,
     env_compose_project,
     exec_service_key,
-    scheduler_only_services,
     services_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
 
 
 _TEST_ENV = "test"
-
-
-def _run_scheduler_tests(
-    ctx: ProjectContext,
-    docker: DockerClient,
-    svc: str,
-    *,
-    project_dir: "Path | None",
-) -> int:
-    """Run a scheduler service's test.sh via a one-off container.
-
-    A scheduler has no long-running container in the ``test`` stack
-    (scheduler.md § Caveats — the compiler emits no Ofelia container for
-    ``test``), so it cannot be ``compose exec``-ed like other core
-    services. Build its ``test``-stage image and run ``test.sh`` as a
-    one-off (mirrors ``up.py::_ensure_scheduler_image``'s build-directly
-    pattern). The scheduler's tests are self-contained unit/module tests
-    per the doctrine, so no env-tier stack/network is attached.
-    """
-    base = project_dir if project_dir is not None else ctx.project_root
-    svc_dir = base / "core" / svc
-    tag = f"docex-test-{dns_label(ctx.project.name)}-{svc}:latest"
-    rc = docker.build_image(svc_dir, target="test", tag=tag)
-    if rc != 0:
-        return rc
-    return docker.run_one_shot(tag, ["./test.sh"])
 
 
 def run_test(
@@ -117,10 +89,19 @@ def run_test(
             return rc
 
         # 2. migrate every schema-owning service.
+        #
+        # WHY build=True (Mod 103): in `test` the image *is* the artifact under
+        # test, so a one-off must never run a stale one — and `compose run`
+        # builds only when the image is ABSENT, reusing a stale image silently
+        # otherwise. In `dev` the source arrives by bind mount and the `dev`
+        # stage exists precisely so `build.sh` can be re-invoked without
+        # rebuilding the image; that asymmetry is why this is not
+        # unconditional. `run_test` is the `test` env by construction
+        # (`_TEST_ENV`), so it passes True flat.
         for svc in services_with_schema(ctx):
             key = exec_service_key(ctx, _TEST_ENV, svc)
             rc = docker.compose_run_one_off(
-                compose_file, key, ["./migrate.sh"],
+                compose_file, key, ["./migrate.sh"], build=True,
                 env_file=env_file, project_dir=project_dir,
                 project_name=project_name,
             )
@@ -134,23 +115,20 @@ def run_test(
                 return rc
 
         # 3. test.sh for each core service, in the codebase's exec service.
-        schedulers = set(scheduler_only_services(ctx))
+        # Mod 103: no scheduler carve-out. The exec service is emitted for
+        # every codebase — scheduler-only ones included — so a codebase with no
+        # long-running container in the `test` stack still has somewhere to run
+        # test.sh. (Mod 099's `test_8_scheduler_only_codebase_gets_an_exec_service`
+        # pins the emission this depends on.)
+        #
+        # WHY build=True: see step 2 above — same `test`-env freshness rule.
         for svc in core_services(ctx):
-            # MOD 103 DELETES THIS BRANCH. The carve-out existed because a
-            # scheduler-only codebase had no exec-able container in the test
-            # stack; Mod 099's exec service is emitted for every codebase,
-            # scheduler-only ones included, so the branch below is now
-            # unnecessary rather than merely awkward. It stays here only to
-            # keep the two mods' diffs separable.
-            if svc in schedulers:
-                rc = _run_scheduler_tests(ctx, docker, svc, project_dir=project_dir)
-            else:
-                key = exec_service_key(ctx, _TEST_ENV, svc)
-                rc = docker.compose_run_one_off(
-                    compose_file, key, ["./test.sh"],
-                    env_file=env_file, project_dir=project_dir,
-                    project_name=project_name,
-                )
+            key = exec_service_key(ctx, _TEST_ENV, svc)
+            rc = docker.compose_run_one_off(
+                compose_file, key, ["./test.sh"], build=True,
+                env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
+            )
             if rc != 0:
                 print(
                     f"error: test.sh for {svc!r} exited {rc}.",

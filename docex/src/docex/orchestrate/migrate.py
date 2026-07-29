@@ -105,10 +105,17 @@ def run_migrate(
         )
         return 0
 
+    # WHY build=(env == "test") (Mod 103): in `test` the image *is* the
+    # artifact under test, so a one-off must never run a stale one — and
+    # `compose run` builds only when the image is ABSENT, silently reusing a
+    # stale image otherwise. In `dev` the source arrives by bind mount and the
+    # `dev` stage exists precisely so `build.sh` can be re-invoked without
+    # rebuilding the image; rebuilding there would contradict that.
     for svc in schema_owners:
         key = exec_service_key(ctx, env, svc)
         rc = docker.compose_run_one_off(
-            compose_file, key, ["./migrate.sh"], env_file=env_file,
+            compose_file, key, ["./migrate.sh"], build=(env == "test"),
+            env_file=env_file,
             project_dir=ctx.project_root, project_name=project_name,
         )
         if rc != 0:

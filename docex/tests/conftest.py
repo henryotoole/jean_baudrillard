@@ -102,6 +102,7 @@ class FakeDockerClient:
         command: list[str],
         *,
         env: dict[str, str] | None = None,
+        build: bool = False,
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
@@ -112,6 +113,13 @@ class FakeDockerClient:
             self.calls.append(("compose_run_one_off_project_dir", str(project_dir)))
         if project_name is not None:
             self.calls.append(("compose_run_one_off_project_name", project_name))
+        # Mod 103: `--build` is recorded as a SIDE-call, the same way
+        # project_dir / project_name are, so the primary tuple key stays
+        # exactly as it was — many tests assert on it verbatim.
+        if build:
+            self.calls.append(
+                ("compose_run_one_off_build", service, tuple(command))
+            )
         # Mod 099: same finer scripting shape ``compose_exec`` has, now that
         # the per-codebase operations run through here — a test needs to be
         # able to fail one service's ``./migrate.sh`` without failing all

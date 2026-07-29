@@ -198,3 +198,32 @@ def test_compose_run_one_off_env_flags_precede_the_service(monkeypatch, tmp_path
     cmd = fake_run.call_args[0][0]
     assert cmd[cmd.index("-e") + 1] == "FOO=bar"
     assert cmd.index("-e") < cmd.index("sample-dev-api-exec")
+
+
+# ---------------------------------------------------------------------------
+# Mod 103: `--build` is a `run` option, opted into in the `test` env.
+# ---------------------------------------------------------------------------
+
+
+def test_compose_run_one_off_build_flag_is_a_run_option(monkeypatch, tmp_path):
+    """``--build`` must sit among the ``run`` options, before the service name —
+    anything after the service name is the container's own argv, so a misplaced
+    ``--build`` would be passed to ``test.sh`` instead of to compose.
+
+    The two tests above cover the default (no ``--build``) argv and are the pin
+    that it stayed byte-identical; this one covers the opted-in form.
+    """
+    client = SubprocessDockerClient()
+    fake_run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("docex.docker.subprocess_client.subprocess.run", fake_run)
+
+    client.compose_run_one_off(
+        _compose_file(tmp_path), "sample-test-api-exec", ["./test.sh"],
+        build=True, env={"FOO": "bar"},
+    )
+    cmd = fake_run.call_args[0][0]
+    assert cmd[cmd.index("run"):] == [
+        "run", "--rm", "-T", "--build",
+        "-e", "FOO=bar", "sample-test-api-exec", "./test.sh",
+    ]
+    assert cmd.index("--build") < cmd.index("sample-test-api-exec")

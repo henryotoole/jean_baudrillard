@@ -25,7 +25,6 @@ from docex.orchestrate._common import (
     env_compose_project,
     exec_service_key,
     scheduler_only_services,
-    scheduler_services,
     services_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
@@ -76,25 +75,36 @@ def _ensure_initial_dev_build(
         )
 
 
-def _ensure_scheduler_image(
+def _ensure_codebase_image(
     ctx: ProjectContext, docker: DockerClient, svc: str
 ) -> None:
-    """Build a scheduler service's self-contained job image for dev.
+    """Build a codebase's dev-local image tag, for dev.
 
-    Mod 074: a scheduler compiles to an Ofelia container that launches the
-    job as a bare ``docker run`` over the docker socket — with NO compose
-    bind-mounts. So unlike a long-running dev service (which runs the
-    Dockerfile ``dev`` stage against bind-mounted ``src``/``dist``), a
-    scheduler job needs an image with the artifact BAKED IN. That is the
-    ``prod`` stage (``COPY --from=build /service/dist``). We build it and
-    tag it the dev-local ref — byte-identical to what the compiler wrote
-    into the Ofelia INI's ``image =`` (via the same ``_image_ref``), so
-    Ofelia finds the image at fire time.
+    In ``dev``, the codebase tag is the Dockerfile ``dev`` stage — for every
+    process type, including a cron job. Two facts make that invariant
+    load-bearing rather than arbitrary (Mod 103):
 
-    A missing ``core/<svc>/Dockerfile`` is a real error for a scheduler
-    (the job cannot run without an image), so — unlike
-    :func:`_ensure_initial_dev_build`, which tolerates non-conformant
-    fixtures — we let ``docker build`` surface it loudly.
+    1. Ofelia spawns the job through the Docker API with **no bind mounts**,
+       so the job runs whatever ``/service/dist`` the image carries. The
+       doctrinal ``dev`` stage bakes it (``RUN ./build.sh``), which is the
+       same assumption :func:`_ensure_initial_dev_build` already documents.
+    2. The tag is **codebase**-keyed (Mod 096) and Mod 099's exec service
+       builds the same tag at ``target: dev``. ``compose run`` only builds
+       when the image is *absent*, so a ``prod``-stage image sitting on that
+       tag is reused by ``docex build`` / ``test`` / ``migrate`` — and the
+       doctrinal ``prod`` stage carries no ``build.sh`` and no ``test.sh``.
+       Mod 074's ``prod`` build therefore **broke ``docex build dev``** for
+       any project with a scheduler-only codebase. Two consumers of one tag
+       must agree on what is inside it.
+
+    The tag is derived through the same ``_image_ref`` the compiler uses, so
+    it is byte-identical to what was written into the Ofelia INI's
+    ``image =`` and to what the exec service's ``image:`` names.
+
+    A missing ``core/<svc>/Dockerfile`` is a real error here (nothing else
+    builds this tag), so — unlike :func:`_ensure_initial_dev_build`, which
+    tolerates non-conformant fixtures — we let ``docker build`` surface it
+    loudly.
     """
     from docex.cicl.compile import _image_ref
 
@@ -107,13 +117,13 @@ def _ensure_scheduler_image(
         env="dev",
         foundation="fixed",
     )
-    rc = docker.build_image(svc_dir, target="prod", tag=str(image_ref))
+    rc = docker.build_image(svc_dir, target="dev", tag=str(image_ref))
     if rc != 0:
         raise BuildFailed(
-            f"docker build --target prod for scheduler service {svc!r} "
-            f"exited {rc}. A scheduler's job image must build from the "
-            f"self-contained `prod` stage (Ofelia launches it with no "
-            f"compose bind-mounts)."
+            f"docker build --target dev for core service {svc!r} "
+            f"exited {rc}. In dev, the codebase's image tag is the "
+            f"Dockerfile `dev` stage — every consumer of that tag (the "
+            f"exec service, an Ofelia job) expects that stage."
         )
 
 
@@ -205,15 +215,19 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
         for svc in core_services(ctx):
             # Scheduler-only codebases aren't bind-mounted and never run as
             # a compose service, so the host-dist/ pre-populate is
-            # meaningless for them. They instead need a self-contained job
-            # image built below (mod 074).
+            # meaningless for them. They instead need their codebase image
+            # built below by `_ensure_codebase_image`.
             if svc in schedulers:
                 continue
             _ensure_initial_dev_build(ctx, docker, svc)
-        # Mod 074: build each scheduler's self-contained job image so the
-        # emitted Ofelia container can `docker run` it at fire time.
-        for svc in scheduler_services(ctx):
-            _ensure_scheduler_image(ctx, docker, svc)
+        # Mod 103: a scheduler-only codebase has no non-gated compose service,
+        # so nothing in the compose graph builds its image — `up --build` skips
+        # the `profiles: [exec]` exec service, and `compose run` builds only when
+        # the image is absent. docex builds it here. A codebase that also
+        # declares a long-running process type needs nothing: `compose up
+        # --build` below builds that same tag, at the same `dev` target.
+        for svc in scheduler_only_services(ctx):
+            _ensure_codebase_image(ctx, docker, svc)
 
     # 1b. Compose up. Compose itself handles "rebuild if Dockerfile or
     # context changed" so we don't add caching on top.
@@ -242,11 +256,20 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     # 2. Migrations. dev/test migrations run as a one-off container built
     # from the codebase's exec service (Mod 099), so `migrate.sh` sees
     # codebase-scoped env only and needs no app container to exec into.
+    #
+    # WHY build=(env == "test") (Mod 103): in `test` the image *is* the
+    # artifact under test, so a one-off must never run a stale one — and
+    # `compose run` builds only when the image is ABSENT, silently reusing a
+    # stale image otherwise. In `dev` the source arrives by bind mount and the
+    # `dev` stage exists precisely so `build.sh` can be re-invoked without
+    # rebuilding the image, so forcing a rebuild there would contradict the
+    # rationale for the stage and slow the hot loop.
     schema_owners = services_with_schema(ctx)
     for svc in schema_owners:
         key = exec_service_key(ctx, env, svc)
         rc = docker.compose_run_one_off(
-            compose_file, key, ["./migrate.sh"], env_file=env_file,
+            compose_file, key, ["./migrate.sh"], build=(env == "test"),
+            env_file=env_file,
             project_dir=ctx.project_root, project_name=project_name,
         )
         if rc != 0:

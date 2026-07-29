@@ -85,6 +85,7 @@ class DockerClient(Protocol):
         command: list[str],
         *,
         env: dict[str, str] | None = None,
+        build: bool = False,
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
@@ -97,6 +98,14 @@ class DockerClient(Protocol):
         ``profiles: [exec]`` exec service, which ``up`` never starts and
         ``run`` implicitly enables. Non-interactive, like :meth:`compose_exec`.
         ``project_dir`` / ``project_name`` — see :meth:`compose_up`.
+
+        ``build=True`` adds ``--build``. Without it ``compose run`` reuses a
+        **stale** image: it builds only when the image is *absent*, never when
+        the build context has changed since. For a codebase with no non-gated
+        compose service (a scheduler-only one) that means nothing ever
+        refreshes the tag — ``up --build`` has no block of that codebase to
+        build. Callers pass True exactly where the image *is* the artifact
+        under test, i.e. in the ``test`` env (Mod 103).
         """
         ...
 

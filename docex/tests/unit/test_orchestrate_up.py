@@ -30,21 +30,98 @@ def scheduler_ctx(tmp_path):
     return load_project_context(dest)
 
 
-def test_up_dev_builds_scheduler_image_from_prod_stage(
+def test_up_dev_builds_scheduler_only_codebase_image_from_dev_stage(
     scheduler_ctx, fake_docker
 ):
-    """Mod 074: ``up dev`` builds each scheduler's self-contained job
-    image from the Dockerfile ``prod`` stage, tagged the dev-local ref
-    (byte-identical to Ofelia's INI ``image =``)."""
+    """Mod 103: ``up dev`` builds a scheduler-only codebase's image from the
+    Dockerfile ``dev`` stage, tagged the dev-local codebase ref.
+
+    Replaces ``test_up_dev_builds_scheduler_image_from_prod_stage``, which
+    pinned mod 074's ``prod``-stage build of the same tag. docex still has to
+    build this tag itself — a scheduler-only codebase has no non-gated compose
+    service, so nothing in the compose graph builds it — but the STAGE changed,
+    because the tag is codebase-keyed (Mod 096) and Mod 099's exec service
+    builds it at ``target: dev``.
+    """
+    rc = run_up(scheduler_ctx, fake_docker, env="dev")
+    assert rc == 0
+    assert (
+        "build_image",
+        str(scheduler_ctx.project_root / "core" / "nightly_cleanup"),
+        "dev",
+        "sample/nightly_cleanup:0.1.0",
+    ) in fake_docker.calls
+
+
+def test_up_dev_builds_no_prod_stage_image(scheduler_ctx, fake_docker):
+    """The mod-074 deletion pin, worth its own name: a ``prod``-stage image
+    sitting on the dev codebase tag is precisely the state that broke
+    ``docex build dev``.
+
+    ``compose run`` builds only when the image is absent, so the exec service —
+    which ``build`` / ``test`` / ``migrate`` all run inside — reused mod 074's
+    ``prod``-stage image, and the doctrinal ``prod`` stage carries neither
+    ``build.sh`` nor ``test.sh``. Nothing in ``up dev`` may build a ``prod``
+    stage.
+    """
     rc = run_up(scheduler_ctx, fake_docker, env="dev")
     assert rc == 0
     prod_builds = [
         c for c in fake_docker.calls
         if c[0] == "build_image" and c[2] == "prod"
     ]
-    assert ("build_image", str(
-        scheduler_ctx.project_root / "core" / "nightly_cleanup"
-    ), "prod", "sample/nightly_cleanup:0.1.0") in prod_builds
+    assert prod_builds == []
+
+
+def test_up_dev_does_not_rebuild_a_long_running_codebases_image(
+    scheduler_ctx, fake_docker
+):
+    """Mod 103 scoped the build loop from ``scheduler_services`` to
+    ``scheduler_only_services``. ``api`` declares a ``web`` process, so
+    ``compose up --build`` builds its tag at the same ``dev`` target — docex
+    building it again would be a redundant cache-hit build.
+
+    Asserted on ``target == "dev"`` only: ``api`` still gets its
+    ``target="build"`` call from ``_ensure_initial_dev_build``.
+    """
+    rc = run_up(scheduler_ctx, fake_docker, env="dev")
+    assert rc == 0
+    dev_builds = [
+        c for c in fake_docker.calls
+        if c[0] == "build_image" and c[2] == "dev"
+    ]
+    assert [c for c in dev_builds if c[1].endswith("/core/api")] == []
+    # Guard: the loop did run — the scheduler-only codebase is still built.
+    assert [c for c in dev_builds if c[1].endswith("/core/nightly_cleanup")]
+
+
+def test_up_test_migrate_builds_but_up_dev_does_not(sample_ctx, fake_docker):
+    """Mod 103: ``up``'s post-up migrate one-off carries ``--build`` in ``test``
+    and NOT in ``dev``.
+
+    The dev half is as load-bearing as the test half. In ``test`` the image *is*
+    the artifact under test and ``compose run`` silently reuses a stale one; in
+    ``dev`` the source arrives by bind mount and the ``dev`` stage exists so
+    ``build.sh`` can be re-invoked without an image rebuild, so ``--build``
+    there would slow the hot loop for nothing.
+    """
+    rc = run_up(sample_ctx, fake_docker, env="test")
+    assert rc == 0
+    assert [
+        c for c in fake_docker.calls if c[0] == "compose_run_one_off_build"
+    ] == [("compose_run_one_off_build", "sample-test-api-exec", ("./migrate.sh",))]
+
+    fake_docker.calls.clear()
+    rc = run_up(sample_ctx, fake_docker, env="dev")
+    assert rc == 0
+    # Guard: the migrate one-off DID happen; it just didn't ask for a build.
+    assert [
+        c for c in fake_docker.calls
+        if c[0] == "compose_run_one_off" and c[3] == ("./migrate.sh",)
+    ]
+    assert [
+        c for c in fake_docker.calls if c[0] == "compose_run_one_off_build"
+    ] == []
 
 
 def test_up_dev_passes_abs_secrets_env_file(scheduler_ctx, fake_docker):

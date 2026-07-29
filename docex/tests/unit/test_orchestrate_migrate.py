@@ -115,6 +115,32 @@ def test_migrate_test_runs_one_off_in_the_exec_service(sample_ctx, fake_docker):
     assert [c for c in fake_docker.calls if c[0] == "compose_exec"] == []
 
 
+def test_migrate_test_builds_but_migrate_dev_does_not(sample_ctx, fake_docker):
+    """Mod 103: ``migrate test``'s one-off carries ``--build``; ``migrate dev``'s
+    does not.
+
+    ``compose run`` builds only when the image is ABSENT — a stale image is
+    reused silently — and in ``test`` the image *is* the artifact being
+    migrated. In ``dev`` the source arrives by bind mount and the Dockerfile
+    ``dev`` stage exists precisely so ``build.sh`` can be re-invoked without
+    rebuilding the image, so the omission there is deliberate, not an oversight.
+    """
+    rc = run_migrate(sample_ctx, fake_docker, env="test")
+    assert rc == 0
+    assert [
+        c for c in fake_docker.calls if c[0] == "compose_run_one_off_build"
+    ] == [("compose_run_one_off_build", "sample-test-api-exec", ("./migrate.sh",))]
+
+    fake_docker.calls.clear()
+    rc = run_migrate(sample_ctx, fake_docker, env="dev")
+    assert rc == 0
+    # Guard: the one-off DID run in dev; it just didn't ask for a build.
+    assert [c for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    assert [
+        c for c in fake_docker.calls if c[0] == "compose_run_one_off_build"
+    ] == []
+
+
 def test_migrate_dev_short_circuits_on_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
         ("exit", "compose_run_one_off", "sample-dev-api-exec", ("./migrate.sh",))
