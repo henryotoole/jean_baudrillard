@@ -589,3 +589,4 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 25. `consumes` names only core process types, fully qualified as `<service>.<process>`. A bare core service name is an error, and a process type may not consume itself.
 26. `replicas` is not declared on a `scheduler` process type.
 27. `worker` and `scheduler` process types do not declare `web` in `networks`.
+28. Every process type that declares `health_check_path` also declares a `port`. The path is only meaningful against a port — the probe is issued at `http://localhost:<port><path>` — and no role fixes a default health port, deliberately: an implicit one would silently oblige the application to bind it. Without this rule the omission emits a malformed probe and surfaces as a container that never becomes healthy, rather than as a compile error.
