@@ -40,11 +40,15 @@ _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 # DATABASE_* magic refs at the SERVICE level, and a service-level ref obliges
 # every process type of that codebase to carry the readiness edge (rule 7,
 # cicl.md § Consumes Relationships § Three clarifications).
+# `consumes: [api.web]` (paired with `web`'s `consumes: [api.worker]` below)
+# gives the fixture the legal web ↔ worker cycle, so every assertion in this
+# module doubles as a witness that the field changes no emitted output.
 _WORKER = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
     "networks": ["internal"],
     "depends_on": ["appdb"],
+    "consumes": ["api.web"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
 _NIGHTLY = {
@@ -66,6 +70,7 @@ def _three_process_project(fixture: Path, tmp_path: Path) -> Path:
     doc = yaml.safe_load(infra_path.read_text())
     procs = doc["core_services"]["api"]["processes"]
     procs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
+    procs["web"]["consumes"] = ["api.worker"]
     procs["worker"] = dict(_WORKER)
     procs["nightly_cleanup"] = dict(_NIGHTLY)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
@@ -290,6 +295,32 @@ def test_40_ansible_emits_one_migration_task_per_codebase(fixed_root: Path):
     names = [t.get("name") for t in playbook[0]["tasks"]]
     migrations = [n for n in names if n and n.startswith("Run migrations for")]
     assert migrations == ["Run migrations for api-web"]
+
+
+def test_consumes_reaches_no_emitted_artifact(fixed_root: Path, elastic_root: Path):
+    """`consumes` is CI-only — contracts, health fan-out, rule 7 — and must
+    reach no compose or HCL output.
+
+    A guard, not a tautology: field translation reads `svc.model_extra` and a
+    declared pydantic field is never in it, so `consumes` *cannot* be emitted
+    today. But "is not read" and "cannot be read" look identical until someone
+    adds a read site, and this test is what tells them apart.
+
+    Env-tier only: the project-tier template carries the word in an unrelated
+    prose comment ("docex consumes credentials..."), which is not a leak.
+    """
+    for root in (fixed_root, elastic_root):
+        for env in ("dev", "test", "stage", "prod"):
+            env_dir = root / "infra" / "output" / env
+            if not env_dir.is_dir():
+                continue
+            for path in sorted(env_dir.rglob("*")):
+                if not path.is_file():
+                    continue
+                text = path.read_text(errors="replace")
+                assert "consumes" not in text, (
+                    f"`consumes` leaked into emitted output at {path}"
+                )
 
 
 # ---------------------------------------------------------------------------

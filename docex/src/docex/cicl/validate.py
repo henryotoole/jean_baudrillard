@@ -8,12 +8,15 @@ infra.yml plus the transfer tables and the foundation context:
     Rule 3: magic refs resolve.
     Rule 4: engines known + match foundation.
     Rule 6: no depends_on cycles.
-    Rule 7: magic-ref-implied deps in depends_on.
+    Rule 7: magic-ref-implied edges — `depends_on` for a backing target,
+            `consumes` for a core process type.
     Rule 8: relational_db has valid schema_owned_by.
     Rule 9: container_registry set on fixed foundation.
     Rule 10: every core service has cpu+memory (covered by pydantic;
              re-checked here as defense-in-depth).
     Rule 11: resources.gpu not declared under elastic foundation.
+    Rule 25: `consumes` names core process types, fully qualified as
+             `<service>.<process>`, and never itself.
 
 Field validation (rule 4 in transfer_tables.md: every role-specific
 field on a service is declared in the engine's ``fields:`` block) is
@@ -30,6 +33,7 @@ from typing import Any
 from docex.cicl.magic_refs import (
     MagicRefArityError,
     find_magic_refs,
+    self_consumes_message,
     self_reference_message,
     walk_strings,
 )
@@ -52,7 +56,7 @@ _STANDARD_SERVICE_FIELDS = {"processes", "secrets", "config", "env"}
 # Process level: everything ProcessType declares as a real field. Anything
 # else must be declared in the engine's `fields:` block (tt rule 4).
 _STANDARD_PROCESS_FIELDS = {
-    "role", "command", "networks", "depends_on", "port", "env",
+    "role", "command", "networks", "depends_on", "consumes", "port", "env",
     "resources", "replicas",
 }
 _STANDARD_BACKING_FIELDS = {
@@ -101,6 +105,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_role_specific_fields(doc, tables))
     issues.extend(_validate_magic_refs(doc, tables))
     issues.extend(_validate_depends_on(doc))
+    issues.extend(_validate_consumes(doc))
     issues.extend(_validate_schema_owned_by(doc))
     issues.extend(_validate_container_registry(doc))
     issues.extend(_validate_resources(doc))
@@ -276,7 +281,16 @@ def _validate_magic_refs(
     def scan(
         label: str, where_label: str, own_ref: tuple[str, str] | None,
         templates: list[str], depends_on: list[str],
+        consumes: set[str] | None,
     ) -> None:
+        """Rule 3 + rule 7 over one referencer's templates.
+
+        Rule 7 is kind-aware: ``depends_on`` answers it for a backing target,
+        ``consumes`` answers it for a core process type. ``consumes=None``
+        means the referencer is a *backing service*, which cannot answer it at
+        all — see the core branch below for why that is rule 7 correctly not
+        applying rather than a hole in it.
+        """
         for template in templates:
             for match in find_magic_refs(template):
                 try:
@@ -344,11 +358,51 @@ def _validate_magic_refs(
                             ),
                             where=where_label,
                         ))
-                    # Rule 7 is NOT checked for core targets in this mod. A
-                    # core ref must be matched by a `consumes` entry, and
-                    # `consumes` does not exist until Mod 098; `depends_on` has
-                    # been backing-only since Mod 096's rule 24, so there is
-                    # nothing correct to check against. Mod 098 owns it.
+                    # Rule 7, core half. ONE-DIRECTIONAL by construction: the
+                    # walk is over refs, looking each up in the consumes set.
+                    # There is no walk in the other direction and none may be
+                    # added — `api.web` declares `consumes: [api.worker]` for
+                    # the contract and the health fan-out while holding no ref
+                    # to the worker, because it reaches it through the broker.
+                    # A bidirectional rule would reject the most common
+                    # web/worker topology in existence.
+                    if consumes is None:
+                        # A backing service holds this ref. Rule 7 is worded
+                        # "on the referencing PROCESS TYPE"; a backing service
+                        # has no `consumes:` and (rule 24) may not depends_on a
+                        # core service, so there is nothing it could declare.
+                        # WHY skipped rather than rejected: the ref can be
+                        # perfectly legitimate — an object_store CORS origin set
+                        # to ${core_services.api.web.host} — and it is not a
+                        # CALL. Embedding a hostname in your own config implies
+                        # no readiness coupling and crosses no interface
+                        # boundary, so there is nothing for either relation to
+                        # express. This is rule 7 correctly not applying, not a
+                        # hole in it. Pinned by
+                        # test_consumes_relation.py::test_backing_referencer_*.
+                        continue
+                    dotted = ProcessRef(ref.target, ref.process).dotted
+                    if dotted not in consumes:
+                        msg = (
+                            f"process type {label!r} references {dotted!r} via "
+                            f"{ref.text} but does not list it in consumes"
+                        )
+                        if own_ref is not None and ref.target == own_ref[0]:
+                            # SAME-CODEBASE IS NOT EXEMPT. The check compares
+                            # dotted targets and never compares codebases; this
+                            # clause exists because it is the case an author
+                            # will argue with.
+                            msg += (
+                                "; same-codebase is not exempt — sharing source "
+                                "does not make it not a boundary"
+                            )
+                        issues.append(ValidationIssue(
+                            rule="rule_7_magic_ref_implies_consumes",
+                            message=(
+                                msg + ". See cicl.md § Consumes Relationships."
+                            ),
+                            where=where_label,
+                        ))
                     continue
 
                 # --- backing target ----------------------------------------
@@ -406,8 +460,9 @@ def _validate_magic_refs(
 
     # Core: one scan per process type, over its EFFECTIVE env (service-level
     # merged under process-level). A service-level `env:` ref therefore
-    # obliges EVERY process type of that codebase to carry the depends_on
-    # edge — cicl.md § Consumes Relationships § Three clarifications.
+    # obliges EVERY process type of that codebase to carry the edge ITS KIND
+    # CALLS FOR — `depends_on` for a backing target, `consumes` for a core
+    # one — cicl.md § Consumes Relationships § Three clarifications.
     for svc_name, proc_name, svc, proc in doc.all_processes():
         templates: list[str] = []
         for v in _effective_env(svc, proc).values():
@@ -428,6 +483,7 @@ def _validate_magic_refs(
             (svc_name, proc_name),
             templates,
             list(proc.depends_on or []),
+            _parsed_consumes(proc),
         )
 
     for name, svc in sorted(doc.backing_services.items()):
@@ -446,7 +502,10 @@ def _validate_magic_refs(
                     templates.append(c)
         for v in (svc.model_extra or {}).values():
             templates.extend(walk_strings(v))
-        scan(name, name, None, templates, list(svc.depends_on or []))
+        # `consumes=None`: a backing service has no such field and cannot
+        # answer rule 7 for a core target. Reasoning at the core branch's
+        # `if consumes is None` above.
+        scan(name, name, None, templates, list(svc.depends_on or []), None)
 
     return issues
 
@@ -477,7 +536,7 @@ def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
                         f"which is a core service. `depends_on` is a readiness gate and "
                         f"names backing services ONLY. Interface coupling between core "
                         f"process types is a different relation with different rules and "
-                        f"lives in `consumes:` (arriving in Mod 098). "
+                        f"lives in `consumes:`. "
                         f"See cicl.md § Depends-On Relationships."
                     ),
                     where=f"{where}.depends_on",
@@ -519,6 +578,106 @@ def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
     for n in sorted(backing):
         if color[n] == WHITE:
             dfs(n, [])
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Rule 25: `consumes` names core process types, fully qualified, not itself.
+# ---------------------------------------------------------------------------
+
+
+def _parsed_consumes(proc: ProcessType) -> set[str]:
+    """A process type's `consumes:` targets, normalized to dotted form.
+
+    Entries that do not parse are dropped rather than passed through: rule 25
+    reports each one once, and a malformed entry must not ALSO surface as a
+    mystifying rule-7 miss against a target the author plainly named.
+    """
+    out: set[str] = set()
+    for raw in (proc.consumes or []):
+        try:
+            out.add(ProcessRef.parse(raw).dotted)
+        except ValueError:
+            continue
+    return out
+
+
+def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 25. `ProcessRef.parse` is the parser — Mod 096 already wrote the
+    bare-name-is-illegal rule and its reasoning into it, and a second parser
+    would be a second place for that rule to drift."""
+    issues: list[ValidationIssue] = []
+    for svc_name, proc_name, _svc, proc in doc.all_processes():
+        label = ProcessRef(svc_name, proc_name).dotted
+        where = f"{_process_where(svc_name, proc_name)}.consumes"
+
+        def backing_message(entry: str, label: str = label) -> str:
+            return (
+                f"process type {label!r} lists {entry!r} in `consumes:`, which "
+                f"names the backing service {entry.split('.')[0]!r}. `consumes` "
+                f"is an interface edge between core process types; readiness "
+                f"coupling to a backing service lives in `depends_on:`. "
+                f"See cicl.md § Depends-On Relationships."
+            )
+
+        for raw in (proc.consumes or []):
+            # WHY the namespace is consulted before the parser: `consumes:
+            # [appdb]` is the mistake this field invites — an author reaching
+            # for the relation they know — and "a codebase has no single
+            # boundary" is the wrong answer to it.
+            if "." not in raw and raw in doc.backing_services:
+                issues.append(ValidationIssue(
+                    rule="rule_25_consumes_malformed",
+                    message=backing_message(raw), where=where,
+                ))
+                continue
+            try:
+                ref = ProcessRef.parse(raw)
+            except ValueError as exc:
+                issues.append(ValidationIssue(
+                    rule="rule_25_consumes_malformed",
+                    message=(
+                        f"process type {label!r}: invalid `consumes:` entry — "
+                        f"{exc} Rule 25 requires the same fully-qualified form "
+                        f"(cicl.md § Consumes Relationships)."
+                    ),
+                    where=where,
+                ))
+                continue
+            # Before the existence check: an author who consumes themselves
+            # should get the self message, not a redundant pair.
+            if (ref.service, ref.process) == (svc_name, proc_name):
+                issues.append(ValidationIssue(
+                    rule="rule_25_self_consumes",
+                    message=self_consumes_message(ref), where=where,
+                ))
+                continue
+            target = doc.core_services.get(ref.service)
+            if target is None:
+                message = (
+                    backing_message(raw) if ref.service in doc.backing_services
+                    else (
+                        f"process type {label!r} lists {raw!r} in `consumes:`, "
+                        f"but no core service {ref.service!r} is declared; "
+                        f"known: {sorted(doc.core_services)}"
+                    )
+                )
+                issues.append(ValidationIssue(
+                    rule="rule_25_unresolved_consumes",
+                    message=message, where=where,
+                ))
+                continue
+            if ref.process not in target.processes:
+                issues.append(ValidationIssue(
+                    rule="rule_25_unresolved_consumes",
+                    message=(
+                        f"process type {label!r} lists {raw!r} in `consumes:`, "
+                        f"but core service {ref.service!r} declares no process "
+                        f"type {ref.process!r}; known: "
+                        f"{sorted(target.processes)}"
+                    ),
+                    where=where,
+                ))
     return issues
 
 

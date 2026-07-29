@@ -123,6 +123,13 @@ class ProcessType(BaseModel):
     port: int | None = None
     # Rule 24: backing services only. A core process type here is an error.
     depends_on: list[str] = Field(default_factory=list)
+    # Rule 25: core process types only, dotted and fully qualified
+    # ("api.worker"). The interface half of the split `depends_on` used to
+    # conflate — `depends_on` is a readiness gate over backing services,
+    # `consumes` is an interface edge between core process types. CI-only:
+    # contracts, the health fan-out, and rule 7 read it; nothing is emitted
+    # from it. See cicl.md § Consumes Relationships.
+    consumes: list[str] = Field(default_factory=list)
     # Carried onto CompiledService; NOTHING is emitted from it in this mod.
     # Emission (fixed unroll + elastic desired_count) is Mod 100.
     replicas: int = Field(default=1, ge=1)

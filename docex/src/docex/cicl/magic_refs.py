@@ -134,19 +134,46 @@ class MagicRefMatch:
         return msg + " See cicl.md § Magic Refs."
 
 
+# The self-reference rule, stated once. Two rules forbid a process type from
+# pointing at itself — a magic ref (rule 3) and a `consumes` entry (rule 25) —
+# and their messages must state the RULE identically while differing in
+# consequence. A shared constant is what makes that a guarantee rather than a
+# request; the previous form was a docstring asking the next editor to keep
+# them alike.
+_SELF_REF_RULE = "A process type may not reference itself"
+
+
 def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
     """cicl.md § Magic Refs — a process type may not reference itself.
 
-    Sibling to rule 25's self-`consumes` clause (Mod 098); keep the two
-    recognizably alike if either is reworded.
+    Sibling to :func:`self_consumes_message` below (rule 25's self-`consumes`
+    clause). Both state ``_SELF_REF_RULE`` and then diverge on consequence.
     """
     return (
         f"magic ref {ref.text} in {consumer_label!r} references the process "
-        f"type itself. A process type may not reference itself: "
+        f"type itself. {_SELF_REF_RULE}: "
         f"`provides.{ref.part}` is the *internal* discovery name, so the one "
         f"plausible motive — building an absolute URL to oneself — would not "
         f"return what you expect. Use `localhost` with the process type's own "
         f"`port`. See cicl.md § Magic Refs."
+    )
+
+
+def self_consumes_message(ref: ProcessRef) -> str:
+    """cicl.md rule 25 — a process type may not consume itself.
+
+    Lives in this module, beside :func:`self_reference_message`, despite being
+    a `consumes` concern rather than a magic-ref one: the two messages must
+    state ``_SELF_REF_RULE`` identically, and co-location is what makes that
+    visible to whoever edits either. Do not "tidy" it into validate.py.
+    """
+    return (
+        f"process type {ref.dotted!r} lists itself in `consumes:`. "
+        f"{_SELF_REF_RULE}: a self-edge makes both derivations `consumes` "
+        f"feeds nonsensical — the process type would be its own contract "
+        f"provider, and its health fan-out would proxy its own `/health` at "
+        f"`/health/{ref.service}/{ref.process}`. "
+        f"See cicl.md § Consumes Relationships."
     )
 
 
