@@ -515,8 +515,9 @@ class CompiledService:
     # process-level `env:` overlay. Consumed by the migrate task definition
     # (and by Mod 099's exec service). See overview.md § Migration carrier.
     service_env: dict[str, Any] = field(default_factory=dict)
-    # Declared parallelism. Carried only — NOTHING is emitted from it in this
-    # mod. Fixed unroll and elastic desired_count are Mod 100.
+    # Declared parallelism. The DECLARED value — `effective_replicas` applies
+    # the prod-only clamp on top of it. Consumed by the fixed compose unroll
+    # and by the elastic ECS `desired_count` (Mod 100).
     replicas: int = 1
 
 
@@ -578,6 +579,25 @@ def group_by_codebase(
             continue
         groups.setdefault(svc.core_service, []).append(svc)
     return {cb: groups[cb] for cb in sorted(groups)}
+
+
+def effective_replicas(svc: CompiledService, env: str) -> int:
+    """The number of instances of ``svc`` to emit in ``env``.
+
+    The declared ``replicas`` count applies in ``prod`` only, per ``shape.md``'s
+    Runtime Shape paragraphs: "`prod` environments may also have multiple core
+    service containers running in parallel." Every other env runs exactly one
+    of everything.
+
+    WHY a function and not a pre-clamped field on ``CompiledService``: the
+    clamp needs the env, and storing the clamped value would erase the
+    distinction between *declared* and *effective*, which the rule-5 collision
+    check reads (it seeds replica suffixes off the declaration, before any env
+    exists). Both emitters call this so the prod-only rule is stated once.
+    """
+    if not svc.is_core or env != "prod":
+        return 1
+    return max(1, svc.replicas)
 
 
 def compile_env(

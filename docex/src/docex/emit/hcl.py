@@ -35,7 +35,9 @@ from typing import Any, Callable
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from docex import ELASTIC_REGION, OTEL_COLLECTOR_IMAGE
-from docex.cicl.compile import CompiledEnv, CompiledService, group_by_codebase
+from docex.cicl.compile import (
+    CompiledEnv, CompiledService, effective_replicas, group_by_codebase,
+)
 from docex.cicl.fargate import fargate_pair_from_units
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
@@ -675,7 +677,12 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(f'  cluster         = data.terraform_remote_state.project.outputs.ecs_cluster_{ctx.env}_arn')
     out.append(f'  task_definition = aws_ecs_task_definition.{svc.name}.arn')
     out.append( '  launch_type     = "FARGATE"')
-    out.append( '  desired_count   = 1')
+    # Mod 100: `replicas`, clamped to 1 outside prod. No deployment_
+    # configuration block is emitted, so ECS's defaults
+    # (minimum_healthy_percent = 100, maximum_percent = 200) apply — correct
+    # for a static count. Sidecars need no thought: the collector is a
+    # container INSIDE the task definition, so N tasks give N sidecars.
+    out.append(f'  desired_count   = {effective_replicas(svc, ctx.env)}')
     out.append("  network_configuration {")
     # WHY: single-element subnet list pins ECS task placement to the primary
     # AZ per cicl.md § Simplifications. ALB+RDS+EFS still span both AZs to

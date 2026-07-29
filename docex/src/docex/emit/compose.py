@@ -35,6 +35,7 @@ Two properties carry the design:
 
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,9 @@ from typing import Any
 import yaml
 
 from docex import OFELIA_IMAGE, OTEL_COLLECTOR_IMAGE, TRAEFIK_IMAGE
-from docex.cicl.compile import CompiledEnv, CompiledService, group_by_codebase
+from docex.cicl.compile import (
+    CompiledEnv, CompiledService, effective_replicas, group_by_codebase,
+)
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
 
@@ -203,8 +206,8 @@ class _LoggingAnchor:
 
 
 def _sidecar_block(
-    svc: CompiledService, project_dns_label: str, env: str,
-    observability_backend_url: str,
+    svc: CompiledService, project_dns_label: str,
+    observability_backend_url: str, *, paired_key: str | None = None,
 ) -> dict[str, Any]:
     """Render the paired OTel Collector sidecar block for a core service.
 
@@ -233,12 +236,21 @@ def _sidecar_block(
     127.0.0.1:13133 stays available for in-band diagnostics from
     inside the shared netns.
     """
-    sidecar_name = f"{project_dns_label}-{env}-{svc.name}-otelcol"
+    # Mod 100: `paired_key` is the compose key of the container this sidecar
+    # shares a netns with — `{global_name}-{i}` on the replica unroll,
+    # `{global_name}` otherwise. The sidecar's own name is that key plus
+    # `-otelcol`, which keeps the suffix last and `docker logs
+    # …-api-web-3-otelcol` readable. Both the name and the netns target derive
+    # from the ONE string on purpose: they must agree or the pairing breaks.
+    # For every naming policy in the tree the unqualified case is byte-
+    # identical to the pre-Mod-100 `{project_dns_label}-{env}-{svc.name}`.
+    target = paired_key or svc.global_name
+    sidecar_name = f"{target}-otelcol"
     return {
         "image": OTEL_COLLECTOR_IMAGE,
         "container_name": sidecar_name,
         "command": ["--config=/etc/otelcol/config.yaml"],
-        "network_mode": f"service:{svc.global_name}",
+        "network_mode": f"service:{target}",
         "configs": [
             {"source": "otelcol_config", "target": "/etc/otelcol/config.yaml"},
         ],
@@ -255,6 +267,27 @@ def _sidecar_block(
         "restart": "unless-stopped",
         "logging": _LoggingAnchor(),
     }
+
+
+def _replica_networks(svc: CompiledService) -> dict[str, Any]:
+    """Convert compose short-form ``networks: [a, b]`` to map form with a
+    shared alias, so all N replicas answer to the unqualified name.
+
+    This is what keeps ``provides.host`` — ``${global_service_name}`` on the
+    fixed side — working after the unroll: no container is named
+    ``{global_name}`` any more, so the name is carried by an alias that
+    Docker's embedded DNS resolves to all N containers, round-robin.
+
+    The alias goes on EVERY network the process type joins. A consumer
+    resolves the target over whichever network the two share, so restricting
+    the alias to non-``web`` networks would break a web→web reference for no
+    gain.
+
+    Called only on the unroll path (N > 1). The N == 1 path keeps the
+    short-form list byte-for-byte — there is no ``aliases`` handling anywhere
+    else in this emitter and none is added.
+    """
+    return {n: {"aliases": [svc.global_name]} for n in svc.networks}
 
 
 # Shell-safe characters that never need quoting in a command argument.
@@ -563,7 +596,31 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         else:
             block["labels"] = [project_label]
 
-        services[svc.global_name] = block
+        # Mod 100: the replica unroll. `deploy.replicas` CANNOT work here —
+        # the collector sidecar pairs via `network_mode: "service:<svc>"` to
+        # share the app container's netns, and Compose has no
+        # replica-to-replica pairing semantics, so one sidecar cannot pair
+        # with N replicas. `deploy.replicas` also forces dropping
+        # `container_name` (Compose refuses both together), costing the
+        # container-name DNS entry and the readable names operators debug
+        # with. So the compiler emits N DISTINCT compose services instead.
+        #
+        # WHY the traefik labels above are left exactly as they are: they key
+        # on the UNQUALIFIED `svc.global_name`, so N containers declare one
+        # router and one service and traefik's docker provider loads them as
+        # N servers. Qualifying them per replica would produce N routers
+        # fighting over one Host() rule. This is a constraint, not an
+        # accident — see `tests/unit/test_replicas.py`.
+        count = effective_replicas(svc, compiled.env)
+        if count == 1:
+            services[svc.global_name] = block
+        else:
+            for i in range(1, count + 1):
+                replica_key = f"{svc.global_name}-{i}"
+                replica = copy.deepcopy(block)
+                replica["container_name"] = replica_key
+                replica["networks"] = _replica_networks(svc)
+                services[replica_key] = replica
 
     # Mod 018: paired OTel Collector sidecar per core service. The sidecar
     # block uses compose's native ${VAR:-} syntax for its env, not docex's
@@ -584,14 +641,23 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # hyphens per the unified data-plane naming rule (mod 030 flipped
         # joiners; mod 032 flipped the suffix). Docker container names.
         # The project segment is the DNS-labeled form so underscored project
-        # names (e.g. `docex_smoke_elastic`) render hyphenated here (mod 046).
-        sidecar_name = (
-            f"{compiled.project_dns_label}-{compiled.env}-{svc.name}-otelcol"
-        )
-        services[sidecar_name] = _sidecar_block(
-            svc, compiled.project_dns_label, compiled.env,
-            compiled.observability_backend_url,
-        )
+        # names (e.g. `docex_smoke_elastic`) render hyphenated here (mod 046)
+        # — which is exactly what `global_name` already is.
+        #
+        # Mod 100: one sidecar per EMITTED container, not per compiled
+        # service. Under the replica unroll the app containers are keyed
+        # `{global_name}-{i}`, and each needs its own collector in its own
+        # netns.
+        count = effective_replicas(svc, compiled.env)
+        if count == 1:
+            keys = [svc.global_name]
+        else:
+            keys = [f"{svc.global_name}-{i}" for i in range(1, count + 1)]
+        for target in keys:
+            services[f"{target}-otelcol"] = _sidecar_block(
+                svc, compiled.project_dns_label,
+                compiled.observability_backend_url, paired_key=target,
+            )
 
     # Mod 099: one exec service per codebase — the per-codebase operations
     # container. See the module docstring for why it exists and what makes it

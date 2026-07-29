@@ -130,8 +130,9 @@ class ProcessType(BaseModel):
     # contracts, the health fan-out, and rule 7 read it; nothing is emitted
     # from it. See cicl.md § Consumes Relationships.
     consumes: list[str] = Field(default_factory=list)
-    # Carried onto CompiledService; NOTHING is emitted from it in this mod.
-    # Emission (fixed unroll + elastic desired_count) is Mod 100.
+    # Carried onto CompiledService as the DECLARED value; `effective_replicas`
+    # (compile.py) applies the prod-only clamp. Read by the fixed compose
+    # unroll and the elastic ECS `desired_count` (Mod 100).
     replicas: int = Field(default=1, ge=1)
     # The only field valid at both levels. A process type's effective env is
     # the service-level block merged under its own (cicl.md § Field scoping).

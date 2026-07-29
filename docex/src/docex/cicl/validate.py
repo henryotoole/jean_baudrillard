@@ -796,6 +796,10 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     other. Three of the four holes predate Mod 099; the rule is keyed on
     COLLISION rather than on a reserved-name list precisely so it covers
     every suffix the compiler learns in future with no further edit.
+
+    Mod 100 added the fifth such derivative — the ``-1``…``-N`` replica index
+    the fixed-prod compose unroll appends — seeded only where the process type
+    declares ``replicas > 1``. See the comment at its seeding site.
     """
     buckets: dict[str, list[str]] = {}
     for svc_name, proc_name, _svc, proc in doc.all_processes():
@@ -814,6 +818,32 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
             buckets.setdefault(
                 _normalized_identity(f"{ref.compiled}-otelcol"), []
             ).append(f"the collector sidecar for core process type {ref.dotted!r}")
+        # Mod 100: the replica index. On fixed-prod the compiler unrolls a
+        # process type with `replicas: N` into N compose services keyed
+        # `{compiled}-{i}`, so `api` with process types `web` (replicas: 3)
+        # and `web-1` renders `api-web-1` twice — one container silently
+        # clobbering the other, in prod-fixed only, which is the worst place
+        # to discover it.
+        #
+        # Gated on `replicas > 1` because with a count of 1 the suffix is
+        # never emitted by anything, and rule 5 does not forbid a name that
+        # collides with nothing. Unlike `-migrate` (seeded unconditionally
+        # because whether it exists depends on a DIFFERENT service's
+        # `schema_owned_by` — action at a distance), bumping `replicas` is an
+        # edit on this very process type, so the error surfaces in the
+        # reader's hand at the moment they create the collision.
+        #
+        # Seeding the container identity alone is sufficient: a sidecar
+        # collision needs `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`,
+        # which is exactly the container-level collision seeded here. Do not
+        # "complete" this by also seeding `{compiled}-{i}-otelcol`.
+        if proc.replicas > 1:
+            for i in range(1, proc.replicas + 1):
+                buckets.setdefault(
+                    _normalized_identity(f"{ref.compiled}-{i}"), []
+                ).append(
+                    f"replica {i} of core process type {ref.dotted!r}"
+                )
     for name in sorted(doc.backing_services):
         buckets.setdefault(_normalized_identity(name), []).append(
             f"backing service {name!r}"
@@ -843,8 +873,9 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
                 f"shares the {{project}}_{{env}} prefix, so the suffix must be "
                 f"unique across core process types, backing services, and the "
                 f"derivatives the compiler appends to them (-otelcol, "
-                f"-scheduler, -exec, -migrate) after naming-policy "
-                f"normalization (hyphenate + lowercase). Rename one of them. "
+                f"-scheduler, -exec, -migrate, and the -1..-N replica index) "
+                f"after naming-policy normalization (hyphenate + lowercase). "
+                f"Rename one of them. "
                 f"See cicl.md § Validation Rules rule 5."
             ),
         ))

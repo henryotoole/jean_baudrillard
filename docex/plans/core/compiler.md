@@ -139,8 +139,66 @@ depend only on codebase-scoped env — a process-level `DATABASE_*` would
 otherwise make a migration silently dependent on which process type it happened
 to inherit from.
 
-**`replicas`** is carried and nothing is emitted from it. Emission — the fixed
-unroll and elastic `desired_count` — is a later mod.
+**`replicas`** is the **declared** count. `effective_replicas(svc, env)`
+(`cicl/compile.py`) applies the clamp — the count applies in `prod` only, per
+[`shape.md`](../../../doctrine/infrastructure/shape.md)'s Runtime Shape
+paragraphs — and both emitters call it, so the prod-only rule is stated once.
+See [Replicas](#replicas).
+
+### Replicas
+
+Mod 100. The governing principle:
+
+> **A replica is an emission detail, not a topology node.**
+
+`CompiledEnv.services` is the topology model, read by `describe`, the `check.py`
+gates, `group_by_codebase`, `_named_volumes` and the network section. It holds
+**exactly one entry per process type** no matter what `replicas` says. Four
+`api.worker` replicas are one process type, one contract, one health target,
+one exec service, one image; unrolling into the compiled model would give
+`describe` four worker nodes, the contract gate four providers, and four exec
+services per codebase. The multiplication belongs to emission.
+
+**Elastic sets a count.** `render_ecs_service` emits
+`desired_count = effective_replicas(svc, ctx.env)` — one `aws_ecs_service` and
+one task definition per process type, as before. No `deployment_configuration`
+block is emitted, so ECS's defaults (`minimum_healthy_percent = 100`,
+`maximum_percent = 200`) apply, which is correct for a static count. N tasks
+give N collector sidecars automatically, because the collector is a container
+*inside* the task definition.
+
+**Fixed cannot set a count, so it unrolls.** `deploy.replicas` is unusable here
+for two independent reasons: the collector sidecar pairs via
+`network_mode: "service:<svc>"` to share the app container's netns and Compose
+has no replica-to-replica pairing semantics, so one sidecar cannot serve N
+replicas; and Compose refuses `deploy.replicas` alongside `container_name`,
+which would cost the container-name DNS entry and the readable names operators
+debug with. So `emit/compose.py` writes N distinct services keyed
+`{global_name}-{i}`, each with its own `container_name` and its own 1:1 sidecar
+`{global_name}-{i}-otelcol` on `network_mode: service:{global_name}-{i}`.
+
+Three invariants carry the unroll, each pinned by a test in
+`tests/unit/test_replicas.py`:
+
+| Invariant | Mechanism |
+| --------- | --------- |
+| `provides.host` unchanged | A shared network alias `{global_name}` on **every** network of every replica (`_replica_networks`), resolved to all N by Docker DNS, round-robin. This is the emitter's only `aliases` handling and the only place it converts compose's short-form `networks:` list to map form. |
+| Traefik aggregates | `_traefik_labels` keys on the **unqualified** `{global_name}`, so N containers declare one router and one service and traefik's docker provider loads them as N servers. Qualifying the labels per replica would produce N routers fighting over one `Host()` rule — a constraint, not an accident. |
+| Sidecar stays 1:1 on loopback | One collector per *emitted container*, so `OTEL_EXPORTER_OTLP_ENDPOINT` is identical across replicas and across foundations. |
+
+Blast radius is deliberately small: the clamp means `dev`, `test` and fixed
+`stage` unroll to exactly one and emit output **byte-identical** to the
+pre-mod-100 compiler, which is asserted directly (bytes, not parsed YAML)
+rather than argued.
+
+Two non-problems, checked and recorded so they stay non-problems.
+`_named_volumes` walks *compiled* services rather than emitted ones, so a
+volume introduced by a derived service would go undeclared — the unroll
+introduces none, because each replica copies the compiled body, and core roles
+declare no persistent storage anyway (only `tmpfs`, which is per-container and
+therefore correctly per-replica). And host-port collisions cannot arise because
+mod 096 stopped non-`web` core process types from publishing host ports and
+`web` never published — which is *why* replicas are viable on fixed at all.
 
 ### Per-codebase artifacts
 
@@ -321,7 +379,7 @@ Validation lives at two layers:
 - Per process type, the *effective* `env` (service-level merged under process-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
 - Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
 - `cicl_version` is `"2"`; `"1"` is rejected with a message naming the upgrade guide, not shimmed (rule 21, mod 096).
-- Rendered data-plane identities are unique after naming-policy normalization, across core process types, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core process rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per process type, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a process type named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
+- Rendered data-plane identities are unique after naming-policy normalization, across core process types, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core process rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per process type, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a process type named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. Mod 100 added a fifth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the process type declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
 - `depends_on` names backing services only; a core process type in a `depends_on` list is an error pointing at `consumes:` (rule 24, mod 096). Because core process types are therefore leaves, cycle detection (rule 6) runs over the backing-service graph alone. **Do not "complete" that walk over `consumes` edges.** `consumes` is a cyclic digraph by doctrine — `web ↔ worker` is the most common topology there is and is legal — so there is one DAG (`depends_on`, cycles fatal) and one cyclic digraph (`consumes`, cycles fine). The legality is asserted rather than merely unchecked (mod 098).
 - `consumes` names only core process types, fully qualified as `<service>.<process>`; a bare name is an error, not shorthand, and a process type may not consume itself (rule 25, mod 098). `ProcessRef.parse` is the parser, so the bare-name rule lives in one place — but a bare entry naming a *backing* service is dispatched on the namespace first and answered with `depends_on:`, because that is the mistake the field invites. `consumes` is validated and read by CI only (contracts, health fan-out, rule 7): it is a declared pydantic field, so it never appears in `model_extra` and therefore cannot reach field translation or any emitted artifact. A test asserts the absence in compiled output, because "is not read" and "cannot be read" look identical until someone adds a read site.
 - `replicas` is not declared on a `scheduler`, and `worker` / `scheduler` process types do not declare `web` in `networks` (rules 26 + 27, mod 096) — the latter replaces a prose-only, unenforced note.
@@ -349,7 +407,8 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
 | What the scaffold manifest render looks like | `src/docex/emit/secrets.py::render_manifest_env` |
 | What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
-| How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
+| How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed — one per *emitted container*, so one per replica; its `paired_key` is the container it shares a netns with) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
+| How `replicas` becomes containers or tasks | `src/docex/cicl/compile.py::effective_replicas` (the `prod`-only clamp) + `emit/compose.py` (the fixed unroll) + `emit/hcl.py::render_ecs_service` (`desired_count`) |
 | An engine env var's `kind` / a fixed literal / a minted policy | `tables/roles/<role>.yml` `env:` + `tables/generation_policies.yml`; loader in `cicl/transfer.py` |
 | How a minted value is generated | `src/docex/cicl/generate.py` |
 | How `$[VAR]` resolves per kind (fixed inline vs runtime ref) | `src/docex/cicl/magic_refs.py::_inline_fixed` |
