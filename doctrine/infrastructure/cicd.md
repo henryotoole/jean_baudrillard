@@ -55,9 +55,10 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	5. No merge conflicts
 3. Perform core service checks:
 	1. All core services contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
-	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml` [depends-on](./cicl.md#depends-on-relationships) relationships.
-	3. Contracts for core services on the `web` network have the mandatory [health check](./contracts.md#health-checks) endpoints.
-	4. Every `health_check_path`-declaring service's image carries `curl`.
+	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s [consumes](./cicl.md#consumes-relationships) relationships. One contract per provider process type, at `${service}.${process}.${format}.yml`.
+	3. Every `web`-network process type's contract carries the mandatory [health check](./contracts.md#health-checks) endpoints: its own `GET /health`, and a `/health/<service>/<process>` for each process type it `consumes` that is not itself on `web`. The self-`/health` assertion applies to OpenAPI providers; a `worker`'s probeability is declared by its fields, not by its AsyncAPI contract.
+	4. Every core service whose image must answer a probe carries `curl`. The declaration is per process type — any one of a codebase's process types declaring `health_check_path` qualifies the codebase — but the subject is the codebase's single image, so the gate builds and probes once per core service.
+	5. Every `consumes` target declares both `port` and `health_check_path`. Those two fields *are* its health declaration; see [contracts.md § Declared by fields](./contracts.md#declared-by-fields-not-by-the-contract).
 4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
 5. Ensure build doesn't fail.
 6. Run build test
@@ -94,11 +95,11 @@ Every core service gets a `build.sh` script. This is responsible for turning `so
 `build.sh` is the **single canonical build entry point** for every core service. It is invoked in two contexts, but it is the same script in both:
 
 1. **Inside `docker build`** (canonical, authoritative). The Dockerfile's `build` stage `COPY`s `src/` and runs `./build.sh`, depositing artifacts at a known path inside that stage. The `prod` and `test` stages then `COPY --from=build` those artifacts into the final image. This is the path that produces images shipped to `stage` and `prod`.
-2. **Inside a running `dev` container** (iteration convenience). The `dev` stage carries the same build tools. The container has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` inside it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
+2. **Inside a one-off container of the codebase's exec service** (iteration convenience). That container runs the `dev` stage, which carries the same build tools, and has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` in it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
 
 Because the authoritative build runs *inside* `docker build`, the artifact is always produced on whatever platform the image is being built for — set explicitly by `docker buildx --platform` during [`./bin/docex containerize`](#containerize-step). A developer on an arm64 Mac thus produces correct amd64 production images: the build runs under emulation inside the buildx context, not on the host. There is no path by which a host-architecture artifact can be smuggled into a prod image, because the artifact in a prod image is always produced inside the same `docker build` invocation that produces the image.
 
-The `build artifact` must always be deposited in the service's `dist/` directory — inside the container during `docker build`, or at `$pr/core/${core_service_name}/dist` on the host during dev iteration (the host folder is the bind-mount of that same path inside the dev container). It is recommended that build-tool cache *not* end up in `dist/`, as `dist/` is cleared before every rebuild.
+The `build artifact` must always be deposited in the service's `dist/` directory — inside the container during `docker build`, or at `$pr/core/${core_service_name}/dist` on the host during dev iteration (the host folder is the bind-mount of that same path inside the exec container). It is recommended that build-tool cache *not* end up in `dist/`, as `dist/` is cleared before every rebuild.
 
 The developer must write and maintain `build.sh`. They must also write the Dockerfile such that its `build` stage invokes `build.sh` — see [Core Service Containers](./infrastructure.md#core-service-containers).
 
@@ -115,17 +116,18 @@ This is what runs inside the Dockerfile during `./bin/docex containerize`, `./bi
 
 #### Process (dev iteration)
 
-This is what `./bin/docex build` performs against a running `dev` environment, refreshing artifacts without a container rebuild.
+This is what `./bin/docex build` performs for the `dev` environment, refreshing artifacts without a container rebuild.
 
-1. Ensure a dev-stage container of each target core service is available — either by reusing the running dev environment's containers, or by spawning an ephemeral dev container as needed.
-2. Remove all contents of `$pr/core/${core_service_name}/dist` on the development machine.
-3. Run `build.sh` within each core service's dev container.
+1. Remove all contents of `$pr/core/${core_service_name}/dist` on the development machine.
+2. Run `build.sh` in a one-off container of each core service's [exec service](./specifics/migrations.md#dev-and-test-mechanism) — `docker compose run --rm <project>-<env>-<core_service>-exec ./build.sh`. The exec service is the container that *is* the codebase; it is profile-gated, so no part of the dev stack needs to be running, and there is no per-process-type container to pick between.
 	+ If any return a non-0 exit code, the build has failed.
 	+ If any `dist` folder is empty afterward, the build has failed.
-4. Updated artifacts appear in the host's `dist` folder via the container's bind-mount.
+3. Updated artifacts appear in the host's `dist` folder via the container's bind-mount.
+
+No image rebuild is triggered here. Dev iteration is the hot loop, so `./bin/docex build` deliberately runs against the codebase's existing image rather than rebuilding it; a stale image is refreshed by `./bin/docex envinfra up dev`.
 
 #### `docex`
-`./bin/docex build` to refresh all core services' `dist/` folders in the running dev environment.
+`./bin/docex build` to refresh all core services' `dist/` folders in the `dev` environment.
 `./bin/docex build <core_service_name>` to refresh a specific core service.
 
 ### Build Test Step
@@ -249,7 +251,8 @@ Rollback reuses the standard [release](#release-step) machinery; what differs is
 	1. Current branch is `main`; working tree has no uncommitted changes outside `infra/output/`. Dirt under `infra/output/` is tolerated because [`docex release`](#release-step) rewrites it implicitly via its compile step — an emergency operator who just released will legitimately have output drift and shouldn't be forced to commit it before rolling back.
 	2. `v<target_version>` git tag exists in the repo.
 	3. `<target_version>` is no more than one minor version behind `project.yml`'s current version (e.g. if current is `1.5.2`, target must satisfy `>= 1.4.0`).
-	4. Container images at `<target_version>` exist in the registry for every core service.
+	4. `<target_version>`'s `infra.yml` declares a `cicl_version` this `docex` compiles. Rollback recompiles the target's `infra.yml` with the *current* compiler (step 3), so a target predating the v1 → v2 boundary cannot be rebuilt; the check reads the tag's `infra.yml` directly and aborts with a fix-forward message. See [cicl.md § CICL Version](./cicl.md#cicl-version).
+	5. Container images at `<target_version>` exist in the registry for every core service.
 2. Create an ephemeral worktree at the `v<target_version>` tag.
 3. Recompile `infra/output/<env>/` from the worktree's `infra.yml` using the current `docex`. The recompiled output lives only in the worktree.
 4. Apply the recompiled output to `<env>` using the standard [release process](#release-step) for the project's foundation, with migrations skipped:

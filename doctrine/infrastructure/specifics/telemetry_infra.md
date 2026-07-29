@@ -54,7 +54,7 @@ The sidecar's exporter destination is env-aware, implementing the dev/test vs. s
 | `stage` | `otlphttp` | `OBSERVABILITY_BACKEND_URL` with `Authorization: ${TELEMETRY_API_KEY}` | Both |
 | `prod` | `otlphttp` | `OBSERVABILITY_BACKEND_URL` with `Authorization: ${TELEMETRY_API_KEY}` | Both |
 
-In `dev` and `test`, telemetry signals are dumped to the sidecar's container stdout via otelcol's `debug` exporter. Developers and LLM agents read them with `docker compose logs -f <svc>-otelcol`. No backend setup or credentials required to run a dev stack.
+In `dev` and `test`, telemetry signals are dumped to the sidecar's container stdout via otelcol's `debug` exporter. Developers and LLM agents read them with `docker compose logs -f <svc>-<proc>-otelcol`. No backend setup or credentials required to run a dev stack.
 
 In `stage` and `prod`, signals go to the project's observability backend via OTLP over HTTPS. Authentication is API-key in HTTP header per [telemetry.md § Authentication](../telemetry.md#authentication).
 
@@ -101,15 +101,17 @@ Only one of the `debug` / `otlphttp` exporters is emitted, depending on env. Run
 
 ### Env Vars Injected on Core Services
 
-Every core service receives the doctrine-injected env vars defined in [transfer_tables.md § Per-core-service env](./transfer_tables.md#per-core-service-env-both-foundations). The full list:
+Every core service **process type** receives the doctrine-injected env vars defined in [transfer_tables.md § Per-core-service env](./transfer_tables.md#per-core-service-env-both-foundations). The full list:
 
 | Variable | Value | Notes |
 | -------- | ----- | ----- |
 | `PROJECT_VERSION` | `${project_version}` | Existing doctrine var; not telemetry-specific |
-| `OTEL_SERVICE_NAME` | `${service_name}` | OTel-standard service identity |
+| `OTEL_SERVICE_NAME` | The process type's compiled identity, `<core_service>-<process>` | OTel-standard service identity |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Same on both foundations — the paired sidecar shares the core service's network namespace, so loopback addressing is universal |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | Doctrine-fixed |
-| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name}` | Drives backend-side filtering |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name},docex.core_service=${core_service},docex.process_type=${process}` | Drives backend-side filtering |
+
+The two per-codebase artifacts — the exec container and the elastic migration task definition — carry a de-qualified identity instead; see [transfer_tables.md § Per-core-service env](./transfer_tables.md#per-core-service-env-both-foundations) for that second form.
 
 The application's OTel SDK auto-discovers all of these from its environment. No code change is required at the application layer.
 
@@ -160,7 +162,7 @@ The reachability probe runs only when `stage` or `prod` are within the check's s
 
 | Failure | Symptom | Where to look |
 | ------- | ------- | ------------- |
-| Backend unreachable at runtime | Sidecar logs export errors; in-memory queue fills; oldest signals dropped on overflow | `docker compose logs <svc>-otelcol` (fixed) / CloudWatch task logs (elastic); backend's own health page |
+| Backend unreachable at runtime | Sidecar logs export errors; in-memory queue fills; oldest signals dropped on overflow | `docker compose logs <svc>-<proc>-otelcol` (fixed) / CloudWatch task logs (elastic); backend's own health page |
 | Sidecar crashed | Core service's SDK can't reach `OTEL_EXPORTER_OTLP_ENDPOINT`; SDK buffers briefly, then drops | Sidecar container logs; on elastic, ECS task status — sidecar is `essential: false` so a crash doesn't tear down the task |
 | Sidecar config malformed at startup | Sidecar exits non-zero immediately; parse error in logs | `infra/output/<env>/...` — the rendered YAML is fully visible in compile output; compare against the spec in this document |
 | `TELEMETRY_API_KEY` missing in stage/prod env | Compile passes (it's syntactic). `docex release` succeeds but sidecar fails to start at runtime with `${env:TELEMETRY_API_KEY}` substitution error | `secrets/<env>.env` — confirm the key is present and non-empty |
@@ -176,18 +178,22 @@ Compose-level mechanics. Sidecar emitted as a paired compose service.
 
 ### Sidecar as Paired Compose Service
 
-For each core service `<svc>`, `docex compile` emits an additional compose service named `<svc>-otelcol`. The sidecar shares the core service's network namespace via compose's `network_mode: "service:<svc>"` — it does not declare its own `networks:` (mutually exclusive with `network_mode`).
+For each **emitted** core service container, `docex compile` emits an additional compose service named `<container>-otelcol`. For a process type `<proc>` of core service `<svc>` that is the container `<svc>-<proc>`, so the sidecar is `<svc>-<proc>-otelcol`; under a [replica unroll](../shape.md#fixed-foundation) each replica `<svc>-<proc>-<i>` gets its own `<svc>-<proc>-<i>-otelcol`. The pairing is therefore strictly 1:1, which is exactly why compose's `deploy.replicas` cannot be used — it has no replica-to-replica pairing semantics, so one sidecar could not serve N replicas.
+
+A `scheduler` process type gets **no** sidecar: there is no long-running container to pair with. So a codebase with a `web` process type and a nightly job emits one sidecar, for the web process — something the pre-expansion, per-service phrasing could not express.
+
+The sidecar shares its partner's network namespace via compose's `network_mode: "service:<container>"` — it does not declare its own `networks:` (mutually exclusive with `network_mode`).
 
 Netns sharing on fixed deliberately mirrors the ECS task-netns sharing on elastic — the two foundations end up with identical loopback semantics, so `OTEL_EXPORTER_OTLP_ENDPOINT` resolves to the same value on both. It also sidesteps the edge case of a core service that only joins the `web` network: the sidecar inherits whatever networks the core service joins, with no per-network choice for `docex` to make.
 
 Emitted compose entry shape (illustrative — actual emit lives in `src/docex/emit/compose.py`):
 
 ```yaml
-<svc>-otelcol:
+<svc>-<proc>-otelcol:
   image: otel/opentelemetry-collector:<digest>
-  container_name: ${project}-${env}-<svc>-otelcol
+  container_name: ${project}-${env}-<svc>-<proc>-otelcol
   command: ["--config=/etc/otelcol/config.yaml"]
-  network_mode: "service:<svc>"
+  network_mode: "service:${project}-${env}-<svc>-<proc>"
   configs:
     - source: otelcol_config
       target: /etc/otelcol/config.yaml
@@ -207,7 +213,7 @@ The compose `configs:` top-level block declares `otelcol_config` once per env, s
 
 ### Service Discovery
 
-The core service reaches its sidecar at `localhost:4318` — `network_mode: "service:<svc>"` makes the core service and the sidecar share a loopback. The compiled value of `OTEL_EXPORTER_OTLP_ENDPOINT` on the core service is therefore:
+The core service reaches its sidecar at `localhost:4318` — `network_mode: "service:<svc>-<proc>"` makes the core service and the sidecar share a loopback. The compiled value of `OTEL_EXPORTER_OTLP_ENDPOINT` on the core service is therefore:
 
 ```
 http://localhost:4318
@@ -231,7 +237,7 @@ The `${VAR:-}` syntax (with empty default) means the variables are optional from
 
 The sidecar runs otelcol's `health_check` extension on `127.0.0.1:13133`, but **no compose `healthcheck:` block is emitted** — the `otel/opentelemetry-collector` image is built `FROM scratch` and carries no probe tool (no wget, curl, or shell), so a container-level healthcheck could never succeed; emitting one would leave compose reporting the sidecar as `health: starting` forever while it actually works fine. The extension stays available for in-band diagnostics from inside the shared netns (e.g. curling `localhost:13133` from the core service's container).
 
-The core service does **not** declare a `depends_on` healthcheck on `<svc>-otelcol`. With `network_mode: "service:<svc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
+The core service does **not** declare a `depends_on` healthcheck on `<svc>-<proc>-otelcol`. With `network_mode: "service:<svc>-<proc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
 
 This means the core service does not have a guaranteed sidecar at `t=0`. The OTel SDK's default batch/retry behavior covers the brief startup window — sidecar readiness is typically 1–2 seconds, well within the SDK's queue tolerance (default queue size of 2048 spans, 5-second flush interval). Signals emitted during the startup window are buffered, not dropped.
 
@@ -245,21 +251,23 @@ Note: `dev` and `test` are always fixed per [shape.md § Shape and Environment](
 
 ### Sidecar as Paired Task Container
 
-For each core service `<svc>`, the ECS task definition contains two containers: the application container and an `<svc>-otelcol` container. They share the task netns. There is no separate ECS service for the sidecar.
+For each core service **process type** that also runs an ECS service, the task definition contains two containers: the application container and an `<svc>-<proc>-otelcol` container. They share the task netns. There is no separate ECS service for the sidecar, and N replicas give N sidecars automatically, because the collector is a container *inside* the task definition.
+
+Two task definitions carry no sidecar: a `scheduler` process type's (it emits no `ecs_service` — nothing runs continuously) and the per-codebase migration task definition.
 
 Emitted task-definition container fragment for the sidecar (illustrative):
 
 ```hcl
 container_definitions = jsonencode([
   {
-    name      = "<svc>"
+    name      = "<svc>-<proc>"
     # ... core service definition ...
     dependsOn = [
-      { containerName = "<svc>-otelcol", condition = "START" }
+      { containerName = "<svc>-<proc>-otelcol", condition = "START" }
     ]
   },
   {
-    name      = "<svc>-otelcol"
+    name      = "<svc>-<proc>-otelcol"
     image     = "otel/opentelemetry-collector:<digest>"
     essential = false
     command   = ["--config=env:OTEL_CONFIG_YAML"]
@@ -284,7 +292,7 @@ The core service reaches its sidecar at `localhost:4318` — shared task netns. 
 http://localhost:4318
 ```
 
-This is identical to the value on fixed (where compose's `network_mode: "service:<svc>"` provides the same shared-loopback effect). Application code is identical across both foundations because the URL is identical — not because the SDK abstracts away a difference.
+This is identical to the value on fixed (where compose's `network_mode: "service:<svc>-<proc>"` provides the same shared-loopback effect). Application code is identical across both foundations because the URL is identical — not because the SDK abstracts away a difference.
 
 ### Config Delivery
 
@@ -314,7 +322,7 @@ The core service declares:
 
 ```hcl
 dependsOn = [
-  { containerName = "<svc>-otelcol", condition = "START" }
+  { containerName = "<svc>-<proc>-otelcol", condition = "START" }
 ]
 ```
 
@@ -329,3 +337,16 @@ A core service with `resources: { cpu: 1.0, memory: 2GB }` in `infra.yml` produc
 The desired totals are not necessarily what the emitted task definition carries. Per [transfer_tables.md § Resources Translation](./transfer_tables.md#resources-translation), the compiler then rounds the desired `(cpu, memory)` up to the smallest Fargate-supported tier that meets or exceeds both dimensions, and surfaces the rounding in compile output. The sidecar overhead is one of several triggers for this rounding — a project that requests non-tier-aligned values itself will round the same way, with or without a sidecar.
 
 **Practical consequence of the sidecar overhead trigger.** A project requesting `cpu: 1.0` produces a desired `1.1 vCPU` after sidecar overhead, which on Fargate rounds up to the `2 vCPU` tier. Projects sensitive to this can request slightly under a Fargate tier boundary (e.g., `cpu: 0.9`) so the sidecar overhead absorbs within the same tier rather than pushing into the next one.
+
+**The overhead is per task definition, so it is per process type.** A codebase
+with a `web` and a `worker` process type produces two task definitions and pays
+the 0.1 vCPU / 128 MB twice, each rounding to its own Fargate tier independently;
+sizing is declared per process type, so this is the intended shape rather than a
+surprise. A `scheduler` process type pays it **zero** times, since it emits no
+ECS service and therefore has no sidecar to allow for.
+
+On fixed there is no tier arithmetic, but the same count applies: the number of
+collectors in an env is the **sum**, over each non-`scheduler` process type, of
+that process type's effective replica count. It is a sum and not a product,
+because `replicas` is declared per process type — a `web` with `replicas: 3`
+alongside a single `worker` yields four collectors, not six.

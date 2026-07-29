@@ -64,7 +64,7 @@ The output of this command is stored in `$pr/infra/output/${env}` on the basis o
 Describes the project infrastructure shape across all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure for a certain environment. This is purely illustrative - the purpose of this command is to show the developer the shape of infrastructure without requiring them to read config files.
 
 The formats available are:
-`dag` - Describe the infrastructure shape with a directed acyclic graph.
+`dag` - Describe the infrastructure shape with a directed graph. It renders both service relations with the edge kind distinguished: solid for [`depends_on`](./cicl.md#depends-on-relationships) (readiness), dashed for [`consumes`](./cicl.md#consumes-relationships) (interface). The graph is *directed*, not acyclic — `consumes` is a cyclic digraph by doctrine, so the rendered union may legally contain cycles; only the readiness relation on its own is acyclic. Node ids use the dotted reference form (`api.web`).
 `llm` - Describe the infrastructure in JSON-form so that an LLM can easily parse it.
 
 ### `why`
@@ -77,7 +77,7 @@ Lists every service role the transfer tables define, each with a short descripti
 
 ### `role`
 `./bin/docex role <name> [--format text|llm]`
-Describes one role: its engines (and foundations), the **provided parts** that magic refs target (`${backing_services.<svc>.<part>}`), which parts are secrets, the required `infra/secrets/<env>.env` variables, and the role-specific fields settable in `infra.yml`. This is the canonical way to discover what a magic ref can reference, since the parts live in the transfer tables rather than the doctrine prose. The `llm` format emits JSON.
+Describes one role: its engines (and foundations), the **provided parts** that magic refs target (`${backing_services.<svc>.<part>}` for a backing role, `${core_services.<svc>.<proc>.<part>}` for a core one), which parts are secrets, the required `infra/secrets/<env>.env` variables, and the role-specific fields settable in `infra.yml`. This is the canonical way to discover what a magic ref can reference, since the parts live in the transfer tables rather than the doctrine prose. The `llm` format emits JSON.
 
 ### `preinfra`
 `./bin/docex preinfra <side>`
@@ -85,7 +85,7 @@ Checks that the necessary prerequisite infrastructure resources exist for this p
 
 For example, one preinfra resource needed for the `development` side is the [`docex-ingress` bridge](./preinfra/fixed_master_network.md#the-docex-ingress-network) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
 
-The `development` side additionally verifies that each `dev` `web`-service hostname resolves in public DNS. Bringing `dev` up issues per-host Let's Encrypt certs via HTTP-01; if the hostnames don't resolve, every challenge fails and trips LE's failed-authorization rate limit (which then blocks legitimate issuance). Failing the check here — before `envinfra up dev` — surfaces missing dev DNS as an actionable preinfra gap instead of a rate-limit lockout. The operator routes `dev` DNS per [inception.md PART III](../practices/inception.md); `test` is excluded since it is not accessed over TLS.
+The `development` side additionally verifies that every `dev` `web`-network hostname resolves in public DNS — one per `web` [process type](./cicl.md#process-types), plus any `web`-network backing service, plus the bare-env host when `domain_default_process` is set. Bringing `dev` up issues per-host Let's Encrypt certs via HTTP-01; if the hostnames don't resolve, every challenge fails and trips LE's failed-authorization rate limit (which then blocks legitimate issuance). Failing the check here — before `envinfra up dev` — surfaces missing dev DNS as an actionable preinfra gap instead of a rate-limit lockout. The operator routes `dev` DNS per [inception.md PART III](../practices/inception.md); `test` is excluded since it is not accessed over TLS.
 
 Command does not fix or create preinfra. It only checks status.
 
@@ -143,12 +143,12 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 - **`copy`** is identical to [`secrets copy`](#secrets) — value-blind env→env copy, secrets/config only (**never TTE**), same-side blessed / cross-side warns / unset-source errors / target overwritten — just lower-stakes for non-secret values.
 
 ### `build`
-`./bin/docex build` to refresh `dist/` for all core services in the running dev environment.
+`./bin/docex build` to refresh `dist/` for all core services in the `dev` environment.
 `./bin/docex build <core_service_name>` to refresh a specific core service.
 
-Runs each core service's `build.sh` inside its running `dev`-stage container, depositing artifacts in `$pr/core/<service>/dist/` via bind-mount. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
+Runs each core service's `build.sh` in a one-off container of that codebase's exec service (`docker compose run --rm … ./build.sh`), depositing artifacts in `$pr/core/<service>/dist/` via bind-mount. One exec service per codebase, so there is no per-process-type container to choose between, and the dev stack need not be running. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
 
-**This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex envinfra up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source against an already-running dev environment without paying for a container rebuild. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
+**This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex envinfra up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source without paying for a container rebuild; because the exec service is profile-gated, it does not require the dev stack to be up. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
 
 ### `test`
 `./bin/docex test`
@@ -156,7 +156,7 @@ Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `
 
 ### `check`
 `./bin/docex check`
-Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, `depends_on`-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, `consumes`-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
 
 ### `merge`
 `./bin/docex merge`
@@ -168,7 +168,7 @@ Formally containerizes the build for release: `docker buildx build --platform <t
 
 ### `migrate`
 `./bin/docex migrate <env>`
-Applies database migrations for each schema-owning core service in `<env>`. For `dev` and `test`, runs `migrate.sh` inside each service's already-running container via `docker compose exec`. For `stage` and `prod` on fixed-foundation projects, runs the emitted Ansible playbook with `--tags migrate`, which spawns a one-off migrate container per schema owner on the target host using the current build image. For `stage` and `prod` on elastic-foundation projects, dispatches an ECS `RunTask` per schema owner against the migration task definition emitted by `compile`, polling each task to completion and aborting on the first non-zero container exit. Schema ownership comes from each backing service's `schema_owned_by` field; the command is a no-op when the project has no schema owners. Most of the time `migrate` runs implicitly — `envinfra up dev`, `test`, and `release` all invoke it at the appropriate point — but the command is available standalone for re-running a failed migration or for hand-driven flows. See [migrations.md](./specifics/migrations.md).
+Applies database migrations for each schema-owning core service in `<env>`. For `dev` and `test`, runs `migrate.sh` as a one-off container of each schema-owning codebase's exec service via `docker compose run --rm`. For `stage` and `prod` on fixed-foundation projects, runs the emitted Ansible playbook with `--tags migrate`, which spawns a one-off migrate container per schema owner on the target host using the current build image. For `stage` and `prod` on elastic-foundation projects, dispatches an ECS `RunTask` per schema owner against the migration task definition emitted by `compile`, polling each task to completion and aborting on the first non-zero container exit. Schema ownership comes from each backing service's `schema_owned_by` field; the command is a no-op when the project has no schema owners. Most of the time `migrate` runs implicitly — `envinfra up dev`, `test`, and `release` all invoke it at the appropriate point — but the command is available standalone for re-running a failed migration or for hand-driven flows. See [migrations.md](./specifics/migrations.md).
 
 ### `release`
 `./bin/docex release <env>`

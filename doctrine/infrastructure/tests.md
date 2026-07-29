@@ -64,7 +64,7 @@ The consumer side is *especially* tricky because it can require spinning up a se
 Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that service tests can not because service tests run isolated within a singular service. 
 
 Staging tests should at least perform the following:
-+ Liveness Checks - Each core service responds to its [health-check endpoint](./contracts.md#health-checks).
++ Liveness Checks - Each `web`-network process type responds to its own `GET /health` at its own hostname. Process types that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<service>/<process>` [fan-out](./contracts.md#fan-out) on the `web` process type that `consumes` them. `scheduler` process types are exempt — they have no long-running container to probe.
 + TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)?
 + Critical-path smoke-tests - one or two end-to-end smoke tests that span the system. These should be sufficient to ensure:
 	1. Secrets and environmental variables are wired up properly.

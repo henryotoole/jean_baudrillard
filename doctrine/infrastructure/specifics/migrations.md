@@ -14,11 +14,13 @@ Each backing service whose role uses `schema_owned_by` in `infra.yml` names a co
 
 ```
 core/<service>/
-  migrate.sh          # the shim, invoked by docex
+  migrate.sh          # the shim, invoked by docex — once per codebase
   migrations/         # the actual migration files (project tool's format)
 ```
 
 The migration tool is the project's choice — `dbmate`, `alembic`, `flyway`, `goose`, etc. `migrate.sh` is a small shim that invokes the chosen tool against the database identified by the same environment variables the service itself uses at runtime — i.e. the connection parts the service binds from the backing service's `provides:` block (in the doctrine's examples, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SSLMODE`). Because those env-var names are identical across foundations (see [transfer_tables.md § provides](./transfer_tables.md)), the same `migrate.sh` works unchanged on fixed and elastic — including `DATABASE_SSLMODE`, which is load-bearing on elastic where RDS rejects non-SSL connections under its default `pg_hba.conf`. `migrate.sh` must build its connection string from the parts rather than hardcoding `sslmode=disable` or `sslmode=require`. The shim's contract is exit-code only: `0` on success, non-zero on any failure.
+
+Migration is a **per-codebase** operation. `schema_owned_by` names a core service — a codebase — and `migrate.sh` runs once for that codebase however many [process types](../cicl.md#process-types) it declares. There is no per-process-type migration.
 
 Only one core service may own a given database. This is enforced via the `schema_owned_by` field in CICL — by this mechanism, a backing service can only have one core service that controls its schema. This invariant exists specifically to avoid race conditions where two services concurrently run migrations against the same schema.
 
@@ -30,22 +32,27 @@ Migrations are run by [`./bin/docex migrate <env>`](../docex.md#migrate), which 
 - **`./bin/docex test`**: after the `test` env's compose stack is up, before any service's `test.sh` runs. Tests always see a fully-migrated schema.
 - **`./bin/docex release <env>`** (`stage`, `prod`): after the database is reachable but before the new application code is fully rolled out. Per-env-category mechanism below.
 
-In every case, migration runs as a separate process invocation against the service's image — never on the host, never woven into the application's startup sequence. The exact invocation mechanism varies by env category — `dev`/`test` use the same mechanism on both foundations (since dev/test are always fixed-style per [shape.md § Shape and Environment](../shape.md#shape-and-environment)); `stage`/`prod` mechanism varies by foundation.
+In every case, migration runs as a separate process invocation against the codebase's image — never on the host, never woven into the application's startup sequence. The exact invocation mechanism varies by env category — `dev`/`test` use the same mechanism on both foundations (since dev/test are always fixed-style per [shape.md § Shape and Environment](../shape.md#shape-and-environment)); `stage`/`prod` mechanism varies by foundation.
 
 ## Dev and Test Mechanism
 
-For `dev` and `test` envs, on both foundations, `./bin/docex migrate <env>` runs `migrate.sh` inside each schema-owning core service's already-running container via `docker compose exec`:
+For `dev` and `test` envs, on both foundations, `./bin/docex migrate <env>` runs `migrate.sh` as a one-off container of each schema-owning **codebase's** exec service:
 
 ```bash
 docker compose -f infra/output/<env>/docker-compose.yml \
-    exec <service> /service/migrate.sh
+    run --rm <project>-<env>-<core_service>-exec ./migrate.sh
 ```
 
-The service's container is already up (it was brought up by `./bin/docex envinfra up <env>` or `./bin/docex test`), already on the env's internal network, and already carries the runtime env vars the shim needs to reach the database. `docker compose exec` reuses all of that — no separate container, no separate network attachment, no env-var rendering.
+(`./migrate.sh` is relative because the image's working directory is the fixed `/service` root — see [Core Service Containers](../infrastructure.md#core-service-containers). `--build` is added in `test` only; `dev` reuses the existing image.)
 
-The exec runs in the service's `dev`-stage (or `test`-stage) container, which carries the build tools and any migration-tool dependencies the project's `Dockerfile` declares for development. The application process itself keeps running while the exec is in flight; `migrate.sh` is invoked as an independent process inside the same container.
+The exec service is the compiled block that *is* the codebase: one per core service, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `depends_on` rewritten to `condition: service_healthy`. Two properties matter here:
 
-If `migrate.sh` exits non-zero, the env stays up and `./bin/docex migrate <env>` returns the non-zero code. The schema may be in a partial state; the operator fixes the migration and re-invokes the command. Since the env is unchanged otherwise, retry is just another exec — no env teardown or rebuild required.
+- **Nothing needs to be running.** The exec service is gated behind `profiles: [exec]` so `compose up` never starts it, while `compose run` implicitly enables the profile of the service it names. And because it gates on its backing services' healthchecks, the one-off waits for the database instead of assuming the stack is already up.
+- **It carries service-level `env:` only** — never a process type's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a process-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
+
+This also removes a question that has no good answer. A codebase with several [process types](../cicl.md#process-types) offers no principled way to pick one of their containers to `exec` into, and any rule for choosing a representative moves the migration's environment when an unrelated process type is renamed.
+
+If `migrate.sh` exits non-zero, the env stays up and `./bin/docex migrate <env>` returns the non-zero code. The schema may be in a partial state; the operator fixes the migration and re-invokes the command. Since the env is unchanged otherwise, retry is just another one-off run — no env teardown or rebuild required.
 
 ## Stage and Prod on Fixed Foundation
 
@@ -53,26 +60,23 @@ For `stage`/`prod` on fixed projects, migration is a step in the Ansible playboo
 
 ```yaml
 # Pseudo-playbook step
-- name: Run migrations
-  community.docker.docker_container:
-    name: "{{ project }}-{{ env }}-{{ service }}-migrate"
-    image: "{{ registry }}/{{ project }}/{{ service }}:{{ version }}"
-    command: /service/migrate.sh
-    networks:
-      - name: "{{ project }}-{{ env }}-internal"
-    env_file: /opt/{{ project }}/{{ env }}/.env
-    detach: false
-    auto_remove: true
-  loop: "{{ services_with_schema }}"
+- name: Run migrations for {{ svc.codebase }}
+  ansible.builtin.command:
+    cmd: >-
+      docker compose -p {{ compose_project_name }}
+      run --rm {{ svc.exec_service }} /service/migrate.sh
+  loop: "{{ codebases_with_schema }}"
 ```
 
-For each schema-owning core service, a one-off container runs `migrate.sh` using the new image. The container joins the project's existing internal network to reach the database, reads its env vars from the rendered `.env`, and exits with a status code. The old service containers are still running and serving traffic against the (about-to-be-migrated) database — see [Backward Compatibility](#backward-compatibility-requirement) below.
+For each schema-owning codebase, `compose run` starts a one-off container of that codebase's exec service using the new image. Routing production migration through the *same* exec service `dev` and `test` use is what makes the codebase-scoped-env rule hold everywhere: a rule that lapsed in `stage`/`prod` would not be a rule. The container inherits the exec service's networks and `depends_on` gates, reads its env vars from the rendered `.env`, and exits with a status code. The old service containers are still running and serving traffic against the (about-to-be-migrated) database — see [Backward Compatibility](#backward-compatibility-requirement) below.
+
+Note the path is absolute here (`/service/migrate.sh`) while `dev`/`test` use the relative `./migrate.sh`. Both resolve to the same script; the absolute form is used where the command is rendered into a playbook rather than issued against a known working directory.
 
 If any migration fails, the playbook aborts before `docker compose up -d` runs the new stack. Old containers continue serving, the release fails loudly with a clear error, and the operator can fix and re-run.
 
 ## Stage and Prod on Elastic Foundation
 
-For `stage`/`prod` on elastic projects, the compiler emits a separate "migration" ECS task definition for each schema-owning core service. Both the migration task definition and the main service task definition reference the same image — the difference is the command:
+For `stage`/`prod` on elastic projects, the compiler emits one "migration" ECS task definition per schema-owning **codebase** — family `${project}-${env}-${codebase}-migrate`, not one per process type, since `migrate.sh` runs once per codebase. Its sizing is the per-dimension **maximum** across the codebase's process types, which is order-independent (so the migration cannot be resized by renaming or adding an unrelated process type) and never under-provisions. Its environment is the codebase-scoped surface only, matching the fixed path. The migration and the application task definitions reference the same image — the difference is the command:
 
 - Main task definition: runs the application's normal entrypoint.
 - Migration task definition: runs `/service/migrate.sh` and exits.
@@ -81,7 +85,7 @@ For `stage`/`prod` on elastic projects, the compiler emits a separate "migration
 
 1. **Aggregate to SSM** (the aggregation step from [`config_and_secrets.md`](./config_and_secrets.md) — TTE, secrets, and config pushed to the `/<project>/<env>/` prefix; TTE put-if-absent).
 2. **Update the migration task definition image tag** to the new version via the AWS API (`RegisterTaskDefinition`). This does not affect any running services.
-3. **`RunTask`** the migration task definition for each service with a schema. Each task starts, pulls the new image, runs `migrate.sh` against the existing RDS, and exits. The task runs in the master VPC's primary-AZ private subnet with the project's `${project}-${env}-internal` security group so it can reach RDS.
+3. **`RunTask`** the migration task definition for each codebase with a schema. Each task starts, pulls the new image, runs `migrate.sh` against the existing RDS, and exits. The task runs in the master VPC's primary-AZ private subnet with the project's `${project}-${env}-internal` security group so it can reach RDS.
 4. **Poll for completion** via `DescribeTasks`. If any task's container exits non-zero, abort the release immediately — the application's main task definition is unchanged, so the existing service continues serving against (now-migrated) RDS.
 5. **`tofu apply`** to update the application's main task definition, triggering the ECS rolling deploy of the new application code.
 
@@ -112,7 +116,7 @@ The same requirement underlies the [rollback](../cicd.md#rollback) mechanism's "
 
 ## Caveats
 
-- **Schema ownership is enforced at compile time.** Each database backing service's `schema_owned_by` field names exactly one core service — the field is a single scalar, not a list, so a database with two competing schema owners is structurally unrepresentable. No escape hatch for "two services migrate the same schema" — that's an architectural smell the doctrine refuses to accept.
+- **Schema ownership is enforced at compile time.** Each database backing service's `schema_owned_by` field names exactly one core service — a **codebase, never a process type** — and the field is a single scalar, not a list, so a database with two competing schema owners is structurally unrepresentable. No escape hatch for "two services migrate the same schema" — that's an architectural smell the doctrine refuses to accept.
 - **Migration tool is project-local.** The doctrine does not prescribe `dbmate` or any other tool; only the shim's exit-code contract.
 - **No automatic rollback.** A failed migration leaves the database in whatever partial state the tool produced. The doctrine assumes migrations are idempotent and forward-only; fixing a partially-applied migration is the operator's responsibility.
 - **Migration runs use the new image.** This means the new code's migration files run against the existing schema — which is correct, but means a project's `migrate.sh` and migration files must work *standalone* (not depend on the application being running, not require any one-off bootstrap state).

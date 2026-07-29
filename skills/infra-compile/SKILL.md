@@ -23,9 +23,9 @@ How the compiler turns CICL into provider-ready output. **Read on demand.**
 
 [`transfer_tables.md`](../../doctrine/infrastructure/specifics/transfer_tables.md) — how each role/engine compiles per foundation: substitution grammar, naming policies, provides/env/fields, and resources translation. Read when adding an engine, writing project-local tables, or debugging a compile.
 
-[`networks.md`](../../doctrine/infrastructure/specifics/networks.md) — how a service's `networks:` list becomes docker attachment (fixed) or security-group membership (elastic). Shared with `network-design`.
+[`networks.md`](../../doctrine/infrastructure/specifics/networks.md) — how a process type's `networks:` list becomes docker attachment (fixed) or security-group membership (elastic). Shared with `network-design`.
 
-[`scheduler.md`](../../doctrine/infrastructure/specifics/scheduler.md) — the `scheduler` role: 5-field cron authoring, per-foundation translation (Ofelia on fixed, EventBridge Scheduler → ECS `RunTask` on elastic), and env/secret delivery to one-off jobs. Read when adding a cron-style scheduled service.
+[`scheduler.md`](../../doctrine/infrastructure/specifics/scheduler.md) — the `scheduler` role: 5-field cron authoring, per-foundation translation (Ofelia on fixed, EventBridge Scheduler → ECS `RunTask` on elastic), and env/secret delivery to one-off jobs. Read when adding a cron-style scheduled process type.
 
 ## Thread
 

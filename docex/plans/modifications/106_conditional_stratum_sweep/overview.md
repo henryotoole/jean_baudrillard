@@ -499,6 +499,51 @@ operator work and are **not touched**.
   `<service>.<env>.<project>`, `compose exec` in a migrate/test/build context,
   "directed acyclic graph", `cicl_version: "1"`.
 
+## Review outcome
+
+Implementation applied all 16 steps. Four things were resolved at review, all
+within this mod's scope:
+
+1. **The `cicl.md` § Three clarifications bullet was dropped.** Step 12b added a
+   fourth bullet under a heading that says "Three", and the list has no
+   introducing sentence to amend. Rather than rename an anchor-bearing heading,
+   the bullet was removed: rule 7's own amendment (Step 12a) already carries the
+   scope statement in full, so the bullet was redundant. Rule 7 was reordered so
+   the scope sentence precedes the existing "See [Consumes Relationships]…"
+   pointer. Net effect: **`cicl.md`'s diff is one edit to one rule** — the
+   minimum for a rule-of-record file this mod was told not to sweep.
+2. **`scheduler.md`'s `## What a scheduler service is` was renamed** to
+   `## What a scheduler process type is`. The blanket "rename no heading" rule
+   exists to protect anchors; a repo-wide grep confirms nothing references
+   `#what-a-scheduler-service-is`, so the rule's purpose is served by renaming a
+   heading that is now simply false. This was the one place the per-step and
+   final self-checks were mutually unsatisfiable.
+3. **Two residual falsehoods in `docex.md` § build** that the sweep missed — the
+   command summary and the closing paragraph both still said dev iteration runs
+   against a *running* dev environment. Same error the implementation corrected
+   in `cicd.md`; fixed for consistency.
+4. `scheduler.md:128`'s surviving "per scheduler service" is **correct** — it is
+   past-tense, describing the retired mod-074 world in which the unit genuinely
+   was a service. Left verbatim.
+
+Two `compose exec` hits survive in `preinfra/telemetry_preinfra.md` and are
+correct: an operator shelling into the preinfra ClickHouse container, which is
+not a migrate/test/build context.
+
+### Pre-existing defects found but not fixed
+
+Reported rather than taken, because they are outside this mod's assignment and
+predate the advance:
+
+- **`docex/plans/core/` carries 7 dangling links**, 6 of them to
+  `doctrine/infrastructure/specifics/release_mechanism.md`, which was renamed to
+  `release.md` before this advance began (`masterplan.md` ×3,
+  `release_flow.md` ×3), plus one to a non-existent `elastic_bootstrap.md` and
+  one `#implementation-order` anchor. The link bar this mod was set was
+  `doctrine/` + `skills/`, which is clean.
+- **`doctrine/chain/chain_of_command.md` has a dangling `#use-of-agents`
+  anchor.** Untracked operator work; escalated rather than touched.
+
 ## Out of scope
 
 Not taken, per the brief. `docex/test_projects/`, `upgrades/upgrade_1.6.0.md`,
