@@ -70,6 +70,11 @@ class SubprocessGitClient:
         res = self._capture(["merge-base", a, b], cwd=cwd)
         return (res or "").strip()
 
+    def show(self, cwd: Path, ref: str, path: str) -> str | None:
+        # WHY not .strip(): callers parse the result as YAML, where
+        # leading whitespace is significant.
+        return self._capture(["show", f"{ref}:{path}"], cwd=cwd)
+
     def ref_exists(self, cwd: Path, ref: str) -> bool:
         # ``rev-parse --verify --quiet`` returns 0 iff the ref resolves.
         # Non-zero (and silent stderr) means absent — which is exactly

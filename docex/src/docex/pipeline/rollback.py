@@ -6,8 +6,9 @@ version back. Reuses release machinery with migrations skipped.
 The shape is:
 
   1. Aggressively check preconditions before touching any env state
-     (branch + clean tree + tag existence + one-minor-back + every
-     core service's image present in the registry).
+     (branch + clean tree + tag existence + one-minor-back + the
+     target's CICL generation + every core service's image present in
+     the registry).
   2. Create an ephemeral worktree at ``v<target_version>``.
   3. Recompile the worktree's ``infra.yml`` with the *current* ``docex``
      so the rolled-back compose/HCL reflects today's transfer-table
@@ -21,9 +22,13 @@ from __future__ import annotations
 
 import shutil
 import sys
+from pathlib import Path
 from typing import Callable
 
+import yaml
+
 from docex.aws.client import AWSClient
+from docex.cicl.model import CURRENT_CICL_VERSION
 from docex.context import ProjectContext, load_project_context
 from docex.docker.client import DockerClient
 from docex.errors import (
@@ -117,6 +122,32 @@ def run_rollback(
     if err is not None:
         raise RollbackPreconditionFailed(err)
 
+    # WHY: rollback recompiles the target's infra.yml with the *current*
+    # docex (cicd.md § Rollback step 3), so a target written in an older
+    # CICL generation cannot be rolled back to at all. Check it here —
+    # ahead of the registry probe and well ahead of the worktree — so an
+    # operator mid-outage learns it before anything is touched, rather
+    # than from a compile error inside a worktree. Ordered ahead of the
+    # image probe by decisiveness, not just cost: a missing image can be
+    # rebuilt from the tag, a boundary crossing cannot be resolved by
+    # anything except fixing forward, so the image list would be noise.
+    # See cicl.md § CICL Version.
+    target_cicl, read_err = _target_cicl_version(
+        project_root, git=git, tag_name=tag_name,
+    )
+    if read_err is not None:
+        raise RollbackPreconditionFailed(
+            f"rollback aborted — {read_err}.\n"
+            "Nothing has been touched. Rollback recompiles the target "
+            "version's infra.yml with the current docex, so it cannot "
+            "proceed without reading it.\n\n"
+            + _FIX_FORWARD
+        )
+    if target_cicl != CURRENT_CICL_VERSION:
+        raise RollbackPreconditionFailed(
+            _boundary_message(tag_name, target_cicl)
+        )
+
     # WHY: aggregate every missing image into one diagnostic rather than
     # failing on the first miss. Under emergency pressure the operator
     # benefits from the full picture; the probes are cheap.
@@ -200,6 +231,91 @@ def run_rollback(
         )
     finally:
         cleanup_worktree(project_root, worktree, temp_branch, git)
+
+
+def _target_cicl_version(
+    project_root: Path,
+    *,
+    git: GitClient,
+    tag_name: str,
+) -> tuple[str | None, str | None]:
+    """Read ``cicl_version`` from ``infra/infra.yml`` at ``tag_name``.
+
+    Returns ``(version, read_error)`` — exactly one is non-None, except
+    that an ``infra.yml`` which parses but declares no ``cicl_version``
+    yields ``(None, None)``.
+
+    WHY a single-key read rather than ``CICLDocument`` validation: a
+    pre-v2 ``infra.yml`` fails full validation for several unrelated
+    reasons at once (no ``processes:``, ``domain_default_service``,
+    service-level ``resources:`` under ``extra="forbid"``), and which
+    one pydantic reports first decides what the operator sees. "You are
+    across the v1 boundary" is the only fact that matters here, and it
+    is the one a single-key read cannot get wrong. It also has to work
+    on a file that is not a valid CICL document at all.
+    """
+    raw = git.show(project_root, tag_name, "infra/infra.yml")
+    if raw is None:
+        return None, f"could not read infra/infra.yml at tag {tag_name!r}"
+    try:
+        doc = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        return None, (
+            f"infra/infra.yml at tag {tag_name!r} is not parseable YAML: {exc}"
+        )
+    if not isinstance(doc, dict):
+        return None, (
+            f"infra/infra.yml at tag {tag_name!r} does not parse to a mapping"
+        )
+    value = doc.get("cicl_version")
+    # WHY str(): an unquoted ``cicl_version: 2`` arrives as an int. The
+    # compiler's own model would reject that document for the type, but
+    # rollback's job here is to classify the target, not re-validate it,
+    # and calling an unquoted 2 "across the boundary" would be a lie.
+    return (None if value is None else str(value)), None
+
+
+_FIX_FORWARD = (
+    "Fix forward instead:\n"
+    "  1. On main, fix the defect and bump project.yml past the broken "
+    "version.\n"
+    "  2. ./bin/docex check  →  merge  →  containerize  →  release <env>"
+)
+
+
+def _boundary_message(tag_name: str, target_cicl: str | None) -> str:
+    """Compose the abort text for a target docex cannot compile.
+
+    Splits on *why* the target is uncompilable, because the two cases
+    call for different operator expectations: the v1 boundary is a
+    known one-release-cycle condition, an unrecognized generation is
+    not.
+    """
+    if target_cicl is None or target_cicl == "1":
+        declared = (
+            'declares cicl_version "1"'
+            if target_cicl == "1"
+            else "declares no cicl_version, so it predates the field"
+        )
+        return (
+            "rollback aborted — cannot roll back across the CICL v1→v2 "
+            "boundary.\n"
+            "Nothing has been touched.\n"
+            f"\nTarget {tag_name}'s infra/infra.yml {declared}. This docex "
+            f'compiles only cicl_version "{CURRENT_CICL_VERSION}", and '
+            "rollback recompiles the target's infra.yml with the *current* "
+            "docex (cicd.md § Rollback step 3) — so no rollback to "
+            "this target can succeed.\n\n"
+            + _FIX_FORWARD
+            + '\n\nOnce a second cicl_version "2" release exists, rollback '
+            "works normally."
+        )
+    return (
+        f"rollback aborted — target {tag_name}'s infra/infra.yml declares "
+        f"cicl_version {target_cicl!r}, which this docex does not compile "
+        f'(it compiles "{CURRENT_CICL_VERSION}").\n'
+        "Nothing has been touched.\n\n" + _FIX_FORWARD
+    )
 
 
 def _missing_images(

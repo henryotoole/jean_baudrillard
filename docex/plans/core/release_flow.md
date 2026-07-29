@@ -153,7 +153,7 @@ Rollback is intentionally a thin shell on top of release machinery rather than a
 
 - The current `ProjectContext` (on `main`, clean tree).
 - `env` — `stage` or `prod`; other values raise `EnvNotSupported`.
-- `target_version` — a SemVer string. Must resolve to a `v<target_version>` git tag and have core-service images present in the registry. Validated by preconditions before any state is touched.
+- `target_version` — a SemVer string. Must resolve to a `v<target_version>` git tag, declare a `cicl_version` the current compiler accepts, and have core-service images present in the registry. Validated by preconditions before any state is touched.
 - The same injected runners as `release` (ansible, tofu_init, tofu_apply), plus a `tofu_plan` runner for dry-run, plus `DockerClient` / `GitClient` / `AWSClient`.
 - `dry_run: bool` — the only flag on the CLI surface.
 
@@ -193,9 +193,27 @@ Order matters: cheap fail-fast first, fail-aggregated registry probe last.
 | 4 | No uncommitted changes outside `infra/output/` | `WorkingTreeDirty` |
 | 5 | `v<target_version>` tag exists locally | `RollbackPreconditionFailed` |
 | 6 | `validate_one_minor_back(current, target)` passes | `RollbackPreconditionFailed` |
-| 7 | All core-service images at `<target_version>` present in registry | `RollbackPreconditionFailed` (full list) |
+| 7 | Target tag's `infra.yml` declares a compilable `cicl_version` | `RollbackPreconditionFailed` |
+| 8 | All core-service images at `<target_version>` present in registry | `RollbackPreconditionFailed` (full list) |
 
-Step 7 is the only fail-aggregated check. `_missing_images` probes every core service, accumulates misses, and the caller raises with the complete list — under emergency pressure the operator benefits from one diagnostic showing the full gap, not a fail-fast first-match.
+Step 8 is the only fail-aggregated check. `_missing_images` probes every core service, accumulates misses, and the caller raises with the complete list — under emergency pressure the operator benefits from one diagnostic showing the full gap, not a fail-fast first-match.
+
+### The CICL-generation precondition (step 7)
+
+Step 3 of the process recompiles the target's `infra.yml` with the **current** `docex`. So a target written in a CICL generation the current compiler rejects cannot be rolled back to at all — the recompile inside the worktree would fail. `cicl.md § CICL Version` states the consequence: rollback across the v1 → v2 boundary aborts at pre-flight, before anything is applied, with a fix-forward message.
+
+`_target_cicl_version` reads `infra/infra.yml` out of the target tag via `GitClient.show` (no worktree, no checkout), `yaml.safe_load`s it, and returns the one top-level `cicl_version` key. Deliberately **not** a `CICLDocument` validation: a pre-v2 `infra.yml` fails full validation for several unrelated reasons at once (no `processes:`, `domain_default_service`, service-level `resources:` under `extra="forbid"`), and which one pydantic reports first would decide what the operator sees. "You are across the v1 boundary" is the only fact that matters, and it is the one a single-key read cannot get wrong — it also has to work on a file that is not a valid CICL document at all.
+
+Five outcomes, all raising `RollbackPreconditionFailed` so no branch can surface as a traceback: `"2"` proceeds; `"1"` and *absent* both get the v1 → v2 boundary message (a document predating the field is by definition pre-v2, and is reported as such rather than as declaring `"1"`); any other value gets a distinct unrecognized-generation message; and an `infra.yml` that is unreadable, unparseable, or not a mapping aborts naming the tag and the path.
+
+Two ordering constraints, both load-bearing:
+
+- **Before the worktree** (`:139`) — the entire point. The unit tests assert `worktree_add` was never called and the worktree path does not exist, not merely that the call returned non-zero.
+- **Before the image probe** — ordered by *decisiveness*, not only by cost. A missing image might be rebuilt from the tag; a boundary crossing cannot be resolved by anything except fixing forward, so a missing-image list would be noise at the moment noise is most expensive.
+
+`CURRENT_CICL_VERSION` (`src/docex/cicl/model.py`) is the single source of the accepted generation, shared with rule 21's validator so the two cannot drift at the next CICL bump.
+
+**The one-cycle window.** For exactly one release cycle after the CICL v2 break shipped (doctrine 1.6.0), `prod` has **no rollback path** — every extant older tag is v1. This is accepted and documented, not a defect: the alternative was a read-only flat-form parser maintained permanently to serve one code path. Once a second v2 version exists, rollback within v2 works normally.
 
 ### Worktree mechanism
 
@@ -238,6 +256,9 @@ Both return clean booleans so the precondition aggregator (`_missing_images` in 
 | -------------- | -------------- | ------------- |
 | `target version 'X' is more than one minor version behind ...` | Operator tried to go further back than doctrine permits | by design — recover via fix-forward |
 | `rollback aborted — image(s) missing in registry: ...` | Target version was never containerized, or registry retention dropped the tag | check containerize history; rebuild from the target tag if needed |
+| `rollback aborted — cannot roll back across the CICL v1→v2 boundary` | Target predates the CICL v2 break, so the current compiler cannot recompile its `infra.yml`. Expected for every target older than doctrine 1.6.0 | by design — nothing was touched; fix forward. See [the CICL-generation precondition](#the-cicl-generation-precondition-step-7) and its one-cycle window |
+| `rollback aborted — target v... declares cicl_version '3'` | Target declares a generation this `docex` does not compile — usually a `docex` older than the target, i.e. the operator is rolling *forward* by mistake | check `project.yml`'s `docex_version` pin against the target tag's |
+| `rollback aborted — could not read infra/infra.yml at tag '...'` | The tag exists but carries no `infra/infra.yml` (pre-doctrine tag, or a repo restructure since) | confirm the tag is a real release; fix forward if it predates the current layout |
 | `tofu apply` destroys an RDS / stateful backing service during rollback | Target version's `infra.yml` lacked that backing service; doctrine's narrow-window destroy risk | `deletion_protection: true` on stateful engines should gate; if not, the rollback was outside the narrow window — fix-forward instead |
 | Dry-run on elastic shows an unexpectedly empty diff | Plan ran against current SSM (rollback doesn't push in dry-run), and other resources didn't drift either | confirm target version is actually older than current via `/health` on the deployed env |
 | Fixed rollback hangs at `docker pull` of the older image | Image present in registry but unreachable from host (network or auth) | target host's `~/.docker/config.json`; same diagnostic as a regular release pull failure |
@@ -253,6 +274,9 @@ Both return clean booleans so the precondition aggregator (`_missing_images` in 
 | Dry-run behavior on elastic | `src/docex/pipeline/release.py:_release_elastic` (the `dry_run` branch) |
 | Dry-run behavior on fixed | `run_playbook`'s `check_mode=` kwarg in `src/docex/ansible/subprocess_runner.py` |
 | One-minor-back rule | `src/docex/pipeline/_worktree.py:validate_one_minor_back` |
+| Which CICL generations rollback accepts | `src/docex/cicl/model.py:CURRENT_CICL_VERSION` (shared with rule 21's validator), read by `src/docex/pipeline/rollback.py:_target_cicl_version` |
+| Rollback abort wording | `src/docex/pipeline/rollback.py:_boundary_message` / `_FIX_FORWARD` |
+| Reading a file out of a git ref without a worktree | `GitClient.show` — `src/docex/git/subprocess_client.py`; `check.py:_git_show` wraps it with a raise-on-failure contract |
 | Worktree path / branch naming convention | `src/docex/pipeline/_worktree.py` |
 
 For a new doctrine-prescribed step in rollback specifically (not in release): the seam is `run_rollback`. For a new property of "what a rollback does to the env" (e.g. a new flag on the release functions): add the parameter on `_release_fixed` / `_release_elastic` with a `False` default so the existing `release` path stays unchanged, then set it from `run_rollback`.

@@ -86,6 +86,16 @@ class GitClient(Protocol):
         Returns the empty string if no common ancestor exists."""
         ...
 
+    def show(self, cwd: Path, ref: str, path: str) -> str | None:
+        """Return the content of ``<ref>:<path>``, or None if unresolvable.
+
+        None covers every failure mode indistinguishably (bad ref, path
+        absent at that ref, not a blob) — callers that need to explain
+        the failure to an operator should phrase it as "could not read",
+        not guess which case it was.
+        """
+        ...
+
     def rebase(self, cwd: Path, onto: str) -> int:
         """``git rebase <onto>``. Returns exit code.
 

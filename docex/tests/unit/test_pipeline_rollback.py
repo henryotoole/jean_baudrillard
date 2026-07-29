@@ -298,6 +298,177 @@ def test_rollback_rejects_target_equal_or_newer(
         )
 
 
+_TAG = "v0.0.5"
+_INFRA = "infra/infra.yml"
+
+
+def _preflight_git(fake_git, *, content):
+    """fake_git configured to pass every precondition ahead of the CICL
+    check, with ``content`` scripted as the target tag's infra.yml."""
+    fake_git.branch = "main"
+    fake_git.clean = True
+    fake_git.tags = [_TAG]
+    fake_git.file_at_ref[(_TAG, _INFRA)] = content
+    return fake_git
+
+
+def test_rollback_rejects_cicl_v1_target(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """A target written in CICL v1 cannot be recompiled by this docex, so
+    rollback refuses it in pre-flight with a fix-forward message."""
+    _preflight_git(fake_git, content='cicl_version: "1"\nfoundation: fixed\n')
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    msg = str(excinfo.value)
+    assert "CICL v1→v2 boundary" in msg
+    assert "Nothing has been touched" in msg
+    assert "Fix forward" in msg
+
+
+def test_rollback_cicl_v1_aborts_before_worktree_created(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """The point of Mod 105: the refusal is pre-flight, so no worktree is
+    ever created. A non-zero return is not sufficient evidence."""
+    from docex.pipeline._worktree import worktree_path_for
+
+    _preflight_git(fake_git, content='cicl_version: "1"\nfoundation: fixed\n')
+    with pytest.raises(RollbackPreconditionFailed):
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    assert "worktree_add" not in [c[0] for c in fake_git.calls]
+    path = worktree_path_for(sample_ctx.project_root, "rollback-0.0.5")
+    assert not path.exists()
+
+
+def test_rollback_cicl_v1_aborts_before_registry_probe(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """Pins the ordering decision: the CICL check is strictly cheaper and
+    strictly more decisive than the image probe, so it runs first and the
+    operator is not shown a missing-image list for an impossible rollback."""
+    _preflight_git(fake_git, content='cicl_version: "1"\nfoundation: fixed\n')
+    with pytest.raises(RollbackPreconditionFailed):
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    assert "manifest_inspect" not in [c[0] for c in fake_docker.calls]
+    assert "ecr_image_exists" not in [c[0] for c in fake_aws.calls]
+
+
+def test_rollback_v2_target_proceeds_to_release(
+    worktree_populator, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
+):
+    """The new precondition must not become a false gate: a target that
+    explicitly declares cicl_version "2" reaches the release call."""
+    ctx, fake_git = worktree_populator
+    fake_git.file_at_ref[(_TAG, _INFRA)] = 'cicl_version: "2"\n'
+    rc = _invoke(
+        ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+        fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+    )
+    assert rc == 0
+    assert len(fake_ansible.calls) == 1
+
+
+def test_rollback_aborts_when_target_infra_yml_unreadable(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """A target with no readable infra/infra.yml is not a target rollback
+    should apply — and the operator gets a message, not a traceback."""
+    _preflight_git(fake_git, content=None)
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    assert excinfo.type is RollbackPreconditionFailed
+    msg = str(excinfo.value)
+    assert "v0.0.5" in msg
+    assert "infra/infra.yml" in msg
+    assert "Fix forward" in msg
+
+
+def test_rollback_aborts_on_unparseable_target_infra_yml(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """Broken YAML — and a top level that is not a mapping — abort with a
+    comprehensible message; no ``yaml.YAMLError`` escapes."""
+    import yaml
+
+    _preflight_git(fake_git, content='cicl_version: "2"\n  bad: [unclosed\n')
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    assert not isinstance(excinfo.value, yaml.YAMLError)
+    msg = str(excinfo.value)
+    assert "v0.0.5" in msg
+    assert "not parseable YAML" in msg
+
+    # Same band, sibling branch: parses, but not to a mapping.
+    fake_git.calls.clear()
+    fake_git.file_at_ref[(_TAG, _INFRA)] = "just a bare string\n"
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    assert "does not parse to a mapping" in str(excinfo.value)
+
+
+def test_rollback_absent_cicl_version_gets_boundary_message(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """A document predating the field is by definition pre-v2 — it gets the
+    boundary message, but must not be misreported as declaring "1"."""
+    _preflight_git(
+        fake_git, content="foundation: fixed\napex_domain: example.com\n",
+    )
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    msg = str(excinfo.value)
+    assert "CICL v1→v2 boundary" in msg
+    assert "predates the field" in msg
+    assert 'declares cicl_version "1"' not in msg
+
+
+def test_rollback_rejects_unrecognized_cicl_version(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """An unrecognized generation is not the known one-cycle v1 boundary
+    condition, so it gets a distinct message — mirroring rule 21's split."""
+    _preflight_git(fake_git, content='cicl_version: "3"\n')
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    msg = str(excinfo.value)
+    assert "'3'" in msg
+    assert "Fix forward" in msg
+    assert "v1→v2 boundary" not in msg
+
+
 def test_rollback_lists_all_missing_images(
     sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan,

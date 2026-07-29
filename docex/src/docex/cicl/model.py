@@ -23,6 +23,12 @@ _DISK_RE = _MEMORY_RE  # same format
 # permissive; engine ``naming`` rules normalize on emit.
 _SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
 
+# The one generation of the CICL format this docex compiles. Rule 21's
+# validator and rollback's pre-flight precondition both compare against
+# it — WHY: two literals for one fact would drift at the worst possible
+# moment, the next CICL generation. See cicl.md § CICL Version.
+CURRENT_CICL_VERSION = "2"
+
 
 @dataclass(frozen=True)
 class ProcessRef:
@@ -295,7 +301,7 @@ class CICLDocument(BaseModel):
         # both forms would reintroduce the flat pre-`processes:` shape as a
         # permanent second code path, to serve a migration every project
         # performs exactly once. See cicl.md § CICL Version.
-        if self.cicl_version == "2":
+        if self.cicl_version == CURRENT_CICL_VERSION:
             return self
         if self.cicl_version == "1":
             raise ValueError(
@@ -307,7 +313,7 @@ class CICLDocument(BaseModel):
             )
         raise ValueError(
             f"unknown cicl_version {self.cicl_version!r}; the current "
-            f"generation of the CICL format is \"2\"."
+            f"generation of the CICL format is {CURRENT_CICL_VERSION!r}."
         )
 
     @model_validator(mode="after")

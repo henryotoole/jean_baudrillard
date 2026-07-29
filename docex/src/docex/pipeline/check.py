@@ -293,16 +293,15 @@ def _gate_version_bumped(
 
 
 def _git_show(repo: Path, ref: str, path: str) -> str:
-    """Return the content of ``<ref>:<path>``. Uses subprocess directly via
-    the SubprocessGitClient's capture helper to keep this single-call.
+    """Return the content of ``<ref>:<path>``, raising on failure.
 
-    We intentionally route through SubprocessGitClient — the only
-    git-subprocess chokepoint — to keep the abstraction discipline.
+    Routes through ``SubprocessGitClient.show`` — the single
+    read-a-blob mechanism — and converts its ``None`` into the
+    exception shape this module's gates already catch.
     """
     from docex.git.subprocess_client import SubprocessGitClient
 
-    cli = SubprocessGitClient()
-    content = cli._capture(["show", f"{ref}:{path}"], cwd=repo)  # noqa: SLF001
+    content = SubprocessGitClient().show(repo, ref, path)
     if content is None:
         raise RuntimeError(f"git show {ref}:{path} failed")
     return content

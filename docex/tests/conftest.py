@@ -321,7 +321,18 @@ class FakeGitClient:
     tags: list[str] = field(default_factory=list)
     tag_exists_map: dict[str, bool] = field(default_factory=dict)
     merge_bases: dict[tuple, str] = field(default_factory=dict)
-    file_at_ref: dict[tuple, str] = field(default_factory=dict)
+    # Mod 105: scripted content for ``show``. Maps ``(ref, path)`` to the
+    # file's content, or to None to model "git show failed" (bad ref,
+    # path absent at that ref). A key that is absent entirely falls back
+    # to ``default_file_content``.
+    file_at_ref: dict[tuple, str | None] = field(default_factory=dict)
+    # WHY a permissive default: the fake already models "an established
+    # repo" (see ``refs``), and the only production caller reads
+    # ``cicl_version`` out of a tag during rollback pre-flight. Defaulting
+    # to a compilable stub keeps every rollback test asserting its own
+    # subject instead of acquiring boilerplate git-content setup.
+    # Boundary tests override per key.
+    default_file_content: str | None = 'cicl_version: "2"\n'
     # Refs that ``ref_exists`` should return True for. Tests scripting an
     # empty remote set this to ``set()`` (or omit ``origin/main``); the
     # default models an established repo with a populated main.
@@ -362,6 +373,16 @@ class FakeGitClient:
     def merge_base(self, cwd, a, b):
         self.calls.append(("merge_base", str(cwd), a, b))
         return self.merge_bases.get((a, b), "")
+
+    def show(self, cwd, ref, path):
+        self.calls.append(("show", str(cwd), ref, path))
+        key = (ref, path)
+        # WHY ``in`` rather than ``.get(key, default)``: it lets a test map
+        # a key explicitly to None to mean "unreadable" without that being
+        # confused with "unscripted".
+        if key in self.file_at_ref:
+            return self.file_at_ref[key]
+        return self.default_file_content
 
     def ref_exists(self, cwd, ref):
         self.calls.append(("ref_exists", str(cwd), ref))
