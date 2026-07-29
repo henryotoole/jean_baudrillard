@@ -68,7 +68,16 @@ In `src/docex/cicl/substitute.py`:
 
 In `src/docex/cicl/magic_refs.py`:
 
-- **`MagicRefResolver`** — resolves `${backing_services.<svc>.<part>}` and `${core_services.<svc>.<part>}` against the named service's engine `provides:` block. State (compile contexts, engines, foundation) is held on the resolver instance.
+- **`MagicRefResolver`** — resolves a magic ref against the named service's engine `provides:` block. State (compile contexts, engines, foundation) is held on the resolver instance. Refs to core services carry the process dimension; refs to backing services do not, because a backing service has no process types to qualify:
+
+  ```
+  ${core_services.<service>.<process>.<part>}     # four segments — api.web.host
+  ${backing_services.<service>.<part>}            # three segments — database.host
+  ```
+
+  A core ref resolves against the **compiled** identity (`api-web`), which is what `contexts` and `engines` are keyed on. A process type may not reference itself — `provides.host` is the internal discovery name, so the one plausible motive would not return what the author expects. See [`cicl.md § Magic Refs`](../../../doctrine/infrastructure/cicl.md#magic-refs).
+
+- **Parse generically, then arity-check by kind** (mod 097). `_MAGIC_RE` matches *any* `${core_services.…}` / `${backing_services.…}`, whatever its body; the body is split on `.` and its segment count checked against the kind by one shared generator, so the two wrong-arity messages cannot drift apart. This is deliberate rather than a widened pattern: whether a string **is** a magic ref must be decided independently of whether that ref is **well-formed**. When the two were coupled, a four-segment ref — or any ref carrying a `-` in a name — matched neither `_MAGIC_RE` nor `substitute._COMPILE_RE` and was written verbatim into the emitted compose/HCL as literal `${…}` text. That is silent corruption of infrastructure config, not a message-quality problem, and generic capture is what closes it structurally.
 
 ## Substitution grammar — three layers, three resolvers
 
@@ -76,7 +85,7 @@ The doctrine spec is in [`transfer_tables.md § Substitution Grammar`](../../../
 
 | Syntax | Stage | Resolver |
 | ------ | ----- | -------- |
-| `${var}` | compile time | `compile.py` + `cicl/substitute.py`. Compile errors if unresolved. |
+| `${var}` | compile time | `compile.py` + `cicl/substitute.py`. Compile errors if unresolved. Names admit letters, digits, `.`, `_`, `-`; there is **no** escape form for a literal `${…}` (mod 097). |
 | `$[var]` | runtime (container start) | Emitted verbatim. Translates to compose `${VAR}` (fixed) or an ECS `secrets[]` entry (elastic). |
 | `@<expr>` | tofu apply | Emitted as HCL (after stripping `@`). Compile errors if a `@<expr>` appears on the fixed branch. |
 
@@ -251,7 +260,7 @@ Validation lives at two layers:
 - Every engine is permitted on the target foundation.
 - Every `naming:` value references a defined policy (mod 005).
 - Every backing-service name avoids the engine's `reserved_names` (mod 006 extended postgres's list).
-- Every magic-ref dependency between services has a matching `depends_on` declaration.
+- Every magic-ref dependency on a **backing service** has a matching `depends_on` declaration (rule 7). Rule 7's other half — a ref to a **core process type** must be matched by a `consumes` entry — is unenforceable until `consumes` exists, since `depends_on` has been backing-only since rule 24; a core ref is checked for existence (service, process type, and part) but not yet for its edge.
 - A minted var's `policy:` names a defined `generation_policies` entry (rule 13, load-time — mod 076).
 - `kind: fixed` ⇒ a `value` and no `policy`; `kind: minted` ⇒ a `policy` and no `value` (rule 14, mod 076).
 - Per process type, the *effective* `env` (service-level merged under process-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).

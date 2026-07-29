@@ -20,9 +20,10 @@ The output of a substitution is a ``RenderedValue`` carrying:
 Emitters use these to translate to compose's ``${...}`` form or to
 ECS's ``secrets[]`` block, and to know whether to quote an HCL value.
 
-Magic refs (``${backing_services.X.Y}``) live in ``magic_refs.py`` and
-are resolved *before* this module is called, by inlining the referenced
-``provides:`` template into the substitution context.
+Magic refs (``${core_services.X.P.Y}`` and ``${backing_services.X.Y}``)
+live in ``magic_refs.py`` and are resolved *before* this module is
+called, by inlining the referenced ``provides:`` template into the
+substitution context.
 """
 
 from __future__ import annotations
@@ -34,8 +35,17 @@ from typing import Any
 from docex.errors import HCLInFixedError, SubstitutionError
 
 
-# ${name} or ${a.b.c} — letters, digits, '.', '_'.
-_COMPILE_RE = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_.]*)\}")
+# ${name} or ${a.b.c} — letters, digits, '.', '_', '-'.
+#
+# WHY '-': without it a ${...} carrying a hyphen matched NOTHING — not this
+# pattern, not magic_refs._MAGIC_RE — and was emitted verbatim into the
+# compose/HCL output instead of failing. Magic refs are now claimed by
+# magic_refs regardless of charset; this residual case is a mistyped
+# compile-time variable (${env-name} for ${env_name}), which now raises rather
+# than being emitted literally. There is NO escape form for a genuinely literal
+# ${a-b}: the grammar has exactly ${var}, $[var], @expr. Do not invent one here
+# — that is a doctrine change.
+_COMPILE_RE = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_.-]*)\}")
 # $[NAME] — runtime pass-through.
 _RUNTIME_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
 

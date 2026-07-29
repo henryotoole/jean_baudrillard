@@ -2,8 +2,11 @@
 
 A *magic ref* is a compile-time variable in ``infra.yml`` of the form
 
-    ${backing_services.<service_name>.<part_name>}
-    ${core_services.<service_name>.<part_name>}
+    ${core_services.<service>.<process>.<part>}     # four segments
+    ${backing_services.<service>.<part>}            # three segments
+
+The asymmetry is honest rather than accidental: a backing service has no
+process types, so there is nothing to qualify.
 
 It resolves by:
 
@@ -25,7 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from docex.cicl.model import BackingService, CICLDocument, CoreService
+from docex.cicl.model import BackingService, CICLDocument, CoreService, ProcessRef
 from docex.cicl.substitute import (
     HCLLiteral,
     RenderedValue,
@@ -36,23 +39,128 @@ from docex.cicl.transfer import EngineEntry, TransferTables
 from docex.errors import SubstitutionError
 
 
-# Matches the magic-ref form ``${kind.name.part}`` where:
-#   kind ∈ {core_services, backing_services}
-_MAGIC_RE = re.compile(
-    r"\$\{(core_services|backing_services)\.([a-zA-Z][a-zA-Z0-9_-]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\}"
-)
+# Matches ANY ``${<kind>.<body>}`` where kind ∈ {core_services,
+# backing_services}. Deliberately body-agnostic: whether a string IS a magic
+# ref must be decided independently of whether that ref is WELL-FORMED.
+#
+# WHY: the previous pattern hard-coded three segments and an identifier
+# charset, so a four-segment ref, or any ref carrying a '-' in a name, matched
+# neither this pattern nor substitute._COMPILE_RE and was emitted into the
+# compose/HCL output as literal '${...}' text — silent corruption of
+# infrastructure config rather than a compile error. Claiming every
+# kind-prefixed ref here and arity-checking after the split is what closes it.
+_MAGIC_RE = re.compile(r"\$\{(core_services|backing_services)\.([^{}$]*)\}")
 
 # Same shape as substitute._RUNTIME_RE — a ``$[VAR]`` runtime ref.
 _RUNTIME_REF_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
 
 
+# Segment counts are stated the way cicl.md states them — INCLUDING the kind
+# segment. A core ref is four segments; the body this module splits is three.
+_REF_FORM = {
+    "core_services": "${core_services.<service>.<process>.<part>}",
+    "backing_services": "${backing_services.<service>.<part>}",
+}
+_REF_BODY_SEGMENTS = {"core_services": 3, "backing_services": 2}
+_REF_SEGMENT_WORD = {"core_services": "four-segment", "backing_services": "three-segment"}
+
+
+class MagicRefArityError(SubstitutionError):
+    """A magic ref whose segment count is wrong for its kind."""
+
+
+@dataclass(frozen=True)
+class ParsedMagicRef:
+    kind: str
+    target: str
+    process: str | None  # None for backing services — they have no processes
+    part: str
+    raw: str  # the literal "${...}" text, for messages
+
+    @property
+    def text(self) -> str:
+        """Canonical rendering — the form the author should have written."""
+        if self.process is None:
+            return f"${{{self.kind}.{self.target}.{self.part}}}"
+        return f"${{{self.kind}.{self.target}.{self.process}.{self.part}}}"
+
+
+@dataclass(frozen=True)
+class MagicRefMatch:
+    """One raw ``${<kind>.<body>}`` hit, not yet arity-checked."""
+
+    kind: str
+    body: str
+    raw: str
+
+    @property
+    def segments(self) -> list[str]:
+        return self.body.split(".")
+
+    def parse(self) -> ParsedMagicRef:
+        """Arity-check by kind. Raises MagicRefArityError."""
+        segs = self.segments
+        if len(segs) != _REF_BODY_SEGMENTS[self.kind] or not all(s.strip() for s in segs):
+            raise MagicRefArityError(self._arity_message())
+        if self.kind == "core_services":
+            return ParsedMagicRef(self.kind, segs[0], segs[1], segs[2], self.raw)
+        return ParsedMagicRef(self.kind, segs[0], None, segs[1], self.raw)
+
+    def _arity_message(self) -> str:
+        segs = self.segments
+        msg = (
+            f"magic ref {self.raw} is malformed: `{self.kind}` refs take the "
+            f"{_REF_SEGMENT_WORD[self.kind]} form `{_REF_FORM[self.kind]}`."
+        )
+        if self.kind == "core_services":
+            if len(segs) == 2 and all(s.strip() for s in segs):
+                msg += (
+                    f" Did you mean "
+                    f"${{core_services.{segs[0]}.<process>.{segs[1]}}}?"
+                )
+            msg += (
+                " A codebase has no single boundary, so a bare core service "
+                "name has no answer."
+            )
+        else:
+            msg += (
+                " A backing service has no process types, so there is nothing "
+                "to qualify."
+            )
+            if len(segs) == 3 and all(s.strip() for s in segs):
+                msg += (
+                    f" Did you mean ${{backing_services.{segs[0]}.{segs[2]}}}?"
+                )
+        return msg + " See cicl.md § Magic Refs."
+
+
+def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
+    """cicl.md § Magic Refs — a process type may not reference itself.
+
+    Sibling to rule 25's self-`consumes` clause (Mod 098); keep the two
+    recognizably alike if either is reworded.
+    """
+    return (
+        f"magic ref {ref.text} in {consumer_label!r} references the process "
+        f"type itself. A process type may not reference itself: "
+        f"`provides.{ref.part}` is the *internal* discovery name, so the one "
+        f"plausible motive — building an absolute URL to oneself — would not "
+        f"return what you expect. Use `localhost` with the process type's own "
+        f"`port`. See cicl.md § Magic Refs."
+    )
+
+
 @dataclass
 class MagicRefDependency:
-    """One ``${kind.name.part}`` reference detected during compile."""
+    """One magic ref detected during compile."""
 
-    consumer: str  # service name doing the referencing
+    # The COMPILED identity of whatever holds the ref: 'api-web' for a core
+    # process type (Mod 096 re-keyed contexts/engines onto it), the service
+    # name for a backing service.
+    consumer: str
     kind: str  # 'core_services' | 'backing_services'
-    target: str  # service name being referenced
+    target: str  # service being referenced — the CODEBASE name for core
+    target_process: str | None  # process type; None for backing targets
     part: str  # the provides[] part referenced
 
 
@@ -71,8 +179,8 @@ class MagicRefResolver:
     deps: list[MagicRefDependency] = field(default_factory=list)
     runtime_refs: dict[str, set[str]] = field(default_factory=dict)
 
-    # Cycle guard.
-    _resolving: set[tuple[str, str, str]] = field(default_factory=set)
+    # Cycle guard, keyed on (kind, target, process, part).
+    _resolving: set[tuple[str, str, str | None, str]] = field(default_factory=set)
 
     def resolve_in_string(
         self,
@@ -94,27 +202,39 @@ class MagicRefResolver:
         # First pass: handle magic refs.
         def magic_repl(m: re.Match[str]) -> str:
             nonlocal raw_hcl_flag
-            kind, target, part = m.group(1), m.group(2), m.group(3)
-            self.deps.append(
-                MagicRefDependency(consumer=consumer, kind=kind, target=target, part=part)
-            )
+            ref = MagicRefMatch(
+                kind=m.group(1), body=m.group(2), raw=m.group(0)
+            ).parse()  # MagicRefArityError propagates — it IS the message
 
-            key = (kind, target, part)
+            # cicl.md § Magic Refs: a process type may not reference itself.
+            if (
+                ref.kind == "core_services"
+                and ProcessRef(ref.target, ref.process).compiled == consumer
+            ):
+                raise SubstitutionError(self_reference_message(ref, consumer))
+
+            self.deps.append(MagicRefDependency(
+                consumer=consumer, kind=ref.kind, target=ref.target,
+                target_process=ref.process, part=ref.part,
+            ))
+
+            key = (ref.kind, ref.target, ref.process, ref.part)
             if key in self._resolving:
                 raise SubstitutionError(
-                    f"cyclic magic-ref chain through {kind}.{target}.{part}"
+                    f"cyclic magic-ref chain through {ref.text}"
                 )
             self._resolving.add(key)
             try:
-                rendered = self._resolve_part(kind, target, part)
+                rendered = self._resolve_part(ref)
             finally:
                 self._resolving.discard(key)
 
             if rendered.value == "":
                 raise SubstitutionError(
-                    f"magic ref ${{{kind}.{target}.{part}}} in {consumer!r} "
-                    f"resolved to an empty value — {target!r}'s {part!r} field "
-                    f"is unset and the engine declares no default for it."
+                    f"magic ref {ref.text} in {consumer!r} "
+                    f"resolved to an empty value — {ref.target!r}'s "
+                    f"{ref.part!r} field is unset and the engine declares no "
+                    f"default for it."
                 )
             runtime_refs.update(rendered.runtime_refs)
             if rendered.raw_hcl:
@@ -149,60 +269,71 @@ class MagicRefResolver:
         self.runtime_refs.setdefault(consumer, set()).update(rendered.runtime_refs)
         return rendered
 
-    def _resolve_part(self, kind: str, target: str, part: str) -> RenderedValue:
-        # Look up target service.
-        if kind == "core_services":
-            # Mod 096: `contexts`/`engines` are keyed on the two-segment
-            # compiled identity, so a bare core ref could only ever fail
-            # here. Fail with the same message the validator gives rather
-            # than the generic "no engine resolved" it would otherwise hit.
-            # Mod 097 makes the four-segment form resolve.
+    def _resolve_part(self, ref: ParsedMagicRef) -> RenderedValue:
+        # `key` is what contexts/engines are keyed on: the two-segment compiled
+        # identity for a core process type (Mod 096), the bare name for a
+        # backing service.
+        if ref.kind == "core_services":
+            svc = self.doc.core_services.get(ref.target)
+            if svc is None:
+                raise SubstitutionError(
+                    f"magic ref {ref.text} -> unknown core service "
+                    f"{ref.target!r}; known: {sorted(self.doc.core_services)}"
+                )
+            if ref.process not in svc.processes:
+                raise SubstitutionError(
+                    f"magic ref {ref.text} -> core service {ref.target!r} "
+                    f"declares no process type {ref.process!r}; known: "
+                    f"{sorted(svc.processes)}"
+                )
+            key = ProcessRef(ref.target, ref.process).compiled
+        elif ref.kind == "backing_services":
+            if ref.target not in self.doc.backing_services:
+                raise SubstitutionError(
+                    f"magic ref {ref.text} -> unknown service {ref.target!r}"
+                )
+            key = ref.target
+        else:  # pragma: no cover — the pattern admits no other kind
             raise SubstitutionError(
-                f"magic ref ${{core_services.{target}.{part}}} names a bare "
-                f"core service. Refs to core services carry the process "
-                f"dimension: ${{core_services.<service>.<process>.<part>}} — "
-                f"did you mean ${{core_services.{target}.<process>.{part}}}? "
-                f"A codebase has no single boundary, so a bare name has no "
-                f"answer. See cicl.md § Magic Refs."
-            )
-        elif kind == "backing_services":
-            svc = self.doc.backing_services.get(target)
-        else:
-            raise SubstitutionError(
-                f"magic ref kind must be core_services or backing_services, got {kind!r}"
-            )
-        if svc is None:
-            raise SubstitutionError(
-                f"magic ref ${{{kind}.{target}.{part}}} -> unknown service {target!r}"
+                f"magic ref kind must be core_services or backing_services, "
+                f"got {ref.kind!r}"
             )
 
-        engine = self.engines.get(target)
+        engine = self.engines.get(key)
         if engine is None:
             raise SubstitutionError(
-                f"magic ref ${{{kind}.{target}.{part}}} -> no engine resolved for service {target!r}"
+                f"magic ref {ref.text} -> no engine resolved for {key!r}"
             )
 
         provides = engine.provides_for(self.foundation)
-        if part not in provides:
+        if not provides:
             raise SubstitutionError(
-                f"magic ref ${{{kind}.{target}.{part}}} -> engine "
-                f"{engine.engine!r} does not expose part {part!r} on "
-                f"{self.foundation}; known: {sorted(provides)}"
+                f"magic ref {ref.text} -> the {engine.role!r} role's "
+                f"{engine.engine!r} engine exposes no parts on "
+                f"{self.foundation}: it publishes no discovery surface and "
+                f"therefore cannot be the target of a magic ref."
+            )
+        if ref.part not in provides:
+            raise SubstitutionError(
+                f"magic ref {ref.text} -> engine {engine.engine!r} does not "
+                f"expose part {ref.part!r} on {self.foundation}; known: "
+                f"{sorted(provides)}"
             )
 
-        template = provides[part]
-        target_ctx = self.contexts.get(target, {})
+        template = provides[ref.part]
+        target_ctx = self.contexts.get(key, {})
 
         # Resolve any magic refs inside the provides template (rare but allowed).
         # We pass through resolve_in_string for the target as consumer.
         if _MAGIC_RE.search(template):
             return self._inline_fixed(
-                self.resolve_in_string(template, consumer=target), engine
+                self.resolve_in_string(template, consumer=key), engine
             )
 
         # Plain substitution against the *target's* context.
         return self._inline_fixed(
-            substitute_string(template, target_ctx, foundation=self.foundation), engine
+            substitute_string(template, target_ctx, foundation=self.foundation),
+            engine,
         )
 
     def _inline_fixed(
@@ -238,12 +369,18 @@ class MagicRefResolver:
         )
 
 
-def find_magic_refs(template: str) -> list[tuple[str, str, str]]:
-    """Return all ``(kind, target, part)`` tuples in ``template``.
+def find_magic_refs(template: str) -> list[MagicRefMatch]:
+    """Return every raw magic-ref match in ``template``, unparsed.
 
-    Useful for dependency analysis without performing resolution.
+    Matches are returned *without* arity checking so callers can decide how a
+    malformed ref surfaces: the resolver lets ``parse()`` raise, the validator
+    catches ``MagicRefArityError`` into a ``ValidationIssue``. One message,
+    two surfaces.
     """
-    return [(m.group(1), m.group(2), m.group(3)) for m in _MAGIC_RE.finditer(template)]
+    return [
+        MagicRefMatch(kind=m.group(1), body=m.group(2), raw=m.group(0))
+        for m in _MAGIC_RE.finditer(template)
+    ]
 
 
 def walk_strings(node: Any) -> list[str]:

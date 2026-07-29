@@ -471,16 +471,17 @@ def test_21_service_level_reserved_key_reported_once_not_per_process():
 
 
 # ---------------------------------------------------------------------------
-# 22 — a bare (three-segment) core magic ref.
+# 22 — a bare (three-segment) core magic ref, caught by the shared arity
+# checker (Mod 097 folded 096's dedicated rule id into `rule_3_magic_ref_arity`).
 # ---------------------------------------------------------------------------
 
 
-def test_22_bare_core_magic_ref_rejected_with_four_segment_hint():
+def test_22_bare_core_magic_ref_rejected_with_arity_message():
     src = _with_process_env(
         _BASE, "          UPSTREAM: ${core_services.api.host}\n"
     )
     issues = validate_document(_doc(src), _tables())
-    hits = [i for i in issues if i.rule == "rule_3_bare_core_magic_ref"]
+    hits = [i for i in issues if i.rule == "rule_3_magic_ref_arity"]
     assert hits
     assert "${core_services.<service>.<process>.<part>}" in hits[0].message
 

@@ -37,6 +37,17 @@ def test_undefined_compile_time_raises():
     assert "missing" in str(exc.value)
 
 
+def test_hyphenated_compile_var_raises_rather_than_passing_through():
+    """Regression pin (Mod 097). `_COMPILE_RE` excluded '-', so a mistyped
+    `${env-name}` matched no pattern at all and survived substitution into
+    the emitted compose/HCL as literal text. It must fail loudly instead.
+    Note there is no escape form for a genuinely literal `${a-b}`; the
+    grammar has exactly ${var}, $[var], @expr."""
+    with pytest.raises(SubstitutionError) as exc:
+        substitute_string("${some-var}", {}, foundation="fixed")
+    assert "some-var" in str(exc.value)
+
+
 def test_compile_time_with_dotted_name():
     # Magic-ref-like dotted names are parsed by the compile-time matcher,
     # but resolved via the magic-ref layer. For substitute_string alone,

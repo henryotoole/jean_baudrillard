@@ -27,7 +27,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from docex.cicl.magic_refs import find_magic_refs, walk_strings
+from docex.cicl.magic_refs import (
+    MagicRefArityError,
+    find_magic_refs,
+    self_reference_message,
+    walk_strings,
+)
 from docex.cicl.model import (
     BackingService,
     CICLDocument,
@@ -269,40 +274,92 @@ def _validate_magic_refs(
     issues: list[ValidationIssue] = []
 
     def scan(
-        label: str, where_label: str, own_name: str,
+        label: str, where_label: str, own_ref: tuple[str, str] | None,
         templates: list[str], depends_on: list[str],
     ) -> None:
         for template in templates:
-            for kind, target, part in find_magic_refs(template):
-                # Ruling 3 (Mod 096): a bare core-service magic ref names a
-                # codebase, which after process expansion has no single
-                # boundary to resolve against. Mod 097 makes the four-segment
-                # form resolve; until then this is an honest failure rather
-                # than a "no engine resolved" crash in the resolver.
-                if kind == "core_services":
+            for match in find_magic_refs(template):
+                try:
+                    ref = match.parse()
+                except MagicRefArityError as exc:
                     issues.append(ValidationIssue(
-                        rule="rule_3_bare_core_magic_ref",
-                        message=(
-                            f"magic ref ${{core_services.{target}.{part}}} in "
-                            f"{where_label!r} names a bare core service. Refs to core "
-                            f"services carry the process dimension: "
-                            f"${{core_services.<service>.<process>.<part>}} — did you mean "
-                            f"${{core_services.{target}.<process>.{part}}}? A codebase has no "
-                            f"single boundary, so a bare name has no answer. "
-                            f"See cicl.md § Magic Refs."
-                        ),
+                        rule="rule_3_magic_ref_arity",
+                        message=f"{exc} (referenced by {label!r})",
                         where=where_label,
                     ))
                     continue
 
+                # --- core target -------------------------------------------
+                if ref.kind == "core_services":
+                    if own_ref is not None and (ref.target, ref.process) == own_ref:
+                        issues.append(ValidationIssue(
+                            rule="rule_3_self_magic_ref",
+                            message=self_reference_message(ref, label),
+                            where=where_label,
+                        ))
+                        continue
+                    target_core = doc.core_services.get(ref.target)
+                    if target_core is None:
+                        issues.append(ValidationIssue(
+                            rule="rule_3_unresolved_magic_ref",
+                            message=(
+                                f"magic ref {ref.text} in {label!r} references "
+                                f"unknown core service {ref.target!r}"
+                            ),
+                            where=where_label,
+                        ))
+                        continue
+                    target_proc = target_core.processes.get(ref.process)
+                    if target_proc is None:
+                        issues.append(ValidationIssue(
+                            rule="rule_3_unresolved_magic_ref",
+                            message=(
+                                f"magic ref {ref.text} in {label!r}: core "
+                                f"service {ref.target!r} declares no process "
+                                f"type {ref.process!r}; known: "
+                                f"{sorted(target_core.processes)}"
+                            ),
+                            where=where_label,
+                        ))
+                        continue
+                    # The part must be exposed by an engine of the target
+                    # process's role. Collected across foundations, exactly as
+                    # the backing branch does — validate_document has no
+                    # foundation.
+                    core_exposed: set[str] = set()
+                    try:
+                        role_engines = tables.role(target_proc.role)
+                    except Exception:
+                        role_engines = {}
+                    for entry in role_engines.values():
+                        for part_name in (entry.provides or {}).keys():
+                            core_exposed.add(part_name)
+                    if ref.part not in core_exposed:
+                        issues.append(ValidationIssue(
+                            rule="rule_3_unresolved_magic_ref",
+                            message=(
+                                f"magic ref {ref.text} in {label!r}: role "
+                                f"{target_proc.role!r} does not expose part "
+                                f"{ref.part!r}; known: {sorted(core_exposed)}"
+                            ),
+                            where=where_label,
+                        ))
+                    # Rule 7 is NOT checked for core targets in this mod. A
+                    # core ref must be matched by a `consumes` entry, and
+                    # `consumes` does not exist until Mod 098; `depends_on` has
+                    # been backing-only since Mod 096's rule 24, so there is
+                    # nothing correct to check against. Mod 098 owns it.
+                    continue
+
+                # --- backing target ----------------------------------------
                 # Rule 3: target service exists.
-                target_svc = doc.backing_services.get(target)
+                target_svc = doc.backing_services.get(ref.target)
                 if target_svc is None:
                     issues.append(ValidationIssue(
                         rule="rule_3_unresolved_magic_ref",
                         message=(
-                            f"magic ref ${{{kind}.{target}.{part}}} in service "
-                            f"{label!r} references unknown service {target!r}"
+                            f"magic ref {ref.text} in service "
+                            f"{label!r} references unknown service {ref.target!r}"
                         ),
                         where=where_label,
                     ))
@@ -322,24 +379,26 @@ def _validate_magic_refs(
                     # Across all foundations: collect any part keys present.
                     for part_name in (entry.provides or {}).keys():
                         exposed.add(part_name)
-                if part not in exposed:
+                if ref.part not in exposed:
                     issues.append(ValidationIssue(
                         rule="rule_3_unresolved_magic_ref",
                         message=(
-                            f"magic ref ${{{kind}.{target}.{part}}} in {label!r}: "
-                            f"engine(s) {cands!r} do not expose part {part!r}; "
-                            f"known: {sorted(exposed)}"
+                            f"magic ref {ref.text} in {label!r}: "
+                            f"engine(s) {cands!r} do not expose part "
+                            f"{ref.part!r}; known: {sorted(exposed)}"
                         ),
                         where=where_label,
                     ))
 
-                # Rule 7: depends_on must include the target.
-                if target != own_name and target not in (depends_on or []):
+                # Rule 7: depends_on must include the target. The self-case
+                # only ever meant anything for a backing consumer, whose
+                # `label` IS its own name.
+                if ref.target != label and ref.target not in (depends_on or []):
                     issues.append(ValidationIssue(
                         rule="rule_7_magic_ref_implies_depends_on",
                         message=(
-                            f"service {label!r} references {target!r} via "
-                            f"${{{kind}.{target}.{part}}} but does not list "
+                            f"service {label!r} references {ref.target!r} via "
+                            f"{ref.text} but does not list "
                             f"it in depends_on"
                         ),
                         where=where_label,
@@ -366,7 +425,7 @@ def _validate_magic_refs(
         scan(
             ProcessRef(svc_name, proc_name).dotted,
             _process_where(svc_name, proc_name),
-            svc_name,
+            (svc_name, proc_name),
             templates,
             list(proc.depends_on or []),
         )
@@ -387,7 +446,7 @@ def _validate_magic_refs(
                     templates.append(c)
         for v in (svc.model_extra or {}).values():
             templates.extend(walk_strings(v))
-        scan(name, name, name, templates, list(svc.depends_on or []))
+        scan(name, name, None, templates, list(svc.depends_on or []))
 
     return issues
 

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from docex.cicl.magic_refs import MagicRefResolver, find_magic_refs
+from docex.cicl.magic_refs import (
+    MagicRefArityError,
+    MagicRefResolver,
+    find_magic_refs,
+)
 from docex.cicl.model import (
     BackingService,
     CICLDocument,
@@ -13,14 +17,15 @@ from docex.cicl.model import (
     Resources,
 )
 from docex.cicl.transfer import EngineEntry, EnvVarSpec, TransferTables
+from docex.cicl.validate import validate_document
 from docex.errors import SubstitutionError
 
 
-def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineEntry]:
-    """Build a resolver wired up to a minimal postgres engine.
+def _engines() -> dict[str, EngineEntry]:
+    """One EngineEntry per compiled identity in the synthetic topology.
 
-    Returns (resolver, db_engine) so tests can pre-populate engines
-    in arbitrary topologies.
+    Fresh objects per call: tests that rewrite a `provides` template (the
+    cycle test) must not leak into their neighbours.
     """
     db_engine = EngineEntry(
         role="relational_db",
@@ -45,16 +50,48 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
         },
         naming="rds",
     )
-    api_engine = EngineEntry(
-        role="web",
-        engine="container",
-        foundation="both",
-        provides={
-            "host": {"fixed": "${global_service_name}", "elastic": "${global_service_name}"},
-        },
-        naming="ecs",
+
+    def _container(role: str, provides: dict) -> EngineEntry:
+        return EngineEntry(
+            role=role, engine="container", foundation="both",
+            provides=provides, naming="ecs",
+        )
+
+    host_part = {
+        "host": {"fixed": "${global_service_name}", "elastic": "${global_service_name}"},
+    }
+    return {
+        "db": db_engine,
+        # A hyphenated backing service — same engine shape, different context.
+        "my-db": _db_engine_like(db_engine),
+        "api-web": _container("web", dict(host_part)),
+        "api-worker": _container("worker", dict(host_part)),
+        # Rule-of-record free behavior: `scheduler` publishes no discovery
+        # surface at all, so it can never be a magic-ref target.
+        "api-nightly_cleanup": _container("scheduler", {}),
+        "my-api-web": _container("web", dict(host_part)),
+    }
+
+
+def _db_engine_like(src: EngineEntry) -> EngineEntry:
+    """A second, independent postgres EngineEntry with the same shape."""
+    return EngineEntry(
+        role=src.role, engine=src.engine, foundation=src.foundation,
+        provides={k: dict(v) for k, v in src.provides.items()},
+        env=dict(src.env), naming=src.naming,
     )
-    doc = CICLDocument(
+
+
+def _make_doc(foundation: str = "fixed") -> CICLDocument:
+    def _proc(role: str, **kw) -> ProcessType:
+        return ProcessType(
+            role=role,
+            command=["python", "/service/dist/root.py"],
+            resources=Resources(cpu=1.0, memory="2GB"),
+            **kw,
+        )
+
+    return CICLDocument(
         cicl_version="2",
         foundation=foundation,
         apex_domain="example.com",
@@ -64,13 +101,21 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
             "api": CoreService(
                 env={},
                 processes={
-                    "web": ProcessType(
-                        role="web",
-                        command=["python", "/service/dist/root.py"],
-                        networks=["web", "internal"],
-                        resources=Resources(cpu=1.0, memory="2GB"),
-                        depends_on=["db"],
-                        port=8080,
+                    "web": _proc(
+                        "web", networks=["web", "internal"],
+                        depends_on=["db"], port=8080,
+                    ),
+                    "worker": _proc("worker", networks=["internal"]),
+                    "nightly_cleanup": _proc("scheduler", networks=["internal"]),
+                },
+            ),
+            # Hyphenated names are legal and must round-trip through both
+            # regexes — see test_hyphenated_names_round_trip.
+            "my-api": CoreService(
+                env={},
+                processes={
+                    "web": _proc(
+                        "web", networks=["web", "internal"], port=8080,
                     ),
                 },
             ),
@@ -84,46 +129,84 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
                 port=5432,
                 schema_owned_by="api",
             ),
+            "my-db": BackingService(
+                role="relational_db",
+                networks=["internal"],
+                engine="postgres",
+                version="15",
+                port=5432,
+                schema_owned_by="api",
+            ),
         },
     )
-    tables = TransferTables(
+
+
+def _make_tables(engines: dict[str, EngineEntry]) -> TransferTables:
+    return TransferTables(
         by_role={
-            "relational_db": {"postgres": db_engine},
-            "web": {"container": api_engine},
+            "relational_db": {"postgres": engines["db"]},
+            "web": {"container": engines["api-web"]},
+            "worker": {"container": engines["api-worker"]},
+            "scheduler": {"container": engines["api-nightly_cleanup"]},
         }
     )
+
+
+def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineEntry]:
+    """Build a resolver wired up to a minimal postgres engine.
+
+    Returns (resolver, db_engine) so tests can pre-populate engines
+    in arbitrary topologies.
+    """
+    engines = _engines()
+    doc = _make_doc(foundation)
+    tables = _make_tables(engines)
+
+    def _ctx(name: str, port: int, role: str) -> dict:
+        return {
+            "name": name,
+            "global_service_name": f"p-dev-{name}",
+            "port": port,
+            "project_name": "p", "env_name": "dev", "role_name": role,
+            "env_subdomain": "dev.example.com",
+        }
+
     resolver = MagicRefResolver(
         doc=doc,
         tables=tables,
         foundation=foundation,
         contexts={
             # Mod 096: keyed on the compiled identity, matching the compiler.
-            "api-web": {
-                "name": "api-web",
-                "global_service_name": "p-dev-api-web",
-                "port": 8080,
-                "project_name": "p", "env_name": "dev", "role_name": "web",
-                "env_subdomain": "dev.example.com",
-            },
-            "db": {
-                "name": "db",
-                "global_service_name": "p-dev-db",
-                "port": 5432,
-                "project_name": "p", "env_name": "dev", "role_name": "relational_db",
-                "env_subdomain": "dev.example.com",
-            },
+            "api-web": _ctx("api-web", 8080, "web"),
+            "api-worker": _ctx("api-worker", 8080, "worker"),
+            "api-nightly_cleanup": _ctx("api-nightly_cleanup", 8080, "scheduler"),
+            "my-api-web": _ctx("my-api-web", 8080, "web"),
+            "db": _ctx("db", 5432, "relational_db"),
+            "my-db": _ctx("my-db", 5432, "relational_db"),
         },
-        engines={"api-web": api_engine, "db": db_engine},
+        engines=engines,
     )
-    return resolver, db_engine
+    return resolver, engines["db"]
 
 
 def test_find_magic_refs():
-    refs = find_magic_refs("a ${backing_services.x.y} b ${core_services.z.w} c")
-    assert refs == [
-        ("backing_services", "x", "y"),
-        ("core_services", "z", "w"),
+    refs = find_magic_refs(
+        "a ${backing_services.x.y} b ${core_services.z.p.w} c"
+    )
+    assert [(m.kind, m.body) for m in refs] == [
+        ("backing_services", "x.y"),
+        ("core_services", "z.p.w"),
     ]
+
+
+def test_find_magic_refs_matches_malformed_refs():
+    """Capture is body-agnostic on purpose: whether a string IS a magic ref
+    is decided independently of whether it is WELL-FORMED. A malformed ref
+    must still be *seen*, or it falls through and is emitted verbatim."""
+    refs = find_magic_refs("${core_services.api.host}")
+    assert [(m.kind, m.body) for m in refs] == [("core_services", "api.host")]
+    with pytest.raises(MagicRefArityError):
+        refs[0].parse()
 
 
 def test_resolve_simple_magic_ref():
@@ -228,3 +311,164 @@ def test_resolve_sslmode_part_compile_time_constant():
     assert rendered_elastic.value == "require"
     assert rendered_elastic.raw_hcl is False
     assert rendered_elastic.runtime_refs == set()
+
+
+# ---------------------------------------------------------------------------
+# Mod 097 — four-segment core refs.
+# ---------------------------------------------------------------------------
+
+
+def test_four_segment_core_ref_resolves():
+    for foundation in ("fixed", "elastic"):
+        resolver, _ = _make_resolver(foundation=foundation)
+        rendered = resolver.resolve_in_string(
+            "${core_services.api.web.host}", consumer="api-worker"
+        )
+        assert rendered.value == "p-dev-api-web", foundation
+
+
+def test_three_segment_core_ref_arity_message():
+    resolver, _ = _make_resolver()
+    with pytest.raises(MagicRefArityError) as exc:
+        resolver.resolve_in_string(
+            "${core_services.api.host}", consumer="api-worker"
+        )
+    msg = str(exc.value)
+    assert "${core_services.<service>.<process>.<part>}" in msg
+    assert "Did you mean ${core_services.api.<process>.host}?" in msg
+
+
+def test_four_segment_backing_ref_arity_message():
+    resolver, _ = _make_resolver()
+    with pytest.raises(MagicRefArityError) as exc:
+        resolver.resolve_in_string(
+            "${backing_services.db.web.host}", consumer="api-web"
+        )
+    msg = str(exc.value)
+    assert "${backing_services.<service>.<part>}" in msg
+    assert "no process types" in msg
+    assert "Did you mean ${backing_services.db.host}?" in msg
+
+    # The two arity messages come from one generator and must stay
+    # recognizable siblings.
+    with pytest.raises(MagicRefArityError) as core_exc:
+        resolver.resolve_in_string(
+            "${core_services.api.host}", consumer="api-worker"
+        )
+    for m in (msg, str(core_exc.value)):
+        assert m.endswith("See cicl.md § Magic Refs.")
+
+
+def test_hyphenated_names_round_trip():
+    """Regression pin. A hyphen used to decide whether a ref was *seen* at
+    all: `${core_services.my-api.web.host}` matched neither _MAGIC_RE nor
+    _COMPILE_RE and was written verbatim into the emitted compose/HCL."""
+    resolver, _ = _make_resolver()
+    core = resolver.resolve_in_string(
+        "${core_services.my-api.web.host}", consumer="api-web"
+    )
+    assert core.value == "p-dev-my-api-web"
+    assert "${" not in core.value
+
+    backing = resolver.resolve_in_string(
+        "${backing_services.my-db.host}", consumer="api-web"
+    )
+    assert backing.value == "p-dev-my-db"
+    assert "${" not in backing.value
+
+
+def test_self_reference_rejected():
+    resolver, _ = _make_resolver()
+    with pytest.raises(SubstitutionError) as exc:
+        resolver.resolve_in_string(
+            "${core_services.api.web.host}", consumer="api-web"
+        )
+    assert "localhost" in str(exc.value)
+
+
+def test_cycle_through_two_processes_of_one_codebase():
+    resolver, _ = _make_resolver()
+    resolver.engines["api-web"].provides["host"] = {
+        "fixed": "${core_services.api.worker.host}",
+        "elastic": "${core_services.api.worker.host}",
+    }
+    resolver.engines["api-worker"].provides["host"] = {
+        "fixed": "${core_services.api.web.host}",
+        "elastic": "${core_services.api.web.host}",
+    }
+    with pytest.raises(SubstitutionError) as exc:
+        resolver.resolve_in_string(
+            "${core_services.api.web.host}", consumer="my-api-web"
+        )
+    assert "cyclic magic-ref chain" in str(exc.value)
+
+
+def test_scheduler_process_ref_rejected():
+    """Free behavior, pinned deliberately: `scheduler` engines declare
+    `provides: {}`, so a scheduler process type publishes no discovery
+    surface and cannot be a magic-ref target. This test exists so that a
+    future change to tables/roles/scheduler.yml cannot silently open it."""
+    resolver, _ = _make_resolver()
+    with pytest.raises(SubstitutionError) as exc:
+        resolver.resolve_in_string(
+            "${core_services.api.nightly_cleanup.host}", consumer="api-web"
+        )
+    assert "exposes no parts" in str(exc.value)
+
+
+def test_dependency_records_target_process():
+    resolver, _ = _make_resolver()
+    resolver.resolve_in_string(
+        "${core_services.api.web.host}", consumer="api-worker"
+    )
+    resolver.resolve_in_string(
+        "${backing_services.db.host}", consumer="api-worker"
+    )
+    recorded = [
+        (d.consumer, d.target, d.target_process, d.part) for d in resolver.deps
+    ]
+    assert ("api-worker", "api", "web", "host") in recorded
+    assert ("api-worker", "db", None, "host") in recorded
+
+
+# ---------------------------------------------------------------------------
+# Mod 097 — the same rules on the validator surface.
+# ---------------------------------------------------------------------------
+
+
+def _rule_3_issues(
+    template: str, *, service: str = "api", process: str = "worker"
+) -> list:
+    """Validate a doc carrying ``template`` in one process type's env.
+
+    Filters to rule 3 — the synthetic document trips unrelated rules, which
+    is expected and not this mod's business.
+    """
+    doc = _make_doc()
+    doc.core_services[service].processes[process].env["UPSTREAM"] = template
+    issues = validate_document(doc, _make_tables(_engines()))
+    return [i for i in issues if i.rule.startswith("rule_3_")]
+
+
+def test_validator_accepts_four_segment_core_ref():
+    assert _rule_3_issues("${core_services.api.web.host}") == []
+
+
+def test_validator_flags_three_segment_core_ref_arity():
+    hits = _rule_3_issues("${core_services.api.host}")
+    assert [i.rule for i in hits] == ["rule_3_magic_ref_arity"]
+    assert "${core_services.<service>.<process>.<part>}" in hits[0].message
+
+
+def test_validator_flags_unknown_process_of_known_codebase():
+    hits = _rule_3_issues("${core_services.api.nope.host}")
+    assert [i.rule for i in hits] == ["rule_3_unresolved_magic_ref"]
+    assert "declares no process type 'nope'" in hits[0].message
+    assert "nightly_cleanup" in hits[0].message
+    assert "worker" in hits[0].message
+
+
+def test_validator_flags_self_reference():
+    hits = _rule_3_issues("${core_services.api.web.host}", process="web")
+    assert [i.rule for i in hits] == ["rule_3_self_magic_ref"]
+    assert "localhost" in hits[0].message
