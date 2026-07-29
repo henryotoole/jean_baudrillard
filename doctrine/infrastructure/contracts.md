@@ -60,11 +60,13 @@ The point of sourcing liveness from the loop is that a separate liveness thread 
 
 #### Fan-out
 
-Each `web`-network process type must additionally expose the health of everything it talks to, at:
+Each `web`-network process type must additionally expose the health of everything it talks to that is not itself publicly reachable, at:
 
 `/health/<service>/<process>` — returns `{version: "x.x.x"}` for that process type.
 
-The fan-out set is the **union of `consumes` and [`depends_on`](./cicl.md#depends-on-relationships)**, not `depends_on` alone. The union matters: a web edge does not `depends_on` its worker (it needs the *broker* up, not the consumer), so keying off `depends_on` would silently stop requiring `/health/api/worker` — and a dead consumer is invisible from outside, because requests keep returning 200 while work piles up behind them.
+The fan-out set is **`consumes`**, restricted to targets not themselves on the `web` network. A target on `web` is publicly reachable and answers its own `/health` at its own hostname, so there is nothing for a consumer to proxy — that is what "expose the health of those that aren't" means above.
+
+`consumes` is the source rather than [`depends_on`](./cicl.md#depends-on-relationships) because a web edge does not `depends_on` its worker: it needs the *broker* up, not the consumer. Keying off `depends_on` would silently stop requiring `/health/api/worker`, and a dead consumer is invisible from outside because requests keep returning 200 while work piles up behind them. (This rule was once written as the *union* of the two, from a time when `depends_on` could still name a core service. [Rule 24](./cicl.md#validation-rules) has since restricted `depends_on` to backing services, which have no `<service>/<process>` form at all, so the union's second arm can no longer contribute a target. It is stated as `consumes` alone so nobody restores an arm that cannot fire.)
 
 **One hop only.** `/health/<service>/<process>` proxies the target's *self* `/health` with a short hard timeout. It never calls the target's own fan-out endpoints. Without this rule the legal `web ↔ worker` cycle in [`consumes`](./cicl.md#consumes-relationships) recurses.
 

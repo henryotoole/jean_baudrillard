@@ -539,3 +539,57 @@ def test_14_consumes_on_a_backing_service_is_rejected_as_undeclared():
     hits = [i for i in _all(src) if i.rule == "tt_rule_4_undeclared_field"]
     assert hits
     assert "consumes" in hits[0].message
+
+
+# ---------------------------------------------------------------------------
+# Mod 101 — rule 25's scheduler clause. `contracts.md § Health Checks` states
+# "a scheduler is never a `consumes` target" as fact; until Mod 101 nothing
+# enforced it, so `consumes: [jobs.nightly]` validated clean and the contract /
+# health gates had to work AROUND the gap.
+# ---------------------------------------------------------------------------
+
+
+_NIGHTLY = """\
+      nightly:
+        role: scheduler
+        command: ["python", "-m", "x"]
+        networks: [internal]
+        schedule: "0 3 * * *"
+        resources:
+          cpu: 0.5
+          memory: 512MB
+"""
+
+
+def test_consumes_scheduler_rejected():
+    src = _src(
+        _api(web=_proc("web", "web", consumes=["jobs.nightly"])),
+        _codebase("jobs", _NIGHTLY),
+    )
+    hits = _hits(src, "rule_25_consumes_scheduler")
+    assert len(hits) == 1
+    assert hits[0].rule == "rule_25_consumes_scheduler"
+    assert "jobs.nightly" in hits[0].message
+    assert "scheduler" in hits[0].message
+    assert hits[0].where == "core_services.api.processes.web.consumes"
+
+
+def test_consumes_non_scheduler_in_the_same_document_is_clean():
+    """The negative half: the clause fires on the scheduler target and on
+    nothing else, so a legal edge in the same document stays silent."""
+    src = _src(
+        _api(web=_proc("web", "web", consumes=["api.worker"])),
+        _codebase("jobs", _NIGHTLY),
+    )
+    assert _issues(src) == []
+
+
+def test_consumes_scheduler_reported_once_not_alongside_an_unresolved():
+    """One entry, one issue: the existence check `continue`s before the role
+    check can also fire."""
+    src = _src(
+        _api(web=_proc("web", "web", consumes=["jobs.missing"])),
+        _codebase("jobs", _NIGHTLY),
+    )
+    hits = _hits(src, "rule_25_")
+    assert [i.rule for i in hits] == ["rule_25_unresolved_consumes"]

@@ -124,7 +124,7 @@ class VersionAlreadyReleased(DocexError):
 
 
 class ContractMissing(DocexError):
-    """A required ``infra/contracts/<svc>.<fmt>.yml`` is absent."""
+    """A required ``infra/contracts/<svc>.<proc>.<fmt>.yml`` is absent."""
 
 
 class ContractInvalid(DocexError):

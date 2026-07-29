@@ -160,7 +160,7 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `project.yml` — name, version, docex_version
 - `infra/infra.yml` — CICL source
 - `infra/transfer_tables/` (optional) — project-local table extensions
-- `infra/contracts/<svc>.<fmt>.yml` — per-provider contracts (validated during `check`)
+- `infra/contracts/<svc>.<proc>.<fmt>.yml` — per-provider contracts (validated during `check`)
 - `infra/secrets/<env>.env` — operator-maintained secret values
 - `infra/config/<env>.env` — operator-maintained non-secret per-env config values
 - `infra/tte/<env>.env` — dev/test TTE (transient-to-env) store, read during aggregation (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md))
@@ -231,6 +231,20 @@ DinD is rejected as slower, more dangerous (requires `--privileged`), and unnece
 4. On success, the worktree is removed. On failure, the worktree is removed *and* a structured error report points at what failed; the developer's branch and main are untouched either way.
 
 The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` invocations don't collide, and so the developer never has to think about cleanup.
+
+### The contract and health gates
+
+Two of those gates are the only place `consumes:` is read, and their criteria are worth stating here because they are easy to get subtly wrong. The rule of record is [`contracts.md`](../../../doctrine/infrastructure/contracts.md) §§ Contracts and Health Checks; this is how `pipeline/check.py` implements it.
+
+- **Provider set = (`consumes` targets) ∪ (`web`-network process types)**, minus `scheduler` process types. Both arms are load-bearing. The first is the declared interface graph. The second catches every publicly reachable boundary even when nothing *inside* the project consumes it — drive the set off `consumes` alone and a public edge silently loses its contract, taking with it everything the health gate has to validate.
+- **Contract format follows the provider's `role`** — `web` → openapi, `worker` → asyncapi. The role is what fixes the communication mechanism, so it is the honest source. An unrecognized role falls back to openapi rather than raising (raising would deny the operator every *other* gate's result, which is what the aggregation pattern exists to avoid) and the fallback is named in the gate's detail line so it is never silent.
+- **Contract paths are parsed right-anchored** — `<svc>.<proc>.<fmt>.yml`, counting segments from the right. The path is process-keyed unconditionally, because one codebase may run two HTTP process types (a public `api`, an internal `admin`) and both are genuine boundaries.
+- **Self health** is required of every *OpenAPI* provider, web-network or not. A `worker` is not checked in its contract because AsyncAPI has no natural place for an HTTP path — not because it is exempt; its self-health is asserted through its fields instead.
+- **The fan-out** — `GET /health/<svc>/<proc>` — is keyed off `consumes`, for each target not itself on `web`. Not `depends_on`: a web edge does not depend on its worker (it needs the *broker* up), and rule 24 forbids a core `depends_on` outright, so a `depends_on`-keyed gate requires nothing at all of a web → worker edge. A dead consumer is invisible from outside — requests keep returning 200 while work piles up behind it. Targets that *are* on `web` are skipped: they are publicly reachable and answer their own `/health`, so there is nothing to proxy.
+- **A `consumes` target must declare both `port` and `health_check_path`.** Those two fields *are* its health declaration, and on elastic the `port` is also exactly what makes it Service-Connect-discoverable. Distinct from rule 28, which constrains a process type that *has* `health_check_path`; this requires a consumes target to have it at all.
+- **The curl gate stays keyed off `health_check_path`**, not `role`. The compiler emits the curl healthcheck from the field, so the field is what the requirement follows.
+
+Mod 101 wrote these; before it, `_infer_contract_format` had returned `openapi` unconditionally since the day it was written (its asyncapi branch looked a *core* service name up in `backing_services`, which `model.py` forbids from overlapping), so the async-contract path had never once executed and the `depends_on`-keyed fan-out flaw went unnoticed behind it.
 
 ## Repository Structure
 

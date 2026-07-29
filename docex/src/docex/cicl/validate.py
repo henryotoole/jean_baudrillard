@@ -483,7 +483,7 @@ def _validate_magic_refs(
             (svc_name, proc_name),
             templates,
             list(proc.depends_on or []),
-            _parsed_consumes(proc),
+            proc.consumes_refs(),
         )
 
     for name, svc in sorted(doc.backing_services.items()):
@@ -586,22 +586,6 @@ def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
 # ---------------------------------------------------------------------------
 
 
-def _parsed_consumes(proc: ProcessType) -> set[str]:
-    """A process type's `consumes:` targets, normalized to dotted form.
-
-    Entries that do not parse are dropped rather than passed through: rule 25
-    reports each one once, and a malformed entry must not ALSO surface as a
-    mystifying rule-7 miss against a target the author plainly named.
-    """
-    out: set[str] = set()
-    for raw in (proc.consumes or []):
-        try:
-            out.add(ProcessRef.parse(raw).dotted)
-        except ValueError:
-            continue
-    return out
-
-
 def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
     """Rule 25. `ProcessRef.parse` is the parser — Mod 096 already wrote the
     bare-name-is-illegal rule and its reasoning into it, and a second parser
@@ -678,6 +662,21 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                     ),
                     where=where,
                 ))
+                continue
+            if target.processes[ref.process].role == "scheduler":
+                issues.append(ValidationIssue(
+                    rule="rule_25_consumes_scheduler",
+                    message=(
+                        f"process type {label!r} lists {raw!r} in `consumes:`, but "
+                        f"{raw!r} is a `scheduler` process type. Cron invokes a "
+                        f"scheduler and nobody else does, so it exposes no boundary "
+                        f"to consume — and it is exempt from the health fan-out that "
+                        f"`consumes` drives. See cicl.md rule 25 and "
+                        f"contracts.md § Health Checks."
+                    ),
+                    where=where,
+                ))
+                continue
     return issues
 
 

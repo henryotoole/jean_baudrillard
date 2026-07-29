@@ -34,7 +34,7 @@ from pathlib import Path
 
 import yaml
 
-from docex.cicl.model import CICLDocument  # noqa: F401 - typed in helpers
+from docex.cicl.model import CICLDocument, ProcessRef, ProcessType  # noqa: F401
 from docex.context import ProjectContext, load_project_context
 from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
@@ -102,38 +102,87 @@ def _aggregate_check_report(report: CheckReport) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Contract-format inference.
+# Contract format.
 # ---------------------------------------------------------------------------
 
+# contracts.md § Standards: the format follows from the PROVIDER'S ROLE, not from
+# the shape of the graph — the role is what fixes the communication mechanism, so
+# it is the honest source. `scheduler` is absent because a scheduler is never a
+# provider (see `_gate_contracts`).
+_CONTRACT_FORMAT_BY_ROLE = {
+    "web": "openapi",
+    "worker": "asyncapi",
+}
+_FALLBACK_CONTRACT_FORMAT = "openapi"
 
-def _infer_contract_format(infra: CICLDocument, service: str) -> str:
-    """Guess the contract format for a service.
 
-    Phase 3 keeps this shallow: HTTP-style consumers ⇒ ``openapi``;
-    queue-style consumers ⇒ ``asyncapi``. Default to ``openapi`` if no
-    clear signal — most projects today are HTTP-shaped.
+def _contract_format_for_role(role: str) -> tuple[str, bool]:
+    """``(format, role_recognized)`` for a provider process type.
+
+    Mod 101 replaces a heuristic (`_infer_contract_format`) whose asyncapi branch
+    was unreachable from the day it was written: its only call site passed a CORE
+    service name, the function then looked that name up in `backing_services`, and
+    `model.py` forbids the overlap — so it returned "openapi" every time it was
+    ever called. That is why the async-contract path was never exercised.
+
+    WHY a fallback rather than a raise: an unrecognized core role is already a
+    transfer-table load error, and raising here would deny the operator every other
+    gate's result — the aggregation pattern exists precisely to avoid that. The
+    caller surfaces the fallback in the gate detail so it is never silent.
     """
-    # Look at consumers' relationship to this service. A queue-shaped
-    # dependency surfaces via a backing service whose engine name has
-    # ``queue``/``rabbit``/``kafka`` in it.
-    for _consumer_name, consumer in infra.core_services.items():
-        # Mod 096: `depends_on` is per-process type; a codebase "depends on"
-        # a target if any of its process types does.
-        consumer_deps = {
-            dep for p in consumer.processes.values() for dep in (p.depends_on or [])
-        }
-        if service in consumer_deps:
-            # If the dependency itself is a queue-shaped backing service,
-            # treat as asyncapi.
-            backing = infra.backing_services.get(service)
-            if backing is not None:
-                engine = backing.engine
-                engine_str = (
-                    engine if isinstance(engine, str) else ",".join(engine)
-                ).lower()
-                if any(kw in engine_str for kw in ("queue", "rabbit", "kafka")):
-                    return "asyncapi"
-    return "openapi"
+    fmt = _CONTRACT_FORMAT_BY_ROLE.get(role)
+    if fmt is None:
+        return _FALLBACK_CONTRACT_FORMAT, False
+    return fmt, True
+
+
+def _parse_contract_filename(name: str) -> tuple[str, str, str] | None:
+    """``"api.web.openapi.yml"`` → ``("api", "web", "openapi")``; else ``None``.
+
+    RIGHT-anchored, per contracts.md's `${service}.${process}.${format}.yml`. The
+    left-anchored `name.split(".", 1)[0]` this replaces yielded "api" — a valid
+    `core_services` key purely because the codebase happens to be the first segment
+    — and discarded the process entirely, so the health gate reasoned at codebase
+    granularity and silently `continue`d on anything it could not match.
+
+    Exactly three segments are required: `_SERVICE_NAME_RE` (model.py) admits no
+    dots in a service or process name, so a canonical contract filename has three
+    and nothing else is a name this gate authored.
+    """
+    stem = name
+    for suffix in (".yml", ".yaml"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    else:
+        return None
+    parts = stem.split(".")
+    if len(parts) != 3 or not all(p.strip() for p in parts):
+        return None
+    return parts[-3], parts[-2], parts[-1]
+
+
+def _resolve_process(
+    infra: CICLDocument, dotted: str
+) -> tuple[str, str, ProcessType] | None:
+    """``"api.worker"`` → ``("api", "worker", <ProcessType>)`` if it names a real
+    core process type, else ``None``.
+
+    Returning ``None`` for an unresolvable reference is deliberate: rule 25 already
+    reports it, and this gate must not double-report it as a missing contract or a
+    missing probe endpoint.
+    """
+    try:
+        ref = ProcessRef.parse(dotted)
+    except ValueError:
+        return None
+    svc = infra.core_services.get(ref.service)
+    if svc is None:
+        return None
+    proc = svc.processes.get(ref.process)
+    if proc is None:
+        return None
+    return ref.service, ref.process, proc
 
 
 # ---------------------------------------------------------------------------
@@ -299,14 +348,20 @@ def _gate_contracts(
 ) -> tuple[list[Path], list[str]]:
     """Verify every required contract file is present.
 
-    A core *process type* is a "provider" iff at least one other core
-    service has its codebase in ``depends_on``, or it sits on the ``web``
-    network. Providers must ship a contract file at
-    ``infra/contracts/<svc>.<proc>.<fmt>.yml``.
+    Per contracts.md, **the provider set is (`consumes` targets) ∪ (`web`-network
+    process types)**, minus `scheduler` process types. Both arms are load-bearing:
+    the first is the declared interface graph; the second catches every publicly
+    reachable boundary even when nothing inside the project consumes it, which is
+    what gives the health-endpoint gate something to validate. Driving the set off
+    `consumes` alone would silently switch that gate off for a public edge.
 
-    Returns (existing_contracts, providers) — the contract paths that
-    DO exist, for the next gate to scan, and the list of provider
-    process refs, dotted (for downstream-chain logic).
+    Providers ship a contract at ``infra/contracts/<svc>.<proc>.<fmt>.yml``. The
+    path is process-keyed unconditionally: one codebase may run two HTTP process
+    types — a public `api` and an internal `admin` — and both are genuine
+    boundaries deserving their own contract.
+
+    Returns (existing_contracts, providers) — the contract paths that DO exist,
+    for the next gate to scan, and the provider process refs, dotted.
     """
     infra = ctx.infra
     existing: list[Path] = []
@@ -315,56 +370,57 @@ def _gate_contracts(
         report.add("contracts_exist", True, "no infra.yml — skipped")
         return existing, providers
 
-    # A core service is a "provider" iff either (a) some other core
-    # service has it in ``depends_on``, or (b) it sits on the ``web``
-    # network — web-network services have external HTTP consumers
-    # whose dependency arrow isn't expressible in infra.yml.
-    # Per contracts.md § Mandatory Endpoints, web-network services
-    # must ship contracts so the health-endpoint gate has something to
-    # validate.
-    # Mod 096: `depends_on` and `networks` are process-scoped, so the
-    # provider test moves down one level with them — and the contract path
-    # gains the process segment, which is what contracts.md § Contract
-    # Location fixes it at: `${service}.${process}.${format}.yml`. The
-    # *criteria* are unchanged (web membership, or being some other
-    # codebase's depends_on target); Mod 101 owns reworking those against
-    # `consumes:`.
-    dependants: dict[str, set[str]] = {}
-    for name, svc in infra.core_services.items():
-        for proc in svc.processes.values():
-            for dep in (proc.depends_on or []):
-                dependants.setdefault(dep, set()).add(name)
+    # Every `consumes` target in the document, dotted. Mod 101 is the first
+    # reader of `consumes`; it lives on the AUTHORING model (Mod 098 kept it off
+    # `CompiledService` deliberately), which is what this gate reads.
+    consumed: set[str] = set()
+    for _s, _p, _svc, proc in infra.all_processes():
+        consumed |= proc.consumes_refs()
 
     contracts_dir = worktree / "infra" / "contracts"
     missing: list[str] = []
+    fallbacks: list[str] = []
     for svc_name, proc_name, _svc, proc in infra.all_processes():
+        # contracts.md § Health Checks: `scheduler` process types are exempt.
+        # Rule 25 now forbids consuming one and rule 27 forbids `web` in its
+        # networks, so neither arm can reach a scheduler — the gate states the
+        # exemption anyway so it does not depend on the validator to be correct.
+        if proc.role == "scheduler":
+            continue
+        label = ProcessRef(svc_name, proc_name).dotted
         on_web = "web" in (proc.networks or [])
-        is_dep_target = bool(dependants.get(svc_name))
-        if not (on_web or is_dep_target):
+        if not (on_web or label in consumed):
             continue  # not a provider
-        label = f"{svc_name}.{proc_name}"
         providers.append(label)
-        fmt = _infer_contract_format(infra, svc_name)
+        fmt, role_known = _contract_format_for_role(proc.role)
+        if not role_known:
+            fallbacks.append(f"{label} (role {proc.role!r})")
         candidate = contracts_dir / f"{svc_name}.{proc_name}.{fmt}.yml"
         if candidate.is_file():
             existing.append(candidate)
         else:
             missing.append(f"{label} (expected {candidate.relative_to(worktree)})")
 
+    fallback_clause = (
+        "; unrecognized role, assumed openapi: " + ", ".join(fallbacks)
+        if fallbacks
+        else ""
+    )
     if missing:
+        # The fallback is likely to be WHY a contract appears missing (the gate
+        # looked for the wrong extension), so it belongs on the failure too.
         report.add(
             "contracts_exist",
             False,
-            "missing contract(s): " + "; ".join(missing),
+            "missing contract(s): " + "; ".join(missing) + fallback_clause,
         )
     else:
-        report.add(
-            "contracts_exist",
-            True,
+        detail = (
             f"{len(existing)} contract(s) present"
             if existing
-            else "no provider services — nothing to check",
+            else "no provider process types — nothing to check"
         )
+        report.add("contracts_exist", True, detail + fallback_clause)
     return existing, providers
 
 
@@ -374,8 +430,34 @@ def _gate_health_endpoints(
     contracts: list[Path],
     report: CheckReport,
 ) -> None:
-    """For each contract on the ``web`` network: assert /health exists;
-    for each non-web downstream dependency, /health/<dep> exists too.
+    """Assert the doctrine's health model (contracts.md § Health Checks).
+
+    Three things, per process type:
+
+    1. **Self health** — every OpenAPI provider declares ``GET /health``. § Self
+       health says *every* long-running process type serves it; a `worker` is not
+       checked here because its contract is AsyncAPI, which has no natural place
+       for an HTTP path — not because it is exempt. Its self-health is asserted
+       through its fields instead (3).
+    2. **Fan-out** — every `web`-network process type declares
+       ``GET /health/<svc>/<proc>`` for each of its `consumes` targets that is not
+       itself on `web`. Keyed off `consumes`, not `depends_on`: a web edge does not
+       depend on its worker (it needs the *broker* up), and rule 24 now forbids a
+       core `depends_on` outright, so a `depends_on`-keyed gate requires nothing at
+       all of a web → worker edge. A dead consumer is invisible from outside —
+       requests keep returning 200 while work piles up behind it. Targets on `web`
+       are skipped: they are publicly reachable and answer their own `/health`, so
+       there is nothing to proxy. Backing services have no `<svc>/<proc>` form and
+       are not required (mod 047); a project may still declare them voluntarily.
+    3. **Probeability** — a `consumes` target declares both `port` and
+       `health_check_path`. Per § Declared by fields those two fields *are* the
+       health declaration. On elastic the `port` is also exactly what makes the
+       target Service-Connect-discoverable, which is what lets a sibling `web`
+       process reach its `/health` one hop away. Distinct from rule 28, which
+       constrains a process type that *has* `health_check_path`; this requires a
+       consumes target to have it at all.
+
+    `scheduler` process types are exempt throughout.
     """
     infra = ctx.infra
     if infra is None:
@@ -383,16 +465,19 @@ def _gate_health_endpoints(
         return
 
     problems: list[str] = []
+
+    # --- 1 + 2: what the contracts must declare -------------------------
     for path in contracts:
-        # Derive the codebase key from "api.openapi.yml" → "api".
-        # Mod 101: make this right-anchored — under Mod 096's rename the
-        # per-process contract filename is "api.web.openapi.yml", and this
-        # left-anchored split still yields "api" (a valid core_services key)
-        # only because the codebase is the first segment.
-        svc = path.name.split(".", 1)[0]
-        svc_decl = infra.core_services.get(svc)
-        if svc_decl is None:
-            continue  # contract for unknown service — skip
+        parsed = _parse_contract_filename(path.name)
+        if parsed is None:
+            continue  # not a contract filename this gate authored
+        svc, proc_name, fmt = parsed
+        resolved = _resolve_process(infra, f"{svc}.{proc_name}")
+        if resolved is None:
+            continue  # contract for an unknown process type — skip
+        _s, _p, proc = resolved
+        if proc.role == "scheduler":
+            continue
 
         try:
             doc = yaml.safe_load(path.read_text()) or {}
@@ -401,51 +486,66 @@ def _gate_health_endpoints(
             continue
         paths_map = (doc.get("paths") or {}) if isinstance(doc, dict) else {}
 
-        on_web = any(
-            "web" in (p.networks or []) for p in svc_decl.processes.values()
-        )
-        if on_web:
-            health = paths_map.get("/health")
-            if not (isinstance(health, dict) and "get" in {k.lower() for k in health}):
+        def _declares(key: str, _paths_map: dict = paths_map) -> bool:
+            node = _paths_map.get(key)
+            return isinstance(node, dict) and "get" in {k.lower() for k in node}
+
+        if fmt == "openapi" and not _declares("/health"):
+            problems.append(
+                f"{path.name}: missing 'GET /health' (contracts.md § Self health "
+                f"— every long-running process type serves it)"
+            )
+
+        if "web" not in (proc.networks or []):
+            continue
+        for dotted in sorted(proc.consumes_refs()):
+            target = _resolve_process(infra, dotted)
+            if target is None:
+                continue
+            t_svc, t_proc_name, t_proc = target
+            if t_proc.role == "scheduler":
+                continue
+            if "web" in (t_proc.networks or []):
+                continue  # publicly reachable; nothing to proxy
+            key = f"/health/{t_svc}/{t_proc_name}"
+            if not _declares(key):
                 problems.append(
-                    f"{path.name}: missing 'GET /health' (required for web-network services)"
+                    f"{path.name}: missing 'GET {key}' (required because "
+                    f"{svc}.{proc_name} consumes non-web {dotted})"
                 )
 
-        # For each downstream CORE service dependency NOT on the web
-        # network, require /health/<dep> to be declared by THIS provider's
-        # contract. Per `contracts.md § Health Checks`, only CORE-service
-        # downstream deps need a probe endpoint — backing services
-        # (postgres, redis, etc.) are excluded. Mod 047 narrowed this
-        # from "all non-web" to "core-only" to match the doctrine prose;
-        # projects that voluntarily add /health/<backing> endpoints
-        # (mirroring the doctrine pattern for backings they care about)
-        # remain free to do so.
-        svc_deps = sorted({
-            dep for p in svc_decl.processes.values() for dep in (p.depends_on or [])
-        })
-        for dep in svc_deps:
-            dep_decl = infra.core_services.get(dep)
-            if dep_decl is None:
-                # Either not a known service, or a backing — backing
-                # services are not required to have a /health/<dep>
-                # endpoint on the provider's contract.
+    # --- 3: what the consumed process type's FIELDS must declare --------
+    # Keyed by target so two consumers of one under-declared target produce one
+    # problem naming both, not two problems saying the same thing.
+    underdeclared: dict[str, tuple[list[str], set[str]]] = {}
+    for svc_name, proc_name, _svc, proc in infra.all_processes():
+        for dotted in sorted(proc.consumes_refs()):
+            target = _resolve_process(infra, dotted)
+            if target is None:
                 continue
-            if any("web" in (p.networks or []) for p in dep_decl.processes.values()):
+            _t_svc, _t_proc_name, t_proc = target
+            if t_proc.role == "scheduler":
                 continue
-            key = f"/health/{dep}"
-            hop = paths_map.get(key)
-            if not (isinstance(hop, dict) and "get" in {k.lower() for k in hop}):
-                problems.append(
-                    f"{path.name}: missing 'GET {key}' "
-                    f"(required because {svc!r} depends on non-web core {dep!r})"
-                )
+            absent = []
+            if t_proc.port is None:
+                absent.append("port")
+            if (t_proc.model_extra or {}).get("health_check_path") is None:
+                absent.append("health_check_path")
+            if absent:
+                entry = underdeclared.setdefault(dotted, (absent, set()))
+                entry[1].add(ProcessRef(svc_name, proc_name).dotted)
+    for dotted in sorted(underdeclared):
+        absent, consumers = underdeclared[dotted]
+        problems.append(
+            f"consumes target {dotted!r} declares no "
+            f"{' and no '.join(absent)} — those fields ARE its health "
+            f"declaration (contracts.md § Declared by fields), and on elastic "
+            f"the port is what makes it Service-Connect-discoverable. "
+            f"Consumed by: {', '.join(sorted(consumers))}."
+        )
 
     if problems:
-        report.add(
-            "health_endpoints",
-            False,
-            "; ".join(problems),
-        )
+        report.add("health_endpoints", False, "; ".join(problems))
     else:
         report.add(
             "health_endpoints",

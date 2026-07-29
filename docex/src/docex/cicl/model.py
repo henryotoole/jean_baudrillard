@@ -147,6 +147,24 @@ class ProcessType(BaseModel):
             raise ValueError("command must not be an empty list")
         return self
 
+    def consumes_refs(self) -> set[str]:
+        """This process type's ``consumes:`` targets, normalized to dotted form.
+
+        Entries that do not parse are dropped rather than passed through: rule 25
+        reports each one once, and a malformed entry must not ALSO surface
+        downstream — as a mystifying rule-7 miss, or as a missing contract for a
+        target the author plainly named. Both the validator (rule 7) and
+        ``check.py``'s contract / health gates read through here, so the
+        dots-for-reference parse lives in exactly one place.
+        """
+        out: set[str] = set()
+        for raw in (self.consumes or []):
+            try:
+                out.add(ProcessRef.parse(raw).dotted)
+            except ValueError:
+                continue
+        return out
+
 
 # Both core and backing services share these base fields.
 class _ServiceBase(BaseModel):

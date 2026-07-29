@@ -586,7 +586,7 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 22. Every core service declares a non-empty `processes:` block, and declares nothing at the service level outside `{processes, secrets, config, env}`.
 23. Every process type declares a `command`.
 24. `depends_on` names only backing services. A core process type in a `depends_on` list is an error.
-25. `consumes` names only core process types, fully qualified as `<service>.<process>`. A bare core service name is an error, and a process type may not consume itself.
+25. `consumes` names only core process types, fully qualified as `<service>.<process>`. A bare core service name is an error, and a process type may not consume itself. A `scheduler` process type may not be a `consumes` target: cron invokes it and nobody else does, so it exposes no boundary to consume and is exempt from the health fan-out that `consumes` drives.
 26. `replicas` is not declared on a `scheduler` process type.
 27. `worker` and `scheduler` process types do not declare `web` in `networks`.
 28. Every process type that declares `health_check_path` also declares a `port`. The path is only meaningful against a port — the probe is issued at `http://localhost:<port><path>` — and no role fixes a default health port, deliberately: an implicit one would silently oblige the application to bind it. Without this rule the omission emits a malformed probe and surfaces as a container that never becomes healthy, rather than as a compile error.
