@@ -15,6 +15,448 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [1.6.0] - 2026-07-29
+
+"Service process types" (advance 004, mods 094-106) — decouples build artifact
+from process type. A core service in `infra.yml` is no longer one service; it is
+a **codebase** declaring N *process types*, one image started N ways. The
+`depends_on` relation splits in two: a readiness gate over backing services, and
+a new interface relation `consumes` between core process types. Everything
+downstream of the identity change — emitted names, hostnames, contract paths,
+health paths, `OTEL_SERVICE_NAME`, envinfra tags — gains a process segment.
+**This is a breaking format change:** `cicl_version: "2"` is required and `"1"`
+is rejected rather than shimmed, and for exactly one release cycle after 1.6.0
+prod has no rollback path (the v1→v2 boundary is refused at pre-flight, with a
+fix-forward message). Downstream projects upgrade per
+[`upgrades/upgrade_1.6.0.md`](./upgrades/upgrade_1.6.0.md) — a repin plus an
+`infra.yml` restructure and a resource rename, not a rebuild.
+
+### Added
+
+- **`role: worker` as a bundled role** (mod 095) — a long-running,
+  non-ingress process type on both foundations. Fixed gets the usual compose
+  `healthcheck`; elastic gets an ECS **container-level** `healthCheck`, routed
+  through a new `container_definition` emit destination — a *merge target, not a
+  resource*, whose renderer returns `""` (registering it is what satisfies the
+  dispatch loop and transfer-table rule 12 without emitting a second block, and
+  the merge lands ahead of the compiler's own `dockerLabels` / `mountPoints` /
+  `dependsOn` so compiler-derived keys win over table-supplied ones). No
+  `default_port`: an implicit health port would silently oblige the app to bind
+  it, and a missed binding would surface as an ECS kill loop rather than a
+  compile error. That container healthCheck earns its keep twice — it probes the
+  consume loop, and it is the only thing gating a worker's rolling deploy, since
+  with no target group ECS would call a task healthy the instant it reached
+  RUNNING and roll a broken deploy through every replica.
+- **`consumes:` on a process type** (mod 098) — the interface half of what
+  `depends_on` used to conflate. Targets are dotted and fully qualified
+  (`api.worker`); a bare core name is **illegal, not shorthand**, because a
+  codebase has no single boundary. Cycles are **legal** — `web ↔ worker` is the
+  most common topology there is — where a `depends_on` cycle stays fatal (rule
+  6), which is why no single field could have carried both rules. Rule 7 is now
+  kind-aware (a backing ref must be matched by `depends_on`, a core ref by
+  `consumes`) and one-directional by construction: ref ⇒ edge, never edge ⇒ ref,
+  since `api.web` declares an edge to its worker for the contract and the health
+  fan-out while holding no ref to it. `consumes` is CI/view-only — contracts, the
+  health gates, rule 7 and `describe` read it, nothing is emitted from it, and a
+  test pins that it *cannot* be.
+- **Four-segment core magic refs** — `${core_services.<svc>.<proc>.<part>}`
+  (mod 097). Backing refs stay three-segment, because a backing service has no
+  process types and there is nothing to qualify. The pattern is now
+  kind-prefixed and body-agnostic, so anything beginning `${core_services.` /
+  `${backing_services.` is *claimed* whatever its shape and then arity-checked
+  against its kind by one shared checker; self-references are rejected in both
+  the resolver and the validator, with the reason (`provides.host` is the
+  *internal* discovery name, so an absolute URL to oneself would not return what
+  the author expects — use `localhost`).
+- **A per-codebase `exec` service** (mod 099) — `{project}-{env}-{codebase}-exec`,
+  `profiles: [exec]` so `up` never starts it and `run` implicitly enables it,
+  carrying the codebase's image, **service-level `env:` only**, the sorted union
+  of the codebase's non-`web` networks, and its `depends_on` rewritten to
+  `condition: service_healthy`. Emitted in all four fixed envs — including for a
+  scheduler-only codebase, which previously produced *zero* compose services in
+  `test`. It is the container that *is* the codebase, and routing the fixed
+  stage/prod playbook through it too is what makes *"`migrate.sh` may depend only
+  on codebase-scoped env"* a rule with teeth rather than a convention.
+- **`replicas` is finally read by an emitter** (mod 100). The field had been
+  declared, range-checked, allow-listed, documented in `cicl.md` and `shape.md`,
+  and carried onto the compiled model since mod 096 — and read by *nothing*;
+  `hcl.py`'s `desired_count` was the literal `1`, so "two web, four workers", the
+  advance's motivating capability, did not work even with nesting landed. Elastic
+  now emits `desired_count`; fixed **unrolls into N distinct compose services**
+  rather than using `deploy.replicas`, which cannot work — the OTel collector
+  pairs by netns (`network_mode: service:<key>`) and Compose has no
+  replica-to-replica pairing, and it refuses `deploy.replicas` alongside
+  `container_name`. Each replica keeps a real `container_name` (`…-api-web-3`)
+  and carries a **shared network alias** on every network it joins, so Docker DNS
+  round-robins and `provides.host` still means "the process type"; traefik
+  aggregates because its labels key on the *unqualified* name, giving one router
+  and one service with N servers. One clamp rule in one place: `replicas` applies
+  in `prod` only, and `dev`/`test`/`stage` compose output is byte-identical to a
+  compile with no `replicas` declared. The unroll deliberately lives in the
+  emitter, not the compiler — a replica is an emission detail, not a topology
+  node, and unrolling the compiled model would have made `describe` render four
+  worker nodes, the contract gate see four providers, and four exec services per
+  codebase.
+- **Two OTel resource attributes** — `docex.core_service` and
+  `docex.process_type`, appended to the unchanged `service.namespace` /
+  `service.version` / `deployment.environment.name` triple (mod 102). Both axes
+  have to be queryable: against a fused `service.name` the only way to ask "every
+  process type of `api`" or "every `worker` across codebases" is a prefix or
+  suffix match on a string whose *both* segments may contain hyphens, so
+  `api-web-v2` does not decompose. Values are the raw authoring names, matching
+  the split the elastic tag block already uses. `docex.process_type`'s presence
+  is itself load-bearing: it appears if and only if the emitter is a declared
+  process type, so a per-codebase artifact is queryable as "the `api` codebase,
+  no process type".
+- **The health model is specified end to end** (mod 094, `contracts.md § Health
+  Checks`) — every long-running process type serves `GET /health` on its declared
+  port, with liveness sourced from the entrypoint's own loop via a monotonic
+  tick, doctrine-fixed at a **10 s tick and a 30 s staleness threshold** (30 s is
+  3× the tick, so a healthy loop misses two consecutive ticks before the handler
+  calls it stale — enough slack for ordinary jitter and one slow iteration
+  without flapping, while still failing a wedged loop inside the window an ECS or
+  compose healthcheck acts on). Fan-out is one hop only, over `consumes`, at
+  `/health/<service>/<process>`, which is what keeps the legal `web ↔ worker`
+  cycle from recursing; `scheduler` process types are exempt. Because AsyncAPI has
+  no natural place for an HTTP path, a `worker`'s health is **declared by
+  fields** — `port` + `health_check_path` *are* the declaration, and `docex
+  check` now asserts them on every `consumes` target.
+- **Validation rules 21-28**, appended rather than interleaved so no existing
+  rule number moves under the code and tests that cite them: `cicl_version` is
+  `"2"` (21); every core service declares a non-empty `processes:` and nothing
+  outside `{processes, secrets, config, env}` at the service level (22); every
+  process type declares a `command` (23); `depends_on` names only backing
+  services (24); `consumes` names only core process types, fully qualified, never
+  itself and never a `scheduler` (25); no `replicas` on a `scheduler` (26); no
+  `web` in a `worker`'s or `scheduler`'s `networks` (27); `health_check_path`
+  obliges a `port` (28).
+- **`describe` renders both relations** (mod 104) — node ids in the doctrine's
+  dotted reference form (`api.web`, bare for backing services) with the emitted
+  hyphenated name alongside, and two labeled edge groups under distinct glyphs:
+  `->` for readiness, `..>` for interface, mermaid's solid/dashed rendered in
+  ASCII. The distinction is carried twice, glyph and heading, because the output
+  is as often grepped as read. `--format llm` gains `"kind": "consumes"`, a
+  per-node `consumes` list, and `core_service` / `process` beside `short`; the
+  duplicated edge-derivation loop is deleted in favour of one shared derivation
+  with two renderings.
+- **`GitClient.show(cwd, ref, path)`** on the client protocol (mod 105), so a
+  pre-flight check can read a blob out of a tag through the injected client and
+  be unit-tested through the fake; `check.py`'s `_git_show` now delegates to it,
+  collapsing two read-a-blob mechanisms into one and dropping a private-access
+  `noqa`. Plus `CURRENT_CICL_VERSION` in `cicl/model.py`, so the compiler's
+  accepted generation and rollback's precondition are one fact rather than two
+  literals.
+- **Doctrine: `entrypoints/`** (mod 094) — a folder beside `root.py`, one
+  entrypoint per process type, calling `build()` and never a concrete adapter
+  constructor; never `root_web.py` / `root_worker.py`; the runtime host is not an
+  adapter; inverted-control registration (Celery-style decorators) belongs in the
+  entrypoint, not the adapter; and an entrypoint that owns a loop must expose that
+  loop's liveness. Entrypoints are too thin to test — one that needs its own test
+  is doing too much. Also a `Queue` row in the controller-mechanism table
+  (`ContBrokerQueue`), resolving a live cross-stratum contradiction: the driven
+  table already carried `Queue` for the producer side, while a queue consumer is a
+  driving adapter on the same driving port as the HTTP controller.
+
+### Changed
+
+- **A core service is a codebase declaring N process types** (mod 096).
+  `processes:` is **required and non-empty** on every core service; there is no
+  flat form and no single-process shorthand. `role`, `command`, `networks`,
+  `resources`, `port`, `depends_on` and `replicas` move onto the process type;
+  the service level accepts only `{processes, secrets, config, env}` and anything
+  else is a hard error with a message naming the fix. One principle generates the
+  whole split — *a field belongs to the codebase iff its value is determined by
+  the source code, and to the process type iff it is determined by the
+  invocation* — so role-specific fields follow `role` and are process-scoped by
+  derivation, and `env:` is the one field valid at both levels (process merging
+  over service). `command` is required even on a lone `web`: with several process
+  types sharing one image, at most one could inherit the Dockerfile `CMD`, and
+  "which one" is an ambiguity worth deleting rather than answering. Each process
+  type compiles to its own container / ECS service named `<service>-<process>`,
+  and the image stays keyed on the **codebase** — one build, one tag, N ways to
+  start it. **Breaking:** every emitted core identity gains a segment — compose
+  keys and `container_name` (`${project}-${env}-${service}-${process}`), ECS
+  service and task-definition family, Service Connect names, CloudWatch log
+  groups, target groups, traefik router keys, and the paired sidecar
+  (`<svc>-<proc>-otelcol`). Existing target groups whose names previously fit the
+  `alb` policy's 32-char ceiling are hash-truncated and therefore
+  destroyed/recreated on first apply; envinfra tag *values* churn.
+- **Hostnames gain the process segment** — `<service>-<process>.<env>.<project>.<apex_domain>`,
+  e.g. `api-web.dev.myproject.example.com`. The two segments share **one** label,
+  hyphen-joined, for three independent reasons: TLS wildcards cover exactly one
+  label; the domain parse is positional; and the bare-env and bare-project routes
+  are defined relative to that four-part form. Nothing ever reverse-parses the
+  label back into `(service, process)` — it is a rendered output, never an input
+  to be decomposed — which is what dissolves the apparent ambiguity of `api-web`
+  and why rule 5 instead requires *rendered* identities to be unique.
+  **Breaking:** per-host DNS records and anything hard-coding a service hostname
+  must be updated. `domain_default_service` becomes **`domain_default_process`**
+  and takes a dotted ref (`api.web`).
+- **The `http_host` naming policy gains `max_len: 63, overflow: error` and is
+  actually wired** (mod 096). DNS labels hard-cap at 63 octets; until now the
+  service label was built by a bare `_dns_label()` that consulted no policy, so
+  the cap would have been decoration — and a cap nothing applies is worse than no
+  cap, because it reads as enforcement. Byte-identical to the old output for
+  every input of 63 characters or fewer; the only new behavior is a compile error
+  above it. Relatedly, the pre-existing `iam` policy (64 chars, error on
+  overflow) can now **hard-fail a scheduler compile**, since its role name is
+  `{project}_{env}_{service}_{process}_scheduler` — a clean failure at the
+  earliest layer, which is the doctrine's stated preference, but new.
+- **Contracts are per process type.** The path is
+  `infra/contracts/${service}.${process}.${format}.yml` unconditionally
+  (**Breaking:** existing contracts must be renamed), because format alone
+  cannot disambiguate one codebase running two genuine HTTP boundaries. The
+  provider set becomes (`consumes` targets) ∪ (`web`-network process types) minus
+  schedulers — both arms load-bearing, since driving it off `consumes` alone
+  would silently switch the health gate off for a public boundary nothing
+  internal consumes. The format now derives from the **provider's `role`**
+  (`web` → openapi, `worker` → asyncapi) rather than from graph shape, and an
+  unrecognized role falls back to openapi *and says so in the gate's detail
+  line*, because a provider quietly treated as openapi is a debugging trap. Self
+  `GET /health` is required of every OpenAPI provider, widened from web-network
+  only — an internal-only `web`-role process reached via `consumes` genuinely
+  should be probeable one hop away.
+- **`depends_on` is a readiness gate over backing services only** (mod 096, rule
+  24); a core→core edge is a hard error pointing at `consumes:`. **Breaking.**
+  The doctrine now also writes the corollary in explicitly: *startup ordering is
+  not a substitute for connection resilience.* Cycle detection consequently runs
+  over the backing-service graph alone, and `consumes` cycles are legal *by
+  construction* there.
+- **`migrate`, `test` and `build` run `compose run --rm <codebase>-exec` instead
+  of `compose exec` into a running app container** (mod 099). Process expansion
+  had left all three picking one process type's container through a heuristic
+  duplicated three times and wrong at least once; they now stop picking. Three
+  operator-visible consequences: a one-off **starts the codebase's backing
+  services** and gates on `service_healthy`, so `docex migrate dev` against a
+  torn-down stack brings the database up instead of failing; there is ~1 s of
+  container-start latency instead of an exec into a warm container; and
+  **`docex build` no longer requires the target codebase's container to be
+  running**. **Breaking:** a *process-level* `env:` key is no longer visible to
+  `migrate.sh`, `test.sh` or `build.sh` — the intended break, and the point of
+  the env-scoping rule.
+- **The elastic migrate task definition is a per-codebase pass** — one block per
+  schema-owning codebase, family `{project}-{env}-{codebase}-migrate`, address
+  unchanged so `release`'s targeted pre-migrate apply stays valid. Its env is
+  service-level only, and its resources are the **per-dimension max** across the
+  codebase's process types. Max rather than "pick one" because a pick is not
+  stable under edits that have nothing to do with migration — renaming a process
+  type resized the migration, and adding a modest sibling silently shrank it.
+  Max is order-independent and rename-stable, never under-provisions (so the
+  `scheduler` carve-out disappears), and is a no-op for a single-process
+  codebase, whose emitted HCL is byte-identical.
+- **`OTEL_SERVICE_NAME` is the two-segment compiled identity** (`api-web`), and
+  a **per-codebase artifact reports the codebase** — the exec container and the
+  migrate task definition carry `service.name=api` with `docex.process_type`
+  absent. Envinfra tags gain a `process` key and `Name` becomes
+  `${project}_${env}_${service}_${process}`; for a backing service the key is
+  omitted entirely rather than emitted empty, so backing tag blocks stay
+  byte-identical to their pre-expansion form. The dev telemetry-watching command
+  is now `docker compose logs -f <svc>-<proc>-otelcol`.
+- **A `scheduler` is a process type whose trigger is cron** (mod 103), not its
+  own species of service. Its job image is the **codebase's** image, shared with
+  every sibling process type; the Ofelia container key and the INI job name are
+  both two-segment. In `dev` the codebase tag is the Dockerfile **`dev`** stage
+  for every process type including a cron job — any other answer means two
+  consumers of one tag disagree about what is inside it. `up dev` therefore
+  builds only *scheduler-only* codebases' tags (a codebase with a long-running
+  process type is built by `compose up --build`), and no `prod`-stage build
+  happens during `up dev` any more. Worth knowing: a dev job runs the artifact
+  the `dev` stage baked, refreshed on `up dev`, not the host's live `dist/`.
+- **`test`-env one-offs build first.** `compose run` builds only when the image
+  is *absent* and silently reuses a stale one when the context has changed, so
+  `docex test`, `up test` and `migrate test` now pass `--build` — in `test` the
+  image *is* the artifact under test. Deliberately **not** in `dev`, where source
+  arrives by bind mount and the `dev` stage exists precisely so `build.sh` can be
+  re-invoked without an image rebuild.
+- **A `${…}` containing a hyphen is now a compile error.** The compile-time
+  variable pattern gains `-` to its charset (mod 097), so a mistyped
+  `${env-name}` raises the honest undefined-variable error instead of surviving
+  into the emitted compose/HCL as literal text. **Breaking, with no workaround:**
+  the substitution grammar has exactly `${var}`, `$[var]` and `@expr` and **no
+  escape form** — the `$$` doubling in the tree is applied by emitters after
+  substitution to escape Compose's and HCL's own interpolators, and never reaches
+  the compile-time resolver. A genuinely literal `${a-b}` has nowhere to go;
+  adding an escape would be a grammar change and therefore a doctrine change.
+- **`${name}` in a transfer table** is the two-segment compiled identity for a
+  core process type (still the simple name for a backing service), and
+  `describe --format dag` renders a *directed* graph which may legally contain
+  cycles — the flag name is unchanged, since a format name is a label rather than
+  a claim, but `docex.md`'s "directed acyclic graph" was the sentence asserting
+  the property and it is corrected.
+- **Fixed no longer publishes host ports for non-`web` core process types.** The
+  health port is probed from inside the netns by the container healthcheck and
+  from a sibling over the internal network, and elastic never published, so
+  removing it *improves* dev/prod parity — and it closes a day-one `dev`
+  collision between the workers of two different codebases.
+- **Doctrine: "core services never share code" is re-scoped to core service
+  *sources*.** Sibling process types are one codebase, so nothing is shared and
+  the rule's intent survives intact; when only the *invocation* differs, the
+  answer is a process type, not a second core service. Composition-root
+  responsibility (4), *"registering every HTTP controller's router with the
+  application"* — the one place a runtime host got baked into `root.py` — is
+  deleted and moves to the entrypoint; the root instantiates every driving
+  adapter for every mechanism regardless of which process type is running, which
+  is free because controller construction captures a port reference and performs
+  no I/O.
+
+### Removed
+
+- **The CICL v1 flat form.** `cicl_version: "1"` is rejected with a message
+  naming the upgrade guide, not shimmed: a compatibility parser accepting both
+  forms would reintroduce the pre-`processes:` shape as a permanent second code
+  path, to serve a migration every project performs exactly once. The
+  `domain_default_service` field and core→core `depends_on` go with it.
+- **The codebase-to-container bridges** planted by mod 096 for this moment
+  (mod 099): `primary_process()`, `compose_service_key()`, and both copies of the
+  suffix heuristic in `build.py`. Net line count is negative. Also
+  `_build_one`'s per-service "is this container running" gate and its crash-loop
+  diagnostic — retired deliberately, not merely mechanically: it refused to run
+  `docex build` when the dev container was `restarting`/`unhealthy`, and the most
+  common cause of that is an empty `dist/`, which is exactly what `docex build`
+  fills. The guard blocked the one command that resolves the state it detected.
+- **Mod 074's self-contained scheduler job image** and `docex test`'s scheduler
+  carve-out (mod 103) — `_run_scheduler_tests` and `scheduler_services()` are
+  gone, and a scheduler-only codebase takes the identical
+  `compose run --rm <codebase>-exec ./test.sh` path as every other codebase,
+  gaining that codebase's `depends_on` readiness gate and networks where the bare
+  one-off had neither. `specifics/scheduler.md`'s `test.sh` caveat — whose entire
+  justification was "there is no `test`-stack container to `exec` into" — is
+  deleted with it.
+- `validate`'s private `consumes` parser, promoted onto the model as
+  `ProcessType.consumes_refs()` so the dots-for-reference rule lives in exactly
+  one place with three readers (mod 101), and the zero-byte
+  `tests/unit/test_roles.py`, which read as "roles are tested" to anyone grepping
+  (mod 095).
+
+### Fixed
+
+- **Process expansion's four silent-failure sites, found by audit rather than by
+  test** (mod 096). Each would have shipped as a success-reporting failure:
+  `emit/ansible.py` compared a backing service's `schema_owned_by` — an
+  *authoring* key — against the compiled service name, so under the rename the
+  comparison never matches, the schema-owner set goes empty, and the **fixed
+  stage/prod playbook emits no migrate tasks at all while reporting success**;
+  `_image_ref` fed the compiled identity would have produced `<proj>/api-web:<v>`
+  where `containerize` pushed `<proj>/api:<v>`, so build and push succeed and
+  **release fails at pull time**; the migrate task definition, emitted inside the
+  per-process pass, would have produced N `…-migrate` families matching neither
+  `release`'s targeted pre-migrate apply nor `migrate`'s independent
+  reconstruction, so the apply silently no-ops and **the migration runs against
+  the previous release's task definition**; and `migrate.py`'s `tables.role()`
+  lookup was a hard `AttributeError` on every elastic migrate, hence every
+  elastic release.
+- **`docex check`'s curl gate was a no-op** (mod 096). `_gate_healthcheck_tooling`
+  read `health_check_path` off the core-service model with a `getattr` default, so
+  once the field became process-scoped it was permanently `None` and the gate
+  **passed while checking nothing** — defeating mod 051's guard entirely. Same
+  class as `_common.py::scheduler_services`, whose `getattr(svc, "role", …)`
+  silently returned `[]` for *every* project, sending `docex up` and `docex test`
+  down the wrong branch with no error.
+- **`_infer_contract_format` could never return `asyncapi`** (mod 101). Its
+  asyncapi branch was provably unreachable: the sole call site passes a **core**
+  service name and the function then looked it up in `backing_services`, which by
+  model rule can never hold that name. Every provider got `openapi`. That
+  unreachability is *why* the `depends_on` flaw below went unnoticed for so long
+  — no code path could produce an AsyncAPI provider for a test to exercise. The
+  heuristic is deleted rather than repaired; the role is the honest source.
+- **The health-endpoint gate reasoned at codebase granularity** (mod 101). It
+  parsed a contract filename with `split(".", 1)[0]`, which yields `api` from
+  `api.web.openapi.yml` purely by the accident that the codebase is the first
+  segment, and then discarded the process entirely — so on a two-web-process
+  codebase it checked `api.web`'s contract against `api.admin`'s dependencies and
+  never noticed. Replaced with a right-anchored parser requiring exactly three
+  segments. The fan-out's `depends_on` arm is also dropped, having become
+  unfireable when rule 24 restricted `depends_on` to backing services (which have
+  no `<service>/<process>` form): a `depends_on`-keyed gate now requires
+  *nothing* of a `web → worker` edge, which is the silent switch-off the doctrine
+  names — requests keep returning 200 while work piles up behind a dead consumer.
+- **A hyphenated four-segment magic ref was emitted into infrastructure config
+  as literal text** (mod 097). `${core_services.my-api.web.host}` matched
+  *neither* the magic-ref pattern (whose part group forbade `.`) nor the
+  compile-time pattern (which forbade `-`), so it was written verbatim into the
+  emitted `docker-compose.yml` / `.tf`: silent corruption that looks valid,
+  applies cleanly, and carries a `${…}` string where a hostname belongs. A hyphen
+  decided whether a ref was *seen at all*. Kind-prefixed generic capture removes
+  that structurally — whether a string *is* a magic ref is now decided
+  independently of whether it is well-formed.
+- **`docex build`/`migrate`/`test` could resolve the wrong container** (mod 099).
+  The codebase → container heuristic suffix-matched the emitted compose file, so
+  a project with a codebase literally named `web` resolved to a *sibling*
+  codebase's `…-api-web`, silently and with no error. `exec_service_key`
+  construct-then-verifies instead: it derives the key from the same helper the
+  compiler emits, then asserts its presence and raises a "run `docex compile`"
+  error if absent — no suffix match to mis-resolve, no silent fallback to the
+  bare name.
+- **Three pre-existing rendered-identity collisions, unguarded on both
+  foundations** (mods 099, 100). A process type named `otelcol` renders
+  byte-identically to a sibling's collector sidecar, one named `scheduler` to a
+  sibling's Ofelia trigger, and one named `migrate` to the migration task
+  definition's own HCL address — one compose key or resource address, one
+  silently clobbering the other. Rule 5's uniqueness domain now covers every
+  suffix the compiler appends (`-otelcol`, `-scheduler`, `-exec`, `-migrate`, and
+  the prod-fixed replica index), keyed on **collision rather than a forbidden-name
+  list**, so it covers future suffixes without a further edit and does not forbid
+  a name that is harmless where nothing collides with it.
+- **`docex up`'s unhealthy-stack diagnostic was blind to backing services**
+  (mod 099). It derived keys per *core* codebase, so an unhealthy postgres — the
+  single most likely reason `up` fails — was invisible to it. It now reports every
+  entry in the compose status map in a diagnosable state.
+- **`docex build dev` was broken for any project with a scheduler-only codebase**
+  (mod 103) — a regression introduced within this advance by mod 099 and caught by
+  empirical verification rather than by any test. Mod 074's self-contained job
+  image built the Dockerfile **`prod`** stage under the codebase's dev-local tag,
+  while the new exec service builds the **`dev`** stage against the *same* tag;
+  because `compose run` builds only when the image is *absent*, the exec run
+  reused the prod-stage image, which carries no `build.sh` and no `test.sh`. No
+  unit test could have caught it: no integration test covers a scheduler at all.
+- **`OTEL_SERVICE_NAME` leaked a process segment onto per-codebase artifacts**
+  (mod 102). It was stamped in the shared env tail *before* the per-process /
+  per-codebase split, so the migrate task definition and the exec container both
+  reported whichever process type sorted lowest — for a codebase with `web`,
+  `worker` and `nightly_cleanup`, a **migration reporting
+  `OTEL_SERVICE_NAME=api-nightly_cleanup`**: the name of a cron job. It was also
+  unstable under rename, and it falsified the comment the exec service's
+  correctness leans on (that the codebase-scoped env surface is identical across
+  process types by construction). The identity now de-qualifies to the codebase
+  and the process attribute is omitted.
+- **`health_check_path` without a `port` emitted a malformed probe** (mod 095,
+  rule 28). `${port}` resolves to the empty string when a service omits `port:`,
+  so the probe became `http://localhost:/health` on both foundations, surfacing as
+  a container that never becomes healthy rather than as a compile error. Nothing
+  caught it: the existing rule requires a `port` only for *web-network* services,
+  and a worker is not on `web`.
+- **Rollback discovered the CICL boundary mid-rollback** (mod 105). `cicl.md
+  § CICL Version` had promised since mod 094 that rollback across the v1→v2
+  boundary "aborts at pre-flight, before anything is applied, with a fix-forward
+  message"; the code aborted inside `run_compile`, i.e. after a worktree had been
+  created and after the registry probe had run — during the outage, at the point
+  of maximum cost per second. The check now sits in the cheap pre-flight band,
+  ordered ahead of the image probe by decisiveness as well as cost (a missing
+  image can be rebuilt from the tag; a boundary crossing cannot be resolved by
+  anything but fixing forward, so the image list would be noise). It reads the
+  target's `cicl_version` with a single `git show` and a one-key YAML read rather
+  than full model validation, because a pre-v2 `infra.yml` fails validation for
+  several unrelated reasons at once and pydantic's ordering would decide what the
+  operator sees. The message states that nothing has been touched, names the
+  concrete next commands, and bounds the window.
+- **The conditional stratum described pre-advance behavior in twelve files**
+  (mod 106), and eight of the inherited predictions about it were themselves
+  wrong. `shape.md` claimed the reverse proxy load-balances *worker* replicas and
+  illustrated it with the one case the sentence does not describe: the proxy
+  balances `web` replicas, while **internal** replicas are balanced by Docker DNS
+  round-robin on fixed and Service Connect on elastic, with no proxy in the path.
+  The sidecar count is a **sum** over a codebase's non-`scheduler` process types
+  of each one's effective replica count, not the design record's `N × R` product —
+  written as a product it is wrong for the very configuration it exists to
+  explain (`web` at `replicas: 3` beside one `worker` is 4 collectors, not 6).
+  `telemetry_infra.md` described sidecar pairing as "sharing a network" when it is
+  by netns; `migrations.md` gave the absolute `/service/migrate.sh` for dev/test
+  where the code uses the relative form; and `domain_default_service` survived in
+  five files including four `projinfra` specifics the worklist omitted — the worst
+  class of staleness in the sweep, since it is not a renamed concept but **a field
+  the compiler now rejects**, so those documents instructed a reader to write
+  something that hard-errors with nothing signalling it until compile fails.
+
 ## [1.5.0] - 2026-07-11
 
 "Envmageddon" (campaign 003, mods 076-086) — splits the single per-environment

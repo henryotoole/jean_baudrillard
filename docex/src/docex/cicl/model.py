@@ -295,15 +295,29 @@ class CICLDocument(BaseModel):
     core_services: dict[str, CoreService] = Field(default_factory=dict)
     backing_services: dict[str, BackingService] = Field(default_factory=dict)
 
-    @model_validator(mode="after")
-    def _validate_cicl_version(self) -> "CICLDocument":
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_cicl_version(cls, data: Any) -> Any:
         # Rule 21. Rejected, not shimmed: a compatibility parser accepting
         # both forms would reintroduce the flat pre-`processes:` shape as a
         # permanent second code path, to serve a migration every project
         # performs exactly once. See cicl.md § CICL Version.
-        if self.cicl_version == CURRENT_CICL_VERSION:
-            return self
-        if self.cicl_version == "1":
+        #
+        # WHY mode="before": a `mode="after"` validator runs only once every
+        # nested field has validated, and a real v1 `infra.yml` fails inside
+        # `CoreService` first — so the operator saw a wall of per-service
+        # field-scoping errors and never this message, on the single error every
+        # downstream project hits exactly once, while upgrading. Reading the raw
+        # mapping fires before the nested models are built.
+        if not isinstance(data, dict):
+            return data
+        version = data.get("cicl_version")
+        # A non-str (unquoted `cicl_version: 2` arrives as an int) or an absent
+        # key is left to normal field validation, which reports the type or
+        # missing-field error. Only a well-formed string is judged here.
+        if not isinstance(version, str) or version == CURRENT_CICL_VERSION:
+            return data
+        if version == "1":
             raise ValueError(
                 "cicl_version '1' is no longer supported. CICL v2 makes the "
                 "`processes:` block mandatory on every core service and adds "
@@ -312,7 +326,7 @@ class CICLDocument(BaseModel):
                 "then set cicl_version: \"2\"."
             )
         raise ValueError(
-            f"unknown cicl_version {self.cicl_version!r}; the current "
+            f"unknown cicl_version {version!r}; the current "
             f"generation of the CICL format is {CURRENT_CICL_VERSION!r}."
         )
 

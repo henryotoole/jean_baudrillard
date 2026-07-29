@@ -14,7 +14,7 @@
 > this masterplan hangs off, and why `docex`'s documentation layout
 > deliberately diverges from the standard in other small ways.
 
-`docex` is the executor of the [doctrine](../../../doctrine/doctrine.md). It is a single, versioned container image that bundles every deterministic doctrine-shipped tool — the [CICL](../../../doctrine/infrastructure/cicl.md) compiler, the [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md), the CI/CD orchestration ([cicd.md](../../../doctrine/infrastructure/cicd.md)), the foundation-specific release machinery ([release_mechanism.md](../../../doctrine/infrastructure/specifics/release_mechanism.md)), and the elastic state-backend bootstrap ([elastic_bootstrap.md](../../../doctrine/infrastructure/specifics/elastic_bootstrap.md)) — behind one cohesive command-line surface. Each project pins one `docex` version, ships one `./bin/docex` shim, and never carries doctrine source code in its own repository.
+`docex` is the executor of the [doctrine](../../../doctrine/doctrine.md). It is a single, versioned container image that bundles every deterministic doctrine-shipped tool — the [CICL](../../../doctrine/infrastructure/cicl.md) compiler, the [transfer tables](../../../doctrine/infrastructure/specifics/transfer_tables.md), the CI/CD orchestration ([cicd.md](../../../doctrine/infrastructure/cicd.md)), the foundation-specific release machinery ([release.md](../../../doctrine/infrastructure/specifics/release.md)), and the elastic state-backend bootstrap ([elastic_state_backend.md](../../../doctrine/infrastructure/specifics/projinfra/elastic_state_backend.md)) — behind one cohesive command-line surface. Each project pins one `docex` version, ships one `./bin/docex` shim, and never carries doctrine source code in its own repository.
 
 The name is intentional: `docex` is *not* the doctrine. The doctrine is the body of rules and principles; `docex` is what executes those rules deterministically against a project.
 
@@ -101,7 +101,7 @@ When the shim runs, it reads this field and uses it as the image tag. Bumping `d
 
 ## Subcommand Surface
 
-The subcommand surface is the full set of commands defined in [docex.md](../../../doctrine/infrastructure/docex.md). Every command listed here is in scope for the design; [Implementation Order](#implementation-order) phases the actual build.
+The subcommand surface is the full set of commands defined in [docex.md](../../../doctrine/infrastructure/docex.md). Every command listed here is in scope for the design.
 
 | Command | Foundation behavior | Reads | Writes / acts on |
 | ------- | ------------------- | ----- | ---------------- |
@@ -312,6 +312,6 @@ These align with the [Deferred section of infrastructure.md](../../../doctrine/i
 2. **Automated CI/CD triggers.** `docex` is invoked manually or by a thin CI runner that just shells out to it. PR-triggered pipelines, GitHub Actions wrappers, etc. are out of scope.
 3. **Fundamental stage tests.** Stage test content is entirely the developer's responsibility. Doctrine-provided baseline stage tests (DNS, TLS, per-service health) are a future addition.
 4. **Public image hosting.** `docex` images are built locally and consumed from the local Docker store. Hosting on a public registry — and the per-provider auth that implies — is deferred until multi-machine teams need it.
-5. **Externally-rotated secrets.** All secrets are project-controlled and clobbered on each release; AWS-managed RDS rotation and friends are deferred per [release_mechanism.md § Caveats](../../../doctrine/infrastructure/specifics/release_mechanism.md#caveats).
+5. **Externally-rotated secrets.** All secrets are project-controlled and clobbered on each release; AWS-managed RDS rotation and friends are deferred per [config_and_secrets.md § Caveats](../../../doctrine/infrastructure/specifics/config_and_secrets.md#caveats).
 6. **The full CICL spec.** Covered in [cicl.md](../../../doctrine/infrastructure/cicl.md) and [transfer_tables.md](../../../doctrine/infrastructure/specifics/transfer_tables.md); not duplicated here.
 7. **Hexagonal architecture concerns.** Separate doctrine track; orthogonal to `docex`.

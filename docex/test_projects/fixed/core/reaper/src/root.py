@@ -1,18 +1,18 @@
-"""Composition root for the `reaper` scheduler core service.
+"""Composition root for the `reaper` core service.
 
-Wires the postgres repo + reaper service + CLI controller, runs one reap
-pass, and exits. This is the job entrypoint the scheduler (Ofelia on
-fixed, EventBridge RunTask on elastic) launches on each fire.
+Wires the postgres repo + reaper service + CLI controller and hands the
+driving adapter back. **The root constructs; it does not activate**
+(internal_dependency_rules.md § Entrypoints) — running the reap pass and
+exiting with its status is `entrypoints/prune.py`'s job, that being the
+module the `reaper.prune` process type's `command` invokes.
 
-Env is the doctrine parts-only surface — identical to `worker`'s — so
-the same code runs unchanged on both foundations.
+Env is the doctrine parts-only surface — identical to `api`'s — so the
+same code runs unchanged on both foundations.
 """
 
 from __future__ import annotations
 
-import logging
 import os
-import sys
 
 from hex.reaper.adapters.driven.repo_pings_postgres import RepoPingsPostgres
 from hex.reaper.adapters.driving.cont_reaper_cli import ContReaperCli
@@ -41,17 +41,8 @@ def _dsn_from_env() -> str:
     )
 
 
-def main() -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    )
-
+def build_reaper() -> ContReaperCli:
+    """Construct the `reaper.prune` process type's graph, un-run."""
     repo = RepoPingsPostgres(dsn=_dsn_from_env())
     service = ReaperService(repo=repo, window=RetentionWindow(days=_RETENTION_DAYS))
-    cli = ContReaperCli(service=service)
-    return cli.run_once()
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    return ContReaperCli(service=service)

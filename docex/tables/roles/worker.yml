@@ -15,7 +15,7 @@
 
 roles:
   worker:
-    description: "Core service process — long-running, event-driven, not publicly routed."
+    description: "Core service process type — long-running, event-driven, not publicly routed."
     container:
       foundation: both
       emits:

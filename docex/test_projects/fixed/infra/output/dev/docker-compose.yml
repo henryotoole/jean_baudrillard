@@ -8,8 +8,8 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 configs:
-  ofelia_reaper:
-    content: '[job-run "reaper"]
+  ofelia_reaper-prune:
+    content: '[job-run "reaper-prune"]
 
       schedule = 0 0 3 * * *
 
@@ -33,14 +33,14 @@ configs:
 
       environment = OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 
-      environment = OTEL_RESOURCE_ATTRIBUTES=service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev
+      environment = OTEL_RESOURCE_ATTRIBUTES=service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev,docex.core_service=reaper,docex.process_type=prune
 
-      environment = OTEL_SERVICE_NAME=reaper
+      environment = OTEL_SERVICE_NAME=reaper-prune
 
       environment = PROJECT_VERSION=0.0.14
 
       command = sh -c ''. /run/job.env && export DATABASE_PASSWORD="$$POSTGRES_PASSWORD"
-      && exec python /service/dist/root.py''
+      && exec python /service/dist/entrypoints/prune.py''
 
       volume = ${DOCEX_SECRETS_ENV_FILE}:/run/job.env:ro
 
@@ -62,6 +62,197 @@ networks:
     external: true
     name: docex-smoke-fixed-dev-web
 services:
+  docex-smoke-fixed-dev-api-exec:
+    build:
+      context: ./core/api
+      dockerfile: Dockerfile
+      target: dev
+    depends_on:
+      docex-smoke-fixed-dev-appdb:
+        condition: service_healthy
+      docex-smoke-fixed-dev-events:
+        condition: service_started
+      docex-smoke-fixed-dev-probe:
+        condition: service_started
+    environment:
+      DATABASE_HOST: docex-smoke-fixed-dev-appdb
+      DATABASE_NAME: appdb
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_PORT: '5432'
+      DATABASE_SSLMODE: disable
+      DATABASE_USER: appuser
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev,docex.core_service=api
+      OTEL_SERVICE_NAME: api
+      PROJECT_VERSION: 0.0.14
+    image: docex_smoke_fixed/api:0.0.14
+    labels:
+    - docex.project=docex-smoke-fixed
+    networks:
+    - internal
+    profiles:
+    - exec
+    volumes:
+    - ./core/api/src:/service/src
+    - ./core/api/dist:/service/dist
+  docex-smoke-fixed-dev-api-web:
+    build:
+      context: ./core/api
+      dockerfile: Dockerfile
+      target: dev
+    command:
+    - python
+    - /service/dist/entrypoints/web.py
+    container_name: docex-smoke-fixed-dev-api-web
+    depends_on:
+      docex-smoke-fixed-dev-appdb:
+        condition: service_healthy
+      docex-smoke-fixed-dev-events:
+        condition: service_started
+      docex-smoke-fixed-dev-probe:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512MB
+    environment:
+      CLICKHOUSE_HOST: docex-smoke-fixed-dev-events
+      CLICKHOUSE_PORT: '9000'
+      DATABASE_HOST: docex-smoke-fixed-dev-appdb
+      DATABASE_NAME: appdb
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_PORT: '5432'
+      DATABASE_SSLMODE: disable
+      DATABASE_USER: appuser
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev,docex.core_service=api,docex.process_type=web
+      OTEL_SERVICE_NAME: api-web
+      PROJECT_VERSION: 0.0.14
+      SIDECAR_HOST: docex-smoke-fixed-dev-probe
+      SIDECAR_PORT: '80'
+      WORKER_HOST: docex-smoke-fixed-dev-api-worker
+      WORKER_PORT: '8081'
+    healthcheck:
+      interval: 30s
+      retries: 3
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8080/health
+      timeout: 5s
+    image: docex_smoke_fixed/api:0.0.14
+    labels:
+    - traefik.enable=true
+    - traefik.docker.network=docex-smoke-fixed-dev-web
+    - traefik.http.routers.docex-smoke-fixed-dev-api-web.rule=Host(`api-web.dev.docex-smoke-fixed.luxrnd.tech`)
+      || Host(`dev.docex-smoke-fixed.luxrnd.tech`)
+    - traefik.http.routers.docex-smoke-fixed-dev-api-web.entrypoints=websecure
+    - traefik.http.routers.docex-smoke-fixed-dev-api-web.tls=true
+    - traefik.http.routers.docex-smoke-fixed-dev-api-web.tls.certresolver=doctrine
+    - traefik.http.services.docex-smoke-fixed-dev-api-web.loadbalancer.server.port=8080
+    - docex.project=docex-smoke-fixed
+    logging: *default-logging
+    networks:
+    - web
+    - internal
+    restart: unless-stopped
+    volumes:
+    - ./core/api/src:/service/src
+    - ./core/api/dist:/service/dist
+  docex-smoke-fixed-dev-api-web-otelcol:
+    command:
+    - --config=/etc/otelcol/config.yaml
+    configs:
+    - source: otelcol_config
+      target: /etc/otelcol/config.yaml
+    container_name: docex-smoke-fixed-dev-api-web-otelcol
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+    environment:
+      OBSERVABILITY_BACKEND_URL: https://hyperdx.luxrnd.tech
+      TELEMETRY_API_KEY: ${TELEMETRY_API_KEY:-}
+    image: otel/opentelemetry-collector:0.153.0@sha256:74edb825a429b415262e7eb7a99ed77685c9b2b7238ef69fb42a3625df75458f
+    labels:
+    - docex.project=docex-smoke-fixed
+    logging: *default-logging
+    network_mode: service:docex-smoke-fixed-dev-api-web
+    restart: unless-stopped
+  docex-smoke-fixed-dev-api-worker:
+    build:
+      context: ./core/api
+      dockerfile: Dockerfile
+      target: dev
+    command:
+    - python
+    - /service/dist/entrypoints/worker.py
+    container_name: docex-smoke-fixed-dev-api-worker
+    depends_on:
+      docex-smoke-fixed-dev-appdb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512MB
+    environment:
+      DATABASE_HOST: docex-smoke-fixed-dev-appdb
+      DATABASE_NAME: appdb
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_PORT: '5432'
+      DATABASE_SSLMODE: disable
+      DATABASE_USER: appuser
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev,docex.core_service=api,docex.process_type=worker
+      OTEL_SERVICE_NAME: api-worker
+      PROJECT_VERSION: 0.0.14
+    healthcheck:
+      interval: 30s
+      retries: 3
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8081/health
+      timeout: 5s
+    image: docex_smoke_fixed/api:0.0.14
+    labels:
+    - docex.project=docex-smoke-fixed
+    logging: *default-logging
+    networks:
+    - internal
+    restart: unless-stopped
+    volumes:
+    - ./core/api/src:/service/src
+    - ./core/api/dist:/service/dist
+  docex-smoke-fixed-dev-api-worker-otelcol:
+    command:
+    - --config=/etc/otelcol/config.yaml
+    configs:
+    - source: otelcol_config
+      target: /etc/otelcol/config.yaml
+    container_name: docex-smoke-fixed-dev-api-worker-otelcol
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+    environment:
+      OBSERVABILITY_BACKEND_URL: https://hyperdx.luxrnd.tech
+      TELEMETRY_API_KEY: ${TELEMETRY_API_KEY:-}
+    image: otel/opentelemetry-collector:0.153.0@sha256:74edb825a429b415262e7eb7a99ed77685c9b2b7238ef69fb42a3625df75458f
+    labels:
+    - docex.project=docex-smoke-fixed
+    logging: *default-logging
+    network_mode: service:docex-smoke-fixed-dev-api-worker
+    restart: unless-stopped
   docex-smoke-fixed-dev-appdb:
     container_name: docex-smoke-fixed-dev-appdb
     environment:
@@ -106,14 +297,44 @@ services:
     networks:
     - internal
     restart: unless-stopped
-  docex-smoke-fixed-dev-reaper-scheduler:
+  docex-smoke-fixed-dev-reaper-exec:
+    build:
+      context: ./core/reaper
+      dockerfile: Dockerfile
+      target: dev
+    depends_on:
+      docex-smoke-fixed-dev-appdb:
+        condition: service_healthy
+    environment:
+      DATABASE_HOST: docex-smoke-fixed-dev-appdb
+      DATABASE_NAME: appdb
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_PORT: '5432'
+      DATABASE_SSLMODE: disable
+      DATABASE_USER: appuser
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev,docex.core_service=reaper
+      OTEL_SERVICE_NAME: reaper
+      PROJECT_VERSION: 0.0.14
+    image: docex_smoke_fixed/reaper:0.0.14
+    labels:
+    - docex.project=docex-smoke-fixed
+    networks:
+    - internal
+    profiles:
+    - exec
+    volumes:
+    - ./core/reaper/src:/service/src
+    - ./core/reaper/dist:/service/dist
+  docex-smoke-fixed-dev-reaper-prune-scheduler:
     command:
     - daemon
     - --config=/etc/ofelia/config.ini
     configs:
-    - source: ofelia_reaper
+    - source: ofelia_reaper-prune
       target: /etc/ofelia/config.ini
-    container_name: docex-smoke-fixed-dev-reaper-scheduler
+    container_name: docex-smoke-fixed-dev-reaper-prune-scheduler
     image: mcuadros/ofelia:v0.3.7@sha256:21082a58c3d0d5d5b8615ac7d1ac5d039074728735879c76baf876c4358cbc3e
     labels:
     - docex.project=docex-smoke-fixed
@@ -121,146 +342,6 @@ services:
     restart: unless-stopped
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock:ro
-  docex-smoke-fixed-dev-web:
-    build:
-      context: ./core/web
-      dockerfile: Dockerfile
-      target: dev
-    container_name: docex-smoke-fixed-dev-web
-    depends_on:
-      docex-smoke-fixed-dev-appdb:
-        condition: service_healthy
-      docex-smoke-fixed-dev-events:
-        condition: service_started
-      docex-smoke-fixed-dev-probe:
-        condition: service_started
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 512MB
-    environment:
-      CLICKHOUSE_HOST: docex-smoke-fixed-dev-events
-      CLICKHOUSE_PORT: '9000'
-      DATABASE_HOST: docex-smoke-fixed-dev-appdb
-      DATABASE_NAME: appdb
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      DATABASE_PORT: '5432'
-      DATABASE_SSLMODE: disable
-      DATABASE_USER: appuser
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
-      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev
-      OTEL_SERVICE_NAME: web
-      PROJECT_VERSION: 0.0.14
-      SIDECAR_HOST: docex-smoke-fixed-dev-probe
-      SIDECAR_PORT: '80'
-    healthcheck:
-      interval: 30s
-      retries: 3
-      test:
-      - CMD
-      - curl
-      - -f
-      - http://localhost:8080/health
-      timeout: 5s
-    image: docex_smoke_fixed/web:0.0.14
-    labels:
-    - traefik.enable=true
-    - traefik.docker.network=docex-smoke-fixed-dev-web
-    - traefik.http.routers.docex-smoke-fixed-dev-web.rule=Host(`web.dev.docex-smoke-fixed.luxrnd.tech`)
-      || Host(`dev.docex-smoke-fixed.luxrnd.tech`)
-    - traefik.http.routers.docex-smoke-fixed-dev-web.entrypoints=websecure
-    - traefik.http.routers.docex-smoke-fixed-dev-web.tls=true
-    - traefik.http.routers.docex-smoke-fixed-dev-web.tls.certresolver=doctrine
-    - traefik.http.services.docex-smoke-fixed-dev-web.loadbalancer.server.port=8080
-    - docex.project=docex-smoke-fixed
-    logging: *default-logging
-    networks:
-    - web
-    - internal
-    restart: unless-stopped
-    volumes:
-    - ./core/web/src:/service/src
-    - ./core/web/dist:/service/dist
-  docex-smoke-fixed-dev-web-otelcol:
-    command:
-    - --config=/etc/otelcol/config.yaml
-    configs:
-    - source: otelcol_config
-      target: /etc/otelcol/config.yaml
-    container_name: docex-smoke-fixed-dev-web-otelcol
-    deploy:
-      resources:
-        limits:
-          cpus: '0.1'
-          memory: 128M
-    environment:
-      OBSERVABILITY_BACKEND_URL: https://hyperdx.luxrnd.tech
-      TELEMETRY_API_KEY: ${TELEMETRY_API_KEY:-}
-    image: otel/opentelemetry-collector:0.153.0@sha256:74edb825a429b415262e7eb7a99ed77685c9b2b7238ef69fb42a3625df75458f
-    labels:
-    - docex.project=docex-smoke-fixed
-    logging: *default-logging
-    network_mode: service:docex-smoke-fixed-dev-web
-    restart: unless-stopped
-  docex-smoke-fixed-dev-worker:
-    build:
-      context: ./core/worker
-      dockerfile: Dockerfile
-      target: dev
-    container_name: docex-smoke-fixed-dev-worker
-    depends_on:
-      docex-smoke-fixed-dev-appdb:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 512MB
-    environment:
-      DATABASE_HOST: docex-smoke-fixed-dev-appdb
-      DATABASE_NAME: appdb
-      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
-      DATABASE_PORT: '5432'
-      DATABASE_SSLMODE: disable
-      DATABASE_USER: appuser
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
-      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_fixed,service.version=0.0.14,deployment.environment.name=dev
-      OTEL_SERVICE_NAME: worker
-      PROJECT_VERSION: 0.0.14
-    image: docex_smoke_fixed/worker:0.0.14
-    labels:
-    - docex.project=docex-smoke-fixed
-    logging: *default-logging
-    networks:
-    - internal
-    restart: unless-stopped
-    volumes:
-    - ./core/worker/src:/service/src
-    - ./core/worker/dist:/service/dist
-  docex-smoke-fixed-dev-worker-otelcol:
-    command:
-    - --config=/etc/otelcol/config.yaml
-    configs:
-    - source: otelcol_config
-      target: /etc/otelcol/config.yaml
-    container_name: docex-smoke-fixed-dev-worker-otelcol
-    deploy:
-      resources:
-        limits:
-          cpus: '0.1'
-          memory: 128M
-    environment:
-      OBSERVABILITY_BACKEND_URL: https://hyperdx.luxrnd.tech
-      TELEMETRY_API_KEY: ${TELEMETRY_API_KEY:-}
-    image: otel/opentelemetry-collector:0.153.0@sha256:74edb825a429b415262e7eb7a99ed77685c9b2b7238ef69fb42a3625df75458f
-    labels:
-    - docex.project=docex-smoke-fixed
-    logging: *default-logging
-    network_mode: service:docex-smoke-fixed-dev-worker
-    restart: unless-stopped
 volumes:
   docex-smoke-fixed-dev-appdb_data:
     name: docex-smoke-fixed-dev-appdb_data

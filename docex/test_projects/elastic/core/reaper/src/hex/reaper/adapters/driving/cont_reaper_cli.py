@@ -1,9 +1,10 @@
 """ContReaperCli — driving adapter translating the job trigger into a
 single reap() call against the driving port.
 
-Unlike `worker`'s ``run_forever`` poller, a scheduler job runs to
-completion: one pass, then exit. The exit code is 0 on success so the
-scheduler (Ofelia / EventBridge RunTask) records the job as succeeded.
+Unlike `api.worker`, whose entrypoint wraps its ``run_once`` in a poll
+loop, a scheduler job runs to completion: one pass, then exit. The exit
+code is 0 on success so the scheduler (Ofelia / EventBridge RunTask)
+records the job as succeeded.
 """
 
 from __future__ import annotations

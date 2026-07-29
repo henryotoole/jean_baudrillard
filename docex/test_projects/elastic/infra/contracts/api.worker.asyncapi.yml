@@ -1,0 +1,82 @@
+# AsyncAPI contract for the `api.worker` process type.
+#
+# Why this file exists: `api.web` declares `consumes: [api.worker]`, which
+# makes the worker a provider, and the format follows from the provider's
+# ROLE — `role: worker` → asyncapi (contracts.md § Standards). This is the
+# format path that was *provably unreachable* before mod 101.
+#
+# ---------------------------------------------------------------------
+# A known loose end, recorded rather than hidden.
+#
+# AsyncAPI naturally describes a broker: a channel on a message bus, with
+# publish/subscribe operations. This worker has no broker. The doctrine
+# ships no `queue` role, so its "queue" is the `pings` TABLE in the
+# `appdb` relational_db, polled once a second. That is a legitimate shape
+# — and the honest channel address for it is a table name, not a topic.
+#
+# It is the most visible loose end the CICL-v2 advance leaves: 1.6.0 ships
+# a first-class `worker` role with no first-class thing for it to consume.
+# The channel below is described as it actually is.
+# ---------------------------------------------------------------------
+#
+# Note what is deliberately ABSENT: there is no `/health` path here.
+# Per contracts.md § Declared by fields, this contract describes only the
+# message boundary. The worker's probeability is declared by its `port` +
+# `health_check_path` fields in infra.yml, and its liveness is *exposed*
+# through the consumer's OpenAPI (`/health/api/worker` in
+# api.web.openapi.yml). Forcing an HTTP path into an AsyncAPI document
+# would be a contortion.
+
+asyncapi: "2.6.0"
+info:
+  title: docex_smoke_elastic.api.worker
+  version: "0.0.1"
+  description: |
+    Test-project worker process type for the doctrine smoke test. Claims
+    unprocessed pings from the `pings` table in batches, marks each
+    processed, and repeats. Shares its codebase, image, and database with
+    the `api.web` process type.
+
+defaultContentType: application/json
+
+channels:
+  pings:
+    description: |
+      The work queue, which is a postgres table rather than a broker topic
+      (see the header). `api.web` appends a row per POST /pings; this
+      process type claims rows where `processed_at IS NULL`, oldest first,
+      in batches of 32, and stamps `processed_at` on success.
+
+      Address is the table name because that is the truth. A broker-backed
+      worker would put a topic here instead and nothing else in this file
+      would change.
+    subscribe:
+      operationId: consumePing
+      summary: Claim and process one unprocessed ping.
+      message:
+        name: Ping
+        title: A ping awaiting processing
+        contentType: application/json
+        payload:
+          type: object
+          required: [id, payload, created_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Primary key, assigned by `api.web` on enqueue.
+            payload:
+              type: string
+              minLength: 1
+              description: Opaque body supplied by the POST /pings caller.
+            created_at:
+              type: string
+              format: date-time
+              description: Enqueue time, UTC. Claim order is oldest first.
+            processed_at:
+              type: ["string", "null"]
+              format: date-time
+              description: >
+                Null while unprocessed; stamped by this process type on a
+                successful pass. Also the retention key the `reaper.prune`
+                scheduler reaps against.

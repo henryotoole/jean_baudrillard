@@ -119,10 +119,16 @@ class DockerClient(Protocol):
         project_dir: Path | None = None,
         project_name: str | None = None,
     ) -> int:
-        """Run a command inside a *running* service container.
+        """Run a command inside an **already-running** service container.
 
-        This is the primary mechanism used by ``docex build``,
-        ``docex migrate``, and the build-test step of ``docex test``.
+        General-purpose, and with **no current production call sites**: Mod 099
+        moved ``docex build``, ``docex migrate``, and the build-test step of
+        ``docex test`` to :meth:`compose_run_one_off`, which starts a one-off
+        container from the image and does not require the service to be up.
+        Kept as part of the docker protocol surface — a protocol method with no
+        caller is unremarkable, and "exec into the running container" is the
+        obvious shape a future caller will want.
+
         ``project_dir`` / ``project_name`` — see :meth:`compose_up`.
         Both must match whatever values were used at ``compose_up``
         time so compose finds the same project.

@@ -13,7 +13,7 @@
 
 roles:
   web:
-    description: "Core service — the project's own code, served behind the reverse proxy."
+    description: "Core service process type — the project's own code, served behind the reverse proxy."
     container:
       foundation: both
       emits:

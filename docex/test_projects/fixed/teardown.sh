@@ -72,7 +72,12 @@ done
 # Uses the Docker Registry V2 HTTP API. Requires the registry to allow
 # image deletion (storage.delete.enabled: true in the registry config).
 echo "-- registry images at $REGISTRY_HOST"
-for service in web worker; do
+# One repo per CODEBASE, not per process type: `api` carries both the
+# `web` and `worker` process types on one image, so it is one repo. Keep
+# this list in sync with infra.yml's `core_services:` keys — the next
+# codebase added must be added here or its registry repo survives
+# teardown, exactly as `reaper` did before mod 107.
+for service in api reaper; do
   repo="${PROJECT_NAME}/${service}"
   tags_json="$(curl -fsS "https://${REGISTRY_HOST}/v2/${repo}/tags/list" 2>/dev/null || echo '{}')"
   for tag in $(echo "$tags_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print('\n'.join(d.get('tags') or []))" 2>/dev/null || true); do

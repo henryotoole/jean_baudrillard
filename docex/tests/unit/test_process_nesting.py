@@ -160,6 +160,48 @@ def test_8_unknown_cicl_version_rejected_with_distinct_message():
     assert "upgrade_1.6.0.md" not in msg
 
 
+def test_8b_real_v1_document_surfaces_the_version_message_not_field_errors():
+    """A *genuinely* v1 ``infra.yml`` — flat core services, no ``processes:``
+    block, ``domain_default_service`` — must surface the version message.
+
+    Tests 7 and 8 above feed a valid v2 document with only the version string
+    swapped, which nested validation accepts, so they would still pass with the
+    gate in a ``mode="after"`` validator. This one would not: an ``after``
+    validator never runs, because ``CoreService`` fails first and the operator
+    gets a wall of per-service field-scoping errors plus ``extra_forbidden`` on
+    ``domain_default_service`` instead. That is the single most-read error the
+    1.6.0 release produces — every downstream project hits it exactly once,
+    while upgrading — so the gate must fire ``mode="before"``, on the raw
+    mapping, ahead of the nested models.
+    """
+    v1 = """
+cicl_version: "1"
+foundation: fixed
+apex_domain: example.com
+domain_default_service: web
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+core_services:
+  web:
+    role: web
+    command: ["python", "/service/dist/root.py"]
+    networks: [web, internal]
+    port: 8080
+    resources:
+      cpu: 1.0
+      memory: 2GB
+"""
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(v1)
+    msg = str(exc.value)
+    assert "cicl_version '1' is no longer supported" in msg
+    assert "upgrade_1.6.0.md" in msg
+    # Exactly one error, and none of the noise the `after` placement produced.
+    assert "1 validation error" in msg
+    assert "moved from the core service to the process type" not in msg
+    assert "domain_default_service" not in msg
+
+
 # ---------------------------------------------------------------------------
 # 9-11 — rule 5: rendered data-plane identity collisions.
 # ---------------------------------------------------------------------------

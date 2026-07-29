@@ -76,9 +76,11 @@ The fixed project's bare apex is `luxrnd.tech` and the project segment derives t
 - [ ] `*.stage.docex-smoke-fixed.luxrnd.tech   A → $DEV_IP`
 - [ ] `prod.docex-smoke-fixed.luxrnd.tech      A → $DEV_IP`
 - [ ] `*.prod.docex-smoke-fixed.luxrnd.tech    A → $DEV_IP`
-- [ ] `docex-smoke-fixed.luxrnd.tech           A → $DEV_IP` (bare-project; routes prod's `domain_default_service`)
+- [ ] `docex-smoke-fixed.luxrnd.tech           A → $DEV_IP` (bare-project; routes prod's `domain_default_process`)
 
 Verify each: `dig +short <subdomain>` returns `$DEV_IP`.
+
+**No new records are needed for the CICL-v2 process-type migration.** The per-env `*.<env>.…` wildcards above already cover the new two-segment hostnames (`api-web.dev.…`, `api-web.prod.…`), because the process segment shares the *same DNS label* as the service, hyphen-joined. Stated explicitly because [`upgrades/upgrade_1.6.0.md`](../../upgrades/upgrade_1.6.0.md) tells downstream projects the **opposite** — a fixed project must add a public A-record per new web hostname before `envinfra up`. Both are correct: those projects hold per-host records, these smoke projects hold wildcards. A reader comparing the two documents should not conclude one is wrong.
 
 #### A.4.2 Elastic walk DNS
 
@@ -101,7 +103,7 @@ Verify each: `dig +short <subdomain>` returns `$DEV_IP`.
 
 ### A.7 Fixed deploy credentials and deploy-target user
 
-Per [`release_mechanism.md § Fixed Foundation: Ansible`](../../doctrine/infrastructure/specifics/release_mechanism.md#fixed-foundation-ansible), the rendered playbook lands on the deploy target as a dedicated `deploy` user — member of the `docker` group, with passwordless sudo so `become: true` tasks can elevate without prompting. The dev machine doubles as the deploy target for this smoke walk, so the user must exist on it locally.
+Per [`release.md § Fixed Foundation: Ansible`](../../doctrine/infrastructure/specifics/release.md#fixed-foundation-ansible), the rendered playbook lands on the deploy target as a dedicated `deploy` user — member of the `docker` group, with passwordless sudo so `become: true` tasks can elevate without prompting. The dev machine doubles as the deploy target for this smoke walk, so the user must exist on it locally.
 
 - [ ] Create the `deploy` user with docker group membership and passwordless sudo, if not present:
   ```
@@ -147,20 +149,36 @@ Before running `docex compile` or any release command, walk this audit against e
 
 Run this audit *once per cut*, against each project independently.
 
+> **Two things only this walk covers.** Both are stated here so a decision to shorten the walk is made knowingly, not by accident.
+>
+> 1. **No integration test covers a `scheduler`.** `tests/integration/conftest.py` points every integration test at `sample_project`, which declares no scheduler. `reaper-prune` on the fixed walk (C.4 / C.7 / C.9) is therefore the **only** end-to-end scheduler coverage that exists anywhere — for the Ofelia INI emit, the secret-sourcing command wrapper, the codebase-image keying (mod 103), and the `test`-env trigger suppression.
+> 2. **No test of any kind covers the fixed replica unroll.** See the note at the top of [C.9](#c9-release-prod).
+
 - [ ] **B.1 Project root layout** — `project.yml`, `README.md`, `CHANGELOG.md`, `.gitignore`, `bin/docex`, `core/`, `infra/`, `plans/` all present. Per [`inception.md`](../../doctrine/practices/inception.md) PART I step 7 and [`infrastructure.md § Codebase Structure`](../../doctrine/infrastructure/infrastructure.md#codebase-structure).
 - [ ] **B.2 `project.yml` shape** — declares `name`, `version`, `docex_version`. Per [`infrastructure.md § Project Config`](../../doctrine/infrastructure/infrastructure.md#project-config).
-- [ ] **B.3 `infra.yml` shape** — declares `apex_domain` as a bare apex (no project segment), and (elastic only) `reverse_proxy` (default `alb`). Old `domain:` field absent. Per [`cicl.md`](../../doctrine/infrastructure/cicl.md) mod 031.
+- [ ] **B.3 `infra.yml` shape** — declares `cicl_version: "2"`; `apex_domain` as a bare apex (no project segment); `domain_default_process` as a **dotted, fully qualified** process reference (`api.web`), with the old `domain_default_service` absent; and (elastic only) `reverse_proxy` (default `alb`). Old `domain:` field absent. Per [`cicl.md`](../../doctrine/infrastructure/cicl.md) mod 031 and [§ CICL Version](../../doctrine/infrastructure/cicl.md#cicl-version).
+- [ ] **B.3.1 `processes:` on every core service** — present and **non-empty** on each. There is no flat form and no single-process shorthand. The service level accepts only `{processes, secrets, config, env}`; anything else there is a hard error. `role`, `command`, `networks`, `resources`, `port`, `depends_on`, `consumes`, `replicas`, and every role-specific field (`health_check_path`, `schedule`) live on a **process type**. `env:` is the one field valid at both levels. Per [`cicl.md § Process Types`](../../doctrine/infrastructure/cicl.md#process-types) and [§ Field scoping](../../doctrine/infrastructure/cicl.md#field-scoping).
+- [ ] **B.3.2 `depends_on` names backing services only** — a core process type in a `depends_on` list is an error (rule 24). Core→core interface edges live in `consumes:`, dotted and fully qualified (`api.worker`); a bare core service name is illegal, not shorthand. Core magic refs are **four-segment** (`${core_services.api.worker.host}`). Per [`cicl.md § Consumes Relationships`](../../doctrine/infrastructure/cicl.md#consumes-relationships) and [§ Magic Refs](../../doctrine/infrastructure/cicl.md#magic-refs).
 - [ ] **B.4 CHANGELOG conventions** — follows Keep a Changelog + SemVer (Unreleased section present). Per [`version_control.md § Changelog`](../../doctrine/infrastructure/version_control.md#changelog).
 - [ ] **B.5 `infra.yml` validates** — `docex compile` succeeds with no errors. Per [`cicl.md § Validation Rules`](../../doctrine/infrastructure/cicl.md#validation-rules).
 - [ ] **B.6 Core service Dockerfiles** — every core service has a Dockerfile with `build`, `dev`, `prod`, `test` stages. Per [`infrastructure.md § Core Service Containers`](../../doctrine/infrastructure/infrastructure.md#core-service-containers).
-- [ ] **B.7 Core service scripts** — every core service has `build.sh` and `test.sh`; services owning a relational_db schema additionally have `migrate.sh` and `migrations/`. Per [`cicd.md § Build Step, § Build Test Step, § Migrate Step`](../../doctrine/infrastructure/cicd.md).
+- [ ] **B.7 Core service scripts** — scripts are per **codebase**, never per process type: every core service has one `build.sh` and one `test.sh` (which runs *all* the codebase's tests, across every process type's modules); a codebase owning a relational_db schema additionally has one `migrate.sh` and one `migrations/`, and `migrate.sh` runs **once per codebase** per release regardless of process-type count. Per [`cicd.md § Build Step, § Build Test Step, § Migrate Step`](../../doctrine/infrastructure/cicd.md).
+- [ ] **B.7.1 The three shims read service-level `env:` only** — `migrate.sh`, `test.sh`, and `build.sh` are invoked per codebase, so a process-scoped `env:` key is simply **absent** in them. Confirm every var they read is declared at the *service* level of `infra.yml`. This break is silent: a migration that reads a process-scoped `DATABASE_HOST` gets an empty string, not an error. Per [`cicl.md § Field scoping`](../../doctrine/infrastructure/cicl.md#field-scoping).
 - [ ] **B.8 `migrate.sh` builds DSN from parts** — including `${DATABASE_SSLMODE}`. No hard-coded `sslmode=disable` or `sslmode=require`. RDS rejects non-SSL on elastic; the doctrine's parts-only model keeps the shim foundation-agnostic. Per [`migrations.md`](../../doctrine/infrastructure/specifics/migrations.md).
-- [ ] **B.9 Provider contracts present** — every provider core service has a contract at `infra/contracts/<svc>.<format>.yml`. Per [`contracts.md`](../../doctrine/infrastructure/contracts.md).
-- [ ] **B.10 Health endpoints declared** — every `web`-network core service's contract declares `GET /health`; if it depends on other core services, also `GET /health/<other>`. Per [`contracts.md § Health Checks`](../../doctrine/infrastructure/contracts.md#health-checks).
-- [ ] **B.11 Hex layout** — each core service contains `src/root.py` (composition root); each hex module contains `domain/`, `ports/{driving,driven}/`, `adapters/{driving,driven}/`, `alogic/`. Per [`hex_overview.md § Project Structure`](../../doctrine/hexagonal_architecture/hex_overview.md#project-structure) and [`internal_dependency_rules.md § Composition Root`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#composition-root).
+- [ ] **B.9 Provider contracts present** — every provider has a contract at `infra/contracts/<svc>.<proc>.<format>.yml`. The path is keyed on the **process type**, unconditionally. **The provider set is (`consumes` targets) ∪ (`web`-network process types)** — both arms load-bearing, so a non-web `worker` that anything consumes needs a contract even though nothing routes to it. The format follows from the provider's **`role`**: `role: web` → `openapi`, `role: worker` → **`asyncapi`**. `scheduler` process types are exempt (cron invokes them and nobody else does). Per [`contracts.md`](../../doctrine/infrastructure/contracts.md).
+- [ ] **B.10 Health endpoints declared** — health is per **process type**, and it has three parts:
+  - **Self health.** Every long-running process type serves `GET /health` on its own `port`, returning `{version: "x.x.x"}`. Every OpenAPI contract must declare it. A `worker`'s AsyncAPI contract does **not** (an HTTP path has no natural place there) — that is not an exemption; its self-health is declared by its **fields** instead.
+  - **Fan-out.** Every `web`-network process type declares `GET /health/<svc>/<proc>` — **two** path segments, not the old one-segment form — once per `consumes` target that is not itself on the `web` network. Sourced from `consumes`, **never** `depends_on`. One hop only, short hard timeout, never calling the target's own fan-out (the `consumes` graph may legally cycle).
+  - **Probeability.** Every `consumes` target declares both `port` and `health_check_path`; those two fields *are* its health declaration, and `docex check` asserts them (plus `curl` in the image, which it keys off `health_check_path` with no network filter).
+
+  `scheduler` process types are **exempt throughout** — there is no long-running container to probe.
+
+  A process type that owns a **loop** rather than a request cycle must report the *loop's* liveness, not the process's: an in-process **monotonic tick** bumped each iteration, ticking at least every **10 s even when idle**, and a handler that returns **503** once the tick is **30 s** stale. Both thresholds are doctrine-fixed — a project-local knob is a finding. Reference implementation: `test_projects/*/core/api/src/entrypoints/worker.py`. Per [`contracts.md § Health Checks`](../../doctrine/infrastructure/contracts.md#health-checks).
+- [ ] **B.11 Hex layout** — each core service contains **exactly one** `src/root.py` (composition root — never `root_web.py` / `root_worker.py`, which would put two drifting copies of the driven wiring in the tree); each hex module contains `domain/`, `ports/{driving,driven}/`, `adapters/{driving,driven}/`, `alogic/`. Per [`hex_overview.md § Project Structure`](../../doctrine/hexagonal_architecture/hex_overview.md#project-structure) and [`internal_dependency_rules.md § Composition Root`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#composition-root).
+- [ ] **B.11.1 `src/entrypoints/` present, one module per process type** — and each process type's `command` in `infra.yml` invokes exactly one of them. **The composition root constructs; it does not activate**: grep each `root.py` for a `uvicorn.run`, a `serve`, a `while True`, a `socket`, or an `if __name__ == "__main__"` block. Any of those is a failure — the runtime host (uvicorn, a broker's consume loop, a poll loop) belongs to the entrypoint, not to the root and not to an adapter. Without this item the audit cannot catch a project whose `root.py` still starts a server, which is precisely the shape CICL v2 makes inexpressible: with two process types on one image, at most one could be what `root.py` starts. Per [`internal_dependency_rules.md § Entrypoints`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints).
 - [ ] **B.12 Migrations idempotent + reversible** — every `core/<svc>/migrations/*.sql` has both `-- migrate:up` and `-- migrate:down` sections. Per [`databases.md § Migrations`](../../doctrine/practices/databases.md#migrations).
 - [ ] **B.13 Stage tester present** — `infra/stage/Dockerfile`, `infra/stage/stage_test.sh`, `infra/stage/tests/` all populated. Per [`tests.md § Staging Tests`](../../doctrine/infrastructure/tests.md#staging-tests).
-- [ ] **B.14 Foundation-irrelevant code parity** — `diff -r test_projects/fixed/core test_projects/elastic/core` produces no output (other than `__pycache__` / `dist/` which are gitignored). If application code differs, the parts-only env model is leaking foundation specifics — that's a doctrine bug.
+- [ ] **B.14 Foundation-irrelevant code parity** — `diff -r test_projects/fixed/core test_projects/elastic/core` produces no output (other than `__pycache__` / `dist/` which are gitignored). This covers the entrypoints too: a process type whose entrypoint differs by foundation means the parts-only env model is leaking foundation specifics into application code — that's a doctrine bug.
 - [ ] **B.15 Data-plane names hyphenate** — `grep -rE '{project_name_with_underscores}' infra/output/` (e.g. `docex_smoke_elastic`) finds only AWS record-key identifiers (IAM, SSM, DDB), tags, comments, and ECR repo names. No occurrence of an underscored project segment on a docker network/container/volume name, ECS Service Connect namespace, Route53 zone or record, or ACM cert. Per mod 030's hyphen-on-data-plane rule plus mod 046's leak fix.
 
 ---
@@ -191,7 +209,7 @@ Run this audit *once per cut*, against each project independently.
 
 ### C.5 Test
 
-- [ ] `./bin/docex test` — exits 0. Includes unit + integration + contract tests across both core services.
+- [ ] `./bin/docex test` — exits 0. One test run per **codebase** (`api`, `reaper`), each covering every module that codebase's process types drive — so `api`'s run exercises both `pings` (api.web) and `processor` (api.worker).
 
 ### C.6 Check + Containerize
 
@@ -200,7 +218,7 @@ Run this audit *once per cut*, against each project independently.
 > **A reachable `origin` is required.** `check`/`merge` run `git fetch origin` from **inside** the docex container, which mounts the project root and specific `$HOME` subdirs (`~/.docker`, `~/.aws`, `~/.gitconfig`, `~/.ssh`) — **not** arbitrary `$HOME` paths. So a local bare remote must live **under the project root** to be container-visible. Create one in the gitignored `.docex/` (e.g. `git init --bare .docex/origin.git`), `git remote add origin .docex/origin.git`, and `git push origin main v<prior>` so `origin/main` sits at the prior release. The restructure: delete the current `v<new>` tag (merge recreates it), branch the new-version work onto a feature branch, move `main` back to `v<prior>`, push `main` to origin, and check out the feature branch.
 
 - [ ] `./bin/docex check` — exits 0. Runs gate checks against an ephemeral worktree (feature branch ⊕ `origin/main`).
-- [ ] `./bin/docex containerize` — succeeds; both `registry.luxrnd.tech/docex_smoke_fixed/web:<v>` and `registry.luxrnd.tech/docex_smoke_fixed/worker:<v>` push successfully. (ECR repo names preserve project-segment underscores per mod 030's structural emitter — this is correct.)
+- [ ] `./bin/docex containerize` — succeeds; **one image per codebase**: `registry.luxrnd.tech/docex_smoke_fixed/api:<v>` and `registry.luxrnd.tech/docex_smoke_fixed/reaper:<v>` push successfully. The old `…/web` and `…/worker` are gone: `api-web` and `api-worker` share the `api` tag and differ only by `command`. Confirm no third repo appears. (Repo names preserve project-segment underscores per mod 030's structural emitter — this is correct.)
 
 ### C.7 Release stage
 
@@ -212,12 +230,16 @@ Run this audit *once per cut*, against each project independently.
 
 ### C.9 Release prod
 
-- [ ] `./bin/docex release prod` — completes. Three URLs must all return 200 with the same `version` field (prod's `domain_default_service` answers at all three):
-  - `https://web.prod.docex-smoke-fixed.luxrnd.tech/health` (canonical)
-  - `https://prod.docex-smoke-fixed.luxrnd.tech/health` (bare-env)
-  - `https://docex-smoke-fixed.luxrnd.tech/health` (bare-project ergonomic, replacing the pre-1.0.0 `www` convention)
+> **Do not skip this step.** `replicas` is honoured in **`prod` only** — it clamps to 1 in `dev`, `test`, and `stage`, and every integration test runs against `dev`. **This prod release is the only thing in existence that exercises the fixed replica unroll.** Nothing else — no unit test, no integration test, no stagetest, no elastic walk — ever emits or runs the multi-service form. Stopping the walk after C.8 means shipping that code untested, with the first execution happening in a downstream project's production environment. The unroll is what turns one declared process type into `…-api-worker-1` and `…-api-worker-2`, each with its own `container_name` and its own otelcol sidecar, sharing one network **alias** equal to the unqualified global name (which is what the four-segment magic refs resolve to, so a broken alias breaks `/health/api/worker` and nothing else would tell you).
+
+- [ ] `./bin/docex release prod` — completes. Three URLs must all return 200 with the same `version` field (prod's `domain_default_process`, `api.web`, answers at all three):
+  - `https://api-web.prod.docex-smoke-fixed.luxrnd.tech/health` (canonical, **two-segment** service label)
+  - `https://prod.docex-smoke-fixed.luxrnd.tech/health` (bare-env → `domain_default_process`)
+  - `https://docex-smoke-fixed.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_process`)
+- [ ] `https://docex-smoke-fixed.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. This is the doctrine-required `consumes` fan-out and the **only** externally-observable view of `api.worker`'s liveness — a 503 here with a green `/health` means the worker's poll loop is wedged or its tick is stale, which is exactly the failure the loop-liveness rule exists to catch.
+- [ ] `docker ps` shows **two** worker containers, `…-prod-api-worker-1` and `…-prod-api-worker-2`, plus one otelcol sidecar each. `docker network inspect …-prod-internal` shows both carrying the alias `…-prod-api-worker`.
 - [ ] POST a ping to `https://docex-smoke-fixed.luxrnd.tech/pings` — returns 201.
-- [ ] After ~5s, query the prod postgres database directly: the ping row exists and has a non-NULL `processed_at` (worker picked it up).
+- [ ] After ~5s, query the prod postgres database directly: the ping row exists and has a non-NULL `processed_at` (a worker replica picked it up).
 
 ### C.10 Rollback walk
 
@@ -283,11 +305,14 @@ Elastic production-side projinfra applies in two phases separated by an operator
 > **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.7 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`.
 
 - [ ] `./bin/docex check` — exits 0.
-- [ ] `./bin/docex containerize` — succeeds; images push to the project ECR (`<account>.dkr.ecr.us-east-1.amazonaws.com/docex_smoke_elastic/{web,worker}:<v>`). Authenticates against ECR via `aws ecr get-login-password` per invocation.
+- [ ] `./bin/docex containerize` — succeeds; **one ECR repo and one image per codebase**: `<account>.dkr.ecr.us-east-1.amazonaws.com/docex_smoke_elastic/{api,reaper}:<v>`. The old `{web,worker}` repos are gone — `api-web` and `api-worker` share the `api` tag. Confirm D.3 phase 2 provisioned exactly **two** ECR repos, not three or four. Authenticates against ECR via `aws ecr get-login-password` per invocation.
 
 ### D.9 Release stage
 
-- [ ] `./bin/docex release stage` — first-time-release path detected (ECS cluster absent); ordering swaps to `SSM push → tofu apply → migrate`. ALB listener rules, ECS cluster, ECS services for `web`/`worker`/`probe`/`events`, RDS instance, EFS filesystem + mount targets for `events`, all come up. `https://stage.docex-smoke-elastic.luxrnd.tech/health` returns 200.
+- [ ] `./bin/docex release stage` — first-time-release path detected (ECS cluster absent); ordering swaps to `SSM push → tofu apply → migrate`. ALB listener rules, ECS cluster, ECS services for `api-web`/`api-worker`/`probe`/`events`, RDS instance, EFS filesystem + mount targets for `events`, all come up. `https://stage.docex-smoke-elastic.luxrnd.tech/health` returns 200.
+- [ ] `reaper-prune` came up as a **scheduled task**, not a service: an `aws_ecs_task_definition` plus an `aws_scheduler_schedule` and a per-process scheduler-invocation IAM role, and **no** `aws_ecs_service`. Confirm `aws ecs list-services` shows exactly four (`api-web`, `api-worker`, `probe`, `events`).
+- [ ] Exactly **one** `…-migrate` task-definition family exists for the `api` codebase — not one per process type — and none for `reaper` (it owns no schema).
+- [ ] `api-worker` has a container-level `healthCheck` and **no** target group; `api-web` has the target group. Its `desired_count` is **1** here (`replicas: 2` clamps outside prod).
 
 ### D.10 Stagetest
 
@@ -297,9 +322,11 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 - [ ] `./bin/docex release prod` — first-time-release path for prod env. Provisions the prod ECS services + RDS + EFS alongside stage on the same project-tier ALB.
 - [ ] Three `/health` URLs return 200 (same shape as fixed C.9):
-  - `https://web.prod.docex-smoke-elastic.luxrnd.tech/health` (canonical)
-  - `https://prod.docex-smoke-elastic.luxrnd.tech/health` (bare-env)
-  - `https://docex-smoke-elastic.luxrnd.tech/health` (bare-project)
+  - `https://api-web.prod.docex-smoke-elastic.luxrnd.tech/health` (canonical, **two-segment** service label)
+  - `https://prod.docex-smoke-elastic.luxrnd.tech/health` (bare-env → `domain_default_process`)
+  - `https://docex-smoke-elastic.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_process`)
+- [ ] `https://docex-smoke-elastic.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. On elastic this additionally proves Service Connect resolved the sibling process type — the `api.worker` `port` is exactly what makes it discoverable, so a missing port surfaces here and nowhere else.
+- [ ] `aws ecs describe-services` reports `desired_count = 2` and two RUNNING tasks for prod's `api-worker` (`replicas: 2` is honoured in prod only).
 - [ ] POST a ping to `https://docex-smoke-elastic.luxrnd.tech/pings` — returns 201; after ~5s the prod RDS shows the row with non-NULL `processed_at`.
 
 ### D.12 Rollback walk
@@ -321,6 +348,13 @@ Same intent as C.10 but against elastic prod. The rollback path pushes SSM and r
 ---
 
 ## E. After both walks succeed
+
+> **Neither walk may stop at stagetest.** Two pieces of shipped code are covered by the **prod release steps alone**:
+>
+> - **The fixed replica unroll (C.9).** `replicas` clamps to 1 in `dev`, `test`, and `stage`, and every integration test runs against `dev`, so the multi-service form — `-1`/`-2` suffixes, per-replica `container_name`, per-replica sidecar, the shared network alias — is emitted and executed nowhere else. Skipping C.9 ships it untested.
+> - **The elastic `desired_count > 1` path (D.11).** Same clamp, same consequence, and the first place a process type that does not tolerate siblings will fail.
+>
+> A process type that cannot run alongside a copy of itself therefore first surfaces in **production**. That is a known limitation of the prod-only clamp, and it is the reason these two steps are not optional.
 
 - [ ] Both `verify_clean.sh` runs are green.
 - [ ] No leftover state in Route53 except the parent `luxrnd.tech` zone and any other unrelated records the operator runs.

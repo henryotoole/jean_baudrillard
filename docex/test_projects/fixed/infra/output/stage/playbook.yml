@@ -48,11 +48,11 @@
         pull: always
         state: present
 
-    - name: Run migrations for web
+    - name: Run migrations for api
       ansible.builtin.command:
-        cmd: docker compose -p docex-smoke-fixed-stage run --rm docex-smoke-fixed-stage-web /service/migrate.sh
+        cmd: docker compose -p docex-smoke-fixed-stage run --rm docex-smoke-fixed-stage-api-exec /service/migrate.sh
         chdir: "{{ deploy_root }}"
-      register: web_migrate_result
+      register: api_migrate_result
       changed_when: true
       tags:
         - migrate

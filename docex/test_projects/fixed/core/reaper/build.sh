@@ -1,6 +1,6 @@
 #!/bin/sh
-# build.sh — canonical build entry point for `reaper`. Same pattern as
-# web/worker: pure-Python, so build is a copy of src/ -> dist/.
+# build.sh — canonical build entry point for the `reaper` codebase. Same
+# pattern as `api`: pure-Python, so build is a copy of src/ -> dist/.
 set -eu
 
 cd "$(dirname "$0")"

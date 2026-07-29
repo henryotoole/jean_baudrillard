@@ -1,7 +1,10 @@
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: "luxrnd.tech"
-domain_default_service: web
+# The web *process type* on the bare <env>.<project>.<apex> subdomain.
+# Dotted and fully qualified — a bare core service name has no answer,
+# because a codebase has no single boundary (cicl.md § Domain).
+domain_default_process: api.web
 # Operator-provided container registry. See PRE_CUT_CHECKLIST.md
 # "Container registry" for the prerequisite setup (Docker Registry V2 at
 # this host, reachable from the dev machine and from itself in `prod`).
@@ -13,15 +16,14 @@ repo_url: "https://github.com/luxedo/jean_baudrillard"
 observability_backend_url: "https://hyperdx.luxrnd.tech"
 
 core_services:
-  web:
-    role: web
-    port: 8080
-    networks: [web, internal]
-    # The doctrine-mandated /health endpoint. On fixed this drives the
-    # container's docker healthcheck via the role's
-    # `health_check_path` field translation.
-    health_check_path: /health
-    depends_on: [appdb, probe, events]
+  # One codebase, one image, two process types. `web` and `worker` were two
+  # separate core services before CICL v2, purely because there was no way
+  # to say "one artifact, two invocations" — they always shared a database,
+  # a table, and six identical DATABASE_* refs.
+  api:
+    # Codebase-scoped: both process types run the same artifact and both
+    # need a database, so these live once at the service level and merge
+    # into every process type. (cicl.md § Field scoping.)
     env:
       # Built from appdb's provided parts at startup (parts-only model).
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -30,45 +32,71 @@ core_services:
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-      # Project-local container backings: nginx sidecar + ClickHouse
-      # analytics_db. The /health/{probe,events} endpoints in `web`'s
-      # composition root exercise them as part of the smoke walk.
-      SIDECAR_HOST: ${backing_services.probe.host}
-      SIDECAR_PORT: ${backing_services.probe.port}
-      CLICKHOUSE_HOST: ${backing_services.events.host}
-      CLICKHOUSE_PORT: ${backing_services.events.port}
-    resources:
-      cpu: 0.25
-      memory: 512MB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/entrypoints/web.py"]
+        port: 8080
+        networks: [web, internal]
+        # The doctrine-mandated /health endpoint. On fixed this drives the
+        # container's docker healthcheck via the role's
+        # `health_check_path` field translation.
+        health_check_path: /health
+        depends_on: [appdb, probe, events]
+        # Interface edge, not a readiness gate: `api.web` proxies the
+        # worker's liveness at /health/api/worker and therefore speaks to
+        # that boundary. One direction only — this worker polls a table and
+        # never calls the web edge, so the reverse edge would be a false
+        # declaration. (cicl.md § Consumes Relationships.)
+        consumes: [api.worker]
+        env:
+          # Process-scoped: only the web edge exposes /health/{probe,events},
+          # so only it declares these refs — which is what keeps `probe` and
+          # `events` out of the worker's depends_on. Per rule 7 a
+          # SERVICE-level ref would oblige EVERY process type to declare the
+          # edge, forcing the worker to depend on backings it never touches.
+          #
+          # Project-local container backings: nginx sidecar + ClickHouse
+          # analytics_db.
+          SIDECAR_HOST: ${backing_services.probe.host}
+          SIDECAR_PORT: ${backing_services.probe.port}
+          CLICKHOUSE_HOST: ${backing_services.events.host}
+          CLICKHOUSE_PORT: ${backing_services.events.port}
+          # Four-segment core magic refs — the worker's docker-DNS address
+          # (ECS Service Connect on elastic), used by the /health/api/worker
+          # fan-out. Holding these refs is what obliges `consumes:
+          # [api.worker]` above.
+          WORKER_HOST: ${core_services.api.worker.host}
+          WORKER_PORT: ${core_services.api.worker.port}
+        resources:
+          cpu: 0.25
+          memory: 512MB
 
-  worker:
-    role: web
-    # No port — `worker` isn't on the web network, so no reverse-proxy
-    # exposure (rule 15 only applies to web-network services).
-    networks: [internal]
-    depends_on: [appdb]
-    env:
-      DATABASE_HOST: ${backing_services.appdb.host}
-      DATABASE_PORT: ${backing_services.appdb.port}
-      DATABASE_NAME: ${backing_services.appdb.db}
-      DATABASE_USER: ${backing_services.appdb.user}
-      DATABASE_PASSWORD: ${backing_services.appdb.password}
-      DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-    resources:
-      cpu: 0.25
-      memory: 512MB
+      worker:
+        role: worker
+        command: ["python", "/service/dist/entrypoints/worker.py"]
+        # A port purely for the liveness probe: a worker is never routed
+        # (it isn't on the `web` network, so rule 15 doesn't apply), but a
+        # `consumes` target must be probeable, and on elastic the port is
+        # also what makes it Service-Connect-discoverable.
+        port: 8081
+        health_check_path: /health
+        networks: [internal]
+        depends_on: [appdb]
+        # Honoured in `prod` only — clamped to 1 in dev/test/stage. The prod
+        # release is therefore the only thing that exercises the fixed
+        # replica unroll; see PRE_CUT_CHECKLIST.md § C.9.
+        replicas: 2
+        resources:
+          cpu: 0.25
+          memory: 512MB
 
-  # A scheduler core service: prunes processed pings older than the
-  # retention window on a nightly cron. Runs the project's own image as a
+  # A scheduler codebase: prunes processed pings older than the retention
+  # window on a nightly cron. Runs the project's own image as a
   # run-to-completion job (Ofelia on fixed, EventBridge RunTask on
   # elastic), never a long-running container. Suppressed in `test` (mod
   # 073). Same code + env parts as the elastic project (code identity).
   reaper:
-    role: scheduler
-    schedule: "0 3 * * *"          # 03:00 UTC daily
-    command: ["python", "/service/dist/root.py"]
-    networks: [internal]
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_PORT: ${backing_services.appdb.port}
@@ -76,9 +104,20 @@ core_services:
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-    resources:
-      cpu: 0.25
-      memory: 512MB
+    processes:
+      # Named after the job, not the role — a scheduler codebase commonly
+      # carries several jobs (cicl.md § Naming convention). The codebase
+      # keeps its own noun, so this emits `reaper-prune` rather than the
+      # `reaper-reaper` a mechanical nesting would have produced.
+      prune:
+        role: scheduler
+        schedule: "0 3 * * *"          # 03:00 UTC daily
+        command: ["python", "/service/dist/entrypoints/prune.py"]
+        networks: [internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 0.25
+          memory: 512MB
 
 backing_services:
   # `appdb` rather than `db` — `db` collides with postgres's reserved
@@ -89,7 +128,9 @@ backing_services:
     engine: postgres
     version: "15"
     networks: [internal]
-    schema_owned_by: web
+    # Names a CODEBASE, never a process type — `migrate.sh` runs once per
+    # codebase, not once per invocation.
+    schema_owned_by: api
 
   # Project-local engines declared at infra/transfer_tables/{sidecar,clickhouse}.yml.
   # `probe` is stateless (sidecar/nginx); `events` is stateful

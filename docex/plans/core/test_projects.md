@@ -11,7 +11,14 @@ The doctrine commits to two foundations. Bugs hit each foundation differently �
 
 ## Shape
 
-Both projects share the **same code** under `core/`. The two cores (`web`, `worker`) talk through a single postgres backing service (`db`) and the `pings` table. `web` exposes `POST /pings` + `GET /health`; `worker` polls the `pings` table and marks rows processed. Total: two cores + one backing service.
+Both projects share the **same code** under `core/`. There are **two codebases carrying three process types** between them:
+
+- **`api`** — one codebase, one image, two process types. `api.web` (`role: web`) exposes `POST /pings` + `GET /health` + the `/health/api/worker` fan-out; `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, and serves its own `GET /health` off a monotonic loop tick. `api.web` `consumes: [api.worker]`. This is the pair that exercises the process-type expansion: one build, one ECR repo, one `-exec` container, one `-migrate` task definition, two sidecars.
+- **`reaper`** — a scheduler-only codebase with one process type, `reaper.prune` (`role: scheduler`), nightly-pruning expired processed pings. Kept separate deliberately: it is the only end-to-end coverage of the scheduler path anywhere, since no integration test touches one.
+
+They talk through a postgres backing service (`appdb`) and the `pings` table, plus two project-local container backings (`probe`, `events`).
+
+`api` is also the doctrine's **reference implementation** of the entrypoint and liveness rules — `src/entrypoints/{web,worker}.py` beside a construct-only `root.py`, with the doctrine-fixed 10 s tick / 30 s staleness thresholds. Downstream projects will copy it, so changes there should be made deliberately.
 
 Code identity between fixed and elastic is intentional. Per the doctrine's parts-only env model, application code shouldn't know which foundation it's running on; the smoke test's audit step diffs the two trees and fails if real divergence appears.
 
@@ -22,7 +29,7 @@ docex/test_projects/
 ├── fixed/                       (foundation: fixed)
 │   ├── project.yml, README.md, CHANGELOG.md, .gitignore
 │   ├── bin/docex                (shim, installed by docex_install.sh)
-│   ├── core/{web,worker}/       (full hex structure, identical to elastic's)
+│   ├── core/{api,reaper}/       (full hex structure, identical to elastic's)
 │   ├── infra/{infra.yml, contracts/, stage/, secrets/, deploy_creds/, output/}
 │   ├── plans/core/              (masterplan + service docs)
 │   ├── teardown.sh
@@ -41,7 +48,7 @@ These carve-outs are flagged for possible doctrine-level codification — "the i
 
 ## Git structure
 
-Each test project under `test_projects/` is its own git repo, nested inside the outer `jean_baudrillard` repo. A file like `test_projects/elastic/core/web/migrate.sh` is therefore tracked by both:
+Each test project under `test_projects/` is its own git repo, nested inside the outer `jean_baudrillard` repo. A file like `test_projects/elastic/core/api/migrate.sh` is therefore tracked by both:
 
 - The **inner repo** at `test_projects/<foundation>/.git/` — branch `main`, with the current `project.yml` version tagged at HEAD (e.g., `v0.0.2`). This is the project's authoritative history and the one `docex check` / `merge` / `containerize` introspect when running from inside the docex container.
 - The **outer repo** at `jean_baudrillard/.git/` — tracks the same files as a directory snapshot. The outer history records the test-project state at each doctrine/docex commit boundary.
@@ -75,7 +82,7 @@ Inner-first matters because the inner repo is the authoritative history — forg
 The elastic project provisions real AWS resources. Tag discipline matters for cleanup:
 
 - Every doctrine-emitted AWS resource is named with the project name as a prefix (e.g. `docex-smoke-elastic-prod-alb`, `docex-smoke-elastic-prod-appdb`). Naming alone is sufficient to identify project resources in v1.
-- [`verify_clean.sh`](#) in each project queries for any lingering resource by that prefix and exits non-zero if anything remains.
+- `verify_clean.sh` in each project queries for any lingering resource by that prefix and exits non-zero if anything remains.
 - A future doctrine improvement: first-class `managed_by` tagging on every emitted resource — would let `verify_clean.sh` filter by tag and not rely on naming. Tracked as a follow-up; not blocking.
 
 ## Smoke-project safety overrides

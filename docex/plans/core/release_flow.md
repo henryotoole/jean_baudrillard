@@ -1,6 +1,6 @@
 # Release flow
 
-How docex actually drives a containerized build into a target environment. The doctrine specifies the *what* — [`release_mechanism.md`](../../../doctrine/infrastructure/specifics/release_mechanism.md) for the foundation-specific flows, [`cicd.md § Release Step`](../../../doctrine/infrastructure/cicd.md#release-step) for the CI/CD pipeline placement. This doc covers the *how*: foundation branches, first-release vs steady-state ordering, the AWS / Ansible adapter shape, and failure modes.
+How docex actually drives a containerized build into a target environment. The doctrine specifies the *what* — [`release.md`](../../../doctrine/infrastructure/specifics/release.md) for the foundation-specific flows, [`cicd.md § Release Step`](../../../doctrine/infrastructure/cicd.md#release-step) for the CI/CD pipeline placement. This doc covers the *how*: foundation branches, first-release vs steady-state ordering, the AWS / Ansible adapter shape, and failure modes.
 
 The compile phase that release reads is covered separately in [`compiler.md`](./compiler.md).
 
@@ -77,7 +77,7 @@ Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/a
 **Why the elastic ordering differs between first-release and steady-state:**
 
 - **First-release**: the env's ECS services and RDS don't exist yet (the ECS cluster itself is project-tier and already present since mod 071). `tofu apply` must run *before* migrate, because migrate needs the services + RDS to exist. The transient consequence is that newly-created ECS tasks may crash-loop until the migration completes, but no users are on a first-deploy env so the window is bounded by migration runtime.
-- **Steady-state**: the doctrine prefers migrate-then-apply so the rolling deploy of new application code happens *after* the schema is migrated, preserving zero-downtime (see [`release_mechanism.md § Backward-compatibility requirement`](../../../doctrine/infrastructure/specifics/release_mechanism.md#backward-compatibility-requirement)). The pre-migrate **targeted** apply (mod 008) only bumps migration task-defs — not main service task-defs — so the in-flight web/worker tasks keep serving old code during the migration window. Without that targeted apply, RunTask would pick up the previous release's revision and any current-release task-def change (image tag, env-var refs) would be invisible to migrate.
+- **Steady-state**: the doctrine prefers migrate-then-apply so the rolling deploy of new application code happens *after* the schema is migrated, preserving zero-downtime (see [`migrations.md § Backward-Compatibility Requirement`](../../../doctrine/infrastructure/specifics/migrations.md#backward-compatibility-requirement)). The pre-migrate **targeted** apply (mod 008) only bumps migration task-defs — not main service task-defs — so the in-flight web/worker tasks keep serving old code during the migration window. Without that targeted apply, RunTask would pick up the previous release's revision and any current-release task-def change (image tag, env-var refs) would be invisible to migrate.
 
 ## The migration step
 
@@ -227,7 +227,7 @@ Rollback's recipe differs from check's: no rebase, just a checkout at `v<target_
 
 ### The skip-migrations toggle
 
-The doctrine commits rollback to code-only behavior — migrations are not reversed; the rolled-back code runs against the existing (newer) schema. This works because forward migrations are already required to be backward-compatible (see [`release_mechanism.md § Backward-compatibility requirement`](../../../doctrine/infrastructure/specifics/release_mechanism.md#backward-compatibility-requirement)).
+The doctrine commits rollback to code-only behavior — migrations are not reversed; the rolled-back code runs against the existing (newer) schema. This works because forward migrations are already required to be backward-compatible (see [`migrations.md § Backward-Compatibility Requirement`](../../../doctrine/infrastructure/specifics/migrations.md#backward-compatibility-requirement)).
 
 In code:
 

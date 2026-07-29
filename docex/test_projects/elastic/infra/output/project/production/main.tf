@@ -339,6 +339,19 @@ resource "aws_ecs_cluster" "prod" {
 # main.tf resolve to `<repo_url>:<version>`.
 # ---------------------------------------------------------------------------
 
+resource "aws_ecr_repository" "api" {
+  name                 = "docex_smoke_elastic/api"
+  image_tag_mutability = "MUTABLE"
+  tags = {
+    managed_by = "doctrine"
+    infra_tier = "project"
+    shape_name = "container_registry"
+    descriptor = "api"
+    project = "docex_smoke_elastic"
+    Name = "docex_smoke_elastic_container_registry_api"
+  }
+}
+
 resource "aws_ecr_repository" "reaper" {
   name                 = "docex_smoke_elastic/reaper"
   image_tag_mutability = "MUTABLE"
@@ -349,32 +362,6 @@ resource "aws_ecr_repository" "reaper" {
     descriptor = "reaper"
     project = "docex_smoke_elastic"
     Name = "docex_smoke_elastic_container_registry_reaper"
-  }
-}
-
-resource "aws_ecr_repository" "web" {
-  name                 = "docex_smoke_elastic/web"
-  image_tag_mutability = "MUTABLE"
-  tags = {
-    managed_by = "doctrine"
-    infra_tier = "project"
-    shape_name = "container_registry"
-    descriptor = "web"
-    project = "docex_smoke_elastic"
-    Name = "docex_smoke_elastic_container_registry_web"
-  }
-}
-
-resource "aws_ecr_repository" "worker" {
-  name                 = "docex_smoke_elastic/worker"
-  image_tag_mutability = "MUTABLE"
-  tags = {
-    managed_by = "doctrine"
-    infra_tier = "project"
-    shape_name = "container_registry"
-    descriptor = "worker"
-    project = "docex_smoke_elastic"
-    Name = "docex_smoke_elastic_container_registry_worker"
   }
 }
 
@@ -439,9 +426,8 @@ resource "aws_iam_role_policy" "task_execution" {
           "ecr:GetDownloadUrlForLayer",
         ]
         Resource = [
+          aws_ecr_repository.api.arn,
           aws_ecr_repository.reaper.arn,
-          aws_ecr_repository.web.arn,
-          aws_ecr_repository.worker.arn,
         ]
       },
       {
@@ -553,15 +539,11 @@ output "alb_security_group_id" {
 }
 
 
+output "ecr_repository_api_url" {
+  value = aws_ecr_repository.api.repository_url
+}
+
 output "ecr_repository_reaper_url" {
   value = aws_ecr_repository.reaper.repository_url
-}
-
-output "ecr_repository_web_url" {
-  value = aws_ecr_repository.web.repository_url
-}
-
-output "ecr_repository_worker_url" {
-  value = aws_ecr_repository.worker.repository_url
 }
 

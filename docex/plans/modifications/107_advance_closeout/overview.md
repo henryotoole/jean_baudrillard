@@ -157,7 +157,7 @@ Mod 094 already wrote, not invented here:
   neither; `root.py` currently does both, and both `web` and `worker` run
   `CMD ["python", "/service/dist/root.py"]`. With two process types on one image
   that is no longer expressible. → `entrypoints/{web,worker}.py` in `api`,
-  `entrypoints/reaper.py` in `jobs`; `root.py` becomes construct-only.
+  `entrypoints/prune.py` in `reaper`; `root.py` becomes construct-only.
 - **A liveness tick in the worker.** `contracts.md § Health Checks` requires a
   loop-owning process type to serve `GET /health` on its port from an
   **in-process monotonic tick**, 503 when stale, tick ≤ 10 s even when idle,
@@ -257,7 +257,8 @@ records for every new web hostname **before** `envinfra up dev` on fixed, or
 Let's Encrypt's failed-authorization limit trips (`docex preinfra development`
 surfaces the gap); new emitted names across containers/ECS services/task
 defs/log groups/sidecars/traefik routers/hostnames; the scheduler-only naming
-guidance (name the codebase `jobs`, the process after the job); and the
+guidance (name the codebase after the codebase and the process after the job —
+`reaper.prune`, per resolved Q2); and the
 `migrate.sh`/`test.sh`/`build.sh` **service-level-`env:`-only** break, which is
 the one most likely to bite silently.
 

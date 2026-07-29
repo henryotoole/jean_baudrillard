@@ -1,0 +1,155 @@
+# OpenAPI contract for the `api.web` process type.
+#
+# The path is keyed on the process type — <svc>.<proc>.<format>.yml — not
+# on the codebase: one codebase may run two HTTP boundaries and both
+# deserve their own contract (contracts.md).
+#
+# docex check's contract gate verifies that paths declared here exist in
+# the running process type (provider-side contract testing).
+#
+# Health-endpoint rules (doctrine/infrastructure/contracts.md § Health Checks):
+#   - GET /health is mandatory for every long-running process type.
+#   - GET /health/<svc>/<proc> is mandatory on every `web`-network process
+#     type, one per `consumes` target that is not itself on the `web`
+#     network. Sourced from `consumes`, never from `depends_on`.
+#
+# So the three /health sub-paths below are NOT alike:
+#   - /health/api/worker IS doctrine-required. `api.web` declares
+#     `consumes: [api.worker]`, and the worker sits on `[internal]` alone,
+#     so nothing outside can reach its own /health.
+#   - /health/probe and /health/events are NOT required (probe and events
+#     are backing services, not core process types). They're declared here
+#     because the advance-end smoke walk uses them to assert that Service
+#     Connect + EFS-backed ClickHouse + sidecar are all wired up correctly.
+
+openapi: "3.0.3"
+info:
+  title: docex_smoke_elastic.api.web
+  version: "0.0.1"
+  description: |
+    Test-project web process type for the doctrine smoke test. POST a
+    payload to /pings, the `api.worker` process type picks it up via
+    postgres. /health/{probe,events} exercise the project-local sidecar +
+    analytics_db backings; /health/api/worker is the doctrine-required
+    liveness fan-out onto the worker.
+servers:
+  - url: "https://docex-smoke-elastic.luxrnd.tech"
+    description: prod (bare-project → prod's bare env → domain_default_process)
+  - url: "https://api-web.prod.docex-smoke-elastic.luxrnd.tech"
+    description: prod (canonical per-process host)
+  - url: "https://stage.docex-smoke-elastic.luxrnd.tech"
+    description: stage (bare-env → domain_default_process)
+  - url: "https://api-web.stage.docex-smoke-elastic.luxrnd.tech"
+    description: stage (canonical per-process host)
+
+paths:
+  /health:
+    get:
+      summary: Service liveness.
+      operationId: health
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version:
+                    type: string
+                    example: "0.0.1"
+
+  /health/probe:
+    get:
+      summary: Probe sidecar reachability over the internal network.
+      operationId: healthProbe
+      responses:
+        "200":
+          description: probe reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reachable]
+                properties:
+                  reachable:
+                    type: string
+                    example: "true"
+                  status_code:
+                    type: integer
+        "503":
+          description: probe unreachable
+
+  # Doctrine-required health fan-out onto the `api.worker` process type.
+  # One hop only: this proxies the worker's own /health and never its
+  # fan-out endpoints, because the `consumes` graph may legally cycle.
+  /health/api/worker:
+    get:
+      summary: Liveness of the `api.worker` process type (consumes fan-out).
+      operationId: healthApiWorker
+      responses:
+        "200":
+          description: worker's poll loop is live
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version:
+                    type: string
+                    example: "0.0.1"
+        "503":
+          description: worker unreachable, or its loop tick is stale
+
+  /health/events:
+    get:
+      summary: ClickHouse (analytics_db backing) TCP reachability.
+      operationId: healthEvents
+      responses:
+        "200":
+          description: events backing reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reachable]
+                properties:
+                  reachable:
+                    type: string
+                    example: "true"
+                  port:
+                    type: integer
+        "503":
+          description: events backing unreachable
+
+  /pings:
+    post:
+      summary: Enqueue a ping for the worker to process.
+      operationId: createPing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload:
+                  type: string
+                  minLength: 1
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+        "400":
+          description: Invalid payload

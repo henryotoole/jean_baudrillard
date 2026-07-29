@@ -6,11 +6,11 @@ This is one of two **doctrine smoke-test projects** that ship inside the `docex/
 
 The companion project at `docex/test_projects/fixed/` exercises the `fixed`-foundation path. Together they cover the two foundations the doctrine commits to.
 
-The architectural shape, services, and flows are **deliberately identical** to the fixed-foundation companion — same two cores, same one schema-owning backing service, same two project-local container backings, same `Ping` domain, same `/health` endpoint, same composition root layout. The only intended differences are:
+The architectural shape, services, and flows are **deliberately identical** to the fixed-foundation companion — same two codebases and three process types, same one schema-owning backing service, same two project-local container backings, same `Ping` domain, same health surface, same composition-root-plus-entrypoints layout. The only intended differences are:
 
 1. `foundation: elastic` in `infra.yml` (and the AWS-resource shape that compiles from it).
 2. `reverse_proxy: alb` declared explicitly (the doctrine default, also the operator-chosen smoke variant — see mod 044's neutral-on-ALB-vs-EC2-traefik stance).
-3. `dev` and `test` still compile to fixed compose stacks (per `shape.md § Shape and Environment`), but `stage` and `prod` compile to AWS HCL — RDS for `appdb`, ECS Fargate for `web`/`worker`/`probe`/`events`, ALB at project tier, ECR for images, EFS-backed persistent storage for ClickHouse (`events`).
+3. `dev` and `test` still compile to fixed compose stacks (per `shape.md § Shape and Environment`), but `stage` and `prod` compile to AWS HCL — RDS for `appdb`, ECS Fargate for `api-web`/`api-worker`/`probe`/`events`, an EventBridge-triggered `RunTask` for `reaper-prune`, ALB at project tier, ECR for images (one repo per **codebase**), EFS-backed persistent storage for ClickHouse (`events`).
 
 That this project's *application code* is identical to the fixed companion's is intentional. Any inter-foundation divergence in source code would mean the parts-only secret-and-env model is leaking — that itself is a doctrine bug. The PRE_CUT_CHECKLIST's audit step diffs the two `core/` trees and fails on real divergence.
 
@@ -22,7 +22,7 @@ That this project's *application code* is identical to the fixed companion's is 
 
 ## Terms
 
-Identical to fixed companion. `Ping` and `Smoke test` carry the same meanings.
+Identical to fixed companion. `Ping`, `Codebase`, `Process type`, and `Smoke test` carry the same meanings.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ Plus the bare-env and bare-project forms per `cicl.md § Domain`. ACM issues two
 
 | Service | Role | Engine | Engine on elastic | Purpose |
 | ------- | ---- | ------ | ----------------- | ------- |
-| `appdb` | `relational_db` | postgres 15 | RDS | Stores `pings` rows. `schema_owned_by: web`. |
+| `appdb` | `relational_db` | postgres 15 | RDS | Stores `pings` rows. `schema_owned_by: api` — a codebase, never a process type. |
 | `probe` | `sidecar` (project-local) | nginx | ECS Fargate task | Stateless reachability target. |
 | `events` | `analytics_db` (project-local) | clickhouse | ECS Fargate task + EFS | Stateful OLAP backing; EFS mount per AZ; opt-in AWS Backup. |
 
@@ -54,38 +54,50 @@ The two project-local backings are declared in `infra/transfer_tables/{sidecar,c
 
 ### Core Services
 
-Same three services as the fixed companion: `web`, `worker`, and `reaper`. Same hex modules (`pings`, `processor`, `reaper`), same domain types, same ports/adapters/alogic. The code is intended to be **literally the same source tree** at the `core/<service>/` level — see "Code duplication between fixed and elastic test projects" below.
+Same **two codebases and three process types** as the fixed companion: `api` (process types `web` + `worker`) and `reaper` (process type `prune`). Same hex modules (`pings`, `processor`, `reaper`), same domain types, same ports/adapters/alogic. The code is **literally the same source tree** at the `core/<codebase>/` level — see "Code duplication between fixed and elastic test projects" below.
 
-#### `web`
+| Codebase | Process type | Role | Networks | Port | On elastic |
+| -------- | ------------ | ---- | -------- | ---- | ---------- |
+| `api` | `web` | `web` | `web`, `internal` | 8080 | task_definition + ecs_service + ALB target group |
+| `api` | `worker` | `worker` | `internal` | 8081 | task_definition + ecs_service, **no** target group |
+| `reaper` | `prune` | `scheduler` | `internal` | — | task_definition + EventBridge schedule, **no** ecs_service |
 
-- **Networks**: `web`, `internal`
-- **Role**: `web` (the single network-neutral core-service-container role)
-- **Contract**: `web.openapi.yml` (same as fixed)
-- On elastic: a Fargate task in `web` + `internal` security groups; ALB target group registered with a listener rule matching its per-env hosts.
+One ECR repo and one image tag per **codebase**, so `api-web` and `api-worker` share a tag started two different ways. Likewise **one** `…-migrate` task-definition family per codebase, not per process type.
 
-#### `worker`
+#### `api` — the application codebase
 
-- **Networks**: `internal` only
-- **Role**: `web` (same network-neutral role; routing is network-driven, so this internal-only worker gets no ALB exposure)
-- **Contract**: none.
-- On elastic: a Fargate task in the `internal` security group only — not reachable from the ALB.
+See [`api/api.md`](./api/api.md). Two process types on one artifact; they were two separate core services until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
 
-#### `reaper`
+- **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`) and [`processor`](./api/hex/processor.md) (driven by `api.worker`). They share a codebase but not a module boundary.
+- **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI).
+- **`consumes`**: `api.web consumes api.worker`, one direction only, obliged by the four-segment magic refs `${core_services.api.worker.{host,port}}` on the web edge.
+- **Schema owner**: `schema_owned_by: api`.
 
-- **Networks**: `internal` only
+`api.web`: a Fargate task in the `web` + `internal` security groups; ALB target group registered with a listener rule matching its per-env hosts. It is the `domain_default_process`, so prod's edge also answers at the bare-env and bare-project hosts.
+
+`api.worker`: a Fargate task in the `internal` security group only — never an ALB target. Its `port` is what makes it **Service-Connect-discoverable**, which is exactly what lets the sibling `api.web` task reach its `/health` one hop away for the fan-out. `health_check_path` routes to the container-level ECS `healthCheck` rather than a target group, so a wedged poll loop gets the task killed and replaced by the service. `desired_count = 2` in prod (from `replicas: 2`), 1 in stage.
+
+#### `reaper` — the scheduler codebase
+
+One process type, `prune`, named after the **job** rather than the role per `cicl.md § Naming convention`, which is what makes the emitted name `reaper-prune` rather than `reaper-reaper`.
+
 - **Role**: `scheduler` — a cron-triggered, run-to-completion job (prunes processed pings older than a 30-day `RetentionWindow`). Schedule `0 3 * * *`.
-- **Contract**: none; purely a consumer of `appdb`.
-- On elastic: **no `ecs_service`**. The compiler emits a `task_definition` plus an `aws_scheduler_schedule` (EventBridge Scheduler) whose target is an ECS `RunTask` of that task-def, and a per-service scheduler-invocation IAM role. Secrets arrive through the task-def `secrets[]`/SSM path (the same proven mechanism `web`/`worker` use), so the fixed-side ofelia env-file plumbing has no elastic analogue. Suppressed in `test` (which is fixed → compose, so the trigger there is dropped like the fixed companion's).
+- **Contract**: none; `scheduler` process types are exempt from both the contract and the health model.
+- On elastic: **no `ecs_service`**. The compiler emits a `task_definition` plus an `aws_scheduler_schedule` (EventBridge Scheduler) whose target is an ECS `RunTask` of that task-def, and a per-process scheduler-invocation IAM role. Secrets arrive through the task-def `secrets[]`/SSM path (the same proven mechanism the `api` process types use), so the fixed-side ofelia env-file plumbing has no elastic analogue. Suppressed in `test` (which is fixed → compose, so the trigger there is dropped like the fixed companion's).
+
+### Composition Roots and Entrypoints
+
+Identical to the fixed companion: one `root.py` per **codebase** that constructs without activating, and one module per process type under `src/entrypoints/` that each process type's `command` invokes. See [`api/api.md`](./api/api.md) § Entrypoints for the worker's loop, signal handling, and monotonic liveness tick.
 
 ### Code duplication between fixed and elastic test projects
 
-Per the kickoff brief: "Two separate projects, one per foundation. Cleaner than a single toggleable project, even if it means some duplication." The two projects each carry their own `core/web/src/`, `core/worker/src/`, etc. — full copies. This is doctrine-faithful ("core services never share code"; each project has one project root) and accepts duplication as the cost.
+Per the kickoff brief: "Two separate projects, one per foundation. Cleaner than a single toggleable project, even if it means some duplication." The two projects each carry their own `core/api/src/`, `core/reaper/src/`, etc. — full copies. This is doctrine-faithful ("core services never share code"; each project has one project root) and accepts duplication as the cost.
 
 **Smoke-test side benefit:** drift between the two source trees becomes a signal. The PRE_CUT_CHECKLIST's audit step (`diff -r test_projects/fixed/core test_projects/elastic/core`) should produce no output. Differences would mean the parts-only env model is leaking foundation specifics into application code — itself a doctrine bug.
 
 ## Flows
 
-Identical to the fixed companion — Ping creation, Ping processing, Health (`/health`, `/health/probe`, `/health/events`), and nightly Ping reaping. On elastic they exercise RDS (postgres), Service Connect (peer resolution between core services and the nginx sidecar), and a TCP connection to ClickHouse on its native port through the EFS-backed Fargate task. The reaping flow fires via EventBridge Scheduler → ECS `RunTask` rather than the fixed companion's Ofelia container.
+Identical to the fixed companion — Ping creation, Ping processing, Self health (`/health` on both `api` process types, the worker's gated on its loop tick), Health fan-out (`/health/api/worker`), backing reachability (`/health/probe`, `/health/events`), and nightly Ping reaping. On elastic they exercise RDS (postgres), Service Connect (peer resolution between core process types and the nginx sidecar — including the sibling hop the fan-out depends on), and a TCP connection to ClickHouse on its native port through the EFS-backed Fargate task. The reaping flow fires via EventBridge Scheduler → ECS `RunTask` rather than the fixed companion's Ofelia container.
 
 ## Hard Boundaries
 
