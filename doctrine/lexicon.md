@@ -15,8 +15,10 @@ This guide defines special words and phrases that have unique context for all ma
 | jean root | "$jb" | The directory of the root folder of the repo that contains the doctrine, `docex`, etc. Sometimes this will be indicated as `$jb` e.g. "$jb/doctrine/doctrine.md". |
 | Project | "codebase" | Refers to all code and infrastructure within the scope of the project root. Includes docker compose config, dockerfiles, code architecture, and the code itself. |
 | Service |  | Refers to both "core services" and "backing services". |
-| Core Service | "application service", "application container" | Any service that executes code which is unique to this project. |
+| Core Service | "application service" | A codebase of project-unique code and the single build artifact produced from it. One source folder, one image, and one or more process types that invoke it. |
 | Backing Service | "backing service" | A service running code external to the project, like postgres running in a docker compose container or AWS S3. |
+| Process Type |  | A named, independently-scaled way of invoking a core service's build artifact — its own role, command, resources, networks, and port. One core service declares one or more. 12-factor's term for this axis. |
+| Entrypoint |  | The *code module* a process type's `command` invokes. Binds the composition root's driving adapters to a runtime host. Not an infrastructure noun — the word is already spent on the Dockerfile `ENTRYPOINT` and on traefik entrypoints. |
 | Foundation |  | A project has a `fixed` or `elastic` foundation depending on whether a project manages the lifecycle of the machines which run its infrastructure. |
 | Environment | "env" | A copy of all environment-tier infrastructure that serves a distinct purpose: `dev`, `test`, `stage`, and `prod`. |
 | Infrastructure Tier |  | All infrastructure falls into one of three tiers on the basis of project control and environmental replication. See [here](./infrastructure/infrastructure.md#infrastructure-tiers). |

@@ -121,7 +121,7 @@ Projects are composed of *services*:
 + **core services** which contain bespoke code from the project codebase.
 
 Both take the form of containers and both are described by `infra.yml`. However, **core services** also must be described by the codebase - they contain both our project code and custom configuration for their containers. This doctrine sets down some hard rules for core services:
-1. **Core services never share code**. This is a strict choice intended to enforce separation of concerns and prevent confusion. Choosing *how* to achieve this in practice is a design concern. Core services are very distinct; all that ties them together is a shared purpose, backing services, and build version.
+1. **Core service sources never share code**. This is a strict choice intended to enforce separation of concerns and prevent confusion. Choosing *how* to achieve this in practice is a design concern. Core services are very distinct; all that ties them together is a shared purpose, backing services, and build version. Note the scope: the rule governs *sources*. A core service may be invoked several ways — an HTTP edge, a queue consumer, a nightly job — and those [process types](./cicl.md#process-types) all run the same codebase and the same image, so nothing is shared between them and the rule is not engaged. When only the *invocation* differs, the answer is another process type, not another core service. Two core services are for two genuinely distinct codebases: a different bounded context, a different language, a radically different runtime footprint, or a different security posture.
 2. **Core services execute as stateless processes**. This is a direct principle of the 12-factor app. Processes are stateless and share nothing. All persistent data is stored in a backing service like a database.
 
 An example codebase is shown below:
@@ -132,7 +132,7 @@ $pr
 ├── CHANGELOG.md
 ├── project.yml
 ├── core
-│   ├── web
+│   ├── api
 │   │   ├── Dockerfile
 │   │   ├── dist
 │   │   ├── src
@@ -141,12 +141,12 @@ $pr
 │   │   ├── test.sh
 │   │   ├── build.sh
 │   │   └── migrate.sh  # Only if needed
-│   └── worker
+│   └── frontend
 ├── infra
 │   ├── infra.yml
 │   ├── contracts
-│   │   ├── web.openapi.yml
-│   │   └── worker.asyncapi.yml
+│   │   ├── api.web.openapi.yml
+│   │   └── api.worker.asyncapi.yml
 │   ├── stage
 │   │   ├── stage_test.sh
 │   │   ├── Dockerfile
@@ -185,7 +185,7 @@ $pr
     └── references
 ```
 
-Core services go in the `core` folder. Each is given a name (like `web`) that will match the name in `infra.yml`. Each of these folders is a *core service root*. One of these service roots will always contain:
+Core services go in the `core` folder. Each is given a name (like `api`) that will match the key under `core_services` in `infra.yml`. Each of these folders is a *core service root* — one codebase, one build artifact, however many [process types](./cicl.md#process-types) that artifact is invoked as. One of these service roots will always contain:
 + `dist` - host folder where `build.sh` writes artifacts during dev iteration via the dev container's bind-mount. The formal containerize path keeps artifacts entirely inside `docker build` and does not touch this folder. Typically gitignored.
 + `src` - a folder that contains all source code. Structure within this folder is an architectural concern.
 + `tests` - contains all the tests that `test.sh` will run.
@@ -223,7 +223,7 @@ Version control is done with git using [trunk-based branch conventions](./versio
 
 Core services must all have a Dockerfile which describes the environment the container provides to the code. 
 
-All core service containers place the service working directory at a fixed root: `/service`. This root maps to the "core service folder" in the source code, e.g. `web` in the above example codebase. `docex` relies on this convention:
+All core service containers place the service working directory at a fixed root: `/service`. This root maps to the "core service folder" in the source code, e.g. `api` in the above example codebase. Every process type of a core service runs the same image and therefore sees the same `/service`. `docex` relies on this convention:
 1. It bind-mounts to this `/service` in compiled compose.yml output.
 2. It expects to find service scripts like `migrate.sh` at `/service/migrate.sh`.
 
@@ -238,6 +238,8 @@ Dockerfiles will all describe multi-stage builds. The following list of stages m
 
 `build.sh` is the canonical build entry point and is invoked by the `build` stage during `docker build`. See [Build Step](./cicd.md#build-step) for how `build.sh` is shared between the formal and dev-iteration paths.
 
+A core service's Dockerfile `CMD` is not used. Every process type declares its own [`command`](./cicl.md#process-types) in `infra.yml`, which is what the compiler emits — so with several process types sharing one image, no `CMD` could be correct for all of them, and the ambiguity is deleted rather than answered.
+
 Any core service that declares a `health_check_path` must carry `curl` in its image. Dockerfiles for such services should be written to install `curl`. The [`./bin/docex check`](./cicd.md#check-step) gate check will fail if `curl` is omitted.
 
 ### Contracts
@@ -246,17 +248,19 @@ Contracts define the boundaries of core service containers. They exist both:
 1. As a form of documentation, making it easy for a developer to know how to interact with a core service from the outside without having to understand the interior.
 2. To allow contract testing, the details and benefits of which are discussed [here](./tests.md#contract-tests).
 
-The idea is that all core services are either providers, consumers, or both. A very simple case is a webapp with a `frontend` service, a `web` service, and a `worker` service. The `frontend` communicates with `web` over HTTP and `web` communicates with `worker` over a task queue. This makes:
-+ `frontend` a consumer only
-+ `web` a provider and a consumer
-+ `worker` a provider only
+The idea is that all core service [process types](./cicl.md#process-types) are either providers, consumers, or both. A very simple case is a webapp with a `frontend` core service and an `api` core service, where `api` declares two process types: `web` (an HTTP edge) and `worker` (a queue consumer). The `frontend` communicates with `api.web` over HTTP and `api.web` communicates with `api.worker` over a task queue. This makes:
++ `frontend.web` a consumer only
++ `api.web` a provider and a consumer
++ `api.worker` a provider only
 
-In practice, these relationships are inferred from `infra.yml`'s [depends-on](./cicl.md#depends-on-relationships) relationships between core services.
+Note that `api.web` and `api.worker` are one codebase and one image, and are still a genuine boundary between them: sharing source does not make a queue any less of an interface.
 
-Provider services have a contract which is stored at `$pr/infra/contracts/${service_name}.${contract_format}.yml`. The contract format is dependent upon the communication mechanism between the provider service and its consumers. In the above example:
-+ `frontend` has no contract, as it is only a consumer relative to other core services.
-+ `web` has contract `web.openapi.yml` because it is driven by a request-based interface.
-+ `worker` has contract `worker.asyncapi.yml` because it is driven by a queue system.
+In practice, these relationships are declared by `infra.yml`'s [consumes](./cicl.md#consumes-relationships) field.
+
+Provider process types have a contract which is stored at `$pr/infra/contracts/${service_name}.${process_name}.${contract_format}.yml`. The contract format follows from the provider's role — a request-based boundary is OpenAPI, a queue-based one is AsyncAPI. In the above example:
++ `frontend.web` has no contract, as it is only a consumer relative to other core services.
++ `api.web` has contract `api.web.openapi.yml` because it is driven by a request-based interface.
++ `api.worker` has contract `api.worker.asyncapi.yml` because it is driven by a queue system.
 
 See [contracts](./contracts.md) for more info on formats, requirements, and the like.
 

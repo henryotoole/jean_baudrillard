@@ -73,6 +73,9 @@ service_root
 ├── Dockerfile
 ├── src
 │   ├── root.py
+│   ├── entrypoints
+│   │   ├── http.py
+│   │   └── worker.py
 │   ├── hex
 │   │   └── sample_module
 │   │       ├── adapters
@@ -105,6 +108,7 @@ Here's an overview of some of the folders in this structure and their purpose.
 | `tests` | Will contain test code |
 | `hex` | This folder contains hexagonal modules that have been built for this project. In the above example, it contains only `sample_module`; however in a real project it would likely contain several. |
 | `root.py` | The [composition root](#module-construction) for the project. |
+| `entrypoints` | One module per [process type](../infrastructure/cicl.md#process-types). Each takes the graph `root.py` built and binds the relevant driving adapters to a runtime host (an ASGI server, a consume loop, a CLI). See [internal_dependency_rules.md § Entrypoints](./internal_dependency_rules.md#entrypoints). |
 | `sample_module` | Is an example hexagonal module. In a real project, it would be named differently. See "hexagonal module structure" below for more information on module filestructure. |
 | `shared` | This folder is for shared clients. Client interfaces go in `interfaces` and their implementations go in `clients`. |
 | `util` | A discouraged escape hatch for genuinely-generic helpers that defy module placement. See "util" section. Use should be avoided. |
@@ -162,6 +166,8 @@ By testing the entire service, we can catch some unique sorts of bugs:
 - Emergent behavioral bugs - the situation where a composed, end-to-end behavior is wrong even though every module and all the wiring are individually correct.
 
 Flow tests are very heavy, very slow, and should be used sparingly.
+
+**Entrypoints are not a test tier.** An entrypoint should be too thin to be worth testing: it calls the composition root and hands the result to a runtime host. If an entrypoint needs a test of its own, it is doing too much, and the surplus belongs in a driving adapter (translation) or in alogic (orchestration).
 
 #### Structure 
 
@@ -268,6 +274,7 @@ There will often be multiple controller implementations, each handling a differe
 | Suffix | Meaning | Example |
 | ------ | ------- | ------- |
 | `Http` | Exposes the module over HTTP (e.g. a FastAPI router). | `ContBrokerHttp` |
+| `Queue` | Consumes messages from a queue or stream and drives the module with them. | `ContBrokerQueue` |
 | `Cli` | Exposes the module as commands on a command-line interface. | `ContBrokerCli` |
 | `Ws` | Exposes the module over a WebSocket connection. | `ContBrokerWs` |
 | `Grpc` | Exposes the module over gRPC. | `ContBrokerGrpc` |

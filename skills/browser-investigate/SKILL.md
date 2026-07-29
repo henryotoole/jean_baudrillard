@@ -80,12 +80,13 @@ traefik and are reachable only at their domain. So you drive the browser at the
 public dev URL, never `localhost:<port>`.
 
 Build the URL from `project.yml` (the project name) and `infra/infra.yml`
-(`apex_domain`, and `domain_default_service`), per the doctrine domain rules:
+(`apex_domain`, and `domain_default_process`), per the doctrine domain rules:
 
-- Per service on the `web` network:
-  `https://<service>.dev.<project>.<apex_domain>`
-  (the project segment is hyphenated — `my_project` → `my-project`).
-- The `domain_default_service` also answers at the bare-env host:
+- Per process type on the `web` network:
+  `https://<service>-<process>.dev.<project>.<apex_domain>`
+  (the service and process segments are joined by a hyphen and occupy one
+  label; the project segment is hyphenated too — `my_project` → `my-project`).
+- The `domain_default_process` also answers at the bare-env host:
   `https://dev.<project>.<apex_domain>`.
 
 Because the dev stack only comes up after dev DNS is routed and Let's Encrypt
