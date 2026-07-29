@@ -152,7 +152,19 @@ class MagicRefResolver:
     def _resolve_part(self, kind: str, target: str, part: str) -> RenderedValue:
         # Look up target service.
         if kind == "core_services":
-            svc = self.doc.core_services.get(target)
+            # Mod 096: `contexts`/`engines` are keyed on the two-segment
+            # compiled identity, so a bare core ref could only ever fail
+            # here. Fail with the same message the validator gives rather
+            # than the generic "no engine resolved" it would otherwise hit.
+            # Mod 097 makes the four-segment form resolve.
+            raise SubstitutionError(
+                f"magic ref ${{core_services.{target}.{part}}} names a bare "
+                f"core service. Refs to core services carry the process "
+                f"dimension: ${{core_services.<service>.<process>.<part>}} — "
+                f"did you mean ${{core_services.{target}.<process>.{part}}}? "
+                f"A codebase has no single boundary, so a bare name has no "
+                f"answer. See cicl.md § Magic Refs."
+            )
         elif kind == "backing_services":
             svc = self.doc.backing_services.get(target)
         else:

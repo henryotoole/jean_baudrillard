@@ -20,12 +20,16 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
         keep_trailing_newline=True,
     )
 
+    # WHY the compiler's carrier flag rather than a `schema_owned_by == s.name`
+    # scan (Mod 096): `schema_owned_by` names a CODEBASE (`api`) while
+    # `CompiledService.name` is the two-segment compiled identity (`api-web`),
+    # so the comparison could only ever be false — the playbook would emit zero
+    # migrate tasks and still report success. `schema_owned_by_db` is set on
+    # exactly one compiled service per schema-owning codebase, so this yields
+    # one migrate task per codebase by construction.
     core_with_schema = sorted(
-        [s for s in compiled.services.values() if s.is_core and any(
-            b.schema_owned_by == s.name
-            for b in compiled.services.values()
-            if not b.is_core
-        )],
+        (s for s in compiled.services.values()
+         if s.is_core and s.schema_owned_by_db),
         key=lambda s: s.name,
     )
 

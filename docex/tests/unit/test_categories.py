@@ -34,24 +34,27 @@ def _tables():
 # A postgres backing (POSTGRES_PASSWORD minted -> TTE, POSTGRES_USER fixed ->
 # in no category) plus a core service with one bespoke secret and one config.
 _MIXED = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    depends_on: [appdb]
     secrets:
       STRIPE_KEY: "Stripe secret API key"
     config:
       PARTNER_URL: "Partner API base URL (per-env)"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
 backing_services:
   appdb:
     role: relational_db
@@ -99,30 +102,36 @@ def test_category_of_resolves_each_category_and_unknowns():
 
 def test_two_core_services_sharing_a_secret_dedupe():
     src = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
     secrets:
       SHARED_KEY: "shared across services"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
   worker:
-    role: web
-    networks: [internal]
-    port: 8081
     secrets:
       SHARED_KEY: "shared across services"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [internal]
+        port: 8081
+        resources:
+          cpu: 1.0
+          memory: 2GB
 """
     cats = classify_source_keys(_doc(src), _tables())
     # A frozenset dedupes structurally; the assertion also guards conflicts()
@@ -177,30 +186,36 @@ def test_secret_manifest_keys_sources_and_order():
 
 def test_secret_manifest_dedupes_shared_key_keeping_first_source():
     src = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
     secrets:
       SHARED_KEY: "shared across services"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
   worker:
-    role: web
-    networks: [internal]
-    port: 8081
     secrets:
       SHARED_KEY: "declared again on worker"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [internal]
+        port: 8081
+        resources:
+          cpu: 1.0
+          memory: 2GB
 """
     manifest = secret_manifest(_doc(src), _tables())
     shared = [e for e in manifest if e.key == "SHARED_KEY"]
@@ -227,20 +242,23 @@ def test_config_manifest_yields_declared_config_with_service_source():
 
 def test_config_manifest_empty_when_no_config_declared():
     src = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
     secrets:
       STRIPE_KEY: "Stripe secret API key"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
 """
     assert config_manifest(_doc(src), _tables()) == []

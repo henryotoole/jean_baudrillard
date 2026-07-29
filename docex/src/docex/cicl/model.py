@@ -9,6 +9,7 @@ isolation. See ``cicl.md`` for the full validation rules list.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlparse
 
@@ -21,6 +22,43 @@ _DISK_RE = _MEMORY_RE  # same format
 # Service-name pattern. Underscores or hyphens, letters, digits. Keep
 # permissive; engine ``naming`` rules normalize on emit.
 _SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+
+
+@dataclass(frozen=True)
+class ProcessRef:
+    """A reference to one process type of one core service.
+
+    Dots for reference, hyphens for emission (cicl.md § Dots for reference,
+    hyphens for emission). Authoring and reference forms — ``consumes:``
+    targets, ``domain_default_process``, magic refs, ``describe`` node ids —
+    are dotted; emitted data-plane names are hyphenated. This type is the one
+    place that rule is expressed.
+    """
+
+    service: str
+    process: str
+
+    @classmethod
+    def parse(cls, raw: str) -> "ProcessRef":
+        """Parse ``"api.web"``. A bare name is an error, not shorthand."""
+        parts = raw.split(".")
+        if len(parts) != 2 or not all(p.strip() for p in parts):
+            raise ValueError(
+                f"{raw!r} is not a valid process reference. The form is "
+                f"'<service>.<process>' (e.g. 'api.web'). A bare core service "
+                f"name is illegal, not shorthand: a codebase has no single "
+                f"boundary. See cicl.md § Magic Refs."
+            )
+        return cls(service=parts[0], process=parts[1])
+
+    @property
+    def dotted(self) -> str:
+        return f"{self.service}.{self.process}"
+
+    @property
+    def compiled(self) -> str:
+        """The two-segment compiled identity — ``CompiledService.name``."""
+        return f"{self.service}-{self.process}"
 
 
 class ProjectManifest(BaseModel):
@@ -62,6 +100,46 @@ class Resources(BaseModel):
         return self
 
 
+class ProcessType(BaseModel):
+    """One named way of invoking a core service's build artifact.
+
+    Its own role, command, resources, networks and port. One codebase, one
+    image, N process types. See cicl.md § Process Types.
+    """
+
+    # Role-specific fields (health_check_path, schedule, ...) land in
+    # model_extra, exactly as they do on _ServiceBase today. Role-specific
+    # fields follow `role`, which is invocation-determined, so they are
+    # process-scoped by derivation (cicl.md § Field scoping).
+    model_config = ConfigDict(extra="allow")
+
+    role: str
+    # Rule 23. Required on EVERY process type including `web`: with several
+    # process types sharing one image, at most one could inherit the
+    # Dockerfile CMD and "which one" is an ambiguity worth deleting.
+    command: str | list[str]
+    networks: list[str] = Field(min_length=1)
+    resources: Resources
+    port: int | None = None
+    # Rule 24: backing services only. A core process type here is an error.
+    depends_on: list[str] = Field(default_factory=list)
+    # Carried onto CompiledService; NOTHING is emitted from it in this mod.
+    # Emission (fixed unroll + elastic desired_count) is Mod 100.
+    replicas: int = Field(default=1, ge=1)
+    # The only field valid at both levels. A process type's effective env is
+    # the service-level block merged under its own (cicl.md § Field scoping).
+    env: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_command_nonempty(self) -> "ProcessType":
+        if isinstance(self.command, str):
+            if not self.command.strip():
+                raise ValueError("command must not be empty")
+        elif not self.command:
+            raise ValueError("command must not be an empty list")
+        return self
+
+
 # Both core and backing services share these base fields.
 class _ServiceBase(BaseModel):
     """Fields shared by both core and backing services."""
@@ -75,14 +153,25 @@ class _ServiceBase(BaseModel):
     port: int | None = None
 
 
-class CoreService(_ServiceBase):
-    """A core service in ``infra.yml``."""
+# Fields that moved from the core service to the process type in CICL v2.
+# Used only to produce a targeted migration error — see below.
+_MOVED_TO_PROCESS = (
+    "role", "command", "networks", "resources", "port",
+    "depends_on", "replicas",
+)
 
-    # Pydantic's ``extra=allow`` means env etc. won't be schema-validated as
-    # strict types. That's fine for v1 — magic refs in env values are
-    # strings that the compiler resolves later. We model env explicitly so
-    # the typical case is well-typed.
-    resources: Resources
+
+class CoreService(BaseModel):
+    """A core service in ``infra.yml``: one codebase, one build artifact.
+
+    The service level accepts only ``{processes, secrets, config, env}``
+    (rule 22). Everything invocation-determined lives on a ProcessType.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Rule 22: required and non-empty.
+    processes: dict[str, ProcessType] = Field(min_length=1)
     env: dict[str, Any] = Field(default_factory=dict)
     # Operator-supplied secret env vars with no in-project source (API keys,
     # tokens). KEY -> human description. Surfaced via `docex secrets scaffold`
@@ -93,8 +182,57 @@ class CoreService(_ServiceBase):
     # container as an env var of the same name, sourced from infra/config/<env>.env
     # (a plain SSM String, not SecureString, on elastic). See config_and_secrets.md.
     config: dict[str, str] = Field(default_factory=dict)
-    replicas: int = Field(default=1, ge=1)
-    command: str | list[str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_v1_shape(cls, data: Any) -> Any:
+        # WHY: bare extra="forbid" says only "Extra inputs are not permitted",
+        # which does not hint at the nesting. A stray service-level `role:` /
+        # `resources:` / `command:` is THE migration mistake from CICL v1, so
+        # it gets a message that names the fix.
+        if not isinstance(data, dict):
+            return data
+        stray = sorted(k for k in _MOVED_TO_PROCESS if k in data)
+        if stray:
+            raise ValueError(
+                f"{stray} moved from the core service to the process type in "
+                f"CICL v2. Nest them under a named entry in a `processes:` "
+                f"block. Only {{processes, secrets, config, env}} are valid "
+                f"at the service level (cicl.md § Field scoping, rule 22). "
+                f"See upgrades/upgrade_1.6.0.md."
+            )
+        return data
+
+
+def primary_process(svc: CoreService) -> str:
+    """The process type that stands in for a codebase when exactly one
+    container must be chosen.
+
+    !!! TEMPORARY BRIDGE — DELETED BY MOD 099 !!!
+
+    Two consumers, both of which Mod 099 removes:
+
+    1. The migrate task definition's *resources* (its env is codebase-scoped
+       and does NOT come from here). Mod 099 hoists migration onto the
+       per-codebase exec service.
+    2. ``orchestrate/_common.py::compose_service_key``, which needs some
+       container to ``compose exec`` into. Mod 099 deletes that function and
+       replaces it with ``exec_service_key`` against an emitted exec service.
+
+    Do not add a third consumer. If you need "which container represents this
+    codebase", the answer after Mod 099 is the exec service, not this.
+
+    The rule — lowest-sorted non-``scheduler``, falling back to lowest-sorted
+    overall — is the design record's own named "cheaper fallback"
+    (service_processes_refactor.md § Per-Codebase Operations). Non-scheduler
+    first because a scheduler's ``resources:`` is sized for a small job and a
+    migration inheriting it could OOM.
+    """
+    names = sorted(svc.processes)
+    for n in names:
+        if svc.processes[n].role != "scheduler":
+            return n
+    return names[0]
 
 
 class BackingService(_ServiceBase):
@@ -132,11 +270,13 @@ class CICLDocument(BaseModel):
     # docex doesn't act on this. Accepted so a project that follows the
     # cicl.md § "Git Repo URL" prose still compiles. See cicl.md.
     repo_url: str | None = None
-    # The web service mapped to the bare ``<env>.<project>.<apex_domain>``
-    # subdomain. Other web services live at
-    # ``<service>.<env>.<project>.<apex_domain>``. Optional; if unset,
-    # nothing occupies the bare subdomain. See cicl.md § Domain.
-    domain_default_service: str | None = None
+    # The web *process type* mapped to the bare
+    # ``<env>.<project>.<apex_domain>`` subdomain, named as a dotted
+    # reference (e.g. ``api.web``). Other web process types live at
+    # ``<service>-<process>.<env>.<project>.<apex_domain>`` — the canonical
+    # host form. Optional; if unset, nothing occupies the bare subdomain.
+    # See cicl.md § Domain.
+    domain_default_process: str | None = None
     # The HTTPS URL of the project's observability backend (HyperDX).
     # Sidecars in stage/prod export OTLP signals here. Required on every
     # project — dev/test sidecars don't consume the URL but the field is
@@ -145,6 +285,27 @@ class CICLDocument(BaseModel):
     observability_backend_url: str
     core_services: dict[str, CoreService] = Field(default_factory=dict)
     backing_services: dict[str, BackingService] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_cicl_version(self) -> "CICLDocument":
+        # Rule 21. Rejected, not shimmed: a compatibility parser accepting
+        # both forms would reintroduce the flat pre-`processes:` shape as a
+        # permanent second code path, to serve a migration every project
+        # performs exactly once. See cicl.md § CICL Version.
+        if self.cicl_version == "2":
+            return self
+        if self.cicl_version == "1":
+            raise ValueError(
+                "cicl_version '1' is no longer supported. CICL v2 makes the "
+                "`processes:` block mandatory on every core service and adds "
+                "the `consumes` relation and four-segment core magic refs. "
+                "Follow upgrades/upgrade_1.6.0.md to migrate this infra.yml, "
+                "then set cicl_version: \"2\"."
+            )
+        raise ValueError(
+            f"unknown cicl_version {self.cicl_version!r}; the current "
+            f"generation of the CICL format is \"2\"."
+        )
 
     @model_validator(mode="after")
     def _validate_service_names(self) -> "CICLDocument":
@@ -159,6 +320,17 @@ class CICLDocument(BaseModel):
             if name in names:
                 raise ValueError(f"duplicate service name: {name!r}")
             names.add(name)
+        # A process name is emitted as the second segment of a compiled
+        # identity, so it is bound by exactly the same character rule as a
+        # service name.
+        for svc_name, svc in self.core_services.items():
+            for proc_name in svc.processes:
+                if not _SERVICE_NAME_RE.match(proc_name):
+                    raise ValueError(
+                        f"process name {proc_name!r} (on core service "
+                        f"{svc_name!r}) must start with a letter and "
+                        "contain only letters, digits, '_' or '-'"
+                    )
         # Names unique across core+backing too.
         overlap = set(self.core_services) & set(self.backing_services)
         if overlap:
@@ -194,11 +366,31 @@ class CICLDocument(BaseModel):
 
     # Convenience accessors -------------------------------------------------
 
-    def all_services(self) -> dict[str, _ServiceBase]:
+    def all_services(self) -> dict[str, Any]:
         """Merged dict of all services keyed by name. Iteration order is
         core-first, then backing — useful for emit order, though callers
-        that want full determinism should sort explicitly."""
-        merged: dict[str, _ServiceBase] = {}
+        that want full determinism should sort explicitly.
+
+        This is the *authoring* view: authoring models keyed by authoring
+        name. Core entries are :class:`CoreService` (which no longer shares
+        a base with :class:`BackingService`), so a caller that needs
+        ``role`` / ``networks`` / ``port`` wants :meth:`all_processes`.
+        """
+        merged: dict[str, Any] = {}
         merged.update(self.core_services)
         merged.update(self.backing_services)
         return merged
+
+    def all_processes(self) -> list[tuple[str, str, CoreService, ProcessType]]:
+        """Every ``(service_name, process_name, service, process)``, sorted.
+
+        The process-level companion to :meth:`all_services`, which stays the
+        *authoring* view (authoring models keyed by authoring name) because
+        every validator depends on that.
+        """
+        out = []
+        for svc_name in sorted(self.core_services):
+            svc = self.core_services[svc_name]
+            for proc_name in sorted(svc.processes):
+                out.append((svc_name, proc_name, svc, svc.processes[proc_name]))
+        return out

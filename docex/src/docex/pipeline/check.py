@@ -117,7 +117,12 @@ def _infer_contract_format(infra: CICLDocument, service: str) -> str:
     # dependency surfaces via a backing service whose engine name has
     # ``queue``/``rabbit``/``kafka`` in it.
     for _consumer_name, consumer in infra.core_services.items():
-        if service in (consumer.depends_on or []):
+        # Mod 096: `depends_on` is per-process type; a codebase "depends on"
+        # a target if any of its process types does.
+        consumer_deps = {
+            dep for p in consumer.processes.values() for dep in (p.depends_on or [])
+        }
+        if service in consumer_deps:
             # If the dependency itself is a queue-shaped backing service,
             # treat as asyncapi.
             backing = infra.backing_services.get(service)
@@ -294,13 +299,14 @@ def _gate_contracts(
 ) -> tuple[list[Path], list[str]]:
     """Verify every required contract file is present.
 
-    A core service is a "provider" iff at least one other core service
-    has it in ``depends_on``. Providers must ship a contract file at
-    ``infra/contracts/<svc>.<fmt>.yml``.
+    A core *process type* is a "provider" iff at least one other core
+    service has its codebase in ``depends_on``, or it sits on the ``web``
+    network. Providers must ship a contract file at
+    ``infra/contracts/<svc>.<proc>.<fmt>.yml``.
 
     Returns (existing_contracts, providers) — the contract paths that
     DO exist, for the next gate to scan, and the list of provider
-    service names (for downstream-chain logic).
+    process refs, dotted (for downstream-chain logic).
     """
     infra = ctx.infra
     existing: list[Path] = []
@@ -316,26 +322,34 @@ def _gate_contracts(
     # Per contracts.md § Mandatory Endpoints, web-network services
     # must ship contracts so the health-endpoint gate has something to
     # validate.
+    # Mod 096: `depends_on` and `networks` are process-scoped, so the
+    # provider test moves down one level with them — and the contract path
+    # gains the process segment, which is what contracts.md § Contract
+    # Location fixes it at: `${service}.${process}.${format}.yml`. The
+    # *criteria* are unchanged (web membership, or being some other
+    # codebase's depends_on target); Mod 101 owns reworking those against
+    # `consumes:`.
     dependants: dict[str, set[str]] = {}
     for name, svc in infra.core_services.items():
-        for dep in (svc.depends_on or []):
-            dependants.setdefault(dep, set()).add(name)
+        for proc in svc.processes.values():
+            for dep in (proc.depends_on or []):
+                dependants.setdefault(dep, set()).add(name)
 
     contracts_dir = worktree / "infra" / "contracts"
     missing: list[str] = []
-    for name in sorted(infra.core_services):
-        svc = infra.core_services[name]
-        on_web = "web" in (svc.networks or [])
-        is_dep_target = bool(dependants.get(name))
+    for svc_name, proc_name, _svc, proc in infra.all_processes():
+        on_web = "web" in (proc.networks or [])
+        is_dep_target = bool(dependants.get(svc_name))
         if not (on_web or is_dep_target):
             continue  # not a provider
-        providers.append(name)
-        fmt = _infer_contract_format(infra, name)
-        candidate = contracts_dir / f"{name}.{fmt}.yml"
+        label = f"{svc_name}.{proc_name}"
+        providers.append(label)
+        fmt = _infer_contract_format(infra, svc_name)
+        candidate = contracts_dir / f"{svc_name}.{proc_name}.{fmt}.yml"
         if candidate.is_file():
             existing.append(candidate)
         else:
-            missing.append(f"{name} (expected {candidate.relative_to(worktree)})")
+            missing.append(f"{label} (expected {candidate.relative_to(worktree)})")
 
     if missing:
         report.add(
@@ -370,7 +384,11 @@ def _gate_health_endpoints(
 
     problems: list[str] = []
     for path in contracts:
-        # Derive simple service name from "api.openapi.yml" → "api".
+        # Derive the codebase key from "api.openapi.yml" → "api".
+        # Mod 101: make this right-anchored — under Mod 096's rename the
+        # per-process contract filename is "api.web.openapi.yml", and this
+        # left-anchored split still yields "api" (a valid core_services key)
+        # only because the codebase is the first segment.
         svc = path.name.split(".", 1)[0]
         svc_decl = infra.core_services.get(svc)
         if svc_decl is None:
@@ -383,7 +401,9 @@ def _gate_health_endpoints(
             continue
         paths_map = (doc.get("paths") or {}) if isinstance(doc, dict) else {}
 
-        on_web = "web" in (svc_decl.networks or [])
+        on_web = any(
+            "web" in (p.networks or []) for p in svc_decl.processes.values()
+        )
         if on_web:
             health = paths_map.get("/health")
             if not (isinstance(health, dict) and "get" in {k.lower() for k in health}):
@@ -400,14 +420,17 @@ def _gate_health_endpoints(
         # projects that voluntarily add /health/<backing> endpoints
         # (mirroring the doctrine pattern for backings they care about)
         # remain free to do so.
-        for dep in (svc_decl.depends_on or []):
+        svc_deps = sorted({
+            dep for p in svc_decl.processes.values() for dep in (p.depends_on or [])
+        })
+        for dep in svc_deps:
             dep_decl = infra.core_services.get(dep)
             if dep_decl is None:
                 # Either not a known service, or a backing — backing
                 # services are not required to have a /health/<dep>
                 # endpoint on the provider's contract.
                 continue
-            if "web" in (dep_decl.networks or []):
+            if any("web" in (p.networks or []) for p in dep_decl.processes.values()):
                 continue
             key = f"/health/{dep}"
             hop = paths_map.get(key)
@@ -470,12 +493,22 @@ def _gate_healthcheck_tooling(
     qualifying: list[str] = []
     for name in sorted(infra.core_services):
         svc = infra.core_services[name]
-        # ``extra="allow"`` on the model surfaces role fields like
-        # ``health_check_path`` as attributes; absent ⇒ None. Only ``role: web``
-        # declares the field, but such a service may sit on a non-``web``
-        # network and still get the curl healthcheck — so do NOT filter on web
-        # membership (mod 059).
-        declares_hc = getattr(svc, "health_check_path", None) is not None
+        # ``extra="allow"`` on ProcessType surfaces role fields like
+        # ``health_check_path`` in ``model_extra``; absent ⇒ None. Only
+        # ``role: web`` declares the field, but such a process type may sit on
+        # a non-``web`` network and still get the curl healthcheck — so do NOT
+        # filter on web membership (mod 059).
+        #
+        # Mod 096: read the PROCESS TYPE. A `getattr(svc, ...)` against the
+        # CoreService goes permanently None once the field is process-scoped,
+        # so the gate would pass while checking nothing and Mod 051's curl
+        # protection would be silently defeated. One image per codebase, so
+        # one qualifying entry per codebase — any process type declaring the
+        # field obliges the shared image to carry curl.
+        declares_hc = any(
+            (p.model_extra or {}).get("health_check_path") is not None
+            for p in svc.processes.values()
+        )
         if declares_hc:
             qualifying.append(name)
 

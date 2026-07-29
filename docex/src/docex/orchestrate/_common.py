@@ -90,7 +90,11 @@ def assert_fixed_env(env: str, *, command: str) -> None:
 
 
 def core_services(ctx: ProjectContext) -> list[str]:
-    """Return the simple names of every core service, sorted.
+    """Return the codebase keys of every core service, sorted.
+
+    These are *authoring* keys (``api``), not compiled identities
+    (``api-web``) — every consumer here is a per-codebase operation
+    (``core/<svc>/``, the image ref, ``build.sh``).
 
     Sorted output keeps ``docex build`` / ``docex test`` deterministic
     across runs — a developer running ``docex test`` twice sees the
@@ -102,18 +106,38 @@ def core_services(ctx: ProjectContext) -> list[str]:
 
 
 def scheduler_services(ctx: ProjectContext) -> list[str]:
-    """Return the simple names of every ``scheduler``-role core service.
+    """Codebase keys with AT LEAST ONE ``scheduler`` process type, sorted.
 
-    Sorted for determinism, matching :func:`core_services`. Used by
-    ``up`` to build each scheduler's self-contained job image (mod 074)
-    and to skip schedulers in the bind-mount initial-build path.
+    Used by ``up`` to build each scheduler's self-contained job image
+    (mod 074) — any codebase carrying a scheduler job needs that image
+    built, whether or not it also runs long-running processes.
     """
     if ctx.infra is None:
         return []
     return sorted(
         name
         for name, svc in (ctx.infra.core_services or {}).items()
-        if getattr(svc, "role", None) == "scheduler"
+        if any(p.role == "scheduler" for p in svc.processes.values())
+    )
+
+
+def scheduler_only_services(ctx: ProjectContext) -> list[str]:
+    """Codebase keys with NO long-running process type, sorted.
+
+    Distinct from :func:`scheduler_services` because the two call sites
+    want different predicates: ``_ensure_scheduler_image`` must run for any
+    codebase carrying a scheduler job, while the dev-build skip and the
+    test-path branch apply only when there is no long-running container at
+    all — a mixed web+scheduler codebase still has a container to build
+    into and exec against.
+    """
+    if ctx.infra is None:
+        return []
+    return sorted(
+        name
+        for name, svc in (ctx.infra.core_services or {}).items()
+        if svc.processes
+        and all(p.role == "scheduler" for p in svc.processes.values())
     )
 
 
@@ -140,27 +164,47 @@ def services_with_schema(ctx: ProjectContext) -> list[str]:
 
 
 def compose_service_key(ctx: ProjectContext, env: str, simple_name: str) -> str:
-    """Map a simple service name (``api``) to its compose-file key.
+    """Map a codebase key (``api``) to the compose-file key of the one
+    container that stands in for it.
 
     The compose emitter writes services under their project-scoped
-    global name (e.g. ``sample-dev-api``), so ``docker compose exec
+    global name (e.g. ``sample-dev-api-web``), so ``docker compose exec
     <simple_name>`` fails with "service not running" — we have to
     feed compose the global key. We parse it back out of the compiled
     compose file rather than re-running naming logic, so the source
     of truth stays in the compiler.
+
+    !!! TEMPORARY — DELETED BY MOD 099, which replaces this with
+    ``exec_service_key`` against an emitted per-codebase exec service. Do
+    not build on it. The suffix scan already mis-resolves in principle (a
+    codebase named ``web`` matches ``sample-dev-api-web``, giving the wrong
+    container with no error); Mod 096 only keeps it working under
+    two-segment keys by matching the codebase's primary process, nothing
+    more.
     """
     import yaml
+
+    from docex.cicl.model import primary_process
 
     compose_path = compose_file_for(ctx, env)
     if not compose_path.is_file():
         return simple_name  # Best-effort fallback.
     doc = yaml.safe_load(compose_path.read_text())
     services = (doc or {}).get("services") or {}
-    # Heuristic: the global key has the simple name as suffix
-    # (possibly separated by '-' or '_').
-    for key in services:
-        if key == simple_name:
+    core = (ctx.infra.core_services or {}).get(simple_name) if ctx.infra else None
+    suffix = (
+        f"{simple_name}-{primary_process(core)}" if core is not None
+        else simple_name
+    )
+    # Sidecar (`-otelcol`) and ofelia (`-scheduler`) keys are emitted
+    # alongside the service they belong to and are never an exec target.
+    candidates = [
+        k for k in services
+        if not (k.endswith("-otelcol") or k.endswith("-scheduler"))
+    ]
+    for key in candidates:
+        if key == suffix:
             return key
-        if key.endswith(f"-{simple_name}") or key.endswith(f"_{simple_name}"):
+        if key.endswith(f"-{suffix}") or key.endswith(f"_{suffix}"):
             return key
     return simple_name

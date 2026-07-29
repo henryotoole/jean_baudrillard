@@ -50,7 +50,7 @@ def test_sidecar_emitted_per_core_service(tmp_path: Path):
     sidecars = _sidecar_names(services)
     # The fixture has one core service (`api`) and one backing (`appdb`).
     assert len(sidecars) == 1, sorted(services)
-    assert sidecars[0].endswith("-api-otelcol")
+    assert sidecars[0].endswith("-api-web-otelcol")
     # No sidecar for the backing appdb.
     assert not any(k.endswith("-appdb-otelcol") for k in services)
 
@@ -63,8 +63,8 @@ def test_sidecar_network_mode_pairs_with_core(tmp_path: Path):
 
     doc = _compose_doc(root, "dev")
     services = doc["services"]
-    api_global = next(k for k in services if k.endswith("-api") and "otelcol" not in k)
-    sidecar = next(services[k] for k in services if k.endswith("-api-otelcol"))
+    api_global = next(k for k in services if k.endswith("-api-web") and "otelcol" not in k)
+    sidecar = next(services[k] for k in services if k.endswith("-api-web-otelcol"))
     assert sidecar["network_mode"] == f"service:{api_global}"
 
 

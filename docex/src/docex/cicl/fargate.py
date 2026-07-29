@@ -74,7 +74,7 @@ def _round_cpu_to_fargate(cpu_units: int) -> int:
 
 
 def fargate_pair_from_units(
-    cpu_units: int, memory_mib: int, *, service_name: str
+    cpu_units: int, memory_mib: int, *, service_name: str, where: str | None = None
 ) -> tuple[int, int]:
     """Translate already-computed ``(cpu_units, memory_mib)`` to a valid
     Fargate pair, rounding both up.
@@ -102,11 +102,13 @@ def fargate_pair_from_units(
             f"Reduce resources or split the service. Valid CPU buckets: "
             f"{list(_FARGATE_CPUS)}."
         ),
-        where=f"core_services.{service_name}.resources",
+        where=where or f"core_services.{service_name}.resources",
     )])
 
 
-def fargate_pair(cpu: float, memory: str, *, service_name: str) -> tuple[int, int]:
+def fargate_pair(
+    cpu: float, memory: str, *, service_name: str, where: str | None = None
+) -> tuple[int, int]:
     """Translate a CICL ``(cpu, memory)`` to a valid Fargate pair.
 
     Algorithm:
@@ -131,7 +133,8 @@ def fargate_pair(cpu: float, memory: str, *, service_name: str) -> tuple[int, in
         raise ValidationError([ValidationIssue(
             rule="rule_fargate_memory_unparseable",
             message=str(e),
-            where=f"core_services.{service_name}.resources.memory",
+            where=(f"{where}.memory" if where else
+                   f"core_services.{service_name}.resources.memory"),
         )]) from e
 
     for cpu_attempt in [cpu_choice] + [
@@ -156,5 +159,5 @@ def fargate_pair(cpu: float, memory: str, *, service_name: str) -> tuple[int, in
             f"Reduce resources or split the service. Valid CPU buckets: "
             f"{list(_FARGATE_CPUS)}."
         ),
-        where=f"core_services.{service_name}.resources",
+        where=where or f"core_services.{service_name}.resources",
     )])

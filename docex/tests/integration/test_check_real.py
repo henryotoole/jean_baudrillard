@@ -96,7 +96,7 @@ def test_check_real_fails_on_missing_contract_health(tmp_path: Path):
     work, _origin = _init_repo_with_fixture(tmp_path)
     _git(work, "checkout", "-b", "feature/break-contract")
     # Remove /health from the contract.
-    contract = work / "infra" / "contracts" / "api.openapi.yml"
+    contract = work / "infra" / "contracts" / "api.web.openapi.yml"
     contract.write_text(
         "openapi: '3.0.3'\n"
         "info: { title: api, version: '0.1.0' }\n"

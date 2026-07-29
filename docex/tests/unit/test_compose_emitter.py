@@ -50,7 +50,7 @@ def test_dev_compose_has_core_bind_mounts(tmp_path: Path):
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     volumes = api.get("volumes") or []
     # The two doctrinal bind mounts must both be present.
     assert "./core/api/src:/service/src" in volumes, volumes
@@ -65,7 +65,7 @@ def test_non_dev_compose_has_no_core_bind_mounts(tmp_path: Path):
 
     for env in ("test", "stage", "prod"):
         services = _compose_services(root, env)
-        api = _find_core_service_block(services, "api")
+        api = _find_core_service_block(services, "api-web")
         volumes = api.get("volumes") or []
         for v in volumes:
             assert "/service/src" not in v, (
@@ -89,7 +89,7 @@ def test_disk_translates_to_docker_tmpfs_size(tmp_path: Path):
 
     for env in ("dev", "test"):
         services = _compose_services(root, env)
-        api = _find_core_service_block(services, "api")
+        api = _find_core_service_block(services, "api-web")
         tmpfs = api.get("tmpfs") or []
         assert tmpfs == ["/tmp:size=20g"], (env, tmpfs)
 
@@ -115,35 +115,35 @@ def test_web_service_publishes_no_host_ports(tmp_path: Path):
     ctx = load_project_context(root)
     run_compile(ctx)
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     assert "ports" not in api, api.get("ports")
 
 
 def test_default_web_service_traefik_dual_host(tmp_path: Path):
-    """The domain_default_service (api) routes at BOTH the bare env subdomain
+    """The domain_default_process (api) routes at BOTH the bare env subdomain
     and its per-service host, per the canonical
     <service>.<env>.<project>.<apex_domain> form (mod 031)."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     rule = next(l for l in (api.get("labels") or []) if ".rule=" in l)
     assert "Host(`dev.sample.example.com`)" in rule
-    assert "Host(`api.dev.sample.example.com`)" in rule
+    assert "Host(`api-web.dev.sample.example.com`)" in rule
 
 
 def test_prod_default_web_service_traefik_triple_host(tmp_path: Path):
-    """Mod 031: in prod, the domain_default_service additionally answers
+    """Mod 031: in prod, the domain_default_process additionally answers
     at the bare-project host (<project>.<apex_domain>), replacing the old
     `www.<apex>` convention."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
     services = _compose_services(root, "prod")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     rule = next(l for l in (api.get("labels") or []) if ".rule=" in l)
-    assert "Host(`api.prod.sample.example.com`)" in rule
+    assert "Host(`api-web.prod.sample.example.com`)" in rule
     assert "Host(`prod.sample.example.com`)" in rule
     assert "Host(`sample.example.com`)" in rule
 
@@ -175,7 +175,7 @@ def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: P
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     deps = api.get("depends_on")
     assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
     # The dep key must be the project-scoped global name of `appdb`.
@@ -221,7 +221,7 @@ def test_web_router_emits_certresolver_doctrine(tmp_path: Path):
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     labels = api.get("labels") or []
     # Must include the certresolver label keyed by the service's global name.
     expected_suffix = ".tls.certresolver=doctrine"
@@ -270,7 +270,7 @@ def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     deps = api.get("depends_on")
     assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
     proxy_key = next((k for k in deps if k.endswith("proxy")), None)
@@ -293,7 +293,7 @@ def test_core_service_compose_environment_carries_project_version(tmp_path: Path
 
     for env in ("dev", "test", "stage", "prod"):
         services = _compose_services(root, env)
-        api = _find_core_service_block(services, "api")
+        api = _find_core_service_block(services, "api-web")
         environment = api.get("environment") or {}
         assert environment.get("PROJECT_VERSION") == expected_version, (
             env, environment
@@ -308,7 +308,7 @@ def test_core_service_carries_docex_project_label(tmp_path: Path):
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api")
+    api = _find_core_service_block(services, "api-web")
     labels = api.get("labels") or []
     assert "docex.project=sample" in labels, labels
     # Discovery labels are still present alongside it — appended, not replaced.
@@ -326,7 +326,7 @@ def test_test_env_web_service_has_no_traefik_labels(tmp_path: Path):
     run_compile(ctx)
 
     # `test`: docex.project present, but no traefik labels at all.
-    test_api = _find_core_service_block(_compose_services(root, "test"), "api")
+    test_api = _find_core_service_block(_compose_services(root, "test"), "api-web")
     test_labels = test_api.get("labels") or []
     assert "docex.project=sample" in test_labels, test_labels
     assert not any(l.startswith("traefik.") for l in test_labels), test_labels
@@ -334,7 +334,7 @@ def test_test_env_web_service_has_no_traefik_labels(tmp_path: Path):
     # dev/stage/prod: full traefik discovery set still present alongside
     # the docex.project label.
     for env in ("dev", "stage", "prod"):
-        api = _find_core_service_block(_compose_services(root, env), "api")
+        api = _find_core_service_block(_compose_services(root, env), "api-web")
         labels = api.get("labels") or []
         assert "docex.project=sample" in labels, (env, labels)
         assert "traefik.enable=true" in labels, (env, labels)

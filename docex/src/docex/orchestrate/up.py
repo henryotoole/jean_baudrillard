@@ -24,6 +24,7 @@ from docex.orchestrate._common import (
     core_services,
     ensure_compiled,
     env_compose_project,
+    scheduler_only_services,
     scheduler_services,
     services_with_schema,
 )
@@ -192,12 +193,15 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     # Test env intentionally skips this — its images carry artifacts
     # baked in by the build stage and aren't bind-mounted.
     if env == "dev":
-        schedulers = set(scheduler_services(ctx))
+        # Scheduler-ONLY codebases are the ones with no bind-mounted compose
+        # service at all; a codebase that also declares a long-running
+        # process type still needs its host-side dist/ pre-populated.
+        schedulers = set(scheduler_only_services(ctx))
         for svc in core_services(ctx):
-            # Schedulers aren't bind-mounted and never run as a compose
-            # service, so the host-dist/ pre-populate is meaningless for
-            # them. They instead need a self-contained job image built
-            # below (mod 074).
+            # Scheduler-only codebases aren't bind-mounted and never run as
+            # a compose service, so the host-dist/ pre-populate is
+            # meaningless for them. They instead need a self-contained job
+            # image built below (mod 074).
             if svc in schedulers:
                 continue
             _ensure_initial_dev_build(ctx, docker, svc)

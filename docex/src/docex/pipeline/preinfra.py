@@ -172,7 +172,9 @@ def _check_dev_dns(ctx: ProjectContext, dns: DnsResolver) -> list[str]:
     """
     from docex.cicl.compile import web_hostnames_for_env
 
-    hosts = web_hostnames_for_env(ctx.infra, ctx.project.name, "dev")
+    hosts = web_hostnames_for_env(
+        ctx.infra, ctx.project.name, "dev", ctx.transfer_tables.naming_policies
+    )
     failures: list[str] = []
     for host in hosts:
         try:

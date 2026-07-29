@@ -93,7 +93,7 @@ def test_rounding_notice_printed_when_tier_bumps(
     ctx = load_project_context(root)
     run_compile(ctx)
     captured = capsys.readouterr().out
-    assert "note: core service 'api'" in captured
+    assert "note: core service 'api-web'" in captured
     assert (
         "Non-tier-aligned project resources AND sidecar overhead "
         "each contributed to the bump"
@@ -113,7 +113,7 @@ def test_rounding_notice_printed_once_per_compile_run(
     ctx = load_project_context(root)
     run_compile(ctx)
     captured = capsys.readouterr().out
-    occurrences = captured.count("note: core service 'api'")
+    occurrences = captured.count("note: core service 'api-web'")
     assert occurrences == 1, (
         f"expected the rounding notice once per compile run, "
         f"saw {occurrences}:\n{captured}"
@@ -201,7 +201,7 @@ def test_core_container_runtime_resources_unaffected(tmp_path: Path):
 
     hcl = _stage_hcl(root)
     # Slice the api task def.
-    marker = 'resource "aws_ecs_task_definition" "api" {'
+    marker = 'resource "aws_ecs_task_definition" "api-web" {'
     idx = hcl.index(marker)
     rest = hcl[idx:]
     end = rest.index("\n}\n")

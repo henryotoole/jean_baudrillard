@@ -173,7 +173,7 @@ def test_check_contracts_missing_failure(
     # need to delete the contract BEFORE worktree_add runs. The
     # cleanest approach: delete it from the source fixture so the
     # populating copy lacks it.
-    contract = ctx.project_root / "infra" / "contracts" / "api.openapi.yml"
+    contract = ctx.project_root / "infra" / "contracts" / "api.web.openapi.yml"
     contract.unlink()
 
     rc = run_check(ctx, fake_docker, fake_git)
@@ -189,7 +189,7 @@ def test_check_health_endpoint_missing_failure(
     """Missing /health in the contract should fail the health_endpoints gate."""
     ctx, fake_git = worktree_setup
     # Replace the contract with one missing /health.
-    contract = ctx.project_root / "infra" / "contracts" / "api.openapi.yml"
+    contract = ctx.project_root / "infra" / "contracts" / "api.web.openapi.yml"
     contract.write_text(
         "openapi: '3.0.3'\n"
         "info: { title: api, version: '0.1.0' }\n"
@@ -247,35 +247,41 @@ def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False, worker_hc=F
     (root / "project.yml").write_text(
         'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
     )
-    hc_line = "    health_check_path: /health\n" if web_with_hc else ""
+    hc_line = "        health_check_path: /health\n" if web_with_hc else ""
     worker_block = (
         "  worker:\n"
-        "    role: web\n"
-        "    networks: [internal]\n"
-        + ("    port: 9090\n" if worker_hc else "")
-        + ("    health_check_path: /health\n" if worker_hc else "")
-        + "    resources:\n"
-        "      cpu: 0.5\n"
-        "      memory: 512MB\n"
-        "      disk: 1GB\n"
+        "    processes:\n"
+        "      web:\n"
+        "        role: web\n"
+        '        command: ["python", "/service/dist/root.py"]\n'
+        "        networks: [internal]\n"
+        + ("        port: 9090\n" if worker_hc else "")
+        + ("        health_check_path: /health\n" if worker_hc else "")
+        + "        resources:\n"
+        "          cpu: 0.5\n"
+        "          memory: 512MB\n"
+        "          disk: 1GB\n"
     ) if extra_worker else ""
     (root / "infra" / "infra.yml").write_text(
-        'cicl_version: "1"\n'
+        'cicl_version: "2"\n'
         "foundation: fixed\n"
         'apex_domain: "example.com"\n'
         'container_registry: "registry.example.com"\n'
         'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
-        "domain_default_service: api\n"
+        "domain_default_process: api.web\n"
         "core_services:\n"
         "  api:\n"
-        "    role: web\n"
-        "    port: 8080\n"
-        "    networks: [web, internal]\n"
+        "    processes:\n"
+        "      web:\n"
+        "        role: web\n"
+        '        command: ["python", "/service/dist/root.py"]\n'
+        "        port: 8080\n"
+        "        networks: [web, internal]\n"
         + hc_line +
-        "    resources:\n"
-        "      cpu: 1.0\n"
-        "      memory: 2GB\n"
-        "      disk: 20GB\n"
+        "        resources:\n"
+        "          cpu: 1.0\n"
+        "          memory: 2GB\n"
+        "          disk: 20GB\n"
         + worker_block
     )
     return load_project_context(root), root

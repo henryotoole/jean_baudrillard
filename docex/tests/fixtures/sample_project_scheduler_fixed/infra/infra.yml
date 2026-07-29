@@ -1,32 +1,30 @@
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
 container_registry: registry.example.com
-domain_default_service: api
+domain_default_process: api.web
 
 core_services:
   # A long-running web service alongside the scheduler — proves the
   # scheduler emit does not disturb ordinary services (sidecar, traefik).
   api:
-    role: web
-    port: 8080
-    networks: [web, internal]
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        port: 8080
+        networks: [web, internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
 
   nightly_cleanup:
-    role: scheduler
-    schedule: "0 3 * * 1-5"
-    command: ["python", "-m", "jobs.cleanup"]
-    networks: [internal]
-    depends_on: [appdb]
     env:
       # DATABASE_HOST resolves to a literal -> inlined into the INI.
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -35,9 +33,16 @@ core_services:
       # resolves to a $[VAR] secret -> sourced from the mounted env file.
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 0.25
-      memory: 512MB
+    processes:
+      nightly_cleanup:
+        role: scheduler
+        schedule: "0 3 * * 1-5"
+        command: ["python", "-m", "jobs.cleanup"]
+        networks: [internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 0.25
+          memory: 512MB
 
 backing_services:
   appdb:

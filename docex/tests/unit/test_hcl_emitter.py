@@ -217,7 +217,7 @@ def test_elastic_listener_rule_uses_per_service_hosts(compiled_prod_tf: str):
     per-service host, the bare env subdomain, AND the bare-project host
     (the new mod 031 triple). Order is most-specific → least-specific."""
     assert (
-        'values = ["api.prod.sample.example.com", '
+        'values = ["api-web.prod.sample.example.com", '
         '"prod.sample.example.com", "sample.example.com"]'
         in compiled_prod_tf
     )
@@ -236,7 +236,7 @@ def test_elastic_stage_listener_rule_uses_per_service_hosts(tmp_path: Path):
     assert rc == 0
     stage_tf = (dest / "infra" / "output" / "stage" / "main.tf").read_text()
     assert (
-        'values = ["api.stage.sample.example.com", '
+        'values = ["api-web.stage.sample.example.com", '
         '"stage.sample.example.com"]'
         in stage_tf
     )
@@ -431,7 +431,7 @@ def test_projinfra_tags_route53_zone(compiled_elastic_project: Path):
 def test_project_route53_zone_force_destroy(compiled_elastic_project: Path):
     """The child zone is emitted force_destroy=true so teardown sweeps
     out-of-band records (dev A-records, stale ACM CNAMEs) and can't hit
-    HostedZoneNotEmpty. Mod 072 / campaign 002."""
+    HostedZoneNotEmpty. Mod 072 / advance 002."""
     tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     blk = _block(tf, 'resource "aws_route53_zone" "project"')
     assert "force_destroy = true" in blk
@@ -517,7 +517,7 @@ def test_envinfra_tags_rds_backing_service(compiled_elastic_project: Path):
 
 def test_envinfra_tags_ecs_service_core(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
-    blk = _block(tf, 'resource "aws_ecs_service" "api"')
+    blk = _block(tf, 'resource "aws_ecs_service" "api-web"')
     assert 'infra_tier = "environment"' in blk
     assert 'shape_name = "core_service"' in blk
     assert 'descriptor = "ecs-svc"' in blk
@@ -526,10 +526,10 @@ def test_envinfra_tags_ecs_service_core(compiled_elastic_project: Path):
 
 def test_envinfra_tags_log_group_and_task_def(compiled_elastic_project: Path):
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
-    lg = _block(tf, 'resource "aws_cloudwatch_log_group" "api"')
+    lg = _block(tf, 'resource "aws_cloudwatch_log_group" "api-web"')
     assert 'shape_name = "core_service"' in lg
     assert 'descriptor = "logs"' in lg
-    td = _block(tf, 'resource "aws_ecs_task_definition" "api"')
+    td = _block(tf, 'resource "aws_ecs_task_definition" "api-web"')
     assert 'shape_name = "core_service"' in td
     assert 'descriptor = "task-def"' in td
     mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
@@ -607,8 +607,9 @@ def test_aws_lb_target_group_emits_health_check_from_target_extras(tmp_path: Pat
     infra_yml = dest / "infra" / "infra.yml"
     infra_yml.write_text(
         infra_yml.read_text().replace(
-            "    networks: [web, internal]\n",
-            "    networks: [web, internal]\n    health_check_path: /health\n",
+            "        networks: [web, internal]\n",
+            "        networks: [web, internal]\n"
+            "        health_check_path: /health\n",
             1,
         )
     )
@@ -617,7 +618,7 @@ def test_aws_lb_target_group_emits_health_check_from_target_extras(tmp_path: Pat
     assert rc == 0
     tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
     # Target group exists and carries a health_check sub-block.
-    assert 'resource "aws_lb_target_group" "api"' in tf
+    assert 'resource "aws_lb_target_group" "api-web"' in tf
     assert "health_check {" in tf
     assert 'path = "/health"' in tf
     assert "healthy_threshold = 2" in tf
@@ -636,11 +637,11 @@ def test_aws_lb_target_group_omits_health_check_when_no_field(tmp_path: Path):
     rc = run_compile(ctx)
     assert rc == 0
     tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
-    assert 'resource "aws_lb_target_group" "api"' in tf
+    assert 'resource "aws_lb_target_group" "api-web"' in tf
     # No health_check block emitted when no field was declared.
     # (We have to be careful: an aws_db_instance might also emit a
     # `health_check` block in some templates, so scope by service.)
-    tg_block_start = tf.find('resource "aws_lb_target_group" "api"')
+    tg_block_start = tf.find('resource "aws_lb_target_group" "api-web"')
     tg_block_end = tf.find("}", tg_block_start) + 1
     tg_block = tf[tg_block_start:tg_block_end]
     assert "health_check" not in tg_block
@@ -675,7 +676,7 @@ def test_target_group_long_project_hash_truncates(tmp_path: Path):
     rc = run_compile(ctx)
     assert rc == 0
     tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
-    block = _tg_block(tf, "api")
+    block = _tg_block(tf, "api-web")
     # Extract the emitted name value.
     name_line = next(
         line for line in block.splitlines() if line.strip().startswith("name")
@@ -696,9 +697,11 @@ def test_target_group_carries_standard_name_tag(tmp_path: Path):
     rc = run_compile(ctx)
     assert rc == 0
     tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
-    block = _tg_block(tf, "api")
+    block = _tg_block(tf, "api-web")
     assert "tags = {" in block
-    assert 'Name = "sample_prod_api"' in block
+    # Mod 096: the Name tag carries both dimensions of the compiled
+    # identity — `<project>_<env>_<service>_<process>`.
+    assert 'Name = "sample_prod_api_web"' in block
     assert 'descriptor = "ALB-TG"' in block
     assert 'infra_tier = "environment"' in block
 
@@ -712,8 +715,8 @@ def test_target_group_short_name_no_hash(tmp_path: Path):
     rc = run_compile(ctx)
     assert rc == 0
     tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
-    block = _tg_block(tf, "api")
-    assert 'name        = "sample-prod-api-tg"' in block
+    block = _tg_block(tf, "api-web")
+    assert 'name        = "sample-prod-api-web-tg"' in block
 
 
 def test_fixed_compile_skips_project_main_tf(tmp_path: Path):

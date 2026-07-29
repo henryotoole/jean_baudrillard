@@ -178,7 +178,7 @@ resource "aws_route53_record" "env_wildcard" {
 {% if env == "prod" %}
 # Bare-project A-record: <project>.<apex_domain> -> project ALB. Per
 # `cicl.md § Domain`, the bare-project host routes to prod's
-# `domain_default_service` for user-URL ergonomics (replacing the old
+# `domain_default_process` for user-URL ergonomics (replacing the old
 # `www.<apex>` convention). Only emitted on prod since the bare-project
 # resolves to prod's default service regardless. Mod 048 added this
 # alongside the env subdomain + wildcard records; the listener rules

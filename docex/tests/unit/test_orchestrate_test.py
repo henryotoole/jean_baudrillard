@@ -63,7 +63,7 @@ def test_test_runs_migrate_then_test_then_teardown(sample_ctx, fake_docker):
 def test_test_teardown_still_runs_after_test_failure(sample_ctx, fake_docker):
     """The try/finally guarantee: teardown always happens, even on test failure."""
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-test-api", ("./test.sh",))
+        ("exit", "compose_exec", "sample-test-api-web", ("./test.sh",))
     ] = 1
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 1
@@ -104,7 +104,7 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
 
 def test_test_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-test-api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample-test-api-web", ("./migrate.sh",))
     ] = 4
     rc = run_test(sample_ctx, fake_docker)
     assert rc == 4
@@ -145,7 +145,7 @@ def test_run_test_scheduler_uses_one_off(scheduler_ctx, fake_docker):
     assert all("nightly_cleanup" not in s for s in exec_test_services)
 
     # The non-scheduler web service still runs test.sh via compose_exec.
-    assert any(s.endswith("api") for s in exec_test_services)
+    assert any(s.endswith("api-web") for s in exec_test_services)
 
 
 def test_run_test_scheduler_build_failure_short_circuits(

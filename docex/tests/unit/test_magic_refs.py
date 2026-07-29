@@ -9,6 +9,7 @@ from docex.cicl.model import (
     BackingService,
     CICLDocument,
     CoreService,
+    ProcessType,
     Resources,
 )
 from docex.cicl.transfer import EngineEntry, EnvVarSpec, TransferTables
@@ -54,19 +55,24 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
         naming="ecs",
     )
     doc = CICLDocument(
-        cicl_version="1",
+        cicl_version="2",
         foundation=foundation,
         apex_domain="example.com",
         observability_backend_url="https://obs.example.com",
         container_registry="reg.example.com",
         core_services={
             "api": CoreService(
-                role="web",
-                networks=["web", "internal"],
-                resources=Resources(cpu=1.0, memory="2GB"),
-                depends_on=["db"],
-                port=8080,
                 env={},
+                processes={
+                    "web": ProcessType(
+                        role="web",
+                        command=["python", "/service/dist/root.py"],
+                        networks=["web", "internal"],
+                        resources=Resources(cpu=1.0, memory="2GB"),
+                        depends_on=["db"],
+                        port=8080,
+                    ),
+                },
             ),
         },
         backing_services={
@@ -91,9 +97,10 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
         tables=tables,
         foundation=foundation,
         contexts={
-            "api": {
-                "name": "api",
-                "global_service_name": "p-dev-api",
+            # Mod 096: keyed on the compiled identity, matching the compiler.
+            "api-web": {
+                "name": "api-web",
+                "global_service_name": "p-dev-api-web",
                 "port": 8080,
                 "project_name": "p", "env_name": "dev", "role_name": "web",
                 "env_subdomain": "dev.example.com",
@@ -106,7 +113,7 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
                 "env_subdomain": "dev.example.com",
             },
         },
-        engines={"api": api_engine, "db": db_engine},
+        engines={"api-web": api_engine, "db": db_engine},
     )
     return resolver, db_engine
 
@@ -122,7 +129,7 @@ def test_find_magic_refs():
 def test_resolve_simple_magic_ref():
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
-        "${backing_services.db.host}", consumer="api"
+        "${backing_services.db.host}", consumer="api-web"
     )
     assert rendered.value == "p-dev-db"
 
@@ -133,11 +140,11 @@ def test_resolve_minted_part_propagates_runtime_ref():
     runtime refs, so the compiler can wire it into the container."""
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
-        "${backing_services.db.password}", consumer="api"
+        "${backing_services.db.password}", consumer="api-web"
     )
     assert rendered.value == "$[POSTGRES_PASSWORD]"
     assert "POSTGRES_PASSWORD" in rendered.runtime_refs
-    assert "POSTGRES_PASSWORD" in resolver.runtime_refs["api"]
+    assert "POSTGRES_PASSWORD" in resolver.runtime_refs["api-web"]
 
 
 def test_resolve_fixed_part_inlines_literal():
@@ -147,7 +154,7 @@ def test_resolve_fixed_part_inlines_literal():
     runtime refs."""
     resolver, _ = _make_resolver()
     rendered = resolver.resolve_in_string(
-        "${backing_services.db.user}", consumer="api"
+        "${backing_services.db.user}", consumer="api-web"
     )
     assert rendered.value == "appuser"
     assert "POSTGRES_USER" not in rendered.runtime_refs
@@ -157,7 +164,7 @@ def test_resolve_fixed_part_inlines_literal():
 def test_magic_ref_hcl_passthrough_on_elastic():
     resolver, _ = _make_resolver(foundation="elastic")
     rendered = resolver.resolve_in_string(
-        "${backing_services.db.host}", consumer="api"
+        "${backing_services.db.host}", consumer="api-web"
     )
     assert rendered.raw_hcl is True
     assert "aws_db_instance.db.endpoint" in rendered.value
@@ -167,7 +174,7 @@ def test_magic_ref_unknown_service():
     resolver, _ = _make_resolver()
     with pytest.raises(SubstitutionError):
         resolver.resolve_in_string(
-            "${backing_services.nope.host}", consumer="api"
+            "${backing_services.nope.host}", consumer="api-web"
         )
 
 
@@ -175,17 +182,17 @@ def test_magic_ref_unknown_part():
     resolver, _ = _make_resolver()
     with pytest.raises(SubstitutionError):
         resolver.resolve_in_string(
-            "${backing_services.db.nope}", consumer="api"
+            "${backing_services.db.nope}", consumer="api-web"
         )
 
 
 def test_dependency_tracking():
     resolver, _ = _make_resolver()
     resolver.resolve_in_string(
-        "${backing_services.db.host}", consumer="api"
+        "${backing_services.db.host}", consumer="api-web"
     )
     deps = [(d.consumer, d.target, d.part) for d in resolver.deps]
-    assert ("api", "db", "host") in deps
+    assert ("api-web", "db", "host") in deps
 
 
 def test_magic_ref_empty_resolution_errors():
@@ -197,7 +204,7 @@ def test_magic_ref_empty_resolution_errors():
     resolver.contexts["db"]["port"] = ""
     with pytest.raises(SubstitutionError):
         resolver.resolve_in_string(
-            "${backing_services.db.port}", consumer="api"
+            "${backing_services.db.port}", consumer="api-web"
         )
 
 
@@ -208,7 +215,7 @@ def test_resolve_sslmode_part_compile_time_constant():
     logic. See mod 009."""
     resolver_fixed, _ = _make_resolver(foundation="fixed")
     rendered_fixed = resolver_fixed.resolve_in_string(
-        "${backing_services.db.sslmode}", consumer="api"
+        "${backing_services.db.sslmode}", consumer="api-web"
     )
     assert rendered_fixed.value == "disable"
     assert rendered_fixed.raw_hcl is False
@@ -216,7 +223,7 @@ def test_resolve_sslmode_part_compile_time_constant():
 
     resolver_elastic, _ = _make_resolver(foundation="elastic")
     rendered_elastic = resolver_elastic.resolve_in_string(
-        "${backing_services.db.sslmode}", consumer="api"
+        "${backing_services.db.sslmode}", consumer="api-web"
     )
     assert rendered_elastic.value == "require"
     assert rendered_elastic.raw_hcl is False

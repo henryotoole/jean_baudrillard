@@ -54,7 +54,8 @@ In `src/docex/cicl/`:
 - **`GenerationPolicy` / `generate`** (`cicl/generate.py`, a sibling to `naming.py`) — a minted var's value is drawn by the CSPRNG `generate` from a named policy (`{length, alphabet}`, alphabets `url_safe`/`alnum`); policies load from `tables/generation_policies.yml`. Minting itself runs during aggregation at bring-up/release, never in `compile` — see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md).
 - **`SourceKeyCategories` / `classify_source_keys`** (`cicl/categories.py`, mod 078) — a pure partition of a service's source-key namespace into TTE / secret / config. `secret_manifest` / `config_manifest` derive the per-category key sets (mods 083/084) and `minted_policies` derives the minted key→policy map. These back the three-category model in [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md); don't re-derive it here.
 - **`NamingPolicy` / `NamingPolicies`** — see [`transfer_tables.md § Naming Policies`](../../../doctrine/infrastructure/specifics/transfer_tables.md#naming-policies). Lifted from inline engine `naming` structs in mod 005 so structural emitters can share the table.
-- **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads.
+- **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads. Since mod 096 it also carries the process-expansion fields — see [Process expansion](#process-expansion).
+- **`ProcessType` / `ProcessRef`** (`cicl/model.py`, mod 096) — `ProcessType` is one named way of invoking a core service's build artifact (`role`, `command`, `networks`, `resources`, `port`, `depends_on`, `replicas`, `env`), per [`cicl.md § Process Types`](../../../doctrine/infrastructure/cicl.md#process-types). `ProcessRef` is the value type carrying the dots-for-reference / hyphens-for-emission rule: `.dotted` → `api.web`, `.compiled` → `api-web`, `.parse()` rejecting a bare name. It is the single place that rule is expressed, so read sites never re-derive it.
 
 In `src/docex/naming.py`:
 
@@ -83,14 +84,78 @@ A compile-time `${var}` embedded inside a `@<expr>` is resolved during emit; the
 
 **Engine-env `kind` short-circuits `$[VAR]` (mod 077).** When a `$[VAR]` names a `kind: fixed` engine env var, `magic_refs.py::_inline_fixed` substitutes the var's literal `value:` at compile time rather than emitting a runtime ref. `minted`/`secret` vars stay runtime pass-through. So `POSTGRES_USER` inlines to `appuser` everywhere and the fixed var's backing-body / `provides` `$[VAR]` never reaches emit — no emitter change was needed. The elastic SSM data-source / `secrets[]` therefore fire only for the non-fixed vars (e.g. `POSTGRES_PASSWORD`).
 
+## Process expansion
+
+Mod 096. One core service key in `infra.yml` maps to **N** `CompiledService`
+objects, one per [process type](../../../doctrine/infrastructure/cicl.md#process-types) —
+a codebase invoked several ways from one image.
+
+```
+CoreService(api) × {web, worker, nightly_cleanup}
+    -> CompiledService(name="api-web",    core_service="api", process="web")
+    -> CompiledService(name="api-worker", core_service="api", process="worker")
+    -> CompiledService(name="api-nightly_cleanup", …)
+```
+
+The governing principle, and the reason the emit layer barely changed:
+
+> **`CompiledService.name` carries the two-segment compiled identity (`api-web`);
+> the authoring models keep the authoring names.**
+
+Traefik router keys, ECS container/task-def/service names, the paired sidecar,
+Service Connect names, the CloudWatch log group, target groups, ALB rule
+priorities and the envinfra tag block all already derived from `svc.name` /
+`svc.global_name`, so they became per-process for free.
+
+**What stays keyed on the codebase.** Getting any of these wrong defeats the
+point of the expansion, which is one build artifact per codebase:
+
+| Identity | Field to read |
+| -------- | ------------- |
+| image ref + the `ecr_repository_<svc>_url` remote-state output | `core_service` |
+| the project-tier ECR repo set (`emit_hcl_project`) | `list(infra.core_services)` |
+| `schema_owned_by` / which codebase owns migrations | `core_service` |
+| the `core/<svc>/` source folder — compose bind mounts and build context | `core_service` |
+| the migrate task-def family and address | `codebase_global_name` / `core_service` |
+
+`CompiledService` therefore carries `core_service`, `process`,
+`codebase_global_name` (`{project}-{env}-{codebase}` under the same naming
+policy as `global_name`), `service_env`, and `replicas`.
+
+**`service_env`** is the codebase-scoped env surface: the service-level `env:`
+block resolved, plus `secrets` / `config` / doctrine-injected keys, and
+**excluding** any process-level `env:` overlay. The migrate task definition
+consumes it rather than the app container's env, because `migrate.sh` may
+depend only on codebase-scoped env — a process-level `DATABASE_*` would
+otherwise make a migration silently dependent on which process type it happened
+to inherit from.
+
+**`replicas`** is carried and nothing is emitted from it. Emission — the fixed
+unroll and elastic `desired_count` — is a later mod.
+
+**The migration carrier.** `schema_owned_by_db` is set on exactly one compiled
+service per codebase, so one codebase yields one migrate task definition rather
+than N. `primary_process()` (`cicl/model.py`) picks it: lowest-sorted
+non-`scheduler`, falling back to lowest-sorted. It is marked at the definition
+site as a temporary bridge — it also backs `orchestrate/_common.py`'s
+`compose_service_key`, and both go away when the per-codebase exec service
+lands.
+
 ## Naming flow
 
-The compiler always joins parts with `_` internally; the policy decides what reaches the artifact. For service `web` in env `stage` of project `docex_smoke_elastic`:
+The compiler always joins parts with `_` internally; the policy decides what reaches the artifact. For the `web` process type of core service `api` in env `stage` of project `docex_smoke_elastic`:
 
-1. Internal form: `docex_smoke_elastic_stage_web`.
+1. Internal form: `docex_smoke_elastic_stage_api_web` — four segments for a core process type, three (`{project}_{env}_{service}`) for a backing service.
 2. Engine `container` (role `web`) declares `naming: ecs`.
 3. Policy lookup → `ecs = {separator: hyphen, case: any, max_len: 255}` (mod 030: data-plane resolvable, hyphen).
-4. `apply_policy(...)` translates underscores → `docex-smoke-elastic-stage-web`.
+4. `apply_policy(...)` translates underscores → `docex-smoke-elastic-stage-api-web`.
+
+Two policies feel the fourth segment. The `alb` policy (32 chars,
+`hash_truncate`) starts truncating target-group names that previously fit — the
+descriptive form survives in the `Name` tag. The `iam` policy (64 chars,
+`overflow: error`) can now *hard-fail* a compile on
+`{global_name}_scheduler`; that is the doctrine's stated preference for loud
+failure over silent truncation, and it fails at the earliest layer.
 
 The same internal form passed through the `iam` policy (a doctrine record-key identifier) would stay `docex_smoke_elastic_stage_web` (underscores preserved). This decouples docex's internal join convention from each AWS resource type's identifier convention — without this layer, a policy's choice of `_` vs `-` would leak across every emit site.
 
@@ -189,8 +254,13 @@ Validation lives at two layers:
 - Every magic-ref dependency between services has a matching `depends_on` declaration.
 - A minted var's `policy:` names a defined `generation_policies` entry (rule 13, load-time — mod 076).
 - `kind: fixed` ⇒ a `value` and no `policy`; `kind: minted` ⇒ a `policy` and no `value` (rule 14, mod 076).
-- Per service, the `env` / `secrets` / `config` key sets do not overlap (rule 16, mod 079).
+- Per process type, the *effective* `env` (service-level merged under process-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
 - Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
+- `cicl_version` is `"2"`; `"1"` is rejected with a message naming the upgrade guide, not shimmed (rule 21, mod 096).
+- Rendered data-plane identities are unique after naming-policy normalization, across core process types **and** backing services (rule 5, mod 096). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions today's exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core process rendering `api-db` against a backing service literally named `api-db`.
+- `depends_on` names backing services only; a core process type in a `depends_on` list is an error pointing at `consumes:` (rule 24, mod 096). Because core process types are therefore leaves, cycle detection (rule 6) runs over the backing-service graph alone.
+- `replicas` is not declared on a `scheduler`, and `worker` / `scheduler` process types do not declare `web` in `networks` (rules 26 + 27, mod 096) — the latter replaces a prose-only, unenforced note.
+- Per-process re-scoping of rules 10, 11, 12, 14, 15 and 28 (mod 096): resources, GPU-on-elastic, `domain_default_process`, the reserved-name blacklist (now covering process names), the web-network port requirement, and `health_check_path`-obliges-`port`.
 
 A compile-time error is always preferable to a tofu/AWS-side error. A load-time error is preferable to a compile-time error. When in doubt, add validation at the earliest layer where the problem is detectable.
 
@@ -200,7 +270,9 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | ------------ | -------- |
 | What a role/engine emits per foundation | `tables/roles/<role>.yml` (data) |
 | How a name is formatted | `tables/naming_policies.yml` (data) + the engine's `naming: <policy>` ref |
-| How the compiler walks services | `src/docex/cicl/compile.py` |
+| How the compiler walks services | `src/docex/cicl/compile.py` — the work list in `compile_env` pairs each backing service with each `(service, process)` from `CICLDocument.all_processes()` |
+| Whether a new identity is per-process or per-codebase | [Process expansion](#process-expansion). The default is per-process, because `CompiledService.name` already is; the codebase-keyed set is small and listed there |
+| What a core service may declare, and at which level | `src/docex/cicl/model.py` (`CoreService` is `extra="forbid"` over `{processes, secrets, config, env}`; `ProcessType` is `extra="allow"` so role-specific fields land in `model_extra`) |
 | How magic refs are resolved | `src/docex/cicl/magic_refs.py` + `cicl/substitute.py` |
 | How doctrine env vars are injected on core services | `src/docex/cicl/compile.py` — the `env_block[...]` assignments after the resolved-magic-ref loop |
 | What compose YAML looks like | `src/docex/emit/compose.py` |

@@ -884,6 +884,24 @@ Everything else in `hcl.py` is correct for free — see `overview.md` § The
 name, the scheduler IAM role, or the ECR project pass to `core_service`; each
 would produce duplicate HCL addresses.
 
+**The six direct `standard_tags` call sites** — `:470`, `:505`, `:548`,
+`:663`, `:804`, `:876` all pass `service=svc.name`. Per `cicl.md § Elastic
+Foundation` the envinfra `service` tag is `${core_service_name}` and the
+`process` tag is `${process_name}`, so each becomes:
+
+```python
+        service=svc.core_service or svc.name,
+        role=svc.role,
+        process=svc.process,
+```
+
+**This is required for consistency, not cosmetics.** Pass A already made
+`_apply_elastic_invariants` build the *body* tags that way (correctly — it is
+what the doctrine says). Left as-is, the same resource would carry
+`service = "api"` from the body path and `service = "api-web"` from the direct
+path. `svc.process` is `None` for backing services, and `standard_tags` omits
+the key in that case, so their tag block stays byte-identical.
+
 **`emit_hcl_project`** — no change. Its `core_service_names` already comes from
 `list(ctx.infra.core_services.keys())` at `compile.py:1013`, which is
 codebase-keyed and must stay that way. One ECR repo per codebase.

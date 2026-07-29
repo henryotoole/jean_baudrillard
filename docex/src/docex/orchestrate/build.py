@@ -24,6 +24,7 @@ from docex.docker.client import DockerClient
 from docex.errors import BuildFailed, EnvNotRunning, EnvNotSupported
 from docex.orchestrate._common import (
     compose_file_for,
+    compose_service_key,
     core_services,
     ensure_compiled,
     env_compose_project,
@@ -103,11 +104,13 @@ def _build_one(
 ) -> int:
     """Run the full dev-iteration build path for a single service."""
     # The compose service key is the project-scoped name (e.g.
-    # ``sample-dev-api``), not the simple name. ``compose_ps`` returns
-    # simple service names per compose's --services output. Find the
-    # one whose suffix matches our simple name.
-    matching = [s for s in running if s == svc or s.endswith(f"_{svc}") or s.endswith(f"-{svc}")]
-    if not matching:
+    # ``sample-dev-api-web``), not the codebase key. Mod 096: resolved
+    # through the one shared implementation in ``_common`` rather than a
+    # third copy of the suffix heuristic, so the codebase → container rule
+    # lives in exactly one place (and moves in one place when Mod 099
+    # replaces it with the exec service).
+    service_key = compose_service_key(ctx, _BUILD_ENV, svc)
+    if service_key not in running:
         # ``compose_ps`` (above) lists only *running* services, so a
         # crash-looping container reads as "not running" here. Consult
         # the all-states view to tell a Restarting/unhealthy container
@@ -117,14 +120,7 @@ def _build_one(
             compose_file, env_file=env_file,
             project_dir=ctx.project_root, project_name=project_name,
         )
-        state = next(
-            (
-                st
-                for key, st in status.items()
-                if key == svc or key.endswith(f"_{svc}") or key.endswith(f"-{svc}")
-            ),
-            None,
-        )
+        state = status.get(service_key)
         if state in ("restarting", "unhealthy"):
             raise EnvNotRunning(
                 f"dev container for service {svc!r} is {state}, not "
@@ -136,7 +132,6 @@ def _build_one(
             f"dev container for service {svc!r} is not running; "
             "run 'docex up dev' first."
         )
-    service_key = matching[0]
 
     # Step 2: clear host-side dist/.
     dist_dir = ctx.project_root / "core" / svc / "dist"

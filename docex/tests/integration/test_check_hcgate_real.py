@@ -28,22 +28,25 @@ def _make_hc_project(root: Path, dockerfile_body: str) -> Path:
         'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
     )
     (root / "infra" / "infra.yml").write_text(
-        'cicl_version: "1"\n'
+        'cicl_version: "2"\n'
         "foundation: fixed\n"
         'apex_domain: "example.com"\n'
         'container_registry: "registry.example.com"\n'
         'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
-        "domain_default_service: api\n"
+        "domain_default_process: api.web\n"
         "core_services:\n"
         "  api:\n"
-        "    role: web\n"
-        "    port: 8080\n"
-        "    networks: [web, internal]\n"
-        "    health_check_path: /health\n"
-        "    resources:\n"
-        "      cpu: 1.0\n"
-        "      memory: 2GB\n"
-        "      disk: 20GB\n"
+        "    processes:\n"
+        "      web:\n"
+        "        role: web\n"
+        '        command: ["python", "/service/dist/root.py"]\n'
+        "        port: 8080\n"
+        "        networks: [web, internal]\n"
+        "        health_check_path: /health\n"
+        "        resources:\n"
+        "          cpu: 1.0\n"
+        "          memory: 2GB\n"
+        "          disk: 20GB\n"
     )
     (root / "core" / "api" / "Dockerfile").write_text(dockerfile_body)
     return root

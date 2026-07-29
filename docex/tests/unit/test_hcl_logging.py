@@ -49,9 +49,9 @@ def test_app_container_has_awslogs_logconfiguration(tmp_path: Path):
     root = _copy_fixture(tmp_path)
     run_compile(load_project_context(root))
 
-    api_td = _slice_task_def(_stage_hcl(root), "api")
+    api_td = _slice_task_def(_stage_hcl(root), "api-web")
     assert 'logDriver = "awslogs"' in api_td
-    assert "awslogs-group = aws_cloudwatch_log_group.api.name" in api_td
+    assert "awslogs-group = aws_cloudwatch_log_group.api-web.name" in api_td
     assert 'awslogs-region = "us-east-1"' in api_td
     assert 'awslogs-stream-prefix = "app"' in api_td
 
@@ -62,7 +62,7 @@ def test_sidecar_has_awslogs_logconfiguration(tmp_path: Path):
     root = _copy_fixture(tmp_path)
     run_compile(load_project_context(root))
 
-    api_td = _slice_task_def(_stage_hcl(root), "api")
+    api_td = _slice_task_def(_stage_hcl(root), "api-web")
     assert 'awslogs-stream-prefix = "otelcol"' in api_td
 
 
@@ -74,7 +74,7 @@ def test_migrate_container_has_awslogs_logconfiguration(tmp_path: Path):
 
     mig_td = _slice_task_def(_stage_hcl(root), "api_migrate")
     assert 'logDriver = "awslogs"' in mig_td
-    assert "awslogs-group = aws_cloudwatch_log_group.api.name" in mig_td
+    assert "awslogs-group = aws_cloudwatch_log_group.api-web.name" in mig_td
     assert 'awslogs-stream-prefix = "migrate"' in mig_td
 
 
@@ -94,7 +94,7 @@ def test_log_group_resource_emitted_with_retention(tmp_path: Path):
     run_compile(load_project_context(root))
 
     hcl = _stage_hcl(root)
-    assert 'resource "aws_cloudwatch_log_group" "api" {' in hcl
+    assert 'resource "aws_cloudwatch_log_group" "api-web" {' in hcl
     assert "retention_in_days = 30" in hcl
     assert 'managed_by = "doctrine"' in hcl
 
@@ -112,5 +112,5 @@ def test_log_group_name_uses_iam_matching_project_form(tmp_path: Path):
     hcl = _stage_hcl(root)
     project = ctx.project.name  # raw form (matches ssm_path policy)
     # Log-group name and the SSM ARN prefix share the same `/<project>/<env>/`.
-    assert f'name              = "/{project}/stage/api"' in hcl
+    assert f'name              = "/{project}/stage/api-web"' in hcl
     assert f"parameter/{project}/stage/" in hcl

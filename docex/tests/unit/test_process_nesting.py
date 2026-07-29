@@ -1,0 +1,537 @@
+"""Mod 096 — process nesting: schema and validation coverage.
+
+One core service key in ``infra.yml`` expands into N compiled services, one
+per process type. This module covers the *authoring* half of that break —
+the ``processes:`` block's schema, ``ProcessRef``, the ``cicl_version`` gate,
+and the validation rules the expansion adds or re-scopes (5, 12, 14, 16, 21,
+22, 23, 24, 26, 27, 28) — plus the ``http_host`` naming policy that now
+governs the emitted hostname label.
+
+The emit half (one codebase, three process types, both foundations) lives in
+``test_process_expansion_emit.py``, which needs a purpose-built project on
+disk rather than an in-memory document.
+"""
+
+from __future__ import annotations
+
+import pytest
+import yaml
+from pydantic import ValidationError as PydanticValidationError
+
+from docex.cicl.model import CICLDocument, ProcessRef
+from docex.cicl.transfer import load_transfer_tables
+from docex.cicl.validate import validate_document
+from docex.naming import apply_policy, dns_label
+
+
+def _tables():
+    return load_transfer_tables(project_root=None)
+
+
+def _doc(src: str) -> CICLDocument:
+    return CICLDocument.model_validate(yaml.safe_load(src))
+
+
+def _issues(src: str) -> list[str]:
+    return [i.rule for i in validate_document(_doc(src), _tables())]
+
+
+_HEAD = """
+cicl_version: "2"
+foundation: fixed
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+"""
+
+_WEB_PROCESS = """\
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
+"""
+
+_BASE = _HEAD + "core_services:\n  api:\n    processes:\n" + _WEB_PROCESS
+
+
+def test_base_document_is_clean():
+    """Guard against vacuous passes below: the shared base validates clean."""
+    assert _issues(_BASE) == []
+
+
+# ---------------------------------------------------------------------------
+# 1-4, 22 — rule 22: the service level is `{processes, secrets, config, env}`.
+# ---------------------------------------------------------------------------
+
+
+def test_1_processes_absent_rejected():
+    src = _HEAD + """
+core_services:
+  api:
+    secrets:
+      K: "desc"
+"""
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(src)
+    assert "processes" in str(exc.value)
+
+
+def test_2_processes_empty_rejected():
+    src = _HEAD + "core_services:\n  api:\n    processes: {}\n"
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(src)
+    assert "processes" in str(exc.value)
+
+
+def test_3_service_level_resources_names_processes_block():
+    """A stray service-level `resources:` gets the targeted migration
+    message, not bare pydantic 'Extra inputs are not permitted'."""
+    src = _BASE + "    resources:\n      cpu: 1.0\n      memory: 2GB\n"
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(src)
+    msg = str(exc.value)
+    assert "processes:" in msg
+    assert "'resources'" in msg
+    assert "upgrade_1.6.0.md" in msg
+    assert "Extra inputs are not permitted" not in msg
+
+
+@pytest.mark.parametrize(
+    "block, field",
+    [
+        ("    role: web\n", "role"),
+        ('    command: ["python", "-m", "x"]\n', "command"),
+    ],
+)
+def test_4_service_level_role_or_command_names_processes_block(block, field):
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(_BASE + block)
+    msg = str(exc.value)
+    assert "processes:" in msg
+    assert repr(field) in msg
+
+
+# ---------------------------------------------------------------------------
+# 5-6 — rule 23: `command` is required and non-empty on EVERY process type.
+# ---------------------------------------------------------------------------
+
+
+def test_5_process_without_command_rejected():
+    src = _BASE.replace('        command: ["python", "/service/dist/root.py"]\n', "")
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(src)
+    assert "command" in str(exc.value)
+
+
+@pytest.mark.parametrize("empty", ["[]", '""'])
+def test_6_empty_command_rejected(empty):
+    src = _BASE.replace(
+        '        command: ["python", "/service/dist/root.py"]\n',
+        f"        command: {empty}\n",
+    )
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(src)
+    assert "command must not be" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# 7-8 — rule 21: the cicl_version gate.
+# ---------------------------------------------------------------------------
+
+
+def test_7_cicl_version_1_rejected_with_upgrade_pointer():
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(_BASE.replace('cicl_version: "2"', 'cicl_version: "1"'))
+    msg = str(exc.value)
+    assert "upgrade_1.6.0.md" in msg
+    assert "processes:" in msg
+
+
+def test_8_unknown_cicl_version_rejected_with_distinct_message():
+    with pytest.raises(PydanticValidationError) as exc:
+        _doc(_BASE.replace('cicl_version: "2"', 'cicl_version: "3"'))
+    msg = str(exc.value)
+    assert "unknown cicl_version" in msg
+    # Distinct from the v1 message: no migration guide, nothing to migrate.
+    assert "upgrade_1.6.0.md" not in msg
+
+
+# ---------------------------------------------------------------------------
+# 9-11 — rule 5: rendered data-plane identity collisions.
+# ---------------------------------------------------------------------------
+
+
+def _two_process_doc(svc_a, proc_a, svc_b, proc_b) -> str:
+    def blk(svc, proc):
+        return (
+            f"  {svc}:\n    processes:\n      {proc}:\n"
+            f"        role: worker\n"
+            f'        command: ["python", "-m", "x"]\n'
+            f"        networks: [internal]\n"
+            f"        resources:\n          cpu: 0.5\n          memory: 512MB\n"
+        )
+    return _HEAD + "core_services:\n" + blk(svc_a, proc_a) + blk(svc_b, proc_b)
+
+
+def test_9_rule_5_collision_form_a_two_process_pairs():
+    """`api` + `web-v2` renders the same as `api-web` + `v2`."""
+    src = _two_process_doc("api", "web-v2", "api-web", "v2")
+    assert "rule_5_rendered_identity_collision" in _issues(src)
+
+
+def test_10_rule_5_collision_form_b_core_vs_backing():
+    src = _HEAD + """
+core_services:
+  api:
+    processes:
+      db:
+        role: worker
+        command: ["python", "-m", "x"]
+        networks: [internal]
+        resources:
+          cpu: 0.5
+          memory: 512MB
+backing_services:
+  api-db:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    port: 5432
+"""
+    assert "rule_5_rendered_identity_collision" in _issues(src)
+
+
+def test_11_rule_5_collision_form_c_underscore_normalization():
+    """`my_api`+`web` and `my`+`api_web` both render `my-api-web`."""
+    src = _two_process_doc("my_api", "web", "my", "api_web")
+    assert "rule_5_rendered_identity_collision" in _issues(src)
+
+
+def test_rule_5_distinct_identities_clean():
+    src = _two_process_doc("api", "web", "api", "worker")
+    # Two entries for the same service key collapse in YAML, so build the
+    # non-colliding case explicitly instead.
+    src = _two_process_doc("api", "web", "billing", "worker")
+    assert "rule_5_rendered_identity_collision" not in _issues(src)
+
+
+# ---------------------------------------------------------------------------
+# 12-14 — rule 24 (`depends_on` names backing services only) and rule 6.
+# ---------------------------------------------------------------------------
+
+
+_TWO_CODEBASES = _HEAD + """
+core_services:
+  api:
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        depends_on: [billing]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+  billing:
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8081
+        resources:
+          cpu: 1.0
+          memory: 2GB
+"""
+
+
+def test_12_core_to_core_depends_on_rejected_and_names_consumes():
+    issues = validate_document(_doc(_TWO_CODEBASES), _tables())
+    hits = [i for i in issues if i.rule == "rule_24_depends_on_core_service"]
+    assert hits
+    assert "consumes:" in hits[0].message
+
+
+def test_13_backing_to_core_depends_on_rejected():
+    src = _BASE + """
+backing_services:
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    port: 5432
+    depends_on: [api]
+"""
+    assert "rule_24_depends_on_core_service" in _issues(src)
+
+
+def test_14_backing_service_cycle_still_fatal():
+    src = _BASE + """
+backing_services:
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    port: 5432
+    depends_on: [cache]
+  cache:
+    role: cache
+    engine: redis
+    networks: [internal]
+    port: 6379
+    depends_on: [appdb]
+"""
+    assert "rule_6_depends_on_cycle" in _issues(src)
+
+
+# ---------------------------------------------------------------------------
+# 15-16 — rules 26 and 27: fields and networks a role forbids.
+# ---------------------------------------------------------------------------
+
+
+_SCHEDULER = _HEAD + """
+core_services:
+  job:
+    processes:
+      nightly:
+        role: scheduler
+        schedule: "0 3 * * *"
+        command: ["python", "-m", "jobs.cleanup"]
+        networks: [internal]
+        resources:
+          cpu: 0.25
+          memory: 512MB
+"""
+
+
+def test_15_replicas_on_scheduler_rejected():
+    src = _SCHEDULER.replace(
+        "        networks: [internal]\n",
+        "        networks: [internal]\n        replicas: 2\n",
+    )
+    assert "rule_26_replicas_on_scheduler" in _issues(src)
+
+
+def test_15_replicas_unset_on_scheduler_clean():
+    """`replicas` defaults to 1, so the check must key off
+    `model_fields_set` — an undeclared default is not a declaration."""
+    assert _issues(_SCHEDULER) == []
+
+
+@pytest.mark.parametrize("role", ["worker", "scheduler"])
+def test_16_web_network_on_non_web_role_rejected(role):
+    src = _HEAD + f"""
+core_services:
+  svc:
+    processes:
+      p:
+        role: {role}
+        schedule: "0 3 * * *"
+        command: ["python", "-m", "x"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 0.25
+          memory: 512MB
+"""
+    assert "rule_27_web_network_on_non_web_role" in _issues(src)
+
+
+def test_16_web_network_on_web_role_clean():
+    assert "rule_27_web_network_on_non_web_role" not in _issues(_BASE)
+
+
+# ---------------------------------------------------------------------------
+# 17 — rule 28 reads the PROCESS TYPE.
+# ---------------------------------------------------------------------------
+
+
+def test_17_health_check_path_without_port_on_process_rejected():
+    """Regression for the silent pass Mod 095's corporal flagged: reading
+    `health_check_path` off the CoreService sees permanently empty extras
+    once the field is process-scoped."""
+    src = _HEAD + """
+core_services:
+  consumer:
+    processes:
+      worker:
+        role: worker
+        command: ["python", "-m", "x"]
+        networks: [internal]
+        health_check_path: /health
+        resources:
+          cpu: 0.5
+          memory: 512MB
+"""
+    assert "rule_28_health_check_path_needs_port" in _issues(src)
+
+
+# ---------------------------------------------------------------------------
+# 18 — rule 14 covers process names too.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("reserved", ["dev", "test", "stage", "prod", "www"])
+def test_18_reserved_process_name_rejected(reserved):
+    src = _BASE.replace("      web:\n", f"      {reserved}:\n")
+    issues = validate_document(_doc(src), _tables())
+    hits = [i for i in issues if i.rule == "rule_14_service_name_blacklist"]
+    assert hits
+    assert reserved in hits[0].message
+
+
+# ---------------------------------------------------------------------------
+# 19 — rule 12: domain_default_process is a dotted, web-network process.
+# ---------------------------------------------------------------------------
+
+
+_WITH_WORKER = _BASE + """\
+      worker:
+        role: worker
+        command: ["python", "-m", "worker"]
+        networks: [internal]
+        resources:
+          cpu: 0.5
+          memory: 512MB
+"""
+
+
+def _with_default(src: str, value: str) -> str:
+    return src.replace(
+        "container_registry: registry.example.com",
+        f"container_registry: registry.example.com\ndomain_default_process: {value}",
+    )
+
+
+def test_19_bare_service_name_rejected():
+    assert "rule_domain_default_malformed" in _issues(_with_default(_BASE, "api"))
+
+
+def test_19_unknown_process_rejected():
+    assert "rule_domain_default_unknown" in _issues(_with_default(_BASE, "api.nope"))
+
+
+def test_19_non_web_process_rejected():
+    assert "rule_domain_default_not_web" in _issues(
+        _with_default(_WITH_WORKER, "api.worker")
+    )
+
+
+def test_19_web_process_clean():
+    assert _issues(_with_default(_BASE, "api.web")) == []
+
+
+# ---------------------------------------------------------------------------
+# 20-21 — rule 16 and the reserved env keys, against the EFFECTIVE env.
+# ---------------------------------------------------------------------------
+
+
+def _with_process_env(src: str, body: str) -> str:
+    return src.replace(
+        "        port: 8080\n", f"        port: 8080\n        env:\n{body}"
+    )
+
+
+def test_20_process_env_key_colliding_with_service_secrets_rejected():
+    src = _with_process_env(_BASE, "          SHARED: literal\n").replace(
+        "    processes:\n", '    secrets:\n      SHARED: "desc"\n    processes:\n'
+    )
+    assert "rule_env_secrets_config_overlap" in _issues(src)
+
+
+def test_21_process_env_cannot_shadow_otel_service_name():
+    src = _with_process_env(_BASE, '          OTEL_SERVICE_NAME: "mine"\n')
+    issues = validate_document(_doc(src), _tables())
+    hits = [i for i in issues if i.rule == "rule_reserved_env_key"]
+    assert hits
+    assert "processes.web.env" in hits[0].where
+
+
+def test_21_service_level_reserved_key_reported_once_not_per_process():
+    """A service-level `env:` key is a codebase-level fact — reporting it
+    once per process type would multiply one mistake into N diagnostics."""
+    src = _WITH_WORKER.replace(
+        "    processes:\n", '    env:\n      OTEL_SERVICE_NAME: "mine"\n    processes:\n'
+    )
+    issues = validate_document(_doc(src), _tables())
+    hits = [
+        i for i in issues
+        if i.rule == "rule_reserved_env_key" and "OTEL_SERVICE_NAME" in i.message
+    ]
+    assert len(hits) == 1
+    assert hits[0].where == "core_services.api.env"
+
+
+# ---------------------------------------------------------------------------
+# 22 — a bare (three-segment) core magic ref.
+# ---------------------------------------------------------------------------
+
+
+def test_22_bare_core_magic_ref_rejected_with_four_segment_hint():
+    src = _with_process_env(
+        _BASE, "          UPSTREAM: ${core_services.api.host}\n"
+    )
+    issues = validate_document(_doc(src), _tables())
+    hits = [i for i in issues if i.rule == "rule_3_bare_core_magic_ref"]
+    assert hits
+    assert "${core_services.<service>.<process>.<part>}" in hits[0].message
+
+
+# ---------------------------------------------------------------------------
+# 23 — ProcessRef.
+# ---------------------------------------------------------------------------
+
+
+def test_23_process_ref_round_trips():
+    ref = ProcessRef.parse("api.web")
+    assert (ref.service, ref.process) == ("api", "web")
+    assert ref.dotted == "api.web"
+    assert ref.compiled == "api-web"
+    assert ProcessRef.parse(ref.dotted) == ref
+
+
+@pytest.mark.parametrize("raw", ["api", "api.web.x", "", "api.", ".web", " . "])
+def test_23_process_ref_rejects_malformed(raw):
+    with pytest.raises(ValueError) as exc:
+        ProcessRef.parse(raw)
+    assert "<service>.<process>" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# 24 — the http_host policy is byte-identical to dns_label at <= 63 chars.
+# ---------------------------------------------------------------------------
+
+
+_HTTP_HOST_INPUTS = [
+    "api",
+    "api-web",
+    "api_web",
+    "My_Api-Web",
+    "a",
+    "a" * 63,
+    "some_service-with_mixed_Case",
+]
+
+
+@pytest.mark.parametrize("name", _HTTP_HOST_INPUTS)
+def test_24_http_host_policy_matches_dns_label(name):
+    """The hard guard from the design record. Wiring the `http_host` policy
+    into `_web_hosts` must not silently change a single existing hostname —
+    a changed label invalidates TLS certs and DNS records."""
+    policy = _tables().naming_policies.get("http_host")
+    assert apply_policy(name, policy) == dns_label(name)
+
+
+def test_24_http_host_over_63_chars_raises():
+    policy = _tables().naming_policies.get("http_host")
+    with pytest.raises(Exception) as exc:
+        apply_policy("a" * 64, policy)
+    assert "63" in str(exc.value)

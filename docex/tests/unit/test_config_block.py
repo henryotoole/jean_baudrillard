@@ -47,7 +47,7 @@ def test_fixed_config_key_wired_as_compose_runtime_ref(tmp_path: Path):
     compose = yaml.safe_load(
         (dest / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
     )
-    api = _svc(compose, "api")
+    api = _svc(compose, "api-web")
     # Same shape as a secret: a compose ${KEY} interpolation ref.
     assert api["environment"]["PARTNER_URL"] == "${PARTNER_URL}"
 

@@ -29,24 +29,27 @@ from docex.secretsmgmt import (
 # a core service with one bespoke secret. secret_manifest therefore yields
 # TELEMETRY_API_KEY (doctrine) + STRIPE_KEY (api); POSTGRES_* are absent.
 _INFRA = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    depends_on: [appdb]
     secrets:
       STRIPE_KEY: "Stripe secret API key"
     config:
       PARTNER_URL: "Partner API base URL (per-env)"
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
 backing_services:
   appdb:
     role: relational_db

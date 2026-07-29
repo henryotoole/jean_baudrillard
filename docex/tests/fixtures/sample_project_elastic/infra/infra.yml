@@ -1,15 +1,11 @@
-cicl_version: "1"
+cicl_version: "2"
 foundation: elastic
 apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
-domain_default_service: api
+domain_default_process: api.web
 
 core_services:
   api:
-    role: web
-    port: 8080
-    networks: [web, internal]
-    depends_on: [appdb]
     env:
       # api composes its own connection string from these parts at startup;
       # the identical magic refs work on both foundations (parts-only model).
@@ -18,13 +14,20 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 1.0
-      memory: 2GB
-      # Fargate's ephemeral_storage minimum is 21 GiB (decimal -> binary
-      # rounding means at least ~23 GB at the CICL layer); below this
-      # is a compile-time error. Omit to inherit Fargate's 21 GiB default.
-      disk: 25GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        port: 8080
+        networks: [web, internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          # Fargate's ephemeral_storage minimum is 21 GiB (decimal -> binary
+          # rounding means at least ~23 GB at the CICL layer); below this
+          # is a compile-time error. Omit to inherit Fargate's 21 GiB default.
+          disk: 25GB
 
 backing_services:
   appdb:

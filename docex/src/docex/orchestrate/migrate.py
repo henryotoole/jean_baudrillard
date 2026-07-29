@@ -19,6 +19,7 @@ import sys
 from typing import Callable
 
 from docex.aws.client import AWSClient
+from docex.cicl.model import primary_process
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import AnsibleRunFailed, ECSTaskFailed, EnvNotSupported
@@ -325,19 +326,29 @@ def _lookup_master_vpc(aws: AWSClient) -> str:
 def _migration_task_family(
     ctx: ProjectContext, *, project: str, env: str, svc: str
 ) -> str:
-    """Derive the migration task definition family for a service.
+    """Derive the migration task definition family for a codebase.
 
     Must match the compiler's elastic HCL emitter
-    (`render_task_definition`: ``mig_family = svc.global_name + "-migrate"``).
-    We re-resolve the engine's naming policy so this works without
-    re-compiling the project context.
+    (`render_task_definition`: ``mig_family = svc.codebase_global_name +
+    "-migrate"``), i.e. ``CompiledService.codebase_global_name`` with the
+    ``-migrate`` suffix. We re-resolve the engine's naming policy so this
+    works without re-compiling the project context.
+
+    ``svc`` is a CODEBASE key, and ``raw`` below stays three-segment for
+    that reason: migration is a per-codebase operation, so one codebase
+    yields exactly one migrate family regardless of how many process types
+    it declares.
     """
     tables = ctx.transfer_tables
     core = ctx.infra.core_services.get(svc) if ctx.infra else None
     if core is None:
         # Fallback: best-effort hyphen form (mod 030 data-plane naming).
         return f"{project}-{env}-{svc}-migrate"
-    engines = tables.role(core.role)
+    # `role` is per-process type in CICL v2. The compiler picks the naming
+    # policy from the engine of the SAME process type it emits the migrate
+    # block for — the schema carrier, which is `primary_process`.
+    proc = core.processes[primary_process(core)]
+    engines = tables.role(proc.role)
     engine_entry = None
     for eng_name in sorted(engines):
         entry = engines[eng_name]

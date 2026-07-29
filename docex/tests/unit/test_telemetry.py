@@ -28,26 +28,29 @@ def _tables():
 
 
 _MINIMAL_FIXED = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_PORT: ${backing_services.appdb.port}
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
 backing_services:
   appdb:
     role: relational_db
@@ -60,26 +63,29 @@ backing_services:
 
 
 _MINIMAL_ELASTIC = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_PORT: ${backing_services.appdb.port}
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 1.0
-      memory: 2GB
-      disk: 25GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 25GB
 backing_services:
   appdb:
     role: relational_db
@@ -100,7 +106,7 @@ def test_observability_backend_url_required():
     """A doc that omits the field is rejected by pydantic with a
     field-required error."""
     src = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 container_registry: registry.example.com
@@ -164,53 +170,65 @@ def _multi_core_fixed_doc() -> CICLDocument:
     """A fixed-foundation doc with two core services to verify per-service
     injection on every core."""
     src = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
   worker:
-    role: web
-    networks: [web, internal]
-    port: 9090
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 9090
+        resources:
+          cpu: 1.0
+          memory: 2GB
 """
     return _doc(src)
 
 
 def _multi_core_elastic_doc() -> CICLDocument:
     src = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    resources:
-      cpu: 1.0
-      memory: 2GB
-      disk: 25GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 25GB
   worker:
-    role: web
-    networks: [web, internal]
-    port: 9090
-    resources:
-      cpu: 1.0
-      memory: 2GB
-      disk: 25GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 9090
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 25GB
 """
     return _doc(src)
 
@@ -223,7 +241,9 @@ def test_otel_env_vars_injected_on_every_core_service_fixed():
         project_name="myproj",
         project_version="1.2.3",
     )
-    for svc_name in ("api", "worker"):
+    # Mod 096: the compiled identity is two-segment, and
+    # OTEL_SERVICE_NAME follows it (`api-web`, not `api`).
+    for svc_name in ("api-web", "worker-web"):
         env_block = compiled.services[svc_name].env
         for key in _OTEL_KEYS:
             assert key in env_block, (svc_name, key, sorted(env_block))
@@ -244,7 +264,9 @@ def test_otel_env_vars_injected_on_every_core_service_elastic():
         project_name="myproj",
         project_version="1.2.3",
     )
-    for svc_name in ("api", "worker"):
+    # Mod 096: the compiled identity is two-segment, and
+    # OTEL_SERVICE_NAME follows it (`api-web`, not `api`).
+    for svc_name in ("api-web", "worker-web"):
         env_block = compiled.services[svc_name].env
         for key in _OTEL_KEYS:
             assert key in env_block, (svc_name, key, sorted(env_block))
@@ -335,9 +357,8 @@ def test_secret_manifest_telemetry_key_position():
     # postgres declares no `kind: secret` env vars, so key off a core
     # service's own `secrets:` entry instead of a backing one.
     src = _MINIMAL_FIXED.replace(
-        "    resources:\n      cpu: 1.0\n      memory: 2GB\n",
-        "    secrets:\n      API_KEY: \"bespoke api key\"\n"
-        "    resources:\n      cpu: 1.0\n      memory: 2GB\n",
+        "    processes:\n",
+        "    secrets:\n      API_KEY: \"bespoke api key\"\n    processes:\n",
         1,
     )
     manifest = secret_manifest(_doc(src), _tables())
@@ -360,7 +381,7 @@ def test_otel_resource_attributes_format():
         project_name="myproj",
         project_version="9.9.9",
     )
-    attrs = compiled.services["api"].env["OTEL_RESOURCE_ATTRIBUTES"]
+    attrs = compiled.services["api-web"].env["OTEL_RESOURCE_ATTRIBUTES"]
     assert attrs == (
         "service.namespace=myproj,"
         "service.version=9.9.9,"

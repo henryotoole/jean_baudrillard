@@ -37,6 +37,8 @@ def _svc(
     body: dict | None = None,
     emits: dict | None = None,
     port: int | None = None,
+    core_service: str | None = None,
+    process: str | None = None,
 ) -> CompiledService:
     """Construct a CompiledService for renderer unit tests."""
     return CompiledService(
@@ -56,6 +58,13 @@ def _svc(
         port=port,
         env={},
         emits=emits or {"elastic": ["task_definition", "ecs_service"]},
+        # Mod 096: the migrate block and the elastic `service` tag read the
+        # codebase, so a core stub has to carry it.
+        core_service=core_service or (name if is_core else None),
+        process=process,
+        codebase_global_name=(
+            f"proj-stage-{core_service or name}" if is_core else None
+        ),
     )
 
 

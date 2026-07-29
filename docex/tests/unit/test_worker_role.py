@@ -10,9 +10,14 @@ Unit tests only — nothing here crosses docker, AWS, or git.
 
 The shared fixtures are NOT modified. Each compile test copies
 ``sample_project`` / ``sample_project_elastic`` into ``tmp_path`` and injects
-a ``worker`` core service into the copy's ``infra.yml``. Adding a permanent
-service to the shared fixtures would churn unrelated emitter tests, and mod
-096 rewrites all four fixtures anyway.
+a ``worker`` **process type** onto the copy's ``api`` core service. Adding a
+permanent process to the shared fixtures would churn unrelated emitter tests.
+
+Mod 096: the injection moved from a flat sibling *service* to a second
+process type of the *same codebase*, which is the shape the worker role was
+always for — one image, two ways to invoke it. The compiled identities are
+therefore ``api-web`` and ``api-worker``, and both reference
+``sample/api:0.1.0``.
 """
 
 from __future__ import annotations
@@ -58,20 +63,16 @@ def _copy(fixture: Path, tmp_path: Path) -> Path:
 
 
 def _inject_worker(root: Path) -> None:
+    """Add a ``worker`` process type to the fixture's ``api`` codebase.
+
+    Mod 096: no ``core/worker/`` folder is created, and that is the point —
+    the worker shares ``api``'s build artifact, so the compose build context
+    and the image ref stay ``./core/api`` / ``sample/api:0.1.0``.
+    """
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["worker"] = dict(_WORKER)
+    doc["core_services"]["api"]["processes"]["worker"] = dict(_WORKER)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
-
-    # The dev compose `build:` context points at ./core/<name>; give the
-    # injected service a codebase folder mirroring core/api/.
-    api_dir = root / "core" / "api"
-    worker_dir = root / "core" / "worker"
-    worker_dir.mkdir(parents=True, exist_ok=True)
-    if (api_dir / "Dockerfile").exists():
-        shutil.copy(api_dir / "Dockerfile", worker_dir / "Dockerfile")
-    else:
-        (worker_dir / "Dockerfile").write_text("FROM scratch\n")
 
 
 def _compile_with_worker(
@@ -166,13 +167,14 @@ def test_worker_role_table_shape():
 
 def test_worker_fixed_compose_healthcheck(tmp_path: Path):
     doc = _dev_compose(_compile_with_worker(_FIXED, tmp_path))
-    svc = doc["services"]["sample-dev-worker"]
+    svc = doc["services"]["sample-dev-api-worker"]
     assert svc["healthcheck"]["test"] == [
         "CMD", "curl", "-f", "http://localhost:8090/health",
     ]
     assert svc["healthcheck"]["interval"] == "30s"
     assert svc["healthcheck"]["retries"] == 3
-    assert svc["image"] == "sample/worker:0.1.0"
+    # One codebase, one image: the worker runs `api`'s artifact.
+    assert svc["image"] == "sample/api:0.1.0"
     assert svc["command"] == ["python", "-m", "entrypoints.worker"]
 
 
@@ -180,7 +182,7 @@ def test_worker_fixed_no_traefik_labels(tmp_path: Path):
     """A worker is not on the `web` network, so it carries no traefik
     router/service labels."""
     doc = _dev_compose(_compile_with_worker(_FIXED, tmp_path))
-    labels = doc["services"]["sample-dev-worker"].get("labels", [])
+    labels = doc["services"]["sample-dev-api-worker"].get("labels", [])
     flat = labels if isinstance(labels, list) else list(labels)
     assert not any("traefik" in str(l) for l in flat)
 
@@ -192,10 +194,10 @@ def test_worker_fixed_no_traefik_labels(tmp_path: Path):
 
 def test_worker_elastic_container_healthcheck(tmp_path: Path):
     hcl = _stage_hcl(_compile_with_worker(_ELASTIC, tmp_path))
-    assert 'resource "aws_ecs_task_definition" "worker" {' in hcl
-    assert 'resource "aws_ecs_service" "worker" {' in hcl
+    assert 'resource "aws_ecs_task_definition" "api-worker" {' in hcl
+    assert 'resource "aws_ecs_service" "api-worker" {' in hcl
 
-    app = _container_block(hcl, "worker", "worker")
+    app = _container_block(hcl, "api-worker", "api-worker")
     assert "healthCheck = {" in app
     assert (
         'command = ["CMD-SHELL", "curl -f http://localhost:8090/health '
@@ -209,19 +211,19 @@ def test_worker_elastic_container_healthcheck(tmp_path: Path):
 
 def test_worker_elastic_no_target_group(tmp_path: Path):
     hcl = _stage_hcl(_compile_with_worker(_ELASTIC, tmp_path))
-    assert 'resource "aws_lb_target_group" "worker"' not in hcl
-    assert 'resource "aws_lb_listener_rule" "worker"' not in hcl
+    assert 'resource "aws_lb_target_group" "api-worker"' not in hcl
+    assert 'resource "aws_lb_listener_rule" "api-worker"' not in hcl
     # Guard against a vacuous pass: the web service's own target group and
     # listener rule must still be emitted.
-    assert 'resource "aws_lb_target_group" "api"' in hcl
-    assert 'resource "aws_lb_listener_rule" "api"' in hcl
+    assert 'resource "aws_lb_target_group" "api-web"' in hcl
+    assert 'resource "aws_lb_listener_rule" "api-web"' in hcl
 
 
 def test_worker_elastic_sidecar_has_no_healthcheck(tmp_path: Path):
     """The merge lands on the app container only — never on the paired
     OTel collector sidecar."""
     hcl = _stage_hcl(_compile_with_worker(_ELASTIC, tmp_path))
-    sidecar = _container_block(hcl, "worker", "worker-otelcol")
+    sidecar = _container_block(hcl, "api-worker", "api-worker-otelcol")
     assert "healthCheck" not in sidecar
 
 
@@ -235,7 +237,7 @@ def test_container_definition_emits_no_resource(tmp_path: Path):
     # definition's own argument, not a resource.)
     types = set(re.findall(r'^resource "([a-z0-9_]+)" ', hcl, flags=re.M))
     assert not any("container_definition" in t for t in types)
-    assert 'resource "aws_ecs_task_definition" "worker" {' in hcl
+    assert 'resource "aws_ecs_task_definition" "api-worker" {' in hcl
     # The destination is registered in the dispatch table (so it never hits
     # the defensive branch) and renders nothing, which `render_service` then
     # skips rather than appending as a blank gap.
@@ -257,7 +259,7 @@ def test_merge_target_leaves_no_gap_when_not_last(tmp_path: Path):
         _ELASTIC, tmp_path,
         emits_elastic=["task_definition", "container_definition", "ecs_service"],
     ))
-    assert '}\n\nresource "aws_ecs_service" "worker" {' in hcl
+    assert '}\n\nresource "aws_ecs_service" "api-worker" {' in hcl
 
 
 # ---------------------------------------------------------------------------
@@ -266,19 +268,22 @@ def test_merge_target_leaves_no_gap_when_not_last(tmp_path: Path):
 
 
 _ELASTIC_DOC = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 core_services:
   api:
-    role: web
-    networks: [web, internal]
-    port: 8080
-    depends_on: [appdb]
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
 backing_services:
   appdb:
     role: relational_db
@@ -326,20 +331,22 @@ def test_field_target_container_definition_undeclared_rejected(tmp_path: Path):
 
 
 _WORKER_DOC = """
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 core_services:
   consumer:
-    role: worker
-    command: ["python", "-m", "entrypoints.worker"]
-    networks: [internal]
-    health_check_path: /health
-    resources:
-      cpu: 0.5
-      memory: 1GB
+    processes:
+      worker:
+        role: worker
+        command: ["python", "-m", "entrypoints.worker"]
+        networks: [internal]
+        health_check_path: /health
+        resources:
+          cpu: 0.5
+          memory: 1GB
 """
 
 
@@ -350,8 +357,8 @@ def test_health_check_path_without_port_rejected():
 
 def test_health_check_path_with_port_passes():
     src = _WORKER_DOC.replace(
-        "    networks: [internal]\n",
-        "    networks: [internal]\n    port: 8090\n",
+        "        networks: [internal]\n",
+        "        networks: [internal]\n        port: 8090\n",
     )
     issues = validate_document(_doc(src), _tables())
     assert issues == []

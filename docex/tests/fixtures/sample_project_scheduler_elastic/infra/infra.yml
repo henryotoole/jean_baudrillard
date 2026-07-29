@@ -1,40 +1,45 @@
-cicl_version: "1"
+cicl_version: "2"
 foundation: elastic
 apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
-domain_default_service: api
+domain_default_process: api.web
 
 core_services:
   # A long-running web service alongside the scheduler — used to assert
   # that the OTel sidecar omission is scoped to one-shot tasks only.
   api:
-    role: web
-    port: 8080
-    networks: [web, internal]
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_PORT: ${backing_services.appdb.port}
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 1.0
-      memory: 2GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        port: 8080
+        networks: [web, internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
 
   nightly_cleanup:
-    role: scheduler
-    schedule: "0 3 * * *"
-    command: ["python", "-m", "jobs.cleanup"]
-    networks: [internal]
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 0.25
-      memory: 512MB
+    processes:
+      nightly_cleanup:
+        role: scheduler
+        schedule: "0 3 * * *"
+        command: ["python", "-m", "jobs.cleanup"]
+        networks: [internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 0.25
+          memory: 512MB
 
 backing_services:
   appdb:

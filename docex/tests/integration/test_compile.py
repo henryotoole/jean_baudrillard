@@ -375,7 +375,7 @@ def test_backing_service_port_defaults_from_engine(tmp_path: Path):
     run_compile(ctx)
     compose = (root / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
     doc = yaml.safe_load(compose)
-    api = next(b for k, b in doc["services"].items() if k.endswith("api"))
+    api = next(b for k, b in doc["services"].items() if k.endswith("api-web"))
     assert str(api["environment"]["DATABASE_PORT"]) == "5432"
 
 
@@ -440,23 +440,26 @@ def test_composed_secret_in_env_fails_compile(tmp_path: Path):
 
 
 _SECRET_INFRA = """\
-cicl_version: "1"
+cicl_version: "2"
 foundation: __FND__
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: reg.example.com
-domain_default_service: api
+domain_default_process: api.web
 core_services:
   api:
-    role: web
-    port: 8080
-    networks: [web, internal]
     secrets:
       BESPOKE_API_KEY: "key for the bespoke API"
-    resources:
-      cpu: 1.0
-      memory: 2GB
-      disk: 25GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        port: 8080
+        networks: [web, internal]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 25GB
 """
 
 
@@ -529,27 +532,30 @@ def test_compose_has_logging_anchor(tmp_path: Path):
 
 
 _NAMING_INFRA = """\
-cicl_version: "1"
+cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-domain_default_service: web
+domain_default_process: web.http
 core_services:
   web:
-    role: web
-    port: 8080
-    networks: [web, internal]
-    depends_on: [appdb]
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_PORT: ${backing_services.appdb.port}
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 0.25
-      memory: 512MB
-      disk: 25GB
+    processes:
+      http:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        port: 8080
+        networks: [web, internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 0.25
+          memory: 512MB
+          disk: 25GB
 backing_services:
   appdb:
     role: relational_db
@@ -690,7 +696,7 @@ def test_project_tier_task_execution_policy_empty_core_services(tmp_path: Path):
     # Minimal valid CICL with no core services. backing_services likewise
     # omitted — empty-project edge case for the policy's per-repo gate.
     (proj / "infra" / "infra.yml").write_text(
-        "cicl_version: \"1\"\n"
+        "cicl_version: \"2\"\n"
         "foundation: elastic\n"
         "apex_domain: example.com\n"
         "observability_backend_url: \"https://obs.example.com\"\n"
@@ -784,8 +790,8 @@ def test_env_tier_rds_and_ecs_service_names(tmp_path: Path):
         # RDS instance identifier (postgres → rds policy).
         assert f'identifier = "docex-smoke-elastic-{env}-appdb"' in tf
         # ECS service + task family (web → ecs policy, hyphen).
-        assert f'name            = "docex-smoke-elastic-{env}-web"' in tf
-        assert f'family                   = "docex-smoke-elastic-{env}-web"' in tf
+        assert f'name            = "docex-smoke-elastic-{env}-web-http"' in tf
+        assert f'family                   = "docex-smoke-elastic-{env}-web-http"' in tf
         # Migration task family.
         assert f'family                   = "docex-smoke-elastic-{env}-web-migrate"' in tf
 
@@ -801,6 +807,9 @@ def test_env_tier_sg_name_uses_hyphen_form(tmp_path: Path):
     for env in ("stage", "prod"):
         tf = (proj / "infra" / "output" / env / "main.tf").read_text()
         # Both env-tier SGs (web, internal) carry the hyphenated name.
+        # NOTE: this is the `web` NETWORK's security group, not the
+        # `web.http` service — SG names are per network and gained no
+        # process segment in Mod 096.
         assert f'name        = "docex-smoke-elastic-{env}-web"' in tf
         assert f'name        = "docex-smoke-elastic-{env}-internal"' in tf
         # Old literal-underscore form must not leak through the resource
@@ -903,7 +912,7 @@ def test_describe_dag_and_llm(tmp_path: Path):
     assert parsed["env"] == "prod"
     assert parsed["foundation"] == "fixed"
     assert any(
-        edge["from"] == "api" and edge["to"] == "appdb"
+        edge["from"] == "api-web" and edge["to"] == "appdb"
         for edge in parsed["edges"]
     )
 
@@ -1351,11 +1360,11 @@ def test_mod070_ec2_traefik_task_def_emits_traefik_labels(tmp_path: Path):
     """
     root = _compile_elastic_with_reverse_proxy(tmp_path, "ec2_traefik_eip")
     for env, expected_host in (
-        ("stage", "Host(`api.stage.sample.example.com`)"),
-        ("prod", "Host(`api.prod.sample.example.com`)"),
+        ("stage", "Host(`api-web.stage.sample.example.com`)"),
+        ("prod", "Host(`api-web.prod.sample.example.com`)"),
     ):
         tf = (root / "infra" / "output" / env / "main.tf").read_text()
-        key = f"api-{env}"
+        key = f"api-web-{env}"
         assert "dockerLabels = {" in tf
         assert '"traefik.enable" = "true"' in tf
         assert f'"traefik.http.routers.{key}.rule" = ' in tf

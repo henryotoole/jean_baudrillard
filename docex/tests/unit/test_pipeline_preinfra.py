@@ -112,9 +112,9 @@ def test_preinfra_dev_does_not_call_aws(
 
 
 # The sample fixture: project `sample`, apex `example.com`, `api` is the
-# web + domain_default_service. So `dev` web hosts are the per-service host
+# web + domain_default_process. So `dev` web hosts are the per-service host
 # plus the bare-env host (api is the default service).
-_DEV_HOSTS = ["api.dev.sample.example.com", "dev.sample.example.com"]
+_DEV_HOSTS = ["api-web.dev.sample.example.com", "dev.sample.example.com"]
 
 
 def test_preinfra_dev_dns_all_resolve_passes(
@@ -138,13 +138,13 @@ def test_preinfra_dev_dns_unresolved_host_fails(
     """A non-resolving dev host → that host enumerated as a failure and
     run_preinfra returns 1."""
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
-    fake_dns.results = {"api.dev.sample.example.com": False}
+    fake_dns.results = {"api-web.dev.sample.example.com": False}
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
     )
     assert rc == 1
     out = capsys.readouterr().out
-    assert "api.dev.sample.example.com" in out
+    assert "api-web.dev.sample.example.com" in out
     assert "does not resolve in public DNS" in out
 
 
@@ -183,14 +183,14 @@ def test_preinfra_dev_dns_resolver_error_surfaced_not_crashed(
     """A resolver that raises is surfaced as a 'could not check' failure,
     not propagated as a crash."""
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
-    fake_dns.raise_on = {"api.dev.sample.example.com"}
+    fake_dns.raise_on = {"api-web.dev.sample.example.com"}
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
     )
     assert rc == 1
     out = capsys.readouterr().out
     assert "could not check DNS" in out
-    assert "api.dev.sample.example.com" in out
+    assert "api-web.dev.sample.example.com" in out
 
 
 def test_preinfra_dev_dns_none_resolver_reports_bug(

@@ -28,7 +28,7 @@ from docex.orchestrate._common import (
     core_services,
     ensure_compiled,
     env_compose_project,
-    scheduler_services,
+    scheduler_only_services,
     services_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
@@ -133,10 +133,12 @@ def run_test(
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. test.sh for each core service. A scheduler has no exec-able
-        # container in the test stack (the compiler emits none), so its
-        # test.sh runs via a one-off built from the test-stage image.
-        schedulers = set(scheduler_services(ctx))
+        # 3. test.sh for each core service. A scheduler-ONLY codebase has no
+        # exec-able container in the test stack (the compiler emits none), so
+        # its test.sh runs via a one-off built from the test-stage image. A
+        # codebase that merely *contains* a scheduler process alongside a
+        # long-running one still has a container to exec into.
+        schedulers = set(scheduler_only_services(ctx))
         for svc in core_services(ctx):
             if svc in schedulers:
                 rc = _run_scheduler_tests(ctx, docker, svc, project_dir=project_dir)

@@ -27,8 +27,9 @@ def test_build_errors_when_dev_not_running(sample_ctx, fake_docker):
 
 
 def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monkeypatch):
-    # Simulate dev is running. compose_ps returns simple service names.
-    fake_docker.ps_services = ["api"]
+    # Simulate dev is running. `compose ps --services` returns the compose
+    # service KEYS, which are the project-scoped global names.
+    fake_docker.ps_services = ["sample-dev-api-web"]
     # Seed dist/ with a stale file that should disappear before build.
     dist = _seed_dist(sample_ctx, "api", {"stale.txt": "old"})
     assert (dist / "stale.txt").is_file()
@@ -54,7 +55,7 @@ def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monk
 
 
 def test_build_fails_if_dist_empty_after_build_sh(sample_ctx, fake_docker):
-    fake_docker.ps_services = ["api"]
+    fake_docker.ps_services = ["sample-dev-api-web"]
     _seed_dist(sample_ctx, "api", {"stale.txt": "old"})
     # Default exec returns 0 but writes nothing.
     with pytest.raises(BuildFailed):
@@ -62,16 +63,18 @@ def test_build_fails_if_dist_empty_after_build_sh(sample_ctx, fake_docker):
 
 
 def test_build_rejects_unknown_service(sample_ctx, fake_docker):
-    fake_docker.ps_services = ["api"]
+    fake_docker.ps_services = ["sample-dev-api-web"]
     with pytest.raises(EnvNotSupported):
         run_build(sample_ctx, fake_docker, service="bogus")
 
 
 def test_build_returns_failure_exit_code_from_build_sh(sample_ctx, fake_docker):
-    fake_docker.ps_services = ["api"]
+    fake_docker.ps_services = ["sample-dev-api-web"]
     _seed_dist(sample_ctx, "api")
     # Script build.sh to fail.
-    fake_docker.exit_codes[("exit", "compose_exec", "api", ("./build.sh",))] = 3
+    fake_docker.exit_codes[
+        ("exit", "compose_exec", "sample-dev-api-web", ("./build.sh",))
+    ] = 3
     rc = run_build(sample_ctx, fake_docker, service="api")
     assert rc == 3
 
@@ -83,11 +86,11 @@ def test_build_diagnoses_restarting_container(sample_ctx, fake_docker):
     'run docex up dev first'.
 
     The env-running gate (``run_build``) only needs *something* up, so a
-    different service (``worker``) running keeps us past it while the
-    requested ``api`` is absent from the running-only view and crash-
-    looping in the all-states view."""
-    fake_docker.ps_services = ["worker"]  # env is up, but api is absent
-    fake_docker.ps_status = {"sample-dev-api": "restarting"}
+    different service running keeps us past it while the requested
+    ``api`` is absent from the running-only view and crash-looping in
+    the all-states view."""
+    fake_docker.ps_services = ["sample-dev-other"]  # env is up, but api is absent
+    fake_docker.ps_status = {"sample-dev-api-web": "restarting"}
     with pytest.raises(EnvNotRunning) as excinfo:
         run_build(sample_ctx, fake_docker, service="api")
     msg = str(excinfo.value)
@@ -99,7 +102,7 @@ def test_build_diagnoses_restarting_container(sample_ctx, fake_docker):
 def test_build_absent_container_keeps_generic_message(sample_ctx, fake_docker):
     """When the service is genuinely absent (not in status either), the
     original 'run docex up dev first' message stands."""
-    fake_docker.ps_services = ["worker"]  # env is up, but api is absent
+    fake_docker.ps_services = ["sample-dev-other"]  # env is up, but api is absent
     fake_docker.ps_status = {}  # api not present at all
     with pytest.raises(EnvNotRunning) as excinfo:
         run_build(sample_ctx, fake_docker, service="api")

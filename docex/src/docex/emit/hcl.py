@@ -467,7 +467,9 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append( '  retention_in_days = 30')
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name=td_shape, descriptor="logs",
-        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+        project=ctx.project, env=ctx.env,
+        service=svc.core_service or svc.name, role=svc.role,
+        process=svc.process,
     )))
     out.append("}")
     out.append("")
@@ -502,7 +504,9 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append("  ])")
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name=td_shape, descriptor="task-def",
-        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+        project=ctx.project, env=ctx.env,
+        service=svc.core_service or svc.name, role=svc.role,
+        process=svc.process,
     )))
     out.append("}")
 
@@ -516,7 +520,26 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append("")
         # WHY: `-migrate` suffix (mod 030) — task family is a data-plane
         # resolvable ECS identifier, so the joiner uses the unified hyphen.
-        mig_family = f"{svc.global_name}-migrate"
+        #
+        # WHY the family and the resource address key on `codebase_global_name`
+        # / `core_service` rather than `svc.name` (Mod 096): migration is a
+        # per-CODEBASE operation. This block is emitted inside the per-process
+        # task-definition renderer, so keying it on the compiled identity would
+        # give a three-process codebase three `…-migrate` families — and
+        # `orchestrate/migrate.py::_migration_task_family` and
+        # `pipeline/release.py`'s targeted pre-migrate apply each independently
+        # reconstruct the codebase-keyed strings and would match none of them.
+        # The `schema_owned_by_db` carrier flag guarantees exactly one process
+        # type per codebase reaches here.
+        mig_family = f"{svc.codebase_global_name}-migrate"
+        # WHY `service_env`, not the app container's env (Mod 096): the
+        # migration runs per codebase, so it may depend only on codebase-scoped
+        # env. Inheriting the carrier process type's `env:` overlay would make
+        # `migrate.sh` silently depend on whichever process happened to sort
+        # first. See overview.md § Migration carrier.
+        mig_env_entries, mig_secret_entries = _container_env_entries(
+            svc.service_env, ctx.project, ctx.env
+        )
         mig_container = {
             "name": svc.name,
             "image": body.get("image", ""),
@@ -528,11 +551,13 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
                 ctx.project, ctx.env, svc.name, "migrate"
             ),
         }
-        if env_entries:
-            mig_container["environment"] = env_entries
-        if secret_entries:
-            mig_container["secrets"] = secret_entries
-        out.append(f'resource "aws_ecs_task_definition" "{svc.name}_migrate" {{')
+        if mig_env_entries:
+            mig_container["environment"] = mig_env_entries
+        if mig_secret_entries:
+            mig_container["secrets"] = mig_secret_entries
+        out.append(
+            f'resource "aws_ecs_task_definition" "{svc.core_service}_migrate" {{'
+        )
         out.append(f'  family                   = "{mig_family}"')
         out.append( '  requires_compatibilities = ["FARGATE"]')
         out.append( '  network_mode             = "awsvpc"')
@@ -545,7 +570,9 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append(render_hcl_tags(standard_tags(
             "environment", shape_name="core_service",
             descriptor="migrate-task-def",
-            project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+            project=ctx.project, env=ctx.env,
+        service=svc.core_service or svc.name, role=svc.role,
+        process=svc.process,
         )))
         out.append("}")
 
@@ -660,8 +687,9 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
         descriptor="ALB-TG",
         project=ctx.project,
         env=ctx.env,
-        service=svc.name,
+        service=svc.core_service or svc.name,
         role=svc.role,
+        process=svc.process,
     )))
     out.append("}")
     if ctx.reverse_proxy == "alb":
@@ -677,7 +705,7 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append( '    host_header {')
         # Per-service host(s): <service>.<env>.<project>.<apex_domain>, plus
         # the bare <env>.<project>.<apex_domain> for the
-        # domain_default_service; prod's default service also picks up
+        # domain_default_process; prod's default service also picks up
         # <project>.<apex_domain>.
         hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
         out.append(f'      values = [{hosts_hcl}]')
@@ -801,7 +829,9 @@ def render_efs_file_system(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append( '  throughput_mode  = "bursting"')
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name="backing_service", descriptor="EFS",
-        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+        project=ctx.project, env=ctx.env,
+        service=svc.core_service or svc.name, role=svc.role,
+        process=svc.process,
     )))
     out.append("}")
 
@@ -873,7 +903,9 @@ def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append("  })")
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name="core_service", descriptor="scheduler-role",
-        project=ctx.project, env=ctx.env, service=svc.name, role=svc.role,
+        project=ctx.project, env=ctx.env,
+        service=svc.core_service or svc.name, role=svc.role,
+        process=svc.process,
     )))
     out.append("}")
     out.append("")
@@ -1253,7 +1285,7 @@ def emit_hcl(
         env=compiled.env,
         apex_domain=compiled.apex_domain,
         subdomain=compiled.subdomain,
-        # Mod 048: bare-project host used by prod's `domain_default_service`
+        # Mod 048: bare-project host used by prod's `domain_default_process`
         # A-record. Template gates on `env == "prod"`.
         bare_project_subdomain=compiled.bare_project_subdomain,
         region=ELASTIC_REGION,

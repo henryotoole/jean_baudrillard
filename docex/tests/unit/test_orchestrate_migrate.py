@@ -98,7 +98,7 @@ def test_migrate_dev_calls_compose_exec_per_schema_owner(sample_ctx, fake_docker
     # One per schema-owning service. Sample fixture has just api.
     assert len(exec_calls) == 1
     # The compose service key is the project-scoped global name.
-    assert exec_calls[0][2].endswith("api")
+    assert exec_calls[0][2].endswith("api-web")
     assert exec_calls[0][3] == ("./migrate.sh",)
 
 
@@ -107,12 +107,12 @@ def test_migrate_test_calls_compose_exec(sample_ctx, fake_docker):
     assert rc == 0
     exec_calls = [c for c in fake_docker.calls if c[0] == "compose_exec"]
     assert len(exec_calls) == 1
-    assert exec_calls[0][2].endswith("api")
+    assert exec_calls[0][2].endswith("api-web")
 
 
 def test_migrate_dev_short_circuits_on_failure(sample_ctx, fake_docker):
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample-dev-api-web", ("./migrate.sh",))
     ] = 9
     rc = run_migrate(sample_ctx, fake_docker, env="dev")
     assert rc == 9

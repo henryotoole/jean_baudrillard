@@ -1,16 +1,12 @@
-cicl_version: "1"
+cicl_version: "2"
 foundation: fixed
 apex_domain: "example.com"
 container_registry: "registry.example.com"
 observability_backend_url: "https://hyperdx.luxrnd.tech"
-domain_default_service: api
+domain_default_process: api.web
 
 core_services:
   api:
-    role: web
-    port: 8080
-    networks: [web, internal]
-    depends_on: [appdb]
     env:
       # api composes its own connection string from these parts at startup;
       # the identical magic refs work on both foundations (parts-only model).
@@ -19,10 +15,17 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    resources:
-      cpu: 1.0
-      memory: 2GB
-      disk: 20GB
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        port: 8080
+        networks: [web, internal]
+        depends_on: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 20GB
 
 backing_services:
   appdb:

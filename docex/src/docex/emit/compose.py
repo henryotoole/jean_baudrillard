@@ -120,7 +120,7 @@ def _traefik_labels(
 
     The router rule ORs together every host the service answers at — a
     service is reachable at ``<service>.<env>.<project>.<apex_domain>``,
-    and the ``domain_default_service`` additionally at the bare
+    and the ``domain_default_process`` additionally at the bare
     ``<env>.<project>.<apex_domain>``; in prod it also answers at the
     bare-project host ``<project>.<apex_domain>``. Traefik reaches the
     container over the docker network on ``svc.port``; no host port is
@@ -437,10 +437,15 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     """
     # Services
     services: dict[str, Any] = {}
-    # Map simple service name -> compose service key (global name). depends_on
+    # Map compiled identity -> compose service key (global name). depends_on
     # is authored against simple names in infra.yml, but the compose file's
     # service keys are the global names — they must agree or docker compose
     # rejects the file with "depends on undefined service".
+    # Mod 096: the keys are now compiled identities, so a core entry is
+    # two-segment (`api-web`) and no longer matches a bare authored name.
+    # That is safe because rule 24 forbids a core `depends_on` target
+    # outright — every authored edge names a backing service, whose compiled
+    # identity is still its bare name.
     simple_to_global = {
         n: s.global_name for n, s in compiled.services.items()
     }
@@ -464,9 +469,11 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # The container-side paths /service/src and /service/dist are
         # doctrinal defaults; see infrastructure.md § Core Service Containers.
         if compiled.env == "dev" and svc.is_core:
+            # Mod 096: keyed on the CODEBASE, not the compiled identity —
+            # `core/<svc>/` is one source folder shared by every process type.
             bind_mounts = [
-                f"./core/{svc.name}/src:/service/src",
-                f"./core/{svc.name}/dist:/service/dist",
+                f"./core/{svc.core_service}/src:/service/src",
+                f"./core/{svc.core_service}/dist:/service/dist",
             ]
             existing_vols = block.get("volumes")
             if isinstance(existing_vols, list):
@@ -484,7 +491,8 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # image ref — those envs pull, they don't build.
         if compiled.env in ("dev", "test") and svc.is_core:
             block["build"] = {
-                "context": f"./core/{svc.name}",
+                # Mod 096: the codebase, matching the bind mounts above.
+                "context": f"./core/{svc.core_service}",
                 "dockerfile": "Dockerfile",
                 "target": compiled.env,  # "dev" stage or "test" stage
             }

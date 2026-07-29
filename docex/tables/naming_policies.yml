@@ -73,7 +73,11 @@ naming_policies:
     separator: hyphen
     case: any
 
-  # DNS labels (hostnames): hyphens only, lowercase.
+  # DNS labels (hostnames): hyphens only, lowercase. DNS labels hard-cap at
+  # 63 octets; without the ceiling an overlong two-segment service label
+  # would fail confusingly at cert-issuance time rather than at compile.
   http_host:
     separator: hyphen
     case: lower
+    max_len: 63
+    overflow: error

@@ -77,7 +77,7 @@ def test_fixed_core_consumer_inlines_via_provides(tmp_path: Path):
     compose = yaml.safe_load(
         (dest / "infra" / "output" / "dev" / "docker-compose.yml").read_text()
     )
-    api = _svc(compose, "api")
+    api = _svc(compose, "api-web")
     assert api["environment"]["DATABASE_USER"] == "appuser"
     assert api["environment"]["DATABASE_PASSWORD"] == "${POSTGRES_PASSWORD}"
 

@@ -110,20 +110,20 @@ def test_up_calls_compose_up_then_migrate(sample_ctx, fake_docker):
 
     # Migration exec is the migrate.sh for the api service (it owns the
     # appdb schema). The compose key is the project-scoped global
-    # name (sample-dev-api), not the simple name (api).
+    # name (sample-dev-api-web), not the codebase key (api).
     migrate_calls = [
         c for c in fake_docker.calls
         if c[0] == "compose_exec" and "migrate.sh" in " ".join(c[3])
     ]
     assert len(migrate_calls) == 1
-    assert migrate_calls[0][2].endswith("api")
+    assert migrate_calls[0][2].endswith("api-web")
 
 
 def test_up_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     # Script the api migrate.sh exec to fail. The compose service key
     # is the project-scoped global name, not the simple name.
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample-dev-api-web", ("./migrate.sh",))
     ] = 17
 
     rc = run_up(sample_ctx, fake_docker, env="dev")
@@ -155,7 +155,7 @@ def test_up_diagnoses_unhealthy_core_service(sample_ctx, fake_docker, capsys):
     """When compose up fails and a core service is unhealthy, emit a
     per-service diagnostic naming the healthcheck cause."""
     fake_docker.exit_codes[("exit", "compose_up")] = 5
-    fake_docker.ps_status = {"sample-dev-api": "unhealthy"}
+    fake_docker.ps_status = {"sample-dev-api-web": "unhealthy"}
 
     rc = run_up(sample_ctx, fake_docker, env="dev")
     assert rc == 5
@@ -170,7 +170,7 @@ def test_up_diagnoses_unhealthy_core_service(sample_ctx, fake_docker, capsys):
 def test_up_diagnoses_restarting_core_service(sample_ctx, fake_docker, capsys):
     """A restart-looping core service gets the restart-loop diagnostic."""
     fake_docker.exit_codes[("exit", "compose_up")] = 5
-    fake_docker.ps_status = {"sample-dev-api": "restarting"}
+    fake_docker.ps_status = {"sample-dev-api-web": "restarting"}
 
     rc = run_up(sample_ctx, fake_docker, env="dev")
     assert rc == 5
@@ -184,9 +184,9 @@ def test_up_diagnoses_on_migration_failure(sample_ctx, fake_docker, capsys):
     """A migration failure also triggers the scan — a half-up stack is
     the likely culprit."""
     fake_docker.exit_codes[
-        ("exit", "compose_exec", "sample-dev-api", ("./migrate.sh",))
+        ("exit", "compose_exec", "sample-dev-api-web", ("./migrate.sh",))
     ] = 17
-    fake_docker.ps_status = {"sample-dev-api": "exited"}
+    fake_docker.ps_status = {"sample-dev-api-web": "exited"}
 
     rc = run_up(sample_ctx, fake_docker, env="dev")
     assert rc == 17
@@ -198,7 +198,7 @@ def test_up_diagnoses_on_migration_failure(sample_ctx, fake_docker, capsys):
 
 def test_up_no_diagnostic_when_all_running(sample_ctx, fake_docker, capsys):
     """Happy path: every service running → no diagnostic lines."""
-    fake_docker.ps_status = {"sample-dev-api": "running"}
+    fake_docker.ps_status = {"sample-dev-api-web": "running"}
     rc = run_up(sample_ctx, fake_docker, env="dev")
     assert rc == 0
     err = capsys.readouterr().err

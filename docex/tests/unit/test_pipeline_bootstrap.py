@@ -284,20 +284,23 @@ def test_bootstrap_underscored_project_hyphenates_s3_bucket(
         'name: docex_smoke_elastic\nversion: "0.0.1"\ndocex_version: "0.7.0"\n'
     )
     (proj / "infra" / "infra.yml").write_text(
-        'cicl_version: "1"\n'
+        'cicl_version: "2"\n'
         'foundation: elastic\n'
         'apex_domain: example.com\n'
         'observability_backend_url: "https://obs.example.com"\n'
-        'domain_default_service: web\n'
+        'domain_default_process: web.http\n'
         'core_services:\n'
         '  web:\n'
-        '    role: web\n'
-        '    port: 8080\n'
-        '    networks: [web, internal]\n'
-        '    resources:\n'
-        '      cpu: 0.25\n'
-        '      memory: 512MB\n'
-        '      disk: 25GB\n'
+        '    processes:\n'
+        '      http:\n'
+        '        role: web\n'
+        '        command: ["python", "/service/dist/root.py"]\n'
+        '        port: 8080\n'
+        '        networks: [web, internal]\n'
+        '        resources:\n'
+        '          cpu: 0.25\n'
+        '          memory: 512MB\n'
+        '          disk: 25GB\n'
     )
     ctx = load_project_context(proj)
     rc = run_compile(ctx)
