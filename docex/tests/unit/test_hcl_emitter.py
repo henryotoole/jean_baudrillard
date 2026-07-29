@@ -19,10 +19,12 @@ Each test maps to one of the Step 4 sub-fixes in phase_4.md:
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from docex.cicl.compile import run_compile
 from docex.cicl.fargate import fargate_pair
@@ -552,6 +554,73 @@ def test_migrate_resources_unchanged_for_a_single_process_codebase(
             if ln.strip().startswith(f"{line} ")
         )
         assert want in mig.splitlines(), (line, want, mig)
+
+
+# ---------------------------------------------------------------------------
+# Mod 102 — the migrate task definition's telemetry identity.
+# ---------------------------------------------------------------------------
+
+
+_MIGRATE_WORKER = {
+    "role": "worker",
+    "command": ["python", "-m", "entrypoints.worker"],
+    "networks": ["internal"],
+    "depends_on": ["appdb"],
+    "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
+}
+
+
+@pytest.fixture
+def multi_process_elastic_tf(tmp_path: Path) -> str:
+    """The elastic fixture with a second process type planted on `api`, so the
+    codebase genuinely has two and de-qualification is observable rather than
+    merely pinned. Returns the compiled prod `main.tf`."""
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
+    infra_path = dest / "infra" / "infra.yml"
+    doc = yaml.safe_load(infra_path.read_text())
+    doc["core_services"]["api"]["processes"]["worker"] = dict(_MIGRATE_WORKER)
+    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    assert run_compile(load_project_context(dest)) == 0
+    return (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+
+
+def _container_env_value(block: str, key: str) -> str:
+    """The `value` of the `environment[]` entry named ``key`` in a rendered
+    container definition."""
+    m = re.search(
+        r'name\s*=\s*"' + re.escape(key) + r'"\s*\n\s*value\s*=\s*"(.*)"',
+        block,
+    )
+    assert m is not None, f"no environment entry {key!r} in:\n{block}"
+    return m.group(1)
+
+
+def test_migrate_task_def_telemetry_identity_is_codebase_scoped(
+    multi_process_elastic_tf: str,
+):
+    """Mod 102. The migration is a per-CODEBASE artifact, so it reports
+    `service.name=api` — not `api-web`, the compiled identity of whichever
+    process type `group_by_codebase` happened to sort first. `docex.process_type`
+    is absent, which is the signal that this is not a declared process type.
+
+    Anti-vacuity guard in the same test: the sibling `api-web` app task
+    definition still reports the two-segment name and does carry the process
+    attribute.
+    """
+    tf = multi_process_elastic_tf
+    mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
+    assert _container_env_value(mig, "OTEL_SERVICE_NAME") == "api"
+    mig_attrs = _container_env_value(mig, "OTEL_RESOURCE_ATTRIBUTES")
+    assert "docex.core_service=api" in mig_attrs
+    assert "docex.process_type" not in mig_attrs, mig_attrs
+
+    app = _block(tf, 'resource "aws_ecs_task_definition" "api-web"')
+    assert _container_env_value(app, "OTEL_SERVICE_NAME") == "api-web"
+    app_attrs = _container_env_value(app, "OTEL_RESOURCE_ATTRIBUTES")
+    assert "docex.core_service=api" in app_attrs
+    assert "docex.process_type=web" in app_attrs
 
 
 def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):

@@ -858,7 +858,12 @@ def compile_env(
         #                  elastic migrate task definition; Mod 099's exec
         #                  service) run with, because `migrate.sh` may depend
         #                  only on codebase-scoped env.
-        def _build_env_surface(source: dict[str, Any]) -> dict[str, Any]:
+        def _build_env_surface(
+            source: dict[str, Any],
+            *,
+            otel_service_name: str,
+            otel_process: str | None,
+        ) -> dict[str, Any]:
             out: dict[str, Any] = {}
             for ekey in sorted(source):
                 val = source[ekey]
@@ -914,28 +919,78 @@ def compile_env(
             # fixed and elastic — the paired sidecar shares the core service's
             # network namespace on both, so localhost:4318 is universal.
             # Mod 096: the service name is the two-segment compiled identity,
-            # so telemetry distinguishes `api-web` from `api-worker`.
-            out["OTEL_SERVICE_NAME"] = name
+            # so telemetry distinguishes `api-web` from `api-worker`. Mod 102
+            # made it a parameter — see the two call sites below for why the
+            # per-codebase surface de-qualifies it.
+            out["OTEL_SERVICE_NAME"] = otel_service_name
             out["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
             out["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
-            out["OTEL_RESOURCE_ATTRIBUTES"] = (
-                f"service.namespace={project_name},"
-                f"service.version={project_version},"
-                f"deployment.environment.name={env}"
-            )
+            # Mod 102: `docex.core_service` and `docex.process_type` carry the
+            # two authoring names, even though `service.name` already fuses
+            # them.
+            #
+            # WHY both, given the fused name: both axes must be independently
+            # QUERYABLE ("every process type of the `api` codebase", "every
+            # `worker` across all codebases"), and a hyphenated `service.name`
+            # does not decompose — `_SERVICE_NAME_RE` (cicl/model.py:24) admits
+            # `-` inside BOTH segments, so `api-web-v2` has no recoverable
+            # split point. Two attributes make the decomposition explicit
+            # rather than guessable.
+            #
+            # The `docex.` vendor prefix follows the `docex.project`
+            # docker-label precedent (emit/compose.py:67-79); OTel has no
+            # semantic-convention attribute for either axis. Values are the raw
+            # AUTHORING names, not DNS labels: these are query keys a developer
+            # greps `infra.yml` for, and `_SERVICE_NAME_RE` admits neither `,`
+            # nor `=`, so the attribute encoding is safe by construction.
+            attrs = [
+                f"service.namespace={project_name}",
+                f"service.version={project_version}",
+                f"deployment.environment.name={env}",
+                f"docex.core_service={svc_name}",
+            ]
+            if otel_process is not None:
+                # `docex.process_type` is present IFF the emitter is a declared
+                # process type. Its absence is the signal that this is a
+                # per-codebase artifact (the exec container, the migrate task
+                # definition) — NOT an omission to be filled in.
+                attrs.append(f"docex.process_type={otel_process}")
+            out["OTEL_RESOURCE_ATTRIBUTES"] = ",".join(attrs)
             return out
 
         env_block: dict[str, Any] = {}
         service_env: dict[str, Any] = {}
         if is_core:
             effective_env = {**(core_svc.env or {}), **(svc.env or {})}
-            env_block = _build_env_surface(effective_env)
-            # Identical by construction when the process declares no `env:`
-            # overlay — copied rather than aliased so a later mutation of one
-            # cannot silently reach the other.
-            service_env = (
-                dict(env_block) if not svc.env
-                else _build_env_surface(dict(core_svc.env or {}))
+            env_block = _build_env_surface(
+                effective_env,
+                otel_service_name=name,
+                otel_process=proc_name,
+            )
+            # Mod 102: built through the helper UNCONDITIONALLY. There used to
+            # be a `dict(env_block)` shortcut here, taken whenever the process
+            # declared no `env:` overlay, because the two surfaces were then
+            # identical. DO NOT restore it: this mod falsified that premise.
+            # The surfaces now differ in `OTEL_SERVICE_NAME` and
+            # `OTEL_RESOURCE_ATTRIBUTES` even with no overlay, because the
+            # codebase-scoped surface de-qualifies its telemetry identity.
+            #
+            # WHY de-qualify: this surface feeds PER-CODEBASE artifacts (the
+            # fixed exec service, emit/compose.py:696; the elastic migrate task
+            # definition, emit/hcl.py:562), which read it off `procs[0]` —
+            # sorted by compiled name. Carrying a process segment there means a
+            # migration reports the name of, say, a cron job, and renaming a
+            # process type silently changes the identity a migration reports.
+            # De-qualifying removes the choice rather than making it better.
+            #
+            # Resolving the service-level block a second time is not a new code
+            # path — it already happened whenever a process declared an overlay.
+            # `MagicRefResolver.deps` is append-only with no consumer and the
+            # cycle guard is discarded in a `finally`.
+            service_env = _build_env_surface(
+                dict(core_svc.env or {}),
+                otel_service_name=svc_name,
+                otel_process=None,
             )
 
         networks_seen.update(svc.networks)

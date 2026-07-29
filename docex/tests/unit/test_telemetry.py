@@ -243,7 +243,15 @@ def test_otel_env_vars_injected_on_every_core_service_fixed():
     )
     # Mod 096: the compiled identity is two-segment, and
     # OTEL_SERVICE_NAME follows it (`api-web`, not `api`).
-    for svc_name in ("api-web", "worker-web"):
+    #
+    # Mod 102: two codebases each naming their process `web` — so
+    # docex.process_type is `web` on both while docex.core_service differs.
+    # That is the useful shape: it catches an implementation that sourced
+    # either attribute from the fused compiled name.
+    for svc_name, codebase, process in (
+        ("api-web", "api", "web"),
+        ("worker-web", "worker", "web"),
+    ):
         env_block = compiled.services[svc_name].env
         for key in _OTEL_KEYS:
             assert key in env_block, (svc_name, key, sorted(env_block))
@@ -254,6 +262,8 @@ def test_otel_env_vars_injected_on_every_core_service_fixed():
         assert "service.namespace=myproj" in attrs
         assert "service.version=1.2.3" in attrs
         assert "deployment.environment.name=dev" in attrs
+        assert f"docex.core_service={codebase}" in attrs
+        assert f"docex.process_type={process}" in attrs
 
 
 def test_otel_env_vars_injected_on_every_core_service_elastic():
@@ -266,7 +276,10 @@ def test_otel_env_vars_injected_on_every_core_service_elastic():
     )
     # Mod 096: the compiled identity is two-segment, and
     # OTEL_SERVICE_NAME follows it (`api-web`, not `api`).
-    for svc_name in ("api-web", "worker-web"):
+    for svc_name, codebase, process in (
+        ("api-web", "api", "web"),
+        ("worker-web", "worker", "web"),
+    ):
         env_block = compiled.services[svc_name].env
         for key in _OTEL_KEYS:
             assert key in env_block, (svc_name, key, sorted(env_block))
@@ -277,6 +290,8 @@ def test_otel_env_vars_injected_on_every_core_service_elastic():
         assert "service.namespace=myproj" in attrs
         assert "service.version=1.2.3" in attrs
         assert "deployment.environment.name=prod" in attrs
+        assert f"docex.core_service={codebase}" in attrs
+        assert f"docex.process_type={process}" in attrs
 
 
 def test_otel_env_vars_not_injected_on_backing_services():
@@ -382,8 +397,105 @@ def test_otel_resource_attributes_format():
         project_version="9.9.9",
     )
     attrs = compiled.services["api-web"].env["OTEL_RESOURCE_ATTRIBUTES"]
+    # Mod 102 appended the two docex.* attributes AFTER the original triple.
+    # Kept as exact equality on purpose: this is the pin that the triple's
+    # keys, values, and order did not change. Do not weaken to substrings.
     assert attrs == (
         "service.namespace=myproj,"
         "service.version=9.9.9,"
-        "deployment.environment.name=stage"
+        "deployment.environment.name=stage,"
+        "docex.core_service=api,"
+        "docex.process_type=web"
     )
+
+
+# ---------------------------------------------------------------------------
+# Mod 102 — the two axes are independently queryable.
+# ---------------------------------------------------------------------------
+
+
+_MULTI_PROCESS_FIXED = """
+cicl_version: "2"
+foundation: fixed
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+container_registry: registry.example.com
+core_services:
+  api:
+    processes:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        resources:
+          cpu: 1.0
+          memory: 2GB
+      worker:
+        role: worker
+        command: ["python", "-m", "entrypoints.worker"]
+        networks: [internal]
+        resources:
+          cpu: 0.5
+          memory: 1GB
+"""
+
+
+def test_docex_attributes_decompose_the_fused_identity():
+    """The point of Mod 102's two attributes: one codebase, two process types,
+    and BOTH axes queryable on their own.
+
+    `docex.core_service` is identical across the pair (so "every process type
+    of `api`" is one exact-match query) while `OTEL_SERVICE_NAME` and
+    `docex.process_type` differ (so "every `worker`" is too). Neither question
+    needs a prefix/suffix match on the hyphenated `service.name`.
+    """
+    compiled = compile_env(
+        _doc(_MULTI_PROCESS_FIXED), _tables(),
+        env="dev",
+        project_name="myproj",
+        project_version="1.2.3",
+    )
+    web = compiled.services["api-web"].env
+    worker = compiled.services["api-worker"].env
+
+    assert web["OTEL_SERVICE_NAME"] == "api-web"
+    assert worker["OTEL_SERVICE_NAME"] == "api-worker"
+
+    # Same codebase axis...
+    assert "docex.core_service=api" in web["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.core_service=api" in worker["OTEL_RESOURCE_ATTRIBUTES"]
+    # ...different process axis.
+    assert "docex.process_type=web" in web["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.process_type=worker" in worker["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.process_type=worker" not in web["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.process_type=web" not in worker["OTEL_RESOURCE_ATTRIBUTES"]
+
+
+def test_service_instance_id_set_nowhere():
+    """`service.instance.id` is deliberately unset: the correct values (the
+    ECS task ARN, the container ID) are runtime-only, so the compiler has
+    nothing true to put there. The OTel ECS resource detector supplies them if
+    the application opts in — a project-side option, not doctrine.
+
+    Asserted on BOTH compiled env surfaces of every service on both
+    foundations, so the claim cannot rot in the codebase-scoped surface while
+    holding in the process-scoped one.
+    """
+    for doc, env in (
+        (_multi_core_fixed_doc(), "dev"),
+        (_multi_core_elastic_doc(), "prod"),
+    ):
+        compiled = compile_env(
+            doc, _tables(),
+            env=env,
+            project_name="myproj",
+            project_version="1.2.3",
+        )
+        for name, svc in compiled.services.items():
+            for surface, block in (
+                ("env", svc.env), ("service_env", svc.service_env),
+            ):
+                assert "service.instance.id" not in str(block), (
+                    env, name, surface,
+                )

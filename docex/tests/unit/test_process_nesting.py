@@ -20,7 +20,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from docex.cicl.model import CICLDocument, ProcessRef
 from docex.cicl.transfer import load_transfer_tables
-from docex.cicl.validate import validate_document
+from docex.cicl.validate import _RESERVED_CORE_ENV_KEYS, validate_document
 from docex.naming import apply_policy, dns_label
 
 
@@ -557,11 +557,16 @@ def test_20_process_env_key_colliding_with_service_secrets_rejected():
     assert "rule_env_secrets_config_overlap" in _issues(src)
 
 
-def test_21_process_env_cannot_shadow_otel_service_name():
-    src = _with_process_env(_BASE, '          OTEL_SERVICE_NAME: "mine"\n')
+@pytest.mark.parametrize("reserved_key", sorted(_RESERVED_CORE_ENV_KEYS))
+def test_21_process_env_cannot_shadow_a_reserved_key(reserved_key: str):
+    """Every doctrine-reserved key, not just `OTEL_SERVICE_NAME`. Parametrized
+    off the validator's own frozenset so a key added there without process-level
+    coverage fails here rather than passing silently."""
+    src = _with_process_env(_BASE, f'          {reserved_key}: "mine"\n')
     issues = validate_document(_doc(src), _tables())
     hits = [i for i in issues if i.rule == "rule_reserved_env_key"]
-    assert hits
+    assert hits, reserved_key
+    # The diagnostic points at the process, not the codebase.
     assert "processes.web.env" in hits[0].where
 
 

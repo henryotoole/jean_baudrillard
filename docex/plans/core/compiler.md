@@ -139,6 +139,36 @@ depend only on codebase-scoped env — a process-level `DATABASE_*` would
 otherwise make a migration silently dependent on which process type it happened
 to inherit from.
 
+That extends to the **telemetry identity**, which is the one key the surface
+originally leaked (Mod 102). Both surfaces are built by the same helper
+(`_build_env_surface`), which takes the identity as a parameter:
+
+| Key | process surface (`env`) | codebase surface (`service_env`) |
+| --- | --- | --- |
+| `OTEL_SERVICE_NAME` | `api-web` — the compiled identity | `api` — the authoring codebase name |
+| `docex.core_service` | `api` | `api` |
+| `docex.process_type` | `web` | *absent* |
+
+So `docex.process_type` is present **iff** the emitter is a declared process
+type, and its absence is what identifies a per-codebase artifact rather than
+something to be filled in. Stamping it before the split gave the exec container
+and the migrate task definition the compiled identity of whichever process type
+`group_by_codebase` sorted first — a migration reporting the name of a cron job,
+and an identity that moved when an unrelated process type was renamed. Note the
+shape: this and the migration's *resources* (below) were the same defect — a
+per-codebase artifact reading a process-scoped value — and both are fixed
+structurally, by removing the choice rather than by choosing better.
+
+The two `docex.*` attributes are appended to `OTEL_RESOURCE_ATTRIBUTES` after the
+unchanged `service.namespace` / `service.version` / `deployment.environment.name`
+triple. They exist even though `service.name` already fuses both segments because
+both axes must be independently **queryable**: a hyphenated `service.name` does
+not decompose, since a service name and a process name may each contain `-`.
+`service.version` stays the project version — that is what makes a persistent
+web/worker divergence read as a stuck rollout rather than a config difference —
+and `service.instance.id` is deliberately never set, because the correct values
+are runtime-only.
+
 **`replicas`** is the **declared** count. `effective_replicas(svc, env)`
 (`cicl/compile.py`) applies the clamp — the count applies in `prod` only, per
 [`shape.md`](../../../doctrine/infrastructure/shape.md)'s Runtime Shape
@@ -398,7 +428,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | Whether a new identity is per-process or per-codebase | [Process expansion](#process-expansion). The default is per-process, because `CompiledService.name` already is; the codebase-keyed set is small and listed there |
 | What a core service may declare, and at which level | `src/docex/cicl/model.py` (`CoreService` is `extra="forbid"` over `{processes, secrets, config, env}`; `ProcessType` is `extra="allow"` so role-specific fields land in `model_extra`) |
 | How magic refs are resolved | `src/docex/cicl/magic_refs.py` + `cicl/substitute.py` |
-| How doctrine env vars are injected on core services | `src/docex/cicl/compile.py` — the `env_block[...]` assignments after the resolved-magic-ref loop |
+| How doctrine env vars are injected on core services | `src/docex/cicl/compile.py::_build_env_surface` — the `out[...]` assignments after the resolved-magic-ref loop. Called twice per process type, once per env surface; the telemetry identity is a parameter because the two surfaces differ in it |
 | What compose YAML looks like | `src/docex/emit/compose.py` |
 | What env-tier HCL looks like | `src/docex/emit/hcl.py` + `templates/main.tf.j2` |
 | How a specific AWS resource type is rendered | `src/docex/emit/hcl.py` — the matching `render_<destination>` function (one per entry in `EMIT_DESTINATIONS["elastic"]`). Dispatch is keyed off the engine's `emits.elastic` list via `_DESTINATION_RENDERERS`. Mod 013. |

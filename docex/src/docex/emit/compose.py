@@ -693,6 +693,10 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # identical across a codebase's process types by construction (the
         # compiler builds it from the service-level `env:` block alone), so
         # reading it off `procs[0]` picks nothing — there is nothing to pick.
+        # Mod 102 made that true of EVERY key: the telemetry identity on this
+        # surface is codebase-scoped too (`OTEL_SERVICE_NAME={codebase}`, no
+        # `docex.process_type`), where it previously leaked `procs[0]`'s
+        # process segment.
         if head.service_env:
             exec_block["environment"] = _translate_tree(head.service_env)
         if compiled.env == "dev":

@@ -138,6 +138,32 @@ def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
         )
 
 
+def test_3b_exec_telemetry_identity_is_codebase_scoped(fixed_root: Path):
+    """Mod 102. The exec container is a per-CODEBASE artifact, so it reports
+    `service.name=api` — not the compiled identity of whichever process type
+    sorted first. `docex.process_type` is absent, and that absence is the
+    signal that this is not a declared process type.
+
+    Anti-vacuity guard in the same test: the sibling app containers DO carry
+    the two-segment name and the process attribute. Without it, a change that
+    dropped the OTel keys from every surface would pass.
+    """
+    for env in ("dev", "test", "stage", "prod"):
+        services = _services(fixed_root, env)
+        exec_env = services[f"sample-{env}-api-exec"]["environment"]
+        assert exec_env["OTEL_SERVICE_NAME"] == "api", env
+        attrs = exec_env["OTEL_RESOURCE_ATTRIBUTES"]
+        assert "docex.core_service=api" in attrs, env
+        assert "docex.process_type" not in attrs, (env, attrs)
+        # The app containers beside it are process types, and say so.
+        for proc in ("web", "worker"):
+            app_env = services[f"sample-{env}-api-{proc}"]["environment"]
+            assert app_env["OTEL_SERVICE_NAME"] == f"api-{proc}", (env, proc)
+            app_attrs = app_env["OTEL_RESOURCE_ATTRIBUTES"]
+            assert "docex.core_service=api" in app_attrs, (env, proc)
+            assert f"docex.process_type={proc}" in app_attrs, (env, proc)
+
+
 # ---------------------------------------------------------------------------
 # 4-5 — image, build block, bind mounts.
 # ---------------------------------------------------------------------------
