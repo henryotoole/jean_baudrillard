@@ -15,7 +15,7 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
-## [1.6.0] - 2026-07-29
+## [1.6.0] - 2026-07-30
 
 "Service process types" (advance 004, mods 094-106) — decouples build artifact
 from process type. A core service in `infra.yml` is no longer one service; it is
