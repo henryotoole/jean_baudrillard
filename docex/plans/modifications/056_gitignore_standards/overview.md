@@ -1,6 +1,6 @@
 # Mod 056 — .gitignore standards
 
-Third mod of the `001_skill_update` campaign. Closes the planner's ".gitignore
+Third mod of the `001_skill_update` advance. Closes the planner's ".gitignore
 standards" item ("start adding things like `*.pyc` to gitignore in inception.md").
 
 ## Nature of this mod
@@ -37,7 +37,7 @@ change is small and mechanical, applied directly.
 The smoke projects under `test_projects/` are their own inner git repos with a
 `v<version>` tag at HEAD for `docex containerize`. Editing their `.gitignore`
 dirties those inner repos. This mod commits the change only in the **outer**
-`jean_baudrillard` repo (the campaign history). The inner-repo commit — and any
+`jean_baudrillard` repo (the advance history). The inner-repo commit — and any
 tag handling per `test_projects.md` § Commit cadence — is left to the operator's
 pre-cut audit (`PRE_CUT_CHECKLIST.md` § A.2.1), so this mod doesn't move version
 tags out from under a future smoke walk.

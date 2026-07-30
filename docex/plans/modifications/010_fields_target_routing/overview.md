@@ -129,7 +129,7 @@ If the implementer can't get every existing engine's `emits:` declared without b
 
 1. `python3 -m pytest tests/unit/` — green, including all new tests.
 2. `python3 -m pytest tests/integration/` — green; the existing tests for elastic compile must continue to pass.
-3. Manual grep on the recompiled elastic smoke project output (Step 6 of `implementation.md` — deferred to campaign-end):
+3. Manual grep on the recompiled elastic smoke project output (Step 6 of `implementation.md` — deferred to advance-end):
    - `infra/output/stage/main.tf` contains an `aws_lb_target_group.web` block with a nested `health_check { path = "/health" ... }`.
    - The same file's `aws_ecs_task_definition.web` block does NOT contain a stray `target_group_health_check` entry.
 

@@ -29,5 +29,5 @@ best-effort.
 
 - Rendered from source + `tofu validate` on `project/production` → valid.
 - Full fast suite: 629 passed (627 + 2 new).
-- Real-AWS confirmation deferred to the campaign re-walk (task #9): the instance
+- Real-AWS confirmation deferred to the advance re-walk (task #9): the instance
   must actually finish user_data and serve traefik.

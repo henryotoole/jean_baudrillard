@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 037 of a 16-mod docex campaign. Read [`overview.md`](./overview.md) first.
+You are executing mod 037 of a 16-mod docex advance. Read [`overview.md`](./overview.md) first.
 
 Invoke the `docex-edit` skill via Skill.
 

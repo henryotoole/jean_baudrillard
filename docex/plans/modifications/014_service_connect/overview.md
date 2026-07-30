@@ -122,7 +122,7 @@ No edits to `cicl.md`, `transfer_tables.md`, or `infrastructure.md`. The engine 
 2. `python3 -m pytest tests/integration/test_compile.py -q` — green.
 3. Inspect the emitted `main.tf` for a multi-service project: confirm the namespace resource exists once, each ECS service has Service Connect config, and the discovery names match the global names.
 
-Real-AWS smoke verification happens at Step 4 of the campaign (the final test-project walks). No real apply during this mod.
+Real-AWS smoke verification happens at Step 4 of the advance (the final test-project walks). No real apply during this mod.
 
 ## Decisions captured
 

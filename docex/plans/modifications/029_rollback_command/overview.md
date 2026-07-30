@@ -29,7 +29,7 @@ Out of scope:
 - A `./bin/docex inspect <env>` helper for detecting rolled-back state.
 - Reverse migrations (doctrine commits to code-only rollback).
 - Doctrine text changes — already settled in the prior turn.
-- A docex version cut. This mod lands on `main` under `[Unreleased]`; the cut is a separate step run after the campaign closes.
+- A docex version cut. This mod lands on `main` under `[Unreleased]`; the cut is a separate step run after the advance closes.
 
 ## Design
 

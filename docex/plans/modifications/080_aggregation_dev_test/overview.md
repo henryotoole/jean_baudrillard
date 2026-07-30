@@ -1,6 +1,6 @@
 # Mod 080 — `aggregate()` + `ensure_tte()` (dev/test path)
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 5 of 11). Introduces the aggregation machinery and wires it into
 the dev/test bring-up paths. Stage/prod aggregation is Mods 081 (fixed) / 082
 (elastic).

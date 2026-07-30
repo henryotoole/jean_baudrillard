@@ -2,7 +2,7 @@
 
 ## Problem
 
-Mod 013 made stateless container-backing services (sidecars, OTel collectors, anything that doesn't write durable state) renderable on elastic. ClickHouse — the campaign's primary motivator — is stateful: it writes to `/var/lib/clickhouse` and expects that data to survive task restarts. Fargate tasks have no persistent disk; `ephemeral_storage` is wiped on every task restart. Without a way to mount durable storage, ClickHouse-on-elastic is structurally non-viable.
+Mod 013 made stateless container-backing services (sidecars, OTel collectors, anything that doesn't write durable state) renderable on elastic. ClickHouse — the advance's primary motivator — is stateful: it writes to `/var/lib/clickhouse` and expects that data to survive task restarts. Fargate tasks have no persistent disk; `ephemeral_storage` is wiped on every task restart. Without a way to mount durable storage, ClickHouse-on-elastic is structurally non-viable.
 
 The doctrine's elastic shape has no story for persistent container storage today. On fixed, postgres uses docker named volumes; on elastic, postgres uses RDS (a managed AWS service, not a container). The pattern that's missing: a stateful container backing service on Fargate that needs its own data directory to persist.
 
@@ -229,7 +229,7 @@ No changes to `cicl.md`, `shape.md`, or `infrastructure.md`. EFS is a doctrine-i
 2. `python3 -m pytest tests/integration/test_compile.py -q` — green.
 3. Compile a fixture or test case with a project-local stateful engine (clickhouse-shaped). Inspect emitted `main.tf`: confirm one EFS filesystem, backup policy, two mount targets, task def has the `volume` block, container def has `mountPoints`.
 
-Real-AWS smoke verification happens at Step 4 of the campaign.
+Real-AWS smoke verification happens at Step 4 of the advance.
 
 ## Decisions captured
 

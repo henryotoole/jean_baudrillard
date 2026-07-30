@@ -1,6 +1,6 @@
 # Mod 084 — `docex config` command group (permissions inverted)
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 9 of 11). Adds the config-category tooling by reusing the Mod 083
 engine with a `CONFIG_POLICY` — same four ops plus `get`, with the permission
 asymmetry that *is* the secret/config boundary made operational.

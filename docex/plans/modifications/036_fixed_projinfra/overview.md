@@ -1,6 +1,6 @@
 # Mod 036 — Fixed Projinfra: Per-Project Traefik + Projinfra Behavior on Fixed
 
-Seventh mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Replaces the obsolete "machine-wide traefik" model with the new per-project traefik that joins the four `-web` networks, and wires `projinfra <up|down> <side>` to actually bring those resources up and down on fixed projects.
+Seventh mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Replaces the obsolete "machine-wide traefik" model with the new per-project traefik that joins the four `-web` networks, and wires `projinfra <up|down> <side>` to actually bring those resources up and down on fixed projects.
 
 ## The Doctrine Change
 
@@ -130,7 +130,7 @@ To be safe, the implementer should verify this assumption with a quick test: run
 
 Every fixed-foundation project's env compose changes shape for the `web` network reference. Every project's project-tier compose grows a `${project}-traefik` service block.
 
-Per campaign-wide deferral, no test-project recompile in this mod.
+Per advance-wide deferral, no test-project recompile in this mod.
 
 ### Doctrine for cert config
 

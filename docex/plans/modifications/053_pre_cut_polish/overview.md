@@ -3,7 +3,7 @@
 The `1.1.0` candidate (mods 049–052) was walked through both smoke-test
 projects per [`PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md)
 against real infrastructure. **Both walks passed functionally** — every
-`docex` command produced working infrastructure, and all five campaign gaps
+`docex` command produced working infrastructure, and all five advance gaps
 (A HTTP-01 certs, B project-scoped traefik, C no-origin merge, E CloudWatch
 logs incl. the migrate stream, I curl gate) verified. This mod folds in the
 ergonomic/robustness findings the walk surfaced so the `1.1.0` cut can proceed
@@ -268,5 +268,5 @@ verified TLS, and (cost) one elastic projinfra→release→rollback→teardown p
 confirm F14/F15/F16. Then proceed to the cut per
 `docex_process.md § Cutting a version` (`[Unreleased]` → `[1.1.0]`, bump
 `pyproject.toml` + `__init__.py`, commit, tag `docex-v1.1.0`, rebuild image,
-reinstall consumers), and mark the campaign gaps closed on
-[`post_shape_overhaul.md`](../../campaigns/post_shape_overhaul.md).
+reinstall consumers), and mark the advance gaps closed on
+[`post_shape_overhaul.md`](../../advances/post_shape_overhaul.md).

@@ -1,6 +1,6 @@
 # Mod 049 — Polish Sweep (Gaps C, J, K)
 
-Patch mod bundling three small, low-risk, **docex-source-only** items from the post-shape-overhaul gap roadmap ([`plans/campaigns/post_shape_overhaul.md`](../../campaigns/post_shape_overhaul.md)). None touch the doctrine; none require a smoke walk. This is the warm-up cut of the post-1.0.0 polish campaign — the doctrine-and-walk-heavy minors (050–052) follow.
+Patch mod bundling three small, low-risk, **docex-source-only** items from the post-shape-overhaul gap roadmap ([`plans/advances/post_shape_overhaul.md`](../../advances/post_shape_overhaul.md)). None touch the doctrine; none require a smoke walk. This is the warm-up cut of the post-1.0.0 polish advance — the doctrine-and-walk-heavy minors (050–052) follow.
 
 The three:
 
@@ -30,7 +30,7 @@ So the *missing-origin* case (distinct from empty-`origin/main`) falls through t
 3. Skip the push (step 6) and the remote feature-branch delete (step 7); the local branch delete still runs.
 4. Log one line: `merge: no 'origin' remote — performing local merge only (no fetch/push).`
 
-**Design note for review — rebase target.** The campaign's one-liner said "skip fetch/push, still perform the local rebase + tag." The accurate behavior depends on local-`main` existence:
+**Design note for review — rebase target.** The advance's one-liner said "skip fetch/push, still perform the local rebase + tag." The accurate behavior depends on local-`main` existence:
 - Local `main` exists (the test-project case — they sit on `main` with the version tagged at HEAD): rebase feature onto local `main`, ff, tag. This is the proposed default.
 - Local `main` absent: fall through to the existing `empty_origin` seed path (ff a fresh `main` to the feature tip).
 
@@ -51,7 +51,7 @@ The proposed implementation collapses these by reusing the existing seed branch 
 **Fix:** Form any display string that names a **DNS / docker / ECS / registry** resource from the DNS-labeled project segment, not the raw `ctx.project.name`. Concretely:
 
 1. In `bootstrap.py`, derive the subdomain from the dns-label form (the same `replace("_","-").lower()` rule `naming.py:128` already encodes; prefer routing it through a single shared helper rather than re-inlining).
-2. Sweep the rest of `src/docex/` for the same class of leak: `grep -rn` for display/log statements that interpolate `ctx.project.name` (or a `project` local bound to it) while naming a hyphenated resource. The campaign names `__main__.py` and `bootstrap.py` as suspects.
+2. Sweep the rest of `src/docex/` for the same class of leak: `grep -rn` for display/log statements that interpolate `ctx.project.name` (or a `project` local bound to it) while naming a hyphenated resource. The advance names `__main__.py` and `bootstrap.py` as suspects.
 
 **Scope boundary — leave correct uses alone.** Where a message refers to the **project itself** (its machine name, which legitimately *is* underscored — e.g. `bootstrap.py:165` `project {project!r} fully bootstrapped`), the raw name is correct and stays. The fix targets only strings naming a *resource* whose emitted name is hyphenated. Inert record-key identifiers (IAM, SSM, DDB) keep underscores per their naming policies, so their display strings are likewise left raw.
 
@@ -69,13 +69,13 @@ The proposed implementation collapses these by reusing the existing seed branch 
 
 Diagnosis only — **no auto-fix, no auto-teardown** (consistent with `up.py`'s existing "a half-up stack is what the developer needs to debug" contract).
 
-**Narrowed scope (observation):** `up.py` already carries `_ensure_initial_dev_build`, which proactively populates an empty `dist/` before bring-up — so the **empty-`dist/`** trigger the campaign lists as Gap K's commonest case is *already* handled for `dev`. Gap K's diagnostic therefore now covers the residual failure modes (unhealthy/never-healthy, missing env var, bind-mount perms), not empty-dist.
+**Narrowed scope (observation):** `up.py` already carries `_ensure_initial_dev_build`, which proactively populates an empty `dist/` before bring-up — so the **empty-`dist/`** trigger the advance lists as Gap K's commonest case is *already* handled for `dev`. Gap K's diagnostic therefore now covers the residual failure modes (unhealthy/never-healthy, missing env var, bind-mount perms), not empty-dist.
 
 ---
 
 ## Observation — possible roadmap drift on Gap D (not actioned here)
 
-While grounding Gap K, I found that `up.py::_ensure_initial_dev_build` already implements **Gap D's** "path 1" fix (detect empty `dist/`, populate via a no-bind-mount ephemeral build-stage container) and it is **committed**, not working-tree dirt. The campaign still lists Gap D as *open* (slated for Mod 050). This looks like roadmap drift — Gap D's core may already be closed.
+While grounding Gap K, I found that `up.py::_ensure_initial_dev_build` already implements **Gap D's** "path 1" fix (detect empty `dist/`, populate via a no-bind-mount ephemeral build-stage container) and it is **committed**, not working-tree dirt. The advance still lists Gap D as *open* (slated for Mod 050). This looks like roadmap drift — Gap D's core may already be closed.
 
 Not touched in this mod (Gap D is Mod 050's concern). Flagging so Mod 050's scope can be re-confirmed against the live code before it opens — its remaining surface may be only the residual edge cases (root-owned `dist/`, the `Restarting`-state `docex build` refusal) rather than the whole gap.
 

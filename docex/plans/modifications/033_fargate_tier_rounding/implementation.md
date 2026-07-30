@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 033 of a 16-mod docex campaign. Read [`overview.md`](./overview.md) first — it explains what's already done and what specifically gap this mod closes.
+You are executing mod 033 of a 16-mod docex advance. Read [`overview.md`](./overview.md) first — it explains what's already done and what specifically gap this mod closes.
 
 Invoke the `docex-edit` skill via Skill.
 

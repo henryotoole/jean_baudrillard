@@ -1,6 +1,6 @@
 # Mod 063 — Fix ec2_traefik user_data package install on Ubuntu 24.04
 
-Part of the [ec2_traefik-functional campaign](../_campaign_ec2_traefik_functional.md).
+Part of the [ec2_traefik-functional advance](../_advance_ec2_traefik_functional.md).
 Bug 2 of 3.
 
 ## Problem
@@ -93,5 +93,5 @@ Unit test over the rendered user_data (mirror the existing `test_mod044_*` and
   path) so it can't abort user_data.
 - Both variants (`eip`, `pip`).
 
-Real-AWS confirmation happens in the campaign re-walk (task #9), not in unit
+Real-AWS confirmation happens in the advance re-walk (task #9), not in unit
 tests.

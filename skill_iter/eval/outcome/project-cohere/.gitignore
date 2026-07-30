@@ -1,0 +1,4 @@
+# Scratch run dirs and captured artifacts live outside the repo by default;
+# ignore any that land here.
+_runs/
+*.run.json

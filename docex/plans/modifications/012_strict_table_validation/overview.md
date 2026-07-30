@@ -2,7 +2,7 @@
 
 ## Problem
 
-Project-local transfer tables (`infra/transfer_tables/`) are about to become first-class load-bearing surface — Mods 013–015 add container-backing engines, EFS, and Service Connect, all of which projects will declare via project-local tables, and the campaign-end smoke walk authors clickhouse + sidecar engines as project-local entries. Before that, the loader's failure modes are dangerous:
+Project-local transfer tables (`infra/transfer_tables/`) are about to become first-class load-bearing surface — Mods 013–015 add container-backing engines, EFS, and Service Connect, all of which projects will declare via project-local tables, and the advance-end smoke walk authors clickhouse + sidecar engines as project-local entries. Before that, the loader's failure modes are dangerous:
 
 1. **Silent drop of unknown top-level keys.** `transfer.py:347-354` merges only `roles` and `naming_policies`; any other top-level key in a project file is dropped without warning. A typo like `role:` (singular) parses cleanly and the table simply has no effect — the developer sees a downstream "unknown role" error from `validate.py`, not "you typed `role:` in `infra/transfer_tables/foo.yml`."
 

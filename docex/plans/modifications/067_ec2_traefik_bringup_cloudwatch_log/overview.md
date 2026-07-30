@@ -1,7 +1,7 @@
 # Mod 067 — ship ec2_traefik user_data bring-up log to CloudWatch
 
-Part of the [ec2_traefik-functional campaign](../_campaign_ec2_traefik_functional.md).
-An observability improvement that made the rest of the campaign debuggable.
+Part of the [ec2_traefik-functional advance](../_advance_ec2_traefik_functional.md).
+An observability improvement that made the rest of the advance debuggable.
 
 ## Problem
 
@@ -34,12 +34,12 @@ This is a **permanent** improvement, not a debug throwaway: reverse-proxy
 bring-up should be observable in the same CloudWatch group everything else uses,
 especially given the serial console's unreliability.
 
-## Payoff (this campaign)
+## Payoff (this advance)
 
 The breadcrumb immediately revealed that (post mods 063/065/066) user_data now
 runs to completion and traefik serves — and surfaced the real remaining problem,
 bug 6 (Service-Connect backend not VPC-DNS-resolvable → 502), which no amount of
-guessing had pinned down. See the campaign doc's "Walk #3 results".
+guessing had pinned down. See the advance doc's "Walk #3 results".
 
 ## No doctrine change
 

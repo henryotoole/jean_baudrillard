@@ -1,6 +1,6 @@
 # Mod 050 — Deploy-Target Ergonomics (Gaps G, D)
 
-Second of three mods (050/051/052) feeding a **single** `1.1.0` minor cut at the end of the post-shape-overhaul polish campaign. No per-mod cut, no per-mod version bump — changes accumulate under `CHANGELOG.md`'s `[Unreleased]`.
+Second of three mods (050/051/052) feeding a **single** `1.1.0` minor cut at the end of the post-shape-overhaul polish advance. No per-mod cut, no per-mod version bump — changes accumulate under `CHANGELOG.md`'s `[Unreleased]`.
 
 The two:
 - **Gap G** — first fixed `docex release` fails at image pull with a registry `401`; nothing catches the missing target-host creds before then. *(The substantive item; carries a doctrine touch.)*
@@ -45,13 +45,13 @@ Failing with a clear message + resolution (`docker login <registry>` as both use
 
 **Symptom (historical):** First `docex envinfra up dev` on a fresh tree crash-looped the web container (`can't open file '/service/dist/root.py'`) because the host `dist/` bind-mount shadowed the in-image artifact; `docex build` then refused to populate `dist/` while the container was `Restarting`.
 
-**Status:** Path 1 is **done and committed** — `up.py::_ensure_initial_dev_build` pre-populates each core service's host `dist/` (via a no-bind-mount build-stage one-shot) before `compose up`, breaking the original chicken-and-egg. The campaign roadmap listing Gap D as fully open is stale.
+**Status:** Path 1 is **done and committed** — `up.py::_ensure_initial_dev_build` pre-populates each core service's host `dist/` (via a no-bind-mount build-stage one-shot) before `compose up`, breaking the original chicken-and-egg. The advance roadmap listing Gap D as fully open is stale.
 
 **Decision — close + tiny diagnostic.** Treat the core as closed. The one residual rough edge: `build.py::run_build` keys off `compose_ps` (running-only, lines 60 & 98), so if a target container is `Restarting` it refuses with a generic "dev container … is not running." Add a clearer diagnostic distinguishing *restarting* from *absent*:
 
 **Fix shape:**
 1. `src/docex/orchestrate/build.py` — when the requested service isn't in the running set, consult `compose_ps_status` (the Gap-K method added in mod 049) to distinguish `restarting`/`unhealthy` from genuinely-down, and print a targeted line (e.g. "container is restarting, not running — check `docker logs <name>`; `docex build` needs a healthy dev container"). Still refuses (no behavior change to the success path) — just a readable failure.
-2. Mark Gap D **closed** in `plans/campaigns/post_shape_overhaul.md` (status note pointing at `_ensure_initial_dev_build` + this diagnostic).
+2. Mark Gap D **closed** in `plans/advances/post_shape_overhaul.md` (status note pointing at `_ensure_initial_dev_build` + this diagnostic).
 
 **Explicitly out of scope** (per the decision): path-2 ephemeral-build-on-restarting and root-owned-`dist/` chown handling. If the one-shot copy's ownership ever bites in practice, that's a follow-up — not pulled into this mod.
 
@@ -63,7 +63,7 @@ Failing with a clear message + resolution (`docker login <registry>` as both use
 | ------ | ------- |
 | `_check_fixed_registry_creds` in fixed-production preinfra (Gap G) | `src/docex/pipeline/preinfra.py` |
 | Restarting-vs-absent diagnostic in `build` (Gap D) | `src/docex/orchestrate/build.py` |
-| Gap D marked closed | `plans/campaigns/post_shape_overhaul.md` |
+| Gap D marked closed | `plans/advances/post_shape_overhaul.md` |
 | Doctrine: preinfra verifies target-host registry creds (Gap G) | `doctrine/.../preinfra/container_registry.md`, `doctrine/.../specifics/release.md` *(pending operator-approved wording)* |
 | CHANGELOG `[Unreleased]` entries (no version bump) | `CHANGELOG.md` |
 

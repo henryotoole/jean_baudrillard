@@ -1,0 +1,3 @@
+# Paths removed from the assembled tree for this state.
+# Leaves the analytics module present in code but with no module doc.
+plans/core/web/hex/analytics.md

@@ -118,12 +118,12 @@ considered and rejected as more fragile and itself a non-universal dependency.)
   description with per-call forwarding).
 - **docex code:** `docex/bin/docex` (the shim — the only code change).
 - **Changelog:** doctrine-wide `CHANGELOG.md` `[Unreleased]` (Changed) — no version
-  bump here; the cut is a campaign-end step (this rides the lifecycle-fix campaign).
+  bump here; the cut is an advance-end step (this rides the lifecycle-fix advance).
 - **Tests:** no `src/` change, so the pytest suite is untouched (sanity: it still
   passes). The shim is bash with no pytest coverage (per docex_process). The
   responder↔forwarder round-trip is smoke-tested locally against a stub `git
   credential fill` during implementation; the real end-to-end box proof is a
-  campaign/rollout verification.
+  advance/rollout verification.
 
 No transfer-table change. No docex **image** change.
 
@@ -153,7 +153,7 @@ to:
   unaffected.
 - **Local round-trip smoke:** start `responder.py` against a stub `git credential
   fill`, run `forward.py` against the socket, assert the stubbed creds round-trip.
-- **Box proof (campaign/rollout):** deploy the new shim to a dev box exporting
+- **Box proof (advance/rollout):** deploy the new shim to a dev box exporting
   `DOCEX_GIT_CREDENTIAL_PASSTHROUGH`, run a real `docex merge` on a registered
   tactical — it now completes fetch **and** push after a full `check`.
 - **Laptop proof:** signal unset ⇒ static-credential git ops unchanged.

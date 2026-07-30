@@ -1,6 +1,6 @@
 # Mod 059 — curl gate scope fix
 
-Sixth mod of the `001_skill_update` campaign. Closes the planner's "Health Checks
+Sixth mod of the `001_skill_update` advance. Closes the planner's "Health Checks
 And Curl — double check that `docex check` actually checks whether curl is
 installed on images which need it."
 

@@ -1,6 +1,6 @@
 # Mod 055 — Scheduler role
 
-Second mod of the `001_skill_update` campaign. Closes the planner's "No Scheduler
+Second mod of the `001_skill_update` advance. Closes the planner's "No Scheduler
 Role" item: the doctrine has no way to run a project's own code on a recurring
 schedule. This mod adds a bundled `scheduler` role.
 

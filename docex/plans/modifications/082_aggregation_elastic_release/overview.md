@@ -1,6 +1,6 @@
 # Mod 082 — Aggregation on the elastic stage/prod release path
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 7 of 11). Extends aggregation to the **elastic** stage/prod release,
 replacing the single-category `_push_secrets` with a three-category SSM push.
 

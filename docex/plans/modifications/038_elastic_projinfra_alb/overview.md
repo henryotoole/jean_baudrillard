@@ -1,6 +1,6 @@
 # Mod 038 — Elastic Projinfra: ALB (default variant) + Project-Tier Outputs
 
-Ninth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Moves the project ALB from env-tier to project-tier per [`projinfra/elastic_alb.md`](../../../../doctrine/infrastructure/specifics/projinfra/elastic_alb.md). One ALB serves both stage and prod via SNI; listener rules stay env-tier.
+Ninth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Moves the project ALB from env-tier to project-tier per [`projinfra/elastic_alb.md`](../../../../doctrine/infrastructure/specifics/projinfra/elastic_alb.md). One ALB serves both stage and prod via SNI; listener rules stay env-tier.
 
 ## The Doctrine Change
 

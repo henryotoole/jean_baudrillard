@@ -2,10 +2,10 @@
 
 Two tracks. **Track A** (this file, for a sub-agent): mechanical alignment of the
 three `docex/plans/core/*` narrative docs. **Track B** (orchestrator, not this
-file): `upgrade_1.5.0.md`, the `CHANGELOG` entry, the campaign-status flip.
+file): `upgrade_1.5.0.md`, the `CHANGELOG` entry, the advance-status flip.
 
 The sub-agent does **Track A only**. Do **not** edit `upgrades/`, `CHANGELOG.md`,
-`plans/campaigns/`, any `doctrine/` file, `tables/`, `src/`, or `tests/`.
+`plans/advances/`, any `doctrine/` file, `tables/`, `src/`, or `tests/`.
 
 ## What changed across mods 076-085 (context for the edits)
 
@@ -122,5 +122,5 @@ the model.
   with correct file/symbol pointers, and no dangling references to removed
   symbols (e.g. `_push_secrets`).
 - No file outside `docex/plans/core/{compiler,release_flow,masterplan}.md`
-  touched. (Track B — upgrade guide, changelog, campaign status — is the
+  touched. (Track B — upgrade guide, changelog, advance status — is the
   orchestrator's.)

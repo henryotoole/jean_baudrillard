@@ -1,6 +1,6 @@
 # Mod 030 — Naming Policy Unification
 
-First mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Foundational data shift that every later mod depends on.
+First mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Foundational data shift that every later mod depends on.
 
 ## The Doctrine Change
 
@@ -52,7 +52,7 @@ Each segment passes verbatim — no lowercasing, no length cap, no separator tra
 
 ### `global_service_name` flips form everywhere
 
-This is the largest behavioral change of the campaign. Today, with `docker` and `ecs` policies on `separator: underscore`, a service named `api` in env `dev` of project `docex_smoke_elastic` compiles to:
+This is the largest behavioral change of the advance. Today, with `docker` and `ecs` policies on `separator: underscore`, a service named `api` in env `dev` of project `docex_smoke_elastic` compiles to:
 
 - Container name: `docex_smoke_elastic_dev_api`
 - Docker network: `docex_smoke_elastic_dev_web`, `docex_smoke_elastic_dev_internal`
@@ -101,7 +101,7 @@ The test churn is mechanical and large, not subtle. Most failures will be one-li
 
 ### Test-projects compiled output — explicitly deferred
 
-`test_projects/{fixed,elastic}/infra/output/` is git-tracked and will diff heavily after this mod (every Docker network, container_name, ECS resource name). **Decision: do not recompile within this mod.** The test projects will be rebuilt from scratch at the end of the campaign as part of the major-version re-inception (per `docex_process.md` — major cuts require a fresh re-inception walk that replaces the seed). Carrying dirty test-project output across the campaign is acceptable; the re-inception blows it away.
+`test_projects/{fixed,elastic}/infra/output/` is git-tracked and will diff heavily after this mod (every Docker network, container_name, ECS resource name). **Decision: do not recompile within this mod.** The test projects will be rebuilt from scratch at the end of the advance as part of the major-version re-inception (per `docex_process.md` — major cuts require a fresh re-inception walk that replaces the seed). Carrying dirty test-project output across the advance is acceptable; the re-inception blows it away.
 
 Implementation note: the implementer should **not** run `./bin/docex compile` against either test project as part of this mod. Any tests that compile the test projects in-place and assert against committed output need handling — see [§ Test ripple](#test-ripple) below and the implementation steps.
 
@@ -138,9 +138,9 @@ Implementation note: the implementer should **not** run `./bin/docex compile` ag
 
 ## Operator Decisions
 
-1. **Test-project recompile** — deferred to end-of-campaign re-inception. Do not run `./bin/docex compile` against the test projects in this mod.
+1. **Test-project recompile** — deferred to end-of-advance re-inception. Do not run `./bin/docex compile` against the test projects in this mod.
 2. **Backwards compatibility** — none, ever. All existing consumer projects under prior `docex_version` pins will be manually updated; no shims, no deprecation paths.
-3. **In-flight consumers** — none beyond the two bundled smoke projects, which will be rebuilt at the end of the campaign. No changelog caveats needed beyond the standard major-bump note.
+3. **In-flight consumers** — none beyond the two bundled smoke projects, which will be rebuilt at the end of the advance. No changelog caveats needed beyond the standard major-bump note.
 4. **`ecr_repo` policy** — delete, do not deprecate.
 
 ## What This Mod Is NOT

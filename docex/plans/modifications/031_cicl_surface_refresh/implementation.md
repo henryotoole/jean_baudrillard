@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 031 of a 16-mod docex campaign. Read [`overview.md`](./overview.md) first — it explains the doctrine bullets being implemented and locks four operator decisions. This document is the operational plan.
+You are executing mod 031 of a 16-mod docex advance. Read [`overview.md`](./overview.md) first — it explains the doctrine bullets being implemented and locks four operator decisions. This document is the operational plan.
 
 Invoke the `docex-edit` skill first to load the docex core docs + relevant doctrine specifics.
 
@@ -166,7 +166,7 @@ pytest tests/unit -x
 pytest tests/integration -x -m "not integration"
 ```
 
-Both must be green before declaring done. The `*_real.py` tests are deselected (out of scope) and may still fail when the operator runs them eventually — that's expected per the campaign-wide deferral.
+Both must be green before declaring done. The `*_real.py` tests are deselected (out of scope) and may still fail when the operator runs them eventually — that's expected per the advance-wide deferral.
 
 ### Step 10 — Final sanity sweep
 
@@ -203,7 +203,7 @@ If this turns out to be more involved (e.g. the magic var `${bare_project_subdom
 - **No `web_demux` HAProxy preinfra changes** — mod 036/042.
 - **No compiler output layout changes** — mod 035.
 - **No command surface changes** — mod 034.
-- **No test-project recompile** — deferred to campaign end (operator decision).
+- **No test-project recompile** — deferred to advance end (operator decision).
 - **No telemetry sidecar rename** — mod 032.
 
 ## Done criteria

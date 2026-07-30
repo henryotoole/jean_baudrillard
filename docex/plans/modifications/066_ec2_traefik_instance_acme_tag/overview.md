@@ -1,6 +1,6 @@
 # Mod 066 — traefik instance carries the acme `purpose` tag (AttachVolume IAM)
 
-Part of the [ec2_traefik-functional campaign](../_campaign_ec2_traefik_functional.md).
+Part of the [ec2_traefik-functional advance](../_advance_ec2_traefik_functional.md).
 Bug 5 — surfaced by the re-walk once mod 065 let user_data reach the EBS-attach
 step (never exercised before).
 
@@ -57,6 +57,6 @@ specifically within the `aws_instance` block.
 
 ## Status
 
-Code-confirmed and unit-tested; **walk-unverified** — see the campaign doc's
+Code-confirmed and unit-tested; **walk-unverified** — see the advance doc's
 "introspection blocker" note. The re-walk that would confirm it (and surface any
 bug 6+) is paused pending a way to introspect the instance.

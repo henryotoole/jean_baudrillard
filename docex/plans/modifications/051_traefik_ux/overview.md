@@ -1,6 +1,6 @@
 # Mod 051 — Traefik UX (Gaps A, B, I)
 
-Third of three mods (049/050/051) feeding the **single** `1.1.0` minor cut. Three traefik-shaped gaps, bundled because they all touch the project reverse-proxy / cert / routing path. Gaps A and I were designed jointly with the operator (the stop-and-ask gate); Gap A's design changed substantially from the campaign's original framing.
+Third of three mods (049/050/051) feeding the **single** `1.1.0` minor cut. Three traefik-shaped gaps, bundled because they all touch the project reverse-proxy / cert / routing path. Gaps A and I were designed jointly with the operator (the stop-and-ask gate); Gap A's design changed substantially from the advance's original framing.
 
 No per-mod cut, no version bump — changes accumulate under `CHANGELOG.md`'s `[Unreleased]`.
 
@@ -37,7 +37,7 @@ Drop the now-dead `${TRAEFIK_DNS_PROVIDER:-}` reference. **Keep** `${TRAEFIK_ACM
 1. Emit `--providers.docker.constraints=Label(\`docex.project\`,\`<project_dns_label>\`)` on the traefik command.
 2. Stamp a `docex.project: <project_dns_label>` label on **every** container docex emits on fixed — env-tier services *and* their otelcol sidecars (`emit_compose`), compose-emitted container-backing services, and the project traefik itself (`emit_project_compose`). Uniform label, added at each emit site (not just web services — uniformity, and so the constraint is unambiguous).
 
-**Doctrine touch (light, pending approval):** the campaign tagged Gap B "no doctrine question," but two docs document the surfaces this changes, so alignment needs a touch:
+**Doctrine touch (light, pending approval):** the advance tagged Gap B "no doctrine question," but two docs document the surfaces this changes, so alignment needs a touch:
 - `fixed_reverse_proxy.md` — add the `--providers.docker.constraints` line to the traefik command block + a sentence on the project-scoping.
 - `transfer_tables.md § Per-container (fixed)` — add `docex.project: ${project_dns_label}` to the universal per-container label set listed there.
 

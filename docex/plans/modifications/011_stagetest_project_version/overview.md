@@ -67,8 +67,8 @@ Both smoke `infra/stage/Dockerfile` comment headers currently mention only `$STA
 
 The doctrine landed:
 
-- `cicd.md § Staging Tests` step 3 — `PROJECT_VERSION` listed alongside `STAGING_URL` (already in the campaign doctrine commit).
-- `tests.md § Staging Tests § Injected environment` — table documenting both injected vars (already in the campaign doctrine commit).
+- `cicd.md § Staging Tests` step 3 — `PROJECT_VERSION` listed alongside `STAGING_URL` (already in the advance doctrine commit).
+- `tests.md § Staging Tests § Injected environment` — table documenting both injected vars (already in the advance doctrine commit).
 - `transfer_tables.md § Per-core-service env (both foundations)` — **new section** added today, describing `PROJECT_VERSION` as a doctrine-injected per-core-service env var. Notes: not project-declared; emitted on both foundations; backing services don't receive it; the name matches what `stagetest` injects so introspection and assertion use the same handle.
 
 Mod 011's source-side work implements all three doctrine touchpoints.
@@ -77,7 +77,7 @@ Mod 011's source-side work implements all three doctrine touchpoints.
 
 | Artifact | Change |
 | -------- | ------ |
-| `doctrine/.../*.md` | `transfer_tables.md` gets a new "Per-core-service env" subsection (new this morning); `cicd.md` and `tests.md` updates already landed with the campaign doctrine commit. No further edits in this mod. |
+| `doctrine/.../*.md` | `transfer_tables.md` gets a new "Per-core-service env" subsection (new this morning); `cicd.md` and `tests.md` updates already landed with the advance doctrine commit. No further edits in this mod. |
 | `docex/plans/core/*.md` | No change — the per-core-service env invariant lives in `transfer_tables.md` (data) and `compile.py`'s invariant helpers (code); `compiler.md`'s "Per-foundation invariants" section already points at where to look. |
 | `tables/*.yml` | No change. `PROJECT_VERSION` is a foundation invariant emitted from docex code, not a per-engine declaration. |
 | `src/docex/**` | `pipeline/stagetest.py` — add `PROJECT_VERSION` to the tester's env dict. `cicl/compile.py` — extend `_apply_fixed_invariants` and `_apply_elastic_invariants` (the per-foundation invariant helpers around lines 565+) to emit `PROJECT_VERSION` on core services. |
@@ -96,7 +96,7 @@ Smoke project adoption:
 
 1. `python3 -m pytest tests/unit/` — green, including all new tests.
 2. `python3 -m pytest tests/integration/` — green (no integration tests expected to change semantics).
-3. Manual `./bin/docex stagetest` walk against a real deployed stack — covered by the campaign-end PRE_CUT_CHECKLIST, not this mod.
+3. Manual `./bin/docex stagetest` walk against a real deployed stack — covered by the advance-end PRE_CUT_CHECKLIST, not this mod.
 
 ## Decisions captured
 

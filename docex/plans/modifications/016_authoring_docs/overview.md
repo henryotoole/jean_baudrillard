@@ -12,7 +12,7 @@ After Mods 012–015, the doctrine declares enough machinery to support project-
 
 A project developer asking "how do I add ClickHouse?" has to stitch those together themselves. Mod 016 consolidates the authoring perspective into one place, with worked examples that walk end-to-end.
 
-Plus the small unfinished doctrine item from Campaign goal #2: documenting the deep-merge semantics for naming policies, so projects know they can define new policies and override existing ones via project-local tables.
+Plus the small unfinished doctrine item from Advance goal #2: documenting the deep-merge semantics for naming policies, so projects know they can define new policies and override existing ones via project-local tables.
 
 ## Design
 
@@ -78,7 +78,7 @@ Read-through review against the implementation as Mods 012–015 left it. Confir
 1. **One consolidated section, not scattered additions.** A project author should be able to read one section and have everything they need. Cross-links to the earlier doctrine sections cover the spec details; this section is the practical guide.
 2. **Two worked examples, one stateless and one stateful.** Together they exercise every authoring surface: foundation, emits, defaults, provides, naming, persistent_storage, fields with target routing.
 3. **Worked examples are concrete and complete.** Not pseudo-YAML — actual files a project could copy and adapt. Long-form is acceptable here because the authoring scenario is concrete.
-4. **Naming-policy deep-merge gets equal billing**. Campaign goal #2's specific request: projects need to know they can override or extend the policy set. The deep-merge subsection covers it.
+4. **Naming-policy deep-merge gets equal billing**. Advance goal #2's specific request: projects need to know they can override or extend the policy set. The deep-merge subsection covers it.
 
 ## Open questions
 

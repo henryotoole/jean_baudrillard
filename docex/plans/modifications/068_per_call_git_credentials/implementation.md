@@ -6,7 +6,7 @@ so in-container git brokers a fresh credential on every network op.
 
 Branch: `feat/per-call-git-credentials` (off doctrine `main`; already checked out).
 Docex mods have **no operator manual-test phase** and no version bump here (the cut
-is a campaign-end step). Leave changes uncommitted for the design context to review.
+is an advance-end step). Leave changes uncommitted for the design context to review.
 
 ## Key insight that makes this simple and robust
 
@@ -197,7 +197,7 @@ Under `## [Unreleased]` → **Changed**: note that docex's opt-in host git-crede
 passthrough now brokers a **fresh** credential per in-container network op (was a
 single credential captured at invocation), fixing `docex merge` on brokered-git dev
 boxes where the long defensive `check` could outlive a ~1h token (lifecycle finding
-B2). No version bump (campaign-end cut).
+B2). No version bump (advance-end cut).
 
 ## 5. Verification
 
@@ -218,5 +218,5 @@ B2). No version bump (campaign-end cut).
   python3 + git suffice).
 - No `src/docex/**` change (merge/git orchestration is unchanged).
 - No transfer-table change.
-- No version bump / cut (campaign-end).
+- No version bump / cut (advance-end).
 - Do not touch the non-passthrough static path.

@@ -1,6 +1,6 @@
 # Mod 052 — Elastic Observability + Lifecycle (Gaps E, F)
 
-Fourth and final mod of the post-shape-overhaul campaign (049–052), feeding the single `1.1.0` minor cut. Two **independent** elastic-only workstreams: **E** (ECS container logs → CloudWatch) and **F** (automated, safe elastic teardown). This is the heaviest mod of the campaign — both gaps carry multi-file doctrine touches and Gap F adds new `tofu_destroy` + AWS primitives.
+Fourth and final mod of the post-shape-overhaul advance (049–052), feeding the single `1.1.0` minor cut. Two **independent** elastic-only workstreams: **E** (ECS container logs → CloudWatch) and **F** (automated, safe elastic teardown). This is the heaviest mod of the advance — both gaps carry multi-file doctrine touches and Gap F adds new `tofu_destroy` + AWS primitives.
 
 No per-mod cut, no version bump — accumulates under `CHANGELOG.md`'s `[Unreleased]`.
 
@@ -10,7 +10,7 @@ No per-mod cut, no version bump — accumulates under `CHANGELOG.md`'s `[Unrelea
 
 **Symptom:** container stdout/stderr on elastic is invisible — no CloudWatch, no sink. A silently-failing worker or a migration whose error lives in stdout means hand-patching a task-def with `awslogs` and `RunTask`-ing it by hand.
 
-**Design — settled this session** (recorded in the campaign Gap E entry). The reframe: this is the **Class-2 diagnostic-stdout** path (crashes, pre-SDK-init output, `migrate.sh`), distinct from Class-1 SDK telemetry (which already flows app → OTel sidecar → HyperDX). Class-2 goes to **CloudWatch via `awslogs`** — the doctrine already half-committed to this (`elastic_iam.md` grants the log perms; the emit just never wired it — confirmed: no `logConfiguration` / `aws_cloudwatch_log_group` exists in `hcl.py` today).
+**Design — settled this session** (recorded in the advance Gap E entry). The reframe: this is the **Class-2 diagnostic-stdout** path (crashes, pre-SDK-init output, `migrate.sh`), distinct from Class-1 SDK telemetry (which already flows app → OTel sidecar → HyperDX). Class-2 goes to **CloudWatch via `awslogs`** — the doctrine already half-committed to this (`elastic_iam.md` grants the log perms; the emit just never wired it — confirmed: no `logConfiguration` / `aws_cloudwatch_log_group` exists in `hcl.py` today).
 
 **docex change (`src/docex/emit/hcl.py`):**
 - Emit `logConfiguration { logDriver = "awslogs", options = {...} }` on **every** container definition in `render_task_definition` — the app container, the **OTel sidecar**, and the **`_migrate`** container (the migration-stdout case is the headline symptom). Points at the explicit log group below.

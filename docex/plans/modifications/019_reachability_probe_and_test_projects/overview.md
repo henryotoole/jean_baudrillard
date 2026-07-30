@@ -2,13 +2,13 @@
 
 ## Problem
 
-After mods 017 and 018, every project compiles with `observability_backend_url`, every core service gets OTEL env vars, every core service is paired with an OTel Collector sidecar, and `TELEMETRY_API_KEY` is documented in `example.env`. The last missing piece from the telemetry campaign:
+After mods 017 and 018, every project compiles with `observability_backend_url`, every core service gets OTEL env vars, every core service is paired with an OTel Collector sidecar, and `TELEMETRY_API_KEY` is documented in `example.env`. The last missing piece from the telemetry advance:
 
 1. **Reachability probe in `docex check`.** Per [doctrine/infrastructure/specifics/telemetry_infra.md § Validation Rules](../../../doctrine/infrastructure/specifics/telemetry_infra.md#validation-rules) and [doctrine/infrastructure/cicd.md § Check Step](../../../doctrine/infrastructure/cicd.md#check-step) (the operator added line item #9 to the doctrine's check process), `docex check` should HTTP GET `observability_backend_url` before letting a merge through. Catches typos, expired DNS, broken cert, dead backend — anything that would surface as broken telemetry on release.
 
 2. **Smoke-test project updates.** Both smoke projects need `observability_backend_url` in their `infra.yml` (otherwise they fail compile on docex ≥ 0.11.0 from mod 017's required field). The gitignored `stage.env` / `prod.env` files on the dev machine need `TELEMETRY_API_KEY` populated for stage/prod walks. The smoke projects' own version bumps reflect the substantive `infra.yml` change.
 
-After this mod the campaign is feature-complete. The cut of 0.11.0 happens immediately after, per `docex_process.md § Cutting a version`.
+After this mod the advance is feature-complete. The cut of 0.11.0 happens immediately after, per `docex_process.md § Cutting a version`.
 
 ## Scope
 

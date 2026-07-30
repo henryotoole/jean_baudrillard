@@ -66,5 +66,5 @@ code comments.
 - Unit: `run_up(dev)` on a scheduler-bearing fixture issues a `build_image`
   with `target="prod"` and the dev-local tag, and does **not** run the
   initial-dev-build for the scheduler.
-- Live: covered by the smoke-project bring-up (see the campaign notes) — a real
+- Live: covered by the smoke-project bring-up (see the advance notes) — a real
   `docex up dev` builds the scheduler image and Ofelia fires the job.

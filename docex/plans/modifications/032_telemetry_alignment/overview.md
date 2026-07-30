@@ -1,10 +1,10 @@
 # Mod 032 — Telemetry Alignment
 
-Third mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Brings docex's telemetry sidecar emission and naming in line with the doctrine's two telemetry-side updates.
+Third mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Brings docex's telemetry sidecar emission and naming in line with the doctrine's two telemetry-side updates.
 
 ## The Doctrine Changes
 
-From [`_campaign_doctrine_shape_and_tiers.md § Telemetry sidecar — name changes propagate`](../_campaign_doctrine_shape_and_tiers.md):
+From [`_advance_doctrine_shape_and_tiers.md § Telemetry sidecar — name changes propagate`](../_advance_doctrine_shape_and_tiers.md):
 
 1. **All `<svc>_otelcol` → `<svc>-otelcol`.** Container name, compose service name, ECS container name, log paths, error-message references. Per [`telemetry_infra.md`](../../../../doctrine/infrastructure/specifics/telemetry_infra.md) (every occurrence) and [`telemetry.md`](../../../../doctrine/infrastructure/telemetry.md).
 2. **New doctrine-injected env vars on every core service**, in addition to the pre-existing `PROJECT_VERSION`: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT` (always `http://localhost:4318`), `OTEL_EXPORTER_OTLP_PROTOCOL` (`http/protobuf`), `OTEL_RESOURCE_ATTRIBUTES` (composed). Per [`transfer_tables.md § Per-core-service env (both foundations)`](../../../../doctrine/infrastructure/specifics/transfer_tables.md#per-core-service-env-both-foundations).
@@ -25,7 +25,7 @@ env_block["OTEL_RESOURCE_ATTRIBUTES"] = (
 )
 ```
 
-`validate.py:54–61` comment cites these as "mods 011 (PROJECT_VERSION) + 017 (the OTEL_*…)" — they landed in earlier work that I (the design context) wasn't aware of when drafting the campaign list. The doctrine bullet about OTEL injection is therefore already satisfied; mod 032 collapses to just the sidecar rename. **No code change for bullet 2** — the OTEL_RESOURCE_ATTRIBUTES format already matches the doctrine spec exactly.
+`validate.py:54–61` comment cites these as "mods 011 (PROJECT_VERSION) + 017 (the OTEL_*…)" — they landed in earlier work that I (the design context) wasn't aware of when drafting the advance list. The doctrine bullet about OTEL injection is therefore already satisfied; mod 032 collapses to just the sidecar rename. **No code change for bullet 2** — the OTEL_RESOURCE_ATTRIBUTES format already matches the doctrine spec exactly.
 
 If something is amiss with the existing injection (a misnamed key, a misformatted RESOURCE_ATTRIBUTES string) the implementer will catch it during sanity sweep. Otherwise: leave bullet 2 alone.
 
@@ -67,7 +67,7 @@ Both forms must change `_otelcol` → `-otelcol`. The `${project}-${env}` prefix
 
 ## Ramifications
 
-Same as mods 030 and 031: the test-projects committed `infra/output/` will diff (every sidecar name flips), but we don't recompile per the campaign-wide deferral.
+Same as mods 030 and 031: the test-projects committed `infra/output/` will diff (every sidecar name flips), but we don't recompile per the advance-wide deferral.
 
 The implication for deployed projects: any running container named `${project}_${env}_<svc>_otelcol` (under the old form) is now orphaned from compose's perspective. On the next compose-up after this mod ships, compose will create the new `-otelcol` container and the old one will linger until the operator manually removes it. Per operator decision, no in-flight consumers exist, so this is academic. Documented for the changelog.
 
@@ -83,7 +83,7 @@ The ECS side is cleaner — ECS rolls task definitions and the old containers ar
 
 - Not changing the OTEL pipeline shape (receivers, processors, exporters) — already correct per `telemetry_infra.md`.
 - Not adding new telemetry env vars — they're already injected.
-- Not changing the OTel collector image pin — that's a doctrine-version concern, not a campaign one.
+- Not changing the OTel collector image pin — that's a doctrine-version concern, not an advance one.
 - Not changing telemetry preinfra (HyperDX setup) — that's the `docex-preinfra` skill, untouched.
 
-This is the smallest mod of the campaign. Tight scope, mostly a `s/_otelcol/-otelcol/g` sweep with a single doubly-wrong literal-joiner site (`compose.py:179`) that mod 030's partial flip missed.
+This is the smallest mod of the advance. Tight scope, mostly a `s/_otelcol/-otelcol/g` sweep with a single doubly-wrong literal-joiner site (`compose.py:179`) that mod 030's partial flip missed.

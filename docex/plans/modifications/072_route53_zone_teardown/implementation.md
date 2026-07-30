@@ -128,7 +128,7 @@ that reads the compiled `main.tf` and uses a `_block(tf, 'resource
 def test_project_route53_zone_force_destroy(compiled_elastic_project: Path):
     """The child zone is emitted force_destroy=true so teardown sweeps
     out-of-band records (dev A-records, stale ACM CNAMEs) and can't hit
-    HostedZoneNotEmpty. Mod 072 / campaign 002."""
+    HostedZoneNotEmpty. Mod 072 / advance 002."""
     tf = (compiled_elastic_project / "infra" / "output" / "project" / "production" / "main.tf").read_text()
     blk = _block(tf, 'resource "aws_route53_zone" "project"')
     assert "force_destroy = true" in blk
@@ -148,7 +148,7 @@ def test_projinfra_elastic_down_prints_delegation_removal_reminder(
     elastic_ctx, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
 ):
     """On a successful teardown, docex reminds the operator to remove the
-    parent-zone NS delegation it can't manage itself. Mod 072 / campaign 002."""
+    parent-zone NS delegation it can't manage itself. Mod 072 / advance 002."""
     _compile_project_tier(elastic_ctx)
     fake_aws.cluster_has_services = False  # envs down; ECR empty by default
 

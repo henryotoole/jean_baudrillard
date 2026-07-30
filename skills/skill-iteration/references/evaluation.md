@@ -69,6 +69,17 @@ Triggering is already proven by the trigger eval, so an outcome run *ensures* th
 
 Case files live at `outcome/<skill>/evals.json` — add one per skill you evaluate; see `schemas.md` for the shape.
 
+### In-tree mutation cases (graded on a diff)
+
+Most skills produce a *fresh artifact* from a prompt, so the prompt + optional static `files` is the whole input and the produced content is what you grade. A few skills instead **mutate an existing project in place** — `project-cohere` reads a project's core planning docs against its code and heals drift. There the input is a whole doctrine project *in a specific drift state* and the graded artifact is the **diff** the run produces — including the *empty* diff, which is the correct result when the project is already coherent.
+
+These get a fixture harness alongside the usual `evals.json`, at `outcome/project-cohere/` (see its `README.md`). The shape:
+
+- **States are `base + overlay`, not full copies** — one coherent `_base` project plus a per-state overlay carrying only the files that differ, so every state is provably `base + exactly one intended drift`. That isolation is the point: one state per finding case.
+- **`run_outcome.py` runs the whole loop in one command** — per case and configuration it assembles, runs a headless `claude -p` to cohere the scratch project, captures the diff, grades it with another `claude -p` (the shared `grader.md`), and prints the with-skill vs baseline delta. Grading needs an LLM but not an interactive agent. Under it, **`run_fixture.py` does the deterministic scaffolding** — `assemble` copies base+overlay into a scratch git repo *outside this repo* and records a baseline commit; `capture` emits the diff against the baseline (files changed, insertions/deletions, `is_empty`, unified diff). Drive those two by hand when debugging one stage.
+- **Grade on the diff, not an exact expected tree** — "mark unimplemented" and "edit the doc to match code" have free wording, so exact-match is too brittle; hand the diff + the case's `expectations` to `agents/grader.md` as usual.
+- **The no-op is a first-class delta driver** — a naive "make the docs consistent" baseline fiddles or deletes; the doctrine-correct behavior is often to change nothing (already coherent) or to *mark, not delete*. That gap is exactly the skill's measured value.
+
 ### Grading: two complementary lenses
 
 - **Expectation grading (`agents/grader.md`)** is the objective, gated measure. Grade each output against the case's `expectations` independently, with evidence, emitting a `grading.json` (per `schemas.md`). Prefer deterministic checks. The **delta-driver pass/fail gap between with-skill and baseline is the headline number.** This is what gates a cut.

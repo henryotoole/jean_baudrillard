@@ -75,7 +75,7 @@ python -m pytest tests/unit/test_pipeline_projinfra.py -q
 python -m pytest -q          # full unit suite must stay green
 ```
 
-Do NOT run `-m integration` here (that is the campaign-level expensive pass). Do
+Do NOT run `-m integration` here (that is the advance-level expensive pass). Do
 not update core planning docs beyond masterplan.md step 3, and do not touch the
 version artifacts or CHANGELOG (the cut handles those).
 

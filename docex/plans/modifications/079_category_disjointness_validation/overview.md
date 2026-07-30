@@ -1,6 +1,6 @@
 # Mod 079 — Cross-category disjointness + reserved-key validation
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 4 of 11). Adds the compile-time validation that makes the three
 value categories safe to aggregate as a plain disjoint union: no key may belong
 to two categories, and doctrine-injected keys may not be redeclared.

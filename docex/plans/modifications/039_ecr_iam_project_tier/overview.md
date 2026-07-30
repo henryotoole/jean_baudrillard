@@ -1,6 +1,6 @@
 # Mod 039 — ECR + IAM Move to Project-Tier
 
-Tenth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Scope shrinks substantially: ECR repos and the task-execution IAM role are **already** project-tier in the current code (probably moved in earlier work). What this mod actually does: tighten the IAM policy to the doctrine spec, replacing the broad AWS-managed policy with an explicit project-scoped inline policy.
+Tenth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Scope shrinks substantially: ECR repos and the task-execution IAM role are **already** project-tier in the current code (probably moved in earlier work). What this mod actually does: tighten the IAM policy to the doctrine spec, replacing the broad AWS-managed policy with an explicit project-scoped inline policy.
 
 ## The Doctrine Change
 
@@ -163,7 +163,7 @@ For the next ECS task to launch successfully:
 
 In practice, `tofu apply` waits for IAM consistency before returning. The doctrine's narrow-window deployments accept the residual risk.
 
-Per operator decision (campaign-wide), no in-flight projects need migration help.
+Per operator decision (advance-wide), no in-flight projects need migration help.
 
 ### No env-tier impact
 

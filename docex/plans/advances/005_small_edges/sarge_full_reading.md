@@ -1,0 +1,1 @@
+Sarge should have full-doctrine read into context when making decisions.

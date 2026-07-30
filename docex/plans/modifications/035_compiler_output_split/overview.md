@@ -1,6 +1,6 @@
 # Mod 035 — Compiler Output Split + Always-on Four `-web` Networks
 
-Sixth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Stages the project-tier output layout for the projinfra emission work that follows (mods 036–039).
+Sixth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Stages the project-tier output layout for the projinfra emission work that follows (mods 036–039).
 
 ## The Doctrine Change
 
@@ -138,7 +138,7 @@ Operators running `docex compile` will see:
 - New file: `infra/output/project/development/docker-compose.yml` (every project).
 - New file: `infra/output/project/production/docker-compose.yml` (fixed projects).
 
-The `git diff` on test-projects would be substantial if we recompiled — but per campaign-wide deferral, we don't.
+The `git diff` on test-projects would be substantial if we recompiled — but per advance-wide deferral, we don't.
 
 ### `pipeline/bootstrap.py` continuity
 

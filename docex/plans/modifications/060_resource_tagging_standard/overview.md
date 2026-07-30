@@ -1,6 +1,6 @@
 # Mod 060 — Resource tagging standard
 
-Final mod of the `001_skill_update` campaign. Implements the cross-infrastructure
+Final mod of the `001_skill_update` advance. Implements the cross-infrastructure
 tagging standard the operator authored in
 [`cicl.md § Naming and Tagging`](../../../../doctrine/infrastructure/cicl.md#naming-and-tagging),
 bringing every elastic resource docex emits (and every tag-based lookup) into

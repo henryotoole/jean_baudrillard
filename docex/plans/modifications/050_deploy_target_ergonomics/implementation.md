@@ -2,7 +2,7 @@
 
 Fresh-context implementation guide for [`overview.md`](./overview.md). Two items: **Gap G** (preinfra SSH probe for target-host registry creds) and **Gap D** (a small `build.py` diagnostic; the gap's core is already closed by `up.py::_ensure_initial_dev_build`).
 
-**Plan context that differs from a normal mod:** this mod feeds a *single* `1.1.0` minor cut at the end of mods 049–052. So **do NOT bump the version** (`pyproject.toml` / `__init__.py` stay at `1.0.3`); only append to `CHANGELOG.md`'s `[Unreleased]` section. **Do NOT** edit `plans/core/*` or the campaign file. **Do NOT** commit, tag, or `docker build`. Leave all changes uncommitted.
+**Plan context that differs from a normal mod:** this mod feeds a *single* `1.1.0` minor cut at the end of mods 049–052. So **do NOT bump the version** (`pyproject.toml` / `__init__.py` stay at `1.0.3`); only append to `CHANGELOG.md`'s `[Unreleased]` section. **Do NOT** edit `plans/core/*` or the advance file. **Do NOT** commit, tag, or `docker build`. Leave all changes uncommitted.
 
 The doctrine changes for Gap G are **already done** (committed-pending: `doctrine/.../preinfra/container_registry.md` and `doctrine/.../specifics/release.md`) — do not touch doctrine.
 
@@ -140,4 +140,4 @@ The integration suite has a pre-existing, environment-specific failure (`test_st
 | `tests/unit/test_orchestrate_build.py` | Gap D test |
 | `CHANGELOG.md` | `[Unreleased]` entries (no version bump) |
 
-Out of scope (do not implement): version bump, campaign-file edits, core-doc edits, ephemeral-build / root-owned-`dist/` handling, the remote-multi-host fixed SSH topology beyond what the single apex-derived host gives.
+Out of scope (do not implement): version bump, advance-file edits, core-doc edits, ephemeral-build / root-owned-`dist/` handling, the remote-multi-host fixed SSH topology beyond what the single apex-derived host gives.

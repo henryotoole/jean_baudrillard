@@ -1,7 +1,7 @@
 # Mod 083 — `docex secrets` command group
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
-(step 2, mod 8 of 11). The value-blind secrets tooling — the campaign deliverable
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
+(step 2, mod 8 of 11). The value-blind secrets tooling — the advance deliverable
 a downstream project is waiting on. `scaffold` / `status` / `set` / `copy` let an
 LLM agent *drive* secret handling while being structurally unable to *see* a
 secret value.

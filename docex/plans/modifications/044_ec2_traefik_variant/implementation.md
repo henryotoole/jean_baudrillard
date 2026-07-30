@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 044 — the campaign's largest mod. Read [`overview.md`](./overview.md) first.
+You are executing mod 044 — the advance's largest mod. Read [`overview.md`](./overview.md) first.
 
 Invoke the `docex-edit` skill via Skill.
 

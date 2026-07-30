@@ -1,0 +1,1 @@
+Add MCP to existing suffix convention (Http, Cli, Ws, Grpc)

@@ -1,6 +1,6 @@
 # Mod 054 — Dev DNS gate + `test` cert/route exclusion
 
-First mod of the `001_skill_update` campaign. Closes the planner's "DNS and
+First mod of the `001_skill_update` advance. Closes the planner's "DNS and
 Certs for development-side" item.
 
 ## The problem

@@ -254,7 +254,7 @@ before acting.
 2. Leave `pyproject.toml` / `src/docex/__init__.py` at the working-tree `1.1.0`
    (already bumped for the candidate image) — the **cut** formalizes version +
    CHANGELOG; not this mod.
-3. Do NOT update `CHANGELOG.md`'s `[Unreleased]` beyond what the campaign needs —
+3. Do NOT update `CHANGELOG.md`'s `[Unreleased]` beyond what the advance needs —
    add 053's bullets under the existing `[Unreleased]` (the cut dates it). Match
    the 049–052 bullet style.
 4. Report what changed per file so the design-context agent can review for drift

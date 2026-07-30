@@ -1,6 +1,6 @@
 # Mod 064 — Implementation steps
 
-Implements bug 3 of the [ec2_traefik campaign](../_campaign_ec2_traefik_functional.md):
+Implements bug 3 of the [ec2_traefik advance](../_advance_ec2_traefik_functional.md):
 render the traefik dynamic routing config at release time and push it to SSM.
 Read [`overview.md`](./overview.md) for rationale + the config shape. Self-contained.
 

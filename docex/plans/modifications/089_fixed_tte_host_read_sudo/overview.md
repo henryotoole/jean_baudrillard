@@ -40,7 +40,7 @@ Unit tests never caught it: they mock `ssh.capture` to *return* the canned host
 value, so the real-host permission mismatch is invisible. Only a live second
 release exposes it — precisely what the smoke walk is for.
 
-Pre-existing in the envmageddon campaign (mod 081 introduced `ensure_tte_fixed`);
+Pre-existing in the envmageddon advance (mod 081 introduced `ensure_tte_fixed`);
 the doctrine's rule is correct, docex simply fails to read its own store.
 
 ## Design

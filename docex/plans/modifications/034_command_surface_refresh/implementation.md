@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 034 of a 16-mod docex campaign. Read [`overview.md`](./overview.md) first.
+You are executing mod 034 of a 16-mod docex advance. Read [`overview.md`](./overview.md) first.
 
 Invoke the `docex-edit` skill via Skill.
 
@@ -214,7 +214,7 @@ Add minimal tests for the three new dispatchers:
 
 #### Real-test guards
 
-Some `*_real.py` integration tests probably shell out to `docex bootstrap` or `docex up`/`down`. Per campaign-wide rule, those are out of scope; don't fix them. They'll surface in the final smoke walk.
+Some `*_real.py` integration tests probably shell out to `docex bootstrap` or `docex up`/`down`. Per advance-wide rule, those are out of scope; don't fix them. They'll surface in the final smoke walk.
 
 ### Step 8 — Run tests
 

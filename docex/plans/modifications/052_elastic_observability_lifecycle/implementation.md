@@ -2,7 +2,7 @@
 
 Fresh-context guide for [`overview.md`](./overview.md). Two **independent** elastic-only workstreams: **E** (ECS logs → CloudWatch) and **F** (safe elastic teardown). All Mod 052 doctrine is **already done and committed** — do **not** edit `doctrine/**`.
 
-**Plan context:** feeds a single later `1.1.0` cut. **Do NOT bump the version** (`pyproject.toml`/`__init__.py` stay `1.0.3`); only append to `CHANGELOG.md` `[Unreleased]`. Do **not** commit/tag/`docker build`. Leave changes uncommitted. Don't touch `engineer/tmp/*` or `plans/core` / `plans/campaigns`. `pytest` directly (no `python` on PATH; no venv).
+**Plan context:** feeds a single later `1.1.0` cut. **Do NOT bump the version** (`pyproject.toml`/`__init__.py` stay `1.0.3`); only append to `CHANGELOG.md` `[Unreleased]`. Do **not** commit/tag/`docker build`. Leave changes uncommitted. Don't touch `engineer/tmp/*` or `plans/core` / `plans/advances`. `pytest` directly (no `python` on PATH; no venv).
 
 Read the actual current code of every file before editing. Match surrounding idiom. New client/runner methods follow the three-place pattern (Protocol + concrete + conftest fake) where applicable.
 

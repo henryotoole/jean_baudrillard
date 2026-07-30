@@ -2,7 +2,7 @@
 
 ## Origin
 
-Campaign [`002_infra_record_issue`](../../campaigns/002_infra_record_issue/record_issue.md).
+Advance [`002_infra_record_issue`](../../advances/002_infra_record_issue/record_issue.md).
 An elastic project (`tactical_lifecycle_test`, apex `luxedo.cc`) could not complete
 `./bin/docex projinfra down production` on docex 1.4.3: `tofu destroy` tore down the
 whole prod tier except the Route53 child zone, which failed with
@@ -42,8 +42,8 @@ and [`projinfra.md`](../../../../doctrine/infrastructure/specifics/projinfra/pro
    unambiguous "destroy the project's DNS" intent; affects **destroy only**.
 
 2. **Symmetric teardown reminder** printed on a successful `projinfra down
-   production`. This is the corrected form of the campaign's "delete the parent NS
-   delegation" suggestion. The campaign doc assumed *docex* created that delegation
+   production`. This is the corrected form of the advance's "delete the parent NS
+   delegation" suggestion. The advance doc assumed *docex* created that delegation
    and should tofu-manage its removal — but docex **never** writes the parent
    delegation. Per doctrine ([`elastic_route53_zone.md § NS Delegation`](../../../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md#ns-delegation))
    the parent zone may be a third-party registrar, a different AWS account, or

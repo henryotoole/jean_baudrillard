@@ -1,6 +1,6 @@
 # Mod 043 — Service Connect: Private DNS Namespace
 
-Fourteenth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Flips the Service Connect namespace resource type from HTTP to Cloud Map private DNS, enabling VPC-wide DNS resolution that mod 044's EC2-traefik variant will rely on.
+Fourteenth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Flips the Service Connect namespace resource type from HTTP to Cloud Map private DNS, enabling VPC-wide DNS resolution that mod 044's EC2-traefik variant will rely on.
 
 ## The Doctrine Change
 
@@ -82,11 +82,11 @@ Each env gets its own namespace, and the namespace name is unique per `(project,
 
 Mod 044's EC2-traefik instance lives in the master VPC outside any ECS task netns. It needs to resolve service names via DNS (no Envoy sidecar). The private DNS namespace's auto-managed Route53 hosted zone makes this work — VPC DNS resolves `<svc>.${project}-${env}` to the running ECS task IPs.
 
-Without mod 043's switch, mod 044 couldn't function. This is the reason for the ordering in the campaign.
+Without mod 043's switch, mod 044 couldn't function. This is the reason for the ordering in the advance.
 
 ### Test-projects compiled output
 
-Same as prior mods: the test-projects' committed `infra/output/<env>/main.tf` will diff. Per campaign-wide deferral, not regenerated in this mod.
+Same as prior mods: the test-projects' committed `infra/output/<env>/main.tf` will diff. Per advance-wide deferral, not regenerated in this mod.
 
 ## Concrete file surface
 

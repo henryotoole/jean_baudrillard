@@ -205,7 +205,7 @@ python3 -m pytest tests/unit/
 python3 -m pytest tests/unit/test_magic_refs.py -v  # confirm the new test runs and passes
 ```
 
-All must pass. The full `tests/` (including integration) is optional for the sub-agent run — the design-context LLM will run integration as part of campaign-end checks.
+All must pass. The full `tests/` (including integration) is optional for the sub-agent run — the design-context LLM will run integration as part of advance-end checks.
 
 ## Step 8 — Leave everything uncommitted
 
@@ -226,5 +226,5 @@ In ≤200 words:
 - Stronger sslmode values (`verify-ca`, `verify-full`) — deferred per overview.md § "Stronger sslmode values are out of scope".
 - Source code changes under `src/docex/**` — the magic-ref resolver should handle plain-string templates unmodified. If it doesn't, that's a separate finding.
 - Doctrine prose changes — already landed.
-- Bumping the smoke projects' inner-repo `project.yml` version or moving the `v<version>` tag — that's part of the campaign-end work, not per-mod.
+- Bumping the smoke projects' inner-repo `project.yml` version or moving the `v<version>` tag — that's part of the advance-end work, not per-mod.
 - Updating `docex/CHANGELOG.md` — done at cut time, not per mod.

@@ -1,6 +1,6 @@
 # Mod 034 — Command Surface Refresh
 
-Fifth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Drops `bootstrap`; collapses `up`/`down` into `envinfra <direction> <env>`; wires stubs for `preinfra <side>` and `projinfra <direction> <side>`. Pure dispatcher / CLI-surface change — internal behavior is preserved.
+Fifth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Drops `bootstrap`; collapses `up`/`down` into `envinfra <direction> <env>`; wires stubs for `preinfra <side>` and `projinfra <direction> <side>`. Pure dispatcher / CLI-surface change — internal behavior is preserved.
 
 ## The Doctrine Change
 
@@ -25,7 +25,7 @@ This is a **CLI-surface mod**. Real `preinfra` checks land in mod 042; real `pro
 - `projinfra up production` on **elastic projects** — runs the existing bootstrap flow (`pipeline/bootstrap.py:run_bootstrap`) which creates the OpenTofu state backend. This preserves the only useful behavior the old `bootstrap` command had.
 - `projinfra up <other-side>` and `projinfra down <side>` for any other case — prints a "projinfra stub" notice, returns 0.
 
-This pattern matches the campaign brief's instruction: "For elastic, `projinfra up production` initially continues to do what `bootstrap` did (state backend only). `preinfra` is a no-op success. Pure dispatcher / naming change; real behavior arrives in 036/037/042."
+This pattern matches the advance brief's instruction: "For elastic, `projinfra up production` initially continues to do what `bootstrap` did (state backend only). `preinfra` is a no-op success. Pure dispatcher / naming change; real behavior arrives in 036/037/042."
 
 ## Concrete dispatcher surface
 
@@ -63,8 +63,8 @@ Same for `src/docex/pipeline/bootstrap.py` — keep the file and its `run_bootst
 
 ## Ramifications
 
-- **Breaking change** for any caller of `docex up`, `docex down`, or `docex bootstrap`. The operator (per their decision) has no in-flight consumer projects; only the smoke projects might use the old commands. The smoke projects will get rebuilt at end of campaign.
-- The campaign brief's reading-order suggestion lists `docex.md` as #6 — the operator should expect the new surface to appear in the manifest from this mod forward.
+- **Breaking change** for any caller of `docex up`, `docex down`, or `docex bootstrap`. The operator (per their decision) has no in-flight consumer projects; only the smoke projects might use the old commands. The smoke projects will get rebuilt at end of advance.
+- The advance brief's reading-order suggestion lists `docex.md` as #6 — the operator should expect the new surface to appear in the manifest from this mod forward.
 - `docex --help` output changes shape (phase grouping → purpose grouping). Tests asserting on help text need updates.
 
 ## Operator Decisions

@@ -1,6 +1,6 @@
 # Mod 064 — Release-side traefik dynamic-config render + SSM push
 
-Part of the [ec2_traefik-functional campaign](../_campaign_ec2_traefik_functional.md).
+Part of the [ec2_traefik-functional advance](../_advance_ec2_traefik_functional.md).
 Bug 3 of 3.
 
 ## Problem
@@ -111,6 +111,6 @@ exactly. mod 064 makes the code match the doctrine. No prose edit.
    ec2_traefik project calls `ssm_put_parameter` for
    `.../ec2_traefik/config.yml`, and that an `alb` project does NOT.
 
-Real-AWS confirmation is the campaign re-walk (task #9): after release, the SSM
+Real-AWS confirmation is the advance re-walk (task #9): after release, the SSM
 param is non-empty and `curl https://web.stage.<zone>/health` returns 200
 through traefik.

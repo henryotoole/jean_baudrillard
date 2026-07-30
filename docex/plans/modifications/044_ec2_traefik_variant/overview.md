@@ -1,6 +1,6 @@
 # Mod 044 — EC2-Traefik Reverse-Proxy Variant (EIP + PIP)
 
-Fifteenth and largest mod of the [doctrine-shape-and-tier campaign](../../campaifns/shape_overhaul_mod_list.md). Adds the doctrine's `ec2_traefik_eip` and `ec2_traefik_pip` reverse-proxy variants — a low-cost alternative to the default ALB. Project-tier emission branches on `reverse_proxy`; env-tier consumers adjust their remote-state references accordingly.
+Fifteenth and largest mod of the [doctrine-shape-and-tier advance](../../campaifns/shape_overhaul_mod_list.md). Adds the doctrine's `ec2_traefik_eip` and `ec2_traefik_pip` reverse-proxy variants — a low-cost alternative to the default ALB. Project-tier emission branches on `reverse_proxy`; env-tier consumers adjust their remote-state references accordingly.
 
 ## The Doctrine Change
 
@@ -139,7 +139,7 @@ For mod 044 scope-wise: emit a stub config (e.g. empty `http: { routers: {}, ser
 2. **Polymorphic `reverse_proxy_security_group_id` output.** Same-named output, value selected by `reverse_proxy` value; env-tier consumes it generically.
 3. **user_data as a separate template file**, `templates/ec2_traefik_user_data.sh.j2`, included into `project.tf.j2` via Jinja `include`.
 4. **Initial SSM config: empty stub.** Project-tier `tofu apply` sets a minimal `http: { routers: {}, services: {} }` placeholder; env-tier release rerenders.
-5. **SSM release rerender stubbed in mod 044.** Mod 044 emits the SSM Parameter resource with the stub initial value; the env-tier-release SSM-push-with-rendered-routing is a follow-up (post-campaign). Operators using EC2-traefik on v1 manage the SSM config manually until that follow-up lands. Documented in mod 044's `What This Mod Is NOT`.
+5. **SSM release rerender stubbed in mod 044.** Mod 044 emits the SSM Parameter resource with the stub initial value; the env-tier-release SSM-push-with-rendered-routing is a follow-up (post-advance). Operators using EC2-traefik on v1 manage the SSM config manually until that follow-up lands. Documented in mod 044's `What This Mod Is NOT`.
 
 ## What This Mod Is NOT
 

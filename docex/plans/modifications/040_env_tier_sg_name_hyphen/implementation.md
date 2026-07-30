@@ -11,7 +11,7 @@ Authoritative doctrine reading:
 
 ## Scope clarification
 
-Mod 040's campaign-list scope (env-tier HCL refactor) **already landed** as side effects of mods 037, 038, and earlier mod 006. The remaining work in mod 040 is a single one-line fix: the env-tier security-group `name` field still uses literal underscores in `main.tf.j2:52`, while every other data-plane-resolvable identifier was hyphenated by mod 030. Mod 040 closes the gap.
+Mod 040's advance-list scope (env-tier HCL refactor) **already landed** as side effects of mods 037, 038, and earlier mod 006. The remaining work in mod 040 is a single one-line fix: the env-tier security-group `name` field still uses literal underscores in `main.tf.j2:52`, while every other data-plane-resolvable identifier was hyphenated by mod 030. Mod 040 closes the gap.
 
 ## Step-by-step plan
 

@@ -1,6 +1,6 @@
 # Mod 070 — ec2_traefik routing via the traefik ECS provider (Path B)
 
-## Problem (campaign bug 6)
+## Problem (advance bug 6)
 
 `reverse_proxy: ec2_traefik_*` boots and serves (mods 062–067) but
 returns **502** for every backend: the EC2-traefik instance lives in the

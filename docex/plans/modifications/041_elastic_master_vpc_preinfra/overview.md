@@ -1,6 +1,6 @@
 # Mod 041 — Elastic Master VPC as Preinfra
 
-Twelfth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Replaces the per-project VPC stack in `project.tf.j2` with data-source lookups against a shared master VPC managed as preinfra. Plus enforces the doctrine's single-AZ commitment for ECS workloads.
+Twelfth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Replaces the per-project VPC stack in `project.tf.j2` with data-source lookups against a shared master VPC managed as preinfra. Plus enforces the doctrine's single-AZ commitment for ECS workloads.
 
 ## The Doctrine Change
 
@@ -165,9 +165,9 @@ Implementer should walk each `private_subnet_ids` use site and decide: single-AZ
 
 ### Operator-side preinfra requirement
 
-After this mod, an elastic project's `docex projinfra up production` requires the master VPC to already exist in the AWS account with the doctrine-prescribed tags. The `docex-preinfra` skill should document the master VPC setup (it's a TODO in the doctrine per the campaign brief).
+After this mod, an elastic project's `docex projinfra up production` requires the master VPC to already exist in the AWS account with the doctrine-prescribed tags. The `docex-preinfra` skill should document the master VPC setup (it's a TODO in the doctrine per the advance brief).
 
-For the operator's smoke-test work at end of campaign: the operator will need to bring up a master VPC by hand (or via a future preinfra automation tool) before re-incepting the elastic smoke project. That's accepted scope for the major-version cut.
+For the operator's smoke-test work at end of advance: the operator will need to bring up a master VPC by hand (or via a future preinfra automation tool) before re-incepting the elastic smoke project. That's accepted scope for the major-version cut.
 
 ### `vpc_id` output behavior
 
@@ -193,4 +193,4 @@ If the operator's VPC has fewer than 2 subnets per tier, data lookups fail — t
 - **No `test_projects/{fixed,elastic}/` edits.**
 - **No state migration logic** — if an operator has an existing project with a per-project VPC, the next tofu apply destroys it. Per operator decision, no in-flight consumers to worry about.
 
-This is the largest pure-deletion mod of the campaign — the per-project VPC stack is ~100 lines coming out. Care needed to keep intra-template references consistent after the deletion.
+This is the largest pure-deletion mod of the advance — the per-project VPC stack is ~100 lines coming out. Care needed to keep intra-template references consistent after the deletion.

@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 030 of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Read [`overview.md`](./overview.md) first — it explains *what* changes and *why*. This document is the operational plan.
+You are executing mod 030 of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Read [`overview.md`](./overview.md) first — it explains *what* changes and *why*. This document is the operational plan.
 
 The doctrine has already been edited; this mod brings docex into alignment with it. Authoritative doctrine reading:
 
@@ -23,7 +23,7 @@ Your docex-side mental map of where naming lives:
 
 Per [`overview.md § Operator Decisions`](./overview.md#operator-decisions):
 
-- **Do not recompile the test projects.** Leave `test_projects/{fixed,elastic}/infra/output/` untouched. The major-version re-inception at end-of-campaign rebuilds them from scratch.
+- **Do not recompile the test projects.** Leave `test_projects/{fixed,elastic}/infra/output/` untouched. The major-version re-inception at end-of-advance rebuilds them from scratch.
 - **No backwards-compatibility shim.** Delete `ecr_repo`; do not deprecate it.
 - **No changelog caveats beyond the standard major-bump note.** No in-flight consumers to warn.
 
@@ -201,7 +201,7 @@ Should return no hits inside `naming_policies.yml`. Hits inside test files that 
 - **No `apex_domain:` rename** — that's mod 031.
 - **No `reverse_proxy:` field changes** — mod 031.
 - **No telemetry sidecar rename** — mod 032.
-- **No test-project recompile** — deferred to campaign end.
+- **No test-project recompile** — deferred to advance end.
 - **No `tables/roles/reverse_proxy.yml` deletion** — mod 031 (which also drops that role from CICL entirely).
 - **No new commands, no new emit sites, no project-tier ECR move yet** — mod 039 moves ECR to project-tier; this mod only changes *how* ECR names are formed.
 

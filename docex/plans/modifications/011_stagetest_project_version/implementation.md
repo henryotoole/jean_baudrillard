@@ -11,7 +11,7 @@ Doctrine-inject `PROJECT_VERSION` (sourced from `project.yml`'s `version:` field
 
 Remove `APP_VERSION` from the smoke projects' `web/src/root.py`. Update the smoke project stage tests to assert deployed `/health` version matches the env-injected `PROJECT_VERSION`. Add a validation rule that forbids a project from declaring `PROJECT_VERSION` in its own `infra.yml` (doctrine owns the name).
 
-The doctrine edits for this mod are already landed: `cicd.md § Staging Tests` and `tests.md § Staging Tests § Injected environment` (committed with the campaign doctrine commit); `transfer_tables.md § Per-core-service env (both foundations)` (committed separately as part of mod 011's expanded scope). No further doctrine edits.
+The doctrine edits for this mod are already landed: `cicd.md § Staging Tests` and `tests.md § Staging Tests § Injected environment` (committed with the advance doctrine commit); `transfer_tables.md § Per-core-service env (both foundations)` (committed separately as part of mod 011's expanded scope). No further doctrine edits.
 
 ## Step 1 — Stage tester injection
 

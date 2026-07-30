@@ -1,6 +1,6 @@
 # Mod 058 — HAProxy demux multi-label TLD support
 
-Fifth mod of the `001_skill_update` campaign. Closes the planner's "HAProxy
+Fifth mod of the `001_skill_update` advance. Closes the planner's "HAProxy
 Cannot Handle multi-label TLD's" item — a TODO the doctrine itself already
 flagged.
 

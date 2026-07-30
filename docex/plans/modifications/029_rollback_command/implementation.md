@@ -700,7 +700,7 @@ After the implementation is done and `pytest` passes (`pytest tests/unit/` at mi
 mod 029: rollback command — code-only narrow-window prod reversion
 ```
 
-Do **not** cut a new docex version in this mod. The version cut is a separate step run after the campaign closes.
+Do **not** cut a new docex version in this mod. The version cut is a separate step run after the advance closes.
 
 ## Five-artifact alignment after this mod
 

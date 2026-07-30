@@ -1,10 +1,10 @@
 # Mod 040 — Env-Tier SG Name Hyphen Fix
 
-Eleventh mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Closes a residual data-plane naming leak missed by mod 030: the env-tier security-group AWS-side `name` field still uses underscores in `main.tf.j2`.
+Eleventh mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Closes a residual data-plane naming leak missed by mod 030: the env-tier security-group AWS-side `name` field still uses underscores in `main.tf.j2`.
 
 ## Scope shrunk substantially
 
-The campaign list's original mod 040 was framed as a broad env-tier HCL refactor: add `data "terraform_remote_state" "project"` block, per-web-service listener rules + target groups referencing the project ALB by ARN, env web SG ingress source = project ALB SG via remote state, allow-all egress on every emitted SG. **All four bullets already landed naturally as side effects of mods 037, 038, and existing mod-006 egress work.**
+The advance list's original mod 040 was framed as a broad env-tier HCL refactor: add `data "terraform_remote_state" "project"` block, per-web-service listener rules + target groups referencing the project ALB by ARN, env web SG ingress source = project ALB SG via remote state, allow-all egress on every emitted SG. **All four bullets already landed naturally as side effects of mods 037, 038, and existing mod-006 egress work.**
 
 Auditing what's currently in env-tier `main.tf` against the original mod 040 brief:
 
@@ -96,7 +96,7 @@ The implementer should run the sweep and flip whatever matches.
 ## Why This Is Its Own Mod
 
 The fix is small (one line + tests), and could in principle ride along with mod 041's larger refactor. Keeping it as its own mod has three benefits:
-1. Honors the campaign list's published numbering.
+1. Honors the advance list's published numbering.
 2. Surfaces a real bug (env-tier SG names didn't match the doctrine's stated unification) cleanly in `git blame` / CHANGELOG.
 3. Mod 041 is large enough (VPC → master VPC preinfra switchover); keeping orthogonal concerns separate reduces review surface.
 

@@ -4,7 +4,7 @@
 
 `docex` Phase 4's elastic emit was designed for the doctrine-bundled engine set: postgres on RDS, redis on ElastiCache, s3 on its own bucket, web/container on ECS. Each path was hand-written for its specific engine. The shape works today only because that exact engine set is the one in the bundled tables.
 
-Two structural problems block project-local backing engines (the campaign's whole motivation: ClickHouse, OTel collector, sidecars):
+Two structural problems block project-local backing engines (the advance's whole motivation: ClickHouse, OTel collector, sidecars):
 
 1. **Elastic dispatch is keyed on engine name, not on emit destination.** `src/docex/emit/hcl.py:109-114` defines a hardcoded map:
    ```python

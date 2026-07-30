@@ -1,6 +1,6 @@
 # Mod 042 — `preinfra <side>` Implementations
 
-Thirteenth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Replaces mod 034's stub `preinfra` handler with real per-foundation checks.
+Thirteenth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Replaces mod 034's stub `preinfra` handler with real per-foundation checks.
 
 ## The Doctrine Change
 

@@ -86,7 +86,7 @@ The "no source changes" line is the critical-path assertion of this mod. If the 
 3. `diff test_projects/fixed/core/web/migrate.sh test_projects/elastic/core/web/migrate.sh` — empty (the files are byte-identical post-mod).
 4. `./bin/docex role relational_db` — `sslmode` appears in the listed provided parts.
 
-Real-AWS staging walk is not part of this mod — it's part of the campaign-end PRE_CUT_CHECKLIST walk. The smoke release tests for v0.7.0 caught the symptom; the campaign-end walk for the cut that ships this mod will verify the fix.
+Real-AWS staging walk is not part of this mod — it's part of the advance-end PRE_CUT_CHECKLIST walk. The smoke release tests for v0.7.0 caught the symptom; the advance-end walk for the cut that ships this mod will verify the fix.
 
 ## Decisions captured
 

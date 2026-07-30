@@ -2,7 +2,7 @@
 
 Fresh-context guide for [`overview.md`](./overview.md). Three traefik-shaped gaps: **A** (HTTP-01 certs on fixed), **B** (project-scope the traefik), **I** (mandate curl on web images + a check gate). All doctrine changes for this mod are **already done and committed** — do **not** edit `doctrine/**`.
 
-**Plan context:** this mod feeds a *single* later `1.1.0` cut. **Do NOT bump the version** (`pyproject.toml` / `__init__.py` stay at `1.0.3`); only append to `CHANGELOG.md`'s `[Unreleased]`. Do **not** commit, tag, or `docker build`. Leave changes uncommitted. Don't touch the `engineer/tmp/*` deletions or `plans/core/*` / `plans/campaigns/*`.
+**Plan context:** this mod feeds a *single* later `1.1.0` cut. **Do NOT bump the version** (`pyproject.toml` / `__init__.py` stay at `1.0.3`); only append to `CHANGELOG.md`'s `[Unreleased]`. Do **not** commit, tag, or `docker build`. Leave changes uncommitted. Don't touch the `engineer/tmp/*` deletions or `plans/core/*` / `plans/advances/*`.
 
 Use `pytest` directly (no `python` on PATH; no venv).
 

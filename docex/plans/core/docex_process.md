@@ -7,7 +7,7 @@ How to develop updates for docex.
 The rough, toplevel process for change is this:
 1. **Alter the doctrine** - If neccessary, change the actual doctrine wording itself. `docex` is *driven* by the doctrine (from a certain perspective the doctrine forms the product documentation for `docex`) so doctrine should always change first.
 	1. Always ask the human operator before altering doctrine files! The language of the doctrine is carefully chosen and often every word is load bearing.
-2. **Update `docex` to match** - Change the actual code and function of `docex` using regular mod cycles. Taken all together, the sum of mod cycles needed to complete all needed changes forms a "campaign". Cutting and releasing is expensive and disruptive, so we always want to bundle as many changes as possible into one campaign, even if they split across many mod cycles.
+2. **Update `docex` to match** - Change the actual code and function of `docex` using regular mod cycles. Taken all together, the sum of mod cycles needed to complete all needed changes forms an "advance". Cutting and releasing is expensive and disruptive, so we always want to bundle as many changes as possible into one advance, even if they split across many mod cycles.
 	1. Each cycle will include a design document, implementation steps, sub-agent execution, and the running of standard automated tests at the end as per usual.
 	2. Always add good tests for new additions. Unit tests by default; add an integration test when behavior crosses a real boundary (docker / AWS / git).
 	3. There is no "manual test" phase for `docex` mod cycles. Do not pause for operator manual tests.

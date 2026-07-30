@@ -1,6 +1,6 @@
 # Mod 076 — Engine `env:` `kind` schema + generation policies
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 1 of 11). Foundation layer: teach the transfer tables the
 three-`kind` engine-`env:` schema and the new `generation_policies:` section,
 and add the pure value generator. No compiler *resolution* behavior changes yet

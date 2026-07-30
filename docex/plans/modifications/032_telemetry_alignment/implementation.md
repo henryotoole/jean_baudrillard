@@ -2,7 +2,7 @@
 
 ## Context for fresh-context implementer
 
-You are executing mod 032 of a 16-mod docex campaign. Read [`overview.md`](./overview.md) first.
+You are executing mod 032 of a 16-mod docex advance. Read [`overview.md`](./overview.md) first.
 
 Invoke the `docex-edit` skill via Skill.
 
@@ -14,7 +14,7 @@ Authoritative doctrine reading:
 
 - **Do not touch `OTEL_*` injection in `compile.py`.** It's already correctly wired by earlier work (mods 011 + 017 per `validate.py:54` comment). Confirm by inspection only.
 - **Mechanical `s/_otelcol/-otelcol/g` flip** across source + tests + core planning docs. No nuanced edits.
-- **No `test_projects/{fixed,elastic}/` edits.** Campaign-wide deferral stands.
+- **No `test_projects/{fixed,elastic}/` edits.** Advance-wide deferral stands.
 
 ## Step-by-step plan
 

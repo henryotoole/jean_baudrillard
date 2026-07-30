@@ -1,7 +1,7 @@
 # Mod 065 — ec2_traefik user_data: use IMDSv2 tokens for metadata
 
-Part of the [ec2_traefik-functional campaign](../_campaign_ec2_traefik_functional.md).
-Bug 4 — surfaced by the campaign re-walk once mod 063 let user_data get past the
+Part of the [ec2_traefik-functional advance](../_advance_ec2_traefik_functional.md).
+Bug 4 — surfaced by the advance re-walk once mod 063 let user_data get past the
 package install.
 
 ## Problem
@@ -59,5 +59,5 @@ the rendered script issues a `PUT .../latest/api/token` and passes
 `X-aws-ec2-metadata-token:` on the instance-id/region fetches (i.e. no
 token-less raw metadata curl remains). Both variants.
 
-Real-AWS confirmation: the campaign re-walk — traefik must come up and serve
+Real-AWS confirmation: the advance re-walk — traefik must come up and serve
 `/health` through the instance.

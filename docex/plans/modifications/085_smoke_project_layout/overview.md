@@ -1,6 +1,6 @@
 # Mod 085 — Smoke-project migration to the new layout
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 10 of 11). Brings the two doctrine smoke-test projects
 (`test_projects/{fixed,elastic}/`) onto the envmageddon layout so the operator's
 cut-time walk runs on conformant projects.

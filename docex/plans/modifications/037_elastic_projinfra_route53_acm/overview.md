@@ -1,6 +1,6 @@
 # Mod 037 — Elastic Projinfra: Route53 Zone + ACM Certs + Two-Phase Apply
 
-Eighth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Starts the elastic projinfra rebuild by aligning the Route53 zone and ACM certs with the new doctrine. Three real bugs in the current emission are fixed along the way.
+Eighth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Starts the elastic projinfra rebuild by aligning the Route53 zone and ACM certs with the new doctrine. Three real bugs in the current emission are fixed along the way.
 
 ## The Doctrine Changes
 
@@ -168,7 +168,7 @@ Every elastic project's `infra/output/project/production/main.tf` changes:
 
 Every elastic project's env-tier `main.tf` (`stage` and `prod`) changes the data-source key it reads for the cert ARN.
 
-Per campaign-wide deferral, no test-project recompile.
+Per advance-wide deferral, no test-project recompile.
 
 ### Operator-visible behavior change
 
@@ -176,7 +176,7 @@ When an operator runs `docex projinfra up production` against an elastic project
 - Phase 1 creates the zone for `<project>.<apex>` (was `<apex>`). The NS records the operator must delegate are now for the project subdomain at the parent zone (e.g. NS records for `myproject.example.com` set in the `example.com` zone).
 - Phase 2 creates two certs instead of one.
 
-If an existing elastic project was already running with the old single-cert model, the next `projinfra up production` after upgrading would attempt to delete the old cert and create two new ones — that's tofu's planned action. The operator decision earlier in the campaign is "no backwards compatibility, no in-flight consumer projects." Same answer applies here.
+If an existing elastic project was already running with the old single-cert model, the next `projinfra up production` after upgrading would attempt to delete the old cert and create two new ones — that's tofu's planned action. The operator decision earlier in the advance is "no backwards compatibility, no in-flight consumer projects." Same answer applies here.
 
 ### What this mod does NOT touch (yet)
 

@@ -1,9 +1,9 @@
 # Mod 086 — Core-doc alignment + upgrade guide + changelog
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 11 of 11). The documentation-alignment mod: brings the `docex`
 core planning docs into sync with mods 076-085, writes the `upgrade_1.5.0.md`
-project-upgrade guide, adds the changelog entry, and marks the campaign
+project-upgrade guide, adds the changelog entry, and marks the advance
 implemented.
 
 ## Why
@@ -45,7 +45,7 @@ narrative is the remaining layer. And a MINOR cut ships a project-upgrade guide.
 ## Split of work
 
 The delicate, operator-facing pieces — `upgrade_1.5.0.md`, the `CHANGELOG` entry,
-the campaign-status flip — are authored by the orchestrator (full campaign
+the advance-status flip — are authored by the orchestrator (full advance
 context, migration-subtlety reasoning). The mechanical core-doc table/section
 alignment (`compiler.md`, `release_flow.md`, `masterplan.md`) is delegated to a
 sub-agent against a precise per-doc spec (see implementation.md), then reviewed.

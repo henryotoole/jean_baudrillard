@@ -28,7 +28,7 @@ Out of scope:
 
 - **Reachability probe** (mod 019). No HTTP GET against `observability_backend_url` from `docex check`.
 - **Test-project updates** (mod 019). Smoke projects are walked separately.
-- **Cutting 0.11.0** (mod 019 completes the campaign, then we cut).
+- **Cutting 0.11.0** (mod 019 completes the advance, then we cut).
 - **Backing-service sidecars.** Backing services do not generate application-origin OTel signals (no app SDK); they don't get sidecars.
 - **Migration task-def sidecars.** One-shot lifecycle; `migrate.sh` doesn't emit OTel signals.
 - **Backing-service container telemetry collection** (e.g., `postgresqlreceiver` on a contrib collector). The doctrine defers this — see [telemetry.md § Planned but NOT Implemented](../../../doctrine/infrastructure/telemetry.md#planned-but-not-implemented). The lean `otel/opentelemetry-collector` distribution is sufficient.

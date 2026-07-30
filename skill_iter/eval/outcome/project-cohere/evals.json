@@ -1,0 +1,76 @@
+{
+  "skill_name": "project-cohere",
+  "note": "Outcome cases for project-cohere. Unlike other outcome evals, the input is a fixture project in a drift state (fixtures/states/<state>) and the graded artifact is the git diff the skill produces against the fixture baseline, captured with run_fixture.py. The `fixture` field names the state; the `prompt` is what the operator would say when invoking the skill in that project.",
+  "evals": [
+    {
+      "id": 1,
+      "fixture": "coherent",
+      "prompt": "Run project-cohere on this project's core planning docs.",
+      "expected_output": "No changes: the project is already coherent, so the docs are left exactly as-is and the git diff is empty.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): the run produces NO file changes at all — the captured diff is empty. The conservative no-op when nothing is wrong is the discipline a naive 'make the docs consistent' agent lacks.",
+        "CONFIRMATORY (inferable): masterplan.md is not modified.",
+        "CONFIRMATORY (inferable): no source file under core/web/src is modified."
+      ]
+    },
+    {
+      "id": 2,
+      "fixture": "code-mismatch",
+      "prompt": "Run project-cohere on this project's core planning docs.",
+      "expected_output": "The links module doc is edited to match the code: short codes are 7 characters (not 6) and resolve returns None on an unknown code (it does not raise). masterplan.md and source are untouched.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): plans/core/web/hex/links.md is edited so the short-code length agrees with the code — 7 characters, not 6.",
+        "DELTA DRIVER (doctrine-specific, not inferable): plans/core/web/hex/links.md is edited so resolve's miss behavior agrees with the code — returns None / no link on an unknown code, rather than raising an error.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the doc bent to the code, not the reverse — no source file under core/web/src was modified to match the doc.",
+        "CONFIRMATORY (inferable): masterplan.md is not modified (it is a higher-level doc and states none of these details)."
+      ]
+    },
+    {
+      "id": 3,
+      "fixture": "unimplemented",
+      "prompt": "Run project-cohere on this project's core planning docs.",
+      "expected_output": "The documented-but-uncoded custom-alias feature in the links module doc is MARKED as unimplemented/planned, and its description is retained rather than deleted. No alias code is written.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): the custom-alias section of plans/core/web/hex/links.md is marked as unimplemented / not-yet-implemented / planned, rather than being deleted.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the alias description text is retained (not removed) — the skill marks, it does not delete a plausible unimplemented feature.",
+        "CONFIRMATORY (inferable): no source code was created under core/web/src to implement custom aliases.",
+        "CONFIRMATORY (inferable): masterplan.md is not modified."
+      ]
+    },
+    {
+      "id": 4,
+      "fixture": "doc-doc-conflict",
+      "prompt": "Run project-cohere on this project's core planning docs.",
+      "expected_output": "Two docs disagree: analytics.md claims the module counts unique visitors, while masterplan.md says total clicks and the code increments on every hit with no de-duplication. The conflict is resolved toward the code-backed side — analytics.md is edited back to total-clicks semantics; masterplan.md is left alone.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): plans/core/web/hex/analytics.md is edited so it agrees with the code and the masterplan — it describes counting TOTAL clicks (no de-duplication), and the 'unique visitors' claim is removed.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the doc-vs-doc conflict was broken toward the code-backed side — the lower module doc (analytics.md) bent to match the code and masterplan, NOT the reverse.",
+        "CONFIRMATORY (inferable): masterplan.md is not modified — it already agreed with the code.",
+        "CONFIRMATORY (inferable): no source file under core/web/src is modified."
+      ]
+    },
+    {
+      "id": 5,
+      "fixture": "undocumented-module",
+      "prompt": "Run project-cohere on this project's core planning docs.",
+      "expected_output": "The analytics module exists in code (core/web/src/hex/analytics) but has no module doc and is absent from the masterplan. The skill leans conservative on undocumented code: it does NOT autonomously write docs — it surfaces the undocumented module to the operator and changes nothing.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): the run does NOT autonomously create a module doc for analytics (plans/core/web/hex/analytics.md remains absent) and does NOT autonomously add analytics into masterplan.md. Correct deferral requires POSITIVE evidence, not merely an empty diff: the run's final report must NAME the undocumented analytics module and defer the documentation decision to the operator, AND its tool-call trace must show it actually inspected the analytics code (e.g. Read a file under core/web/src/hex/analytics). A run that reports 'everything is consistent / no issues' FAILS this, even with an empty diff.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the run identifies the analytics module as an undocumented gap rather than silently ignoring it OR silently documenting it — the conservative 'check with the operator before adding docs' behavior.",
+        "CONFIRMATORY (inferable): plans/core/web/hex/links.md is not modified (the links module is fully documented and coherent).",
+        "CONFIRMATORY (inferable): no source file under core/web/src is modified."
+      ]
+    },
+    {
+      "id": 6,
+      "fixture": "masterplan-drift",
+      "prompt": "Run project-cohere on this project's core planning docs.",
+      "expected_output": "The masterplan itself is the wrong source of truth: its resolve flow claims an HTTP 301 permanent redirect, but the code returns 302. Because the masterplan is the highest doc, the discrepancy is surfaced to the operator for a judgment call rather than edited autonomously; the masterplan is left unchanged.",
+      "expectations": [
+        "DELTA DRIVER (doctrine-specific, not inferable): masterplan.md is NOT autonomously edited. Because the masterplan is the highest-authority doc, the 301-vs-302 resolve discrepancy is raised to the operator instead of silently fixed. Correct deferral requires POSITIVE evidence, not merely an unchanged masterplan: the run's final report must NAME the 301-vs-302 (masterplan-vs-code) resolve discrepancy and defer it to the operator, AND its tool-call trace must show it inspected the resolve code/controller. A run that reports 'all consistent' FAILS this.",
+        "DELTA DRIVER (doctrine-specific, not inferable): the run does NOT 'resolve' the conflict by editing links.md or the source code to match the masterplan's wrong 301 claim — the code is the source of truth and the masterplan is what is wrong.",
+        "CONFIRMATORY (inferable): no source file under core/web/src is modified."
+      ]
+    }
+  ]
+}

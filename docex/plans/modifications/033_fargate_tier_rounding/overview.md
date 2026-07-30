@@ -1,6 +1,6 @@
 # Mod 033 — Fargate Tier Rounding Formalized
 
-Fourth mod of the [doctrine-shape-and-tier campaign](../../campaigns/shape_overhaul_mod_list.md). Formalizes the Fargate tier-rounding behavior the doctrine just made authoritative — most of the implementation already exists; this mod closes one specific gap.
+Fourth mod of the [doctrine-shape-and-tier advance](../../advances/shape_overhaul_mod_list.md). Formalizes the Fargate tier-rounding behavior the doctrine just made authoritative — most of the implementation already exists; this mod closes one specific gap.
 
 ## The Doctrine Change
 
@@ -84,4 +84,4 @@ No test-project recompile needed; no compiled output changes.
 - Not formalizing rounding for backing services — backing-service `cpu`/`memory` come from engine defaults, not project `resources:`, and the doctrine v1 doesn't expose tier-rounding visibility for them.
 - Not changing fixed-foundation resource translation (tmpfs sizing, deploy.resources limits).
 
-Smallest substantive mod of the campaign after mod 032. One function, one new conditional branch, one new test or two.
+Smallest substantive mod of the advance after mod 032. One function, one new conditional branch, one new test or two.

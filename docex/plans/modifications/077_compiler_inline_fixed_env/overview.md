@@ -1,6 +1,6 @@
 # Mod 077 — Compiler inlines `kind: fixed` `$[VAR]` refs
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 2 of 11). Makes the compiler *resolve* the `kind` schema Mod 076
 introduced: a `$[VAR]` naming a `kind: fixed` engine env var is replaced by its
 literal `value:` at compile time; `minted` and `secret` vars stay as `$[VAR]`

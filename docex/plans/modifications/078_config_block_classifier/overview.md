@@ -1,8 +1,8 @@
 # Mod 078 — `config:` block + `classify_source_keys` backbone
 
-Part of the [envmageddon campaign](../../campaigns/003_envmageddon/implementation_plan.md)
+Part of the [envmageddon advance](../../advances/003_envmageddon/implementation_plan.md)
 (step 2, mod 3 of 11). Adds the third value category — **config** — as a core-
-service declaration block, and introduces the campaign's central abstraction:
+service declaration block, and introduces the advance's central abstraction:
 the pure **source-key classifier** every later mod calls.
 
 ## Why

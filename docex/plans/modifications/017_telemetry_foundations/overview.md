@@ -10,7 +10,7 @@ The doctrine fully specifies application telemetry across `infrastructure/teleme
 4. Surface `TELEMETRY_API_KEY` as a required entry in `stage`/`prod` `secrets/<env>.env`.
 5. Have `docex check` probe the backend URL for reachability before merge.
 
-Today `docex` does zero of that. The doctrine is the only artifact aware that telemetry exists. This is the campaign-opening mod: get the *foundations* of telemetry into `docex` so subsequent mods can build sidecar emission and the reachability probe on top of them.
+Today `docex` does zero of that. The doctrine is the only artifact aware that telemetry exists. This is the advance-opening mod: get the *foundations* of telemetry into `docex` so subsequent mods can build sidecar emission and the reachability probe on top of them.
 
 ## Scope
 
