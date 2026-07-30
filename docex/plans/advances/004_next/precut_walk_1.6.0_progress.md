@@ -597,3 +597,87 @@ zero waits.
   filed as a proposal for a future advance and explicitly out of 1.6.0 scope.
 - **The fixed project's `verify_clean.sh`** has not been reviewed for gaps
   equivalent to the eight found in the elastic one.
+
+---
+
+# Elastic walk — session 3: confirmatory single-pass (2026-07-30)
+
+**Status: `PRE_CUT_CHECKLIST § D` walked D.1 → D.13 + § E in ONE pass on the
+final candidate image. All green. Zero new defects.**
+
+## Why this walk happened
+
+Sessions 1–2 produced an **assembled** pass, not a clean one: D.1–D.8 ran on the
+pre-mod-108 image, D.9+ on the post-108 image, and the mod-109 retest covered
+only D.3–D.11. D.11's fan-out assertion had also never *passed* — it was worked
+around with a manual `force-new-deployment`. With 1.6.0 being a breaking
+`cicl_version` bump going straight into urgent downstream use, the operator
+elected to pay for one clean confirmatory walk rather than let the cut rest on a
+spliced result.
+
+Version line: `0.0.16` (prior release, on `origin/main`) → **`0.0.17`** on a
+feature branch for the walk → **`0.0.18`** for D.12's rollback target.
+
+## Pre-flight
+
+| Item | Result |
+| ---- | ------ |
+| `pytest tests/unit` | **994 passed** (adds `test_rollback_elastic_reconcile_is_a_noop`, closing the one coverage hole session 2 left) |
+| `pytest -m integration` | **17 passed**, 10m23s — same count as session 1, now under mods 108+109 |
+| Image | `docex:1.6.0` rebuilt, mod 109 present inside the container |
+| Git shape | genuine feature-branch shape: `origin/main` at `v0.0.16`, `0.0.17` on `smoke-walk-1.6.0-confirm`, `v0.0.17` unused |
+
+## Results
+
+| Step | Result |
+| ---- | ------ |
+| A.1–A.8 | all pass. Registry `401` is the expected auth challenge, not a failure. |
+| B.1–B.15 | all pass. `diff -r` core parity clean; zero activation hits in either `root.py`; data-plane names hyphenate. |
+| D.1 / D.2 | `preinfra development` + `production` exit 0; four `-web` networks + project traefik up. |
+| D.4 → D.3 | compile clean; phase 1 → zone `Z017770322YIVG3NZBZVG`; **A.4.2 corrected order applied** (see below); phase 2 → both certs ISSUED, exactly **2** ECR repos. |
+| D.6 | dev came up **first try** — `dist/` was already current, which is precisely the scope of the corrected build note. All five dev endpoints 200 at `0.0.17` incl. the fan-out; `POST /pings` → 201 with `processed_at` set. |
+| D.7 | `docex test` exit 0, one run per codebase. |
+| D.8 | **all 10 gates pass**; `merge` tagged `v0.0.17`; `containerize` pushed `api` + `reaper`, still exactly 2 repos. |
+| D.9 | first-time stage release. **Mod 109 fired on stage**, and the fan-out answered **200 on the first probe**. 4 ECS services, `reaper-prune` as a schedule with no service, exactly 1 migrate family, `api-worker` `desired_count = 1` with a container healthCheck and no target group, `api-web` with the target group. |
+| D.10 | `stagetest` → 5 passed. |
+| D.11 | first-time prod release; mod 109 fired; **fan-out 200 on the first probe**; three prod URLs 200 at `0.0.17`; `desired_count = 2` with **2 RUNNING**; all three task definitions carry their own correct `command`; `POST /pings` → 201 with `processed_at` set in prod RDS. |
+| D.12 | `0.0.18` containerized (both versions coexist), released, then `rollback prod 0.0.17`: `migrations skipped`, all three URLs back to `0.0.17`, fan-out 200, `PINGS(total,processed): (1, 1)`, `--dry-run` → `No changes.` |
+| D.13 | teardown complete; `verify_clean.sh` green on all **20** checks. |
+| § E | Route53 holds only `luxrnd.tech` with **zero** `docex-smoke` records; no ECR repos; no local containers, networks or volumes. |
+
+## Three things this walk established that the assembled pass could not
+
+1. **Mod 109 fires on *stage* too, and stage's session-1 "pass" was luck.** Stage
+   had only worked in session 1 because its namespace already held the worker
+   from the earlier broken deploy. Given a genuinely first-time stage release,
+   the same race exists there — and the reconcile handled it. Had 109 not been
+   written, **both** D.9 and D.11 would have failed this walk.
+2. **The reconcile's no-op is real, not just unit-tested.** The steady-state
+   `release prod` for `0.0.18` printed **no reconcile line at all**, and neither
+   did the rollback. The claim that ordinary releases pay nothing is now
+   confirmed in production conditions on both the normal and `skip_migrations`
+   paths.
+3. **The corrected `A.4.2` ordering eliminates the stall entirely.** Seeding the
+   child zone's dev/test records *before* delegating meant no resolver ever
+   cached an NXDOMAIN: post-delegation resolution was immediate, against ~15
+   minutes of flapping in session 1. The correction is empirically validated, not
+   merely reasoned.
+
+## One new observation (not a defect)
+
+`pytest -m integration` leaves **root-owned files** under `/tmp/pytest-of-ubuntu`
+(a container running as root writes `__pycache__` and `.pytest_cache` into the
+per-test tmpdir), so reclaiming the ~6 GB of tofu providers needs `sudo rm -rf`.
+Exactly the same shape as the `dist/__pycache__` trap in session 1's notes. Worth
+a line in the checklist's disk-hygiene guidance.
+
+## Cut status
+
+**Both walks green. The elastic walk is now a clean single pass on the final
+candidate.** Fixed was walked in session 1 and needs no repeat: mods 108 and 109
+touch `emit/hcl.py` and `_release_elastic` respectively, neither of which the
+fixed foundation invokes.
+
+Remaining pre-cut reading is `RELEASING.md § The Cut Procedure`. The open items
+that are *not* blockers stay as listed under session 2's follow-ups, plus
+`_advance_retire_depends_on.md` for a future advance.

@@ -544,6 +544,39 @@ def test_rollback_elastic_skips_runtask_and_pre_apply(
     assert fake_ansible.calls == []
 
 
+def test_rollback_elastic_reconcile_is_a_noop(
+    elastic_worktree_populator, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
+):
+    """Mod 109. The rollback branch snapshots the Service Connect namespace and
+    reconciles like any other release, but a rollback changes no *shape* — it
+    reverts image tags — so no endpoint is ever newly registered and the
+    reconcile must redeploy nothing.
+
+    Worth asserting rather than assuming: mod 109 wired the reconcile into this
+    branch deliberately (one code path is easier to reason about than two), and
+    a rollback that started force-redeploying consumers would be a surprising
+    and expensive regression. The namespace is scripted as *populated and
+    unchanged*, which is the realistic rollback state — an empty script would
+    make the no-op vacuous.
+    """
+    ctx, fake_git = elastic_worktree_populator
+    fake_aws.service_connect_endpoints = [
+        {"sample-prod-api-web", "sample-prod-appdb"},
+    ]
+    rc = _invoke(
+        ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+        fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+    )
+    assert rc == 0
+    aws_names = [c[0] for c in fake_aws.calls]
+    # The snapshot happened (so the wiring is live, not dead code)...
+    assert "service_connect_endpoint_names" in aws_names
+    # ...and produced no redeploy and no wait.
+    assert "ecs_force_new_deployment" not in aws_names
+    assert "ecs_wait_services_stable" not in aws_names
+
+
 def test_rollback_mirrors_gitignored_creds_into_worktree(
     sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,

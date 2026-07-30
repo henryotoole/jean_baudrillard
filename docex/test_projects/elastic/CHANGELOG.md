@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.18] - 2026-07-30
+
+### Changed
+
+- Rollback-walk bump for the confirmatory 1.6.0 pre-cut elastic walk
+  (`PRE_CUT_CHECKLIST § D.12`). Two versions must coexist in ECR for
+  `docex rollback prod 0.0.17` to have a prior release to converge on. No
+  application or infrastructure change.
+
+## [0.0.17] - 2026-07-30
+
+### Changed
+
+- Version bump for the **confirmatory** 1.6.0 pre-cut elastic walk. The first
+  walk found two docex defects (mods 108 and 109) and was therefore an
+  assembled pass — D.1-D.8 ran on one image, D.9+ on another. This walk runs
+  D.1-D.13 end to end against the final candidate so the cut does not rest on
+  a spliced result. No application or infrastructure change.
+
 ## [0.0.16] - 2026-07-29
 
 ### Changed
