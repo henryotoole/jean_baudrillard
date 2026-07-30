@@ -15,7 +15,7 @@ begins.
 from __future__ import annotations
 
 import sys
-from typing import Callable
+from typing import Any, Callable
 
 from docex.aws.client import AWSClient
 from docex.context import ProjectContext
@@ -207,6 +207,139 @@ def _release_fixed(
     return 0
 
 
+#: How long to wait for a reconciled consumer's rolling deploy to settle.
+#: Bounded because a slow rollout must not hang a release forever; generous
+#: because a Fargate task pull + healthcheck start period is minutes, not
+#: seconds.
+_RECONCILE_STABLE_TIMEOUT_S = 600
+
+
+def _consumer_reconcile_set(
+    compiled: Any, *, new_endpoints: set[str],
+) -> list[tuple[str, str]]:
+    """Consumers that must be redeployed, as ``(consumer, triggering target)``.
+
+    A consumer qualifies when it declares a ``consumes`` target whose Service
+    Connect endpoint was **absent from the namespace before this apply**. Such a
+    consumer's tasks may have started before that endpoint existed, and a
+    Service Connect client fixes its resolvable endpoint set at task start — so
+    it can never resolve the target, for the whole life of the task, no matter
+    how long the application retries. See mod 109.
+
+    The diff is deliberately **per-target, not per-namespace**: a consumer whose
+    own targets were all already registered needs nothing, even when some
+    unrelated endpoint appeared in the same apply.
+
+    No attempt is made to determine whether a given consumer task *actually*
+    started before its target registered. That is unknowable from outside the
+    task, and the conservative answer costs one rolling deploy on a
+    shape-changing release only.
+    """
+    out: list[tuple[str, str]] = []
+    for name in sorted(compiled.services):
+        svc = compiled.services[name]
+        if not svc.is_core or not svc.consumes:
+            continue
+        # WHY: a `scheduler` process type emits no `ecs_service`, so there is
+        # nothing to redeploy — and `update_service` against a service that
+        # does not exist is an error, not a no-op.
+        if "ecs_service" not in svc.emits.get("elastic", []):
+            continue
+        for key in sorted(svc.consumes):
+            target = compiled.services.get(key)
+            # An unresolvable target cannot survive validation, but the
+            # reconcile must not be the thing that raises if one ever does.
+            if target is None:
+                continue
+            # Only a target that emits an `ecs_service` gets a Service Connect
+            # registration, so only such a target can appear in the namespace.
+            if "ecs_service" not in target.emits.get("elastic", []):
+                continue
+            if target.global_name in new_endpoints:
+                out.append((svc.global_name, target.global_name))
+                break
+    return out
+
+
+def _reconcile_service_connect_consumers(
+    ctx: ProjectContext,
+    *,
+    env: str,
+    aws: AWSClient,
+    cluster_name: str,
+    endpoints_before: set[str],
+) -> int:
+    """Redeploy consumers whose targets registered during this release.
+
+    Closes the start-order race described in
+    ``cicl.md § Depends-On Relationships``: ECS Service Connect fixes a client
+    task's resolvable endpoint set at task start, so a consumer created
+    alongside its target may permanently fail to resolve it. Redeploying the
+    consumer after everything is registered is the only fix — ordering cannot
+    work, because a ``consumes`` cycle (``web ↔ worker``, the most common
+    topology there is) has no valid creation order.
+
+    Cheap by construction: on a steady-state release nothing new is registered,
+    the set is empty, and this costs one extra ``list_services`` call.
+    """
+    from docex.cicl.compile import compile_env
+
+    endpoints_after = aws.service_connect_endpoint_names(cluster_name)
+    new_endpoints = endpoints_after - endpoints_before
+    if not new_endpoints:
+        return 0
+
+    if ctx.infra is None:  # pragma: no cover — release already required it
+        return 0
+    compiled = compile_env(
+        ctx.infra,
+        ctx.transfer_tables,
+        env=env,
+        project_name=ctx.project.name,
+        project_version=ctx.project.version,
+    )
+    pairs = _consumer_reconcile_set(compiled, new_endpoints=new_endpoints)
+    if not pairs:
+        return 0
+
+    for consumer, target in pairs:
+        print(
+            f"release: reconciling Service Connect consumer {consumer!r} — "
+            f"its `consumes` target {target!r} registered during this release, "
+            f"and a client cannot resolve an endpoint added after it started."
+        )
+        try:
+            aws.ecs_force_new_deployment(cluster_name, consumer)
+        except Exception as exc:
+            # Hard failure: the health fan-out is doctrine-mandated, and an env
+            # whose consumers cannot reach their targets is not released.
+            print(
+                f"error: could not force a new deployment of {consumer!r}: "
+                f"{exc}. Its `consumes` target {target!r} is newly registered, "
+                f"so {consumer!r} cannot resolve it until redeployed — the "
+                f"/health/<svc>/<proc> fan-out will return 503. Re-run "
+                f"`docex release {env}`, or redeploy it by hand.",
+                file=sys.stderr,
+            )
+            return 1
+
+    services = [c for c, _ in pairs]
+    stable = aws.ecs_wait_services_stable(
+        cluster_name, services, timeout_s=_RECONCILE_STABLE_TIMEOUT_S,
+    )
+    if not stable:
+        # Warning, not failure: update_service was accepted and ECS will
+        # converge on its own. Failing here would fail an otherwise-good
+        # release over rollout latency.
+        print(
+            f"warning: reconciled {len(services)} consumer(s) but they had not "
+            f"reached steady state within {_RECONCILE_STABLE_TIMEOUT_S}s. The "
+            f"deployments were accepted and should converge; the "
+            f"/health/<svc>/<proc> fan-out may return 503 until they do."
+        )
+    return 0
+
+
 def _release_elastic(
     ctx: ProjectContext,
     *,
@@ -308,6 +441,18 @@ def _release_elastic(
     # provider) — routing intent lives on the workloads. See ec2_traefik.md
     # § Routing Discovery.
 
+    # Mod 109: the env's Service Connect namespace shares the ECS cluster's
+    # name, so one expression serves both. Computed here — ahead of the
+    # `skip_migrations` return and the first-release detector that also uses it
+    # — so there is exactly one naming expression and no chance of the two
+    # drifting apart.
+    ecs_policy = ctx.transfer_tables.naming_policies.get("ecs")
+    cluster_name = apply_policy(f"{project_name}_{env}", ecs_policy)
+
+    # Snapshot before ANY apply: the reconcile is driven by which endpoints
+    # this release adds to the namespace.
+    endpoints_before = aws.service_connect_endpoint_names(cluster_name)
+
     if skip_migrations:
         # Rollback path: no first-release detection (rollback only
         # targets a populated env), no migration task-def bump, no
@@ -323,6 +468,15 @@ def _release_elastic(
             raise TofuApplyFailed(
                 f"'tofu apply' for env {env!r} exited {rc_apply}"
             )
+        # A rollback changes no shape, so this is two API calls and a no-op.
+        # Wired in anyway: one code path is easier to reason about than two,
+        # and a rollback that somehow *does* move the endpoint set is covered.
+        rc_rec = _reconcile_service_connect_consumers(
+            ctx, env=env, aws=aws, cluster_name=cluster_name,
+            endpoints_before=endpoints_before,
+        )
+        if rc_rec != 0:
+            return rc_rec
         print(
             f"release: {env} deployed successfully via OpenTofu "
             f"(migrations skipped)."
@@ -336,8 +490,8 @@ def _release_elastic(
     # where the env's cluster holds no ECS services yet — the env-tier
     # ``tofu apply`` is what creates them. On such a release the migrate
     # step must wait until after apply, or RunTask would find no infra.
-    ecs_policy = ctx.transfer_tables.naming_policies.get("ecs")
-    cluster_name = apply_policy(f"{project_name}_{env}", ecs_policy)
+    # (``cluster_name`` is computed above, before the ``skip_migrations``
+    # return, because mod 109's namespace snapshot needs it too.)
     first_release = not aws.ecs_cluster_has_services(cluster_name)
     if first_release:
         print(
@@ -417,6 +571,16 @@ def _release_elastic(
             )
             return rc_mig
         _do_apply()
+
+    # Mod 109: after the FINAL apply on both branches — a new process type can
+    # be added to a long-lived env just as easily as to a fresh one, which is
+    # exactly the `upgrade_1.6.0` path for downstream projects.
+    rc_rec = _reconcile_service_connect_consumers(
+        ctx, env=env, aws=aws, cluster_name=cluster_name,
+        endpoints_before=endpoints_before,
+    )
+    if rc_rec != 0:
+        return rc_rec
 
     print(f"release: {env} deployed successfully via OpenTofu.")
     return 0

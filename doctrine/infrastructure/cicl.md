@@ -433,6 +433,18 @@ Furthermore, if a process type references a backing service's information via [m
 
 Every service must tolerate its dependencies being absent at any moment — not only at startup — because on elastic they will be. Reconnect, back off, and fail requests cleanly; do not assume a dependency that was reachable a second ago still is.
 
+#### Resilience covers reachability, not resolvability
+
+The rule above answers *reachability*: a dependency that is down, restarting, or briefly unroutable. It does **not** answer a second failure mode that elastic adds, and which no amount of application-level retrying can escape.
+
+ECS Service Connect fixes a client task's set of **resolvable endpoint names at task start**. An endpoint registered in the namespace *after* a client task started is not merely unreachable from that task — it is unresolvable, for the entire remaining life of the task. The name does not exist. Backing off and retrying never converges, because there is nothing to converge on.
+
+So a core process type created alongside a [`consumes`](#consumes-relationships) target it has never seen registered can be permanently unable to reach it, with both sides healthy. The externally visible symptom is a `503` on the [health fan-out](./contracts.md#fan-out); the invisible one is that every real call across that edge fails too.
+
+**`docex` closes this at release time**, by redeploying any consumer whose `consumes` target registered during that release. Note carefully that this is *not* the deploy-time ordering emulation rejected above, and the distinction is what makes it sound: an endpoint **registration is durable state**, owned by the service rather than by task liveness, and it survives every task replacement. Holding once is therefore permanently sufficient — after the first registration, every later task (scaling, AZ rebalance, failed health check, platform update) starts into a namespace that already contains the name. A readiness gate decays because liveness changes; a registration does not.
+
+Ordering could not have solved it in any case: a `consumes` graph may legally [contain cycles](#the-graph-may-contain-cycles), and in a cycle some member must be created first.
+
 ### Consumes Relationships
 
 `consumes` is an **interface** edge between core process types. Where `depends_on` says *"do not start me until this is up"*, `consumes` says *"I speak to this boundary"*.
@@ -445,18 +457,21 @@ processes:
 
 Targets are **dotted and fully qualified**. A bare core service name is illegal, not shorthand for "all its process types": an interface edge points at a specific boundary, and a codebase does not have one contract.
 
-`consumes` emits nothing. It is consumed entirely by CI and validation, where it does three jobs:
+`consumes` **emits nothing** — no compose key, no HCL resource. It is read by CI, by validation, and by the elastic release, where it does four jobs:
 
 1. It declares the [provider / consumer](./infrastructure.md#contracts) relationships that determine which process types must carry a contract, and in which format.
 2. It drives the health-check fan-out — see [contracts.md § Health Checks](./contracts.md#health-checks).
 3. It satisfies [validation rule 7](#validation-rules) for magic refs whose target is a core process type.
+4. On elastic, it identifies which consumers must be redeployed after a release that registers a new Service Connect endpoint — see [§ Resilience covers reachability, not resolvability](#resilience-covers-reachability-not-resolvability).
+
+Job 4 is a *release-time orchestration* read, not an emit: nothing derived from `consumes` reaches the compiled output. "Emits nothing" and "is read only by CI" are separate claims, and only the first is a rule — the emit-free property is worth pinning by test, whereas the set of readers may grow.
 
 | | `depends_on` | `consumes` |
 | --- | --- | --- |
 | Names | backing services only | core process types only |
-| Job | readiness gate | contracts, health fan-out, rule 7 |
+| Job | readiness gate | contracts, health fan-out, rule 7, elastic consumer reconcile |
 | Cycles | fatal | **legal** |
-| Emitted | compose `condition:` on fixed; nothing on elastic | nothing — CI only |
+| Emitted | compose `condition:` on fixed; nothing on elastic | **nothing, on either foundation** |
 
 #### The graph may contain cycles
 

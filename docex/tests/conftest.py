@@ -534,6 +534,13 @@ class FakeAWSClient:
     # detector and the projinfra-down env-live gate. Defaults True so the
     # steady-state / envs-live paths remain the default.
     cluster_has_services: bool = True
+    # Mod 109: scripted answers for the Service Connect endpoint probe, as a
+    # QUEUE popped per call. The reconcile is driven by the delta across the
+    # env apply, so a test must be able to say "empty before, populated
+    # after"; a single value cannot express that. A one-element list acts as
+    # a constant (used by the steady-state no-op test).
+    service_connect_endpoints: list[set[str]] = field(default_factory=list)
+    ecs_services_stable: bool = True
     ecs_exit_codes: dict[str, int] = field(default_factory=dict)
     raise_on: dict[str, Exception] = field(default_factory=dict)
     # Mod 029: probe results for ``ecr_image_exists``. Maps
@@ -733,6 +740,32 @@ class FakeAWSClient:
     def ecs_cluster_has_services(self, name: str) -> bool:
         self._record("ecs_cluster_has_services", name)
         return self.cluster_has_services
+
+    # -- Mod 109: Service Connect consumer reconcile ------------------
+
+    def service_connect_endpoint_names(self, namespace_name: str) -> set[str]:
+        self._record("service_connect_endpoint_names", namespace_name)
+        if not self.service_connect_endpoints:
+            return set()
+        # Pop successive scripted answers so a test can express "empty
+        # before the apply, one endpoint after" — the whole point of the
+        # reconcile is the DELTA across the apply, which a single fixed
+        # return value cannot express.
+        if len(self.service_connect_endpoints) == 1:
+            return set(self.service_connect_endpoints[0])
+        return set(self.service_connect_endpoints.pop(0))
+
+    def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
+        self._record("ecs_force_new_deployment", cluster=cluster, service=service)
+
+    def ecs_wait_services_stable(
+        self, cluster: str, services: list[str], *, timeout_s: int,
+    ) -> bool:
+        self._record(
+            "ecs_wait_services_stable",
+            cluster=cluster, services=list(services), timeout_s=timeout_s,
+        )
+        return self.ecs_services_stable
 
     # -- Mod 042: preinfra master VPC discovery -----------------------
 

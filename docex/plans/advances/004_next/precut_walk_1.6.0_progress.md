@@ -264,12 +264,18 @@ decision).**
 
 | Finding | State |
 | ------- | ----- |
-| 1. Elastic HCL emitter never emits `command` | **FIXED** — mod 108, unit suite 987, verified live on stage + prod |
-| 2. First-time elastic release loses the `consumes` fan-out to a start-order race | **OPEN** — cut blocker, design decision required |
-| 3. `verify_clean.sh` coverage gaps left orphans that blocked the stage apply | **OPEN** — cheap fix, not yet made |
-| 4. Checklist `A.4.2` delegation/DNS ordering is wrong | **OPEN** — checklist edit, not yet made |
+| 1. Elastic HCL emitter never emits `command` | **FIXED** — mod 108, verified live on stage + prod |
+| 2. First-time elastic release loses the `consumes` fan-out to a start-order race | **FIXED** — mod 109, verified by a fresh first-time prod release (fan-out 200 on the **first** probe) |
+| 3. `verify_clean.sh` coverage gaps left orphans that blocked the stage apply | **FIXED** — 8 checks added (20 total) |
+| 4. Checklist `A.4.2` delegation/DNS ordering is wrong | **FIXED** — 5 checklist corrections applied |
 
-## ⛔ OPEN defect (2) — first-time elastic release loses the `consumes` fan-out
+Unit suite: 983 → **993**. Both walks green. **No open cut blockers.**
+
+## ✅ FIXED defect (2) — first-time elastic release loses the `consumes` fan-out
+
+Shipped as **[mod 109](../../modifications/109_service_connect_consumer_reconcile/overview.md)**.
+The diagnosis below is preserved as written; the fix and its live verification are
+in [§ Mod 109 outcome](#mod-109-outcome) at the end.
 
 **The doctrine-mandated `/health/<svc>/<proc>` fan-out is broken on a first-time
 elastic release, permanently, by a start-order race.** Found at D.11.
@@ -512,4 +518,82 @@ from `<project>_tofu_locks` (or `tofu force-unlock`) and re-run. Worth either a
   `practices/modifications.md § Process` step 3.3 specifies; the operator was
   away and the walk was blocked with live infrastructure running. It is written
   up in the standard shape for review, and should be reviewed as if the gate had
-  been taken.
+  been taken. **Mod 109 took the gate normally** — designed, approved, then
+  implemented.
+
+---
+
+## Mod 109 outcome
+
+Operator-approved design: **`consumes`-driven** reconcile, **waiting** bounded for
+steady state. Implemented in
+[`109_service_connect_consumer_reconcile/`](../../modifications/109_service_connect_consumer_reconcile/overview.md).
+
+### Verified on a genuinely first-time elastic prod release
+
+The defect only manifests on a first release, so the retest rebuilt the project
+tier and prod env tier from nothing: fresh Route53 zone
+(`Z01195932I38QMC7D99HM`), fresh NS delegation, fresh ACM certs, fresh ECR repos,
+fresh cluster, fresh RDS. tofu again created the two ECS services concurrently
+(`api-worker` complete after 1s, `api-web` after 2s) — the race was present.
+
+`release prod` printed:
+
+```
+release: reconciling Service Connect consumer 'docex-smoke-elastic-prod-api-web' —
+its `consumes` target 'docex-smoke-elastic-prod-api-worker' registered during this
+release, and a client cannot resolve an endpoint added after it started.
+release: prod deployed successfully via OpenTofu.
+```
+
+**Acceptance criterion met: `/health/api/worker` returned `200 {"version":"0.0.16"}`
+on the FIRST probe**, with no manual `force-new-deployment`. Before the fix the
+same probe returned `503 … Name or service not known` ten times over ~3 minutes
+and never recovered without intervention.
+
+Everything else on the retest held:
+
+| Check | Result |
+| ----- | ------ |
+| Three prod URLs | 200 at `0.0.16` — two-segment, bare-env, bare-project |
+| `/health/probe`, `/health/events` | 200 |
+| `replicas: 2` | `desired_count = 2`, **2 RUNNING** — the reconcile does not disturb the replica path |
+| ECS services | exactly 4; `reaper-prune` an ENABLED schedule with no service |
+| Mod 108 commands | all three task definitions carry their own correct `command` |
+| Ping round-trip | `POST /pings` → 201, prod RDS row `processed_at` set |
+| Teardown | complete; `verify_clean.sh` green on 20 checks; parent-zone NS delegation removed |
+
+### Cost profile confirmed in practice
+
+The reconcile added roughly 8 minutes to this release — almost entirely the
+bounded steady-state wait on the redeployed consumer. That cost lands **only on a
+shape-changing release**: the endpoint-set diff is empty on an ordinary
+image-tag deploy, so steady-state releases pay one extra `list_services` call and
+nothing else. Confirmed by unit test
+`test_no_reconcile_when_namespace_unchanged`, which asserts zero redeploys *and*
+zero waits.
+
+### Doctrine edits made (for review)
+
+1. `cicl.md` — new `#### Resilience covers reachability, not resolvability` under
+   § Depends-On, stating the failure mode, why retrying cannot fix it, and why a
+   one-shot reconcile is nonetheless sound (registration is durable where
+   liveness is not). Deliberately does not entrench `depends_on`.
+2. `cicl.md § Consumes Relationships` — three jobs → four; "emits nothing" split
+   from "read only by CI", and the table's `Emitted` row now reads **nothing, on
+   either foundation**.
+3. `specifics/release.md` — elastic flow gains a conditional step 4, plus a new
+   `### Service Connect Consumer Reconcile` section.
+4. `contracts.md § Fan-out` — a 503 on a freshly provisioned env is this failure,
+   not a wedged loop.
+
+### Follow-ups deliberately not done
+
+- **`docex reconcile <env>`** as a standalone escape hatch, for an operator whose
+  env is already in the broken state, without forcing a full release.
+- **The seed Dockerfiles still carry a `CMD`** — the thing that masked mod 108.
+  Removing it converts a silent-wrong-process failure into a loud one.
+- **`_advance_retire_depends_on.md`** — the operator's `depends_on` concern,
+  filed as a proposal for a future advance and explicitly out of 1.6.0 scope.
+- **The fixed project's `verify_clean.sh`** has not been reviewed for gaps
+  equivalent to the eight found in the elastic one.

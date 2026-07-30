@@ -297,6 +297,44 @@ class AWSClient(Protocol):
         ...
 
     # ------------------------------------------------------------------
+    # Mod 109: Service Connect consumer reconcile.
+    # ------------------------------------------------------------------
+
+    def service_connect_endpoint_names(self, namespace_name: str) -> set[str]:
+        """The Service Connect endpoint names registered in a namespace.
+
+        These are the Cloud Map service names inside the env's private-DNS
+        namespace — i.e. exactly the aliases a Service Connect *client* task
+        can resolve, and only if they were present when that task started.
+
+        **A namespace that does not exist reads as the empty set**, which is
+        the honest answer on a first release: nothing is registered yet.
+        Making the caller distinguish "absent" from "empty" would buy nothing,
+        since both mean "no consumer can resolve anything here".
+        """
+        ...
+
+    def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
+        """Force a new deployment of an ECS service without changing it.
+
+        The only supported way to make a running Service Connect client pick
+        up endpoints registered after it started — see mod 109 and
+        `cicl.md § Depends-On Relationships`.
+        """
+        ...
+
+    def ecs_wait_services_stable(
+        self, cluster: str, services: list[str], *, timeout_s: int,
+    ) -> bool:
+        """Block until every named service reaches steady state.
+
+        Returns ``False`` on timeout rather than raising: a slow rollout is
+        not the same failure as a rejected one, and the caller decides which
+        of the two is fatal.
+        """
+        ...
+
+    # ------------------------------------------------------------------
     # Mod 042: preinfra master VPC discovery.
     # ------------------------------------------------------------------
 

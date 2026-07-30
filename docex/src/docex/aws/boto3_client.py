@@ -480,6 +480,72 @@ class Boto3AWSClient:
         return bool(resp.get("serviceArns"))
 
     # ------------------------------------------------------------------
+    # Mod 109: Service Connect consumer reconcile
+    # ------------------------------------------------------------------
+
+    def service_connect_endpoint_names(self, namespace_name: str) -> set[str]:
+        sd = self._client("servicediscovery")
+        namespace_id: str | None = None
+        paginator = sd.get_paginator("list_namespaces")
+        for page in paginator.paginate():
+            for ns in page.get("Namespaces", []):
+                if ns.get("Name") == namespace_name:
+                    namespace_id = ns.get("Id")
+                    break
+            if namespace_id is not None:
+                break
+        if namespace_id is None:
+            # First release: the env namespace is created by the same apply
+            # that creates the services, so "absent" and "empty" coincide.
+            return set()
+
+        names: set[str] = set()
+        svc_paginator = sd.get_paginator("list_services")
+        for page in svc_paginator.paginate(
+            Filters=[{
+                "Name": "NAMESPACE_ID",
+                "Values": [namespace_id],
+                "Condition": "EQ",
+            }],
+        ):
+            for svc in page.get("Services", []):
+                name = svc.get("Name")
+                if name:
+                    names.add(name)
+        return names
+
+    def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
+        ecs = self._client("ecs")
+        ecs.update_service(
+            cluster=cluster, service=service, forceNewDeployment=True,
+        )
+
+    def ecs_wait_services_stable(
+        self, cluster: str, services: list[str], *, timeout_s: int,
+    ) -> bool:
+        if not services:
+            return True
+        ecs = self._client("ecs")
+        waiter = ecs.get_waiter("services_stable")
+        # The waiter polls on a fixed delay; derive attempts from the caller's
+        # budget so `timeout_s` is honoured rather than being advisory.
+        delay = 15
+        attempts = max(1, timeout_s // delay)
+        try:
+            waiter.wait(
+                cluster=cluster,
+                services=services,
+                WaiterConfig={"Delay": delay, "MaxAttempts": attempts},
+            )
+        except Exception:
+            # WaiterError (and any transient describe failure underneath it)
+            # means "not stable within budget", not "the deployment was
+            # rejected" — update_service already returned success. The caller
+            # treats this as a warning.
+            return False
+        return True
+
+    # ------------------------------------------------------------------
     # Mod 042: preinfra master VPC discovery
     # ------------------------------------------------------------------
 

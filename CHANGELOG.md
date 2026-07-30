@@ -330,6 +330,39 @@ fix-forward message). Downstream projects upgrade per
 
 ### Fixed
 
+- **The `consumes` fan-out died on a first-time elastic release** (mod 109, found
+  by the pre-cut smoke walk at `PRE_CUT_CHECKLIST § D.11`). ECS Service Connect
+  fixes a client task's set of resolvable endpoint names **at task start** — AWS:
+  *"New endpoints that are added to the namespace after the most recent deployment
+  won't be added to the task configuration"* — and `docex` emitted the consumer's
+  and the consumed's `aws_ecs_service` with no ordering, so tofu created them
+  concurrently. On the walk `api-web` started 15 s before its worker and returned
+  `503 … Name or service not known` for the rest of that task's life, with both
+  workers HEALTHY and 2 instances registered. Forcing a new deployment of
+  `api-web` alone fixed it instantly.
+
+  This is a hole in the model, not just a bug: `cicl.md § Depends-On
+  Relationships` prescribes *"reconnect, back off, and fail requests cleanly"*,
+  which presumes **transient** absence. A name that never resolves for a task's
+  whole life is not something backoff converges on. The doctrine treated elastic
+  dependency failure as a *reachability* problem; Service Connect adds a
+  *resolvability* one.
+
+  Fixed by a **post-apply consumer reconcile**: diff the env namespace's endpoint
+  set against a snapshot taken before any apply, and force a new deployment of
+  every core process type declaring a `consumes` target whose endpoint is new in
+  that diff, then wait bounded for steady state. Notably this is *not* the
+  deploy-time ordering emulation the same doctrine section rejects — an endpoint
+  registration is **durable state owned by the service, not by task liveness**, so
+  holding once is permanently sufficient; every later task replacement starts into
+  a namespace that already contains the name. Ordering could not have worked
+  regardless, since a `consumes` cycle (`web ↔ worker`) has no valid creation
+  order. The diff is per-target rather than per-namespace, and a release that adds
+  no process type registers nothing, so ordinary image-tag releases pay one extra
+  `list_services` call and nothing more. `consumes` gains a fourth job and stays
+  emit-free. Verified on a rebuilt-from-nothing elastic prod release: the fan-out
+  answered 200 on the **first** probe.
+
 - **The elastic HCL emitter never emitted a process type's `command`** (mod 108,
   found by the pre-cut smoke walk at `PRE_CUT_CHECKLIST § D.9`). Every
   `aws_ecs_task_definition` shipped `command = null`, so every ECS task ran

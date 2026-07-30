@@ -82,4 +82,6 @@ The declaration lives in the fields rather than in the provider's own contract b
 
 On elastic there is a second reason the `port` is required: it is exactly what makes a process type Service-Connect-discoverable, which is what lets a sibling `web` process reach its `/health` one hop away.
 
+Discoverability alone is not sufficient there, though. A Service Connect client resolves only the endpoints that existed when its task started, so a consumer deployed alongside a brand-new target can fail this fan-out permanently even though both sides are healthy. `docex` closes that at release time — see [`release.md § Service Connect Consumer Reconcile`](./specifics/release.md#service-connect-consumer-reconcile) and [`cicl.md § Resilience covers reachability, not resolvability`](./cicl.md#resilience-covers-reachability-not-resolvability). A `503` here on a freshly provisioned env, with the target reporting healthy, is that failure and not a wedged loop.
+
 By enforcing the fan-out endpoints in the contract, we allow the developer to implement them however they see fit but ensure that health checks will be available to CI/CD operations.
