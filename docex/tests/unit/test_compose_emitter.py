@@ -187,9 +187,10 @@ def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: P
 def test_web_network_is_project_env_external_and_others_are_project_scoped(tmp_path: Path):
     """Mod 036 flip: env compose's ``web`` short-name now references the
     project-tier ``${project}-${env}-web`` network with ``external: true``;
-    every other network keeps ``${project}-${env}-${name}`` scoping with
-    ``internal: true``. The per-project traefik (owned by projinfra)
-    spans all four ``-web`` networks."""
+    every other network keeps ``${project}-${env}-${name}`` scoping and is
+    a plain project-scoped bridge — no ``internal: true`` (mod 110). The
+    per-project traefik (owned by projinfra) spans all four ``-web``
+    networks."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -205,10 +206,43 @@ def test_web_network_is_project_env_external_and_others_are_project_scoped(tmp_p
             "external": True,
         }, (env, networks["web"])
         # `internal` (or any other CICL-defined network) stays
-        # project-scoped and internal.
+        # project-scoped, as a plain bridge.
         internal = networks["internal"]
         assert internal["name"] == f"sample-{env}-internal", internal
-        assert internal.get("internal") is True, internal
+        # Mod 110: no ``internal: true``. It buys no ingress protection
+        # (inter-bridge isolation and the absent published ports already
+        # give that) and its only real effect is killing egress, which
+        # contradicts networks.md § Egress and elastic's allow-all SG.
+        assert "internal" not in internal, internal
+
+
+def test_non_web_only_service_is_not_egress_isolated(tmp_path: Path):
+    """A service attached only to non-``web`` networks must still reach the
+    internet. Docker's ``internal: true`` strips the bridge's masquerade
+    rule, so any network carrying it denies egress to every container whose
+    only attachment is that network. Two concrete breakages that caused
+    (mod 110):
+
+    1. A ``worker``/``scheduler`` process type's paired OTel sidecar shares
+       its partner's netns via ``network_mode: service:<container>``, so a
+       ``[internal]``-only partner stranded the sidecar with no route to
+       ``OBSERVABILITY_BACKEND_URL`` — Class-1 telemetry silently dead in
+       fixed ``stage``/``prod``.
+    2. A ``worker`` calling a third-party API simply could not reach it.
+
+    Assert against the whole ``networks:`` block rather than the ``internal``
+    short-name alone, so a project declaring further non-``web`` networks is
+    covered too.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("dev", "test", "stage", "prod"):
+        path = root / "infra" / "output" / env / "docker-compose.yml"
+        doc = yaml.safe_load(path.read_text())
+        for short, block in (doc.get("networks") or {}).items():
+            assert "internal" not in block, (env, short, block)
 
 
 def test_web_router_emits_certresolver_doctrine(tmp_path: Path):

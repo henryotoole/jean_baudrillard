@@ -15,6 +15,41 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [Unreleased]
+
+### Fixed
+
+- **Services on non-`web` networks regain internet egress** (mod 110). The
+  compiler emitted every non-`web` env network with Docker's `internal: true`,
+  which strips the bridge's masquerade rule and so denied *all* outbound access
+  to any container whose only attachment was such a network. That contradicted
+  the rule of record: `networks.md § Egress` states that on fixed "outbound
+  requests leave each container via Docker's normal `iptables`-managed NAT
+  through the host's default route — nothing project-specific or
+  doctrine-emitted is involved." The flag appeared nowhere in the doctrine, the
+  transfer tables, or the core docs; it was code drift, and it is now gone. A
+  non-`web` network is a plain user-defined bridge with no published ports,
+  which already delivers everything the doctrine promises: reachable from
+  services on the same network, not from other networks, not from the public
+  internet. Measured on Engine 29.4.1, `internal: true` contributed **no**
+  ingress protection over a plain bridge — cross-network isolation comes from
+  Docker's inter-bridge isolation rules, and the host reaches an internal
+  network's containers just as easily since the gateway sits in-subnet — so its
+  only effect was the egress loss. Two consequences: **fixed↔elastic parity is
+  restored** (the elastic `internal` SG is self-ingress plus allow-all egress,
+  so the same `infra.yml` previously reached a third-party API on elastic
+  `stage` and failed on fixed `stage`, violating masterplan goal 5), and **a
+  latent fixed `stage`/`prod` telemetry break is closed** — the OTel sidecar
+  shares its partner's netns via `network_mode: service:<container>`, so a
+  `worker`/`scheduler` on `networks: [internal]` had a sidecar with no route to
+  `OBSERVABILITY_BACKEND_URL`, silently dropping Class-1 telemetry. That hid in
+  `dev`/`test`, where the exporter is `debug`. The bug only ever bit services on
+  non-`web` networks *exclusively*: `-web` is a projinfra-owned plain bridge, so
+  anything on `[web, internal]` always had egress. Genuinely egress-less
+  networks remain deferred per `networks.md § Egress` and
+  `infrastructure.md § Deferred`; when they land they must be declared and
+  opt-in, with an elastic half, rather than a side effect of a compose flag.
+
 ## [1.6.0] - 2026-07-30
 
 "Service process types" (advance 004, mods 094-106) — decouples build artifact

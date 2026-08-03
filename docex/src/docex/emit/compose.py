@@ -111,7 +111,21 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     """Top-level ``networks:`` block.
 
     Every non-``web`` network compiles to a project-scoped docker network
-    named ``${project}-${env}-${shortname}`` with ``internal: true``.
+    named ``${project}-${env}-${shortname}``: a plain user-defined bridge
+    with no published ports. That is already exactly what ``doctrine/
+    infrastructure/specifics/networks.md § networks: [internal]``
+    promises — reachable from services on the same network, not from
+    other networks, not from the public internet.
+
+    Docker's ``internal: true`` is deliberately NOT emitted (mod 110). It
+    contributes no ingress protection: cross-network isolation comes from
+    Docker's own inter-bridge isolation rules, and the host can reach an
+    internal network's containers just as easily since the gateway sits
+    in-subnet. Its only real effect is stripping the bridge's masquerade
+    rule, which kills egress — contradicting ``networks.md § Egress``
+    ("Nothing project-specific or doctrine-emitted is involved") and
+    elastic's allow-all SG egress. Do not restore it.
+
     Per mod 030's naming unification, docker network names — being
     data-plane resolvable identifiers — use hyphens.
 
@@ -133,7 +147,7 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
             }
             continue
         full = f"{compiled.project_dns_label}-{compiled.env}-{short}"
-        out[short] = {"name": full, "internal": True}
+        out[short] = {"name": full}
     return out
 
 
