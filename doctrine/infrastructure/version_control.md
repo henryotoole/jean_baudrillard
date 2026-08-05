@@ -25,7 +25,7 @@ Any time a version number is incremented, an update should be added to the chang
 
 The project-wide version number should be stored in the `project.yml` manifest file, which lives at the very root of the project e.g. "$pr/project.yml". There is only one version for the entire project, and all services within the project will be considered to be on that one master version.
 
-There is only one release per version number, and only one [formal build image](./infrastructure.md#cicd-pipeline) per core service and version number.
+There is only one release per version number, and only one [formal build image](./infrastructure.md#cicd-pipeline) per codebase and version number.
 
 ### Format
 All projects use the traditional major / minor / patch notation for updates.

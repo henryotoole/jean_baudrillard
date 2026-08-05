@@ -1,7 +1,7 @@
-# api — Python core service, multi-stage build per doctrine
+# api — Python codebase, multi-stage build per doctrine
 # (infrastructure.md § Core Service Containers).
 #
-# ONE image, TWO process types: `api.web` (uvicorn edge) and `api.worker`
+# ONE image, TWO core services: `api.web` (uvicorn edge) and `api.worker`
 # (poll loop + liveness server). Both start this same artifact with a
 # different `command`, so every dependency either needs is installed here.
 
@@ -18,7 +18,7 @@ WORKDIR /service
 # emit to a tool-free probe (traefik HTTP healthcheck via service
 # labels) so the container's package list doesn't matter.
 #
-# BOTH process types need it now: `api.worker` also declares
+# BOTH core services need it now: `api.worker` also declares
 # `health_check_path`, and the `docex check` gate keys off that field with
 # no network filter, so it requires curl for the worker too.
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir \
         pydantic==2.10.2
 
 # dbmate — migrate.sh runs this. We copy the binary out of its official
-# image rather than installing Go. Once per CODEBASE, not per process type:
+# image rather than installing Go. Once per CODEBASE, not per core service:
 # `api` owns the appdb schema (`schema_owned_by: api`) and `migrate.sh`
 # runs once for the codebase regardless of how many ways it is invoked.
 COPY --from=amacneil/dbmate:2.21.0 /usr/local/bin/dbmate /usr/local/bin/dbmate
@@ -59,9 +59,9 @@ RUN chmod +x /service/*.sh && /service/build.sh
 # 8080 for api.web, 8081 for api.worker's liveness server.
 EXPOSE 8080 8081
 ENV PYTHONPATH=/service/dist
-# WHY: this CMD is never what runs. `command` is required on every process
-# type and supersedes the Dockerfile CMD (cicl.md § Process Types), which
-# is deliberately irrelevant for core services — with two process types on
+# WHY: this CMD is never what runs. `command` is required on every core
+# service and supersedes the Dockerfile CMD (cicl.md § Core Services), which
+# is deliberately irrelevant for core services — with two core services on
 # one image, at most one could have inherited it. Kept only as a sane
 # default for `docker run` by hand.
 CMD ["python", "/service/dist/entrypoints/web.py"]
@@ -76,7 +76,7 @@ COPY migrations/ /service/migrations/
 RUN chmod +x /service/migrate.sh
 EXPOSE 8080 8081
 ENV PYTHONPATH=/service/dist
-# See the WHY on the dev stage: overridden by each process type's `command`.
+# See the WHY on the dev stage: overridden by each core service's `command`.
 CMD ["python", "/service/dist/entrypoints/web.py"]
 
 # ----------------------------------------------------------------------
@@ -84,7 +84,7 @@ CMD ["python", "/service/dist/entrypoints/web.py"]
 #
 # CMD is `sleep infinity` so the container stays up and `docex test`
 # can `compose exec test.sh` against it (mirroring the fixture pattern).
-# One test suite per codebase — test.sh runs both process types' tests.
+# One test suite per codebase — test.sh runs both core services' tests.
 # ----------------------------------------------------------------------
 FROM prod AS test
 RUN pip install --no-cache-dir pytest==8.3.4 httpx==0.28.1

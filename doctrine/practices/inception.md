@@ -37,7 +37,7 @@ __PART I__: Setup
 	2. Add the critical `project.yml` file from the [default](#projectyml-default) below.
 	3. Add a `README.md` with a brief couple of sentences that describe the project.
 	4. Add `CHANGELOG.md` from the [default](#changelogmd-default)
-	5. Create the project folder structure as specified in [infra](../infrastructure/infrastructure.md#codebase-structure) down to:
+	5. Create the project folder structure as specified in [infra](../infrastructure/infrastructure.md#repository-structure) down to:
 		1. `core` folder, no subfolders.
 		2. `infra` folder, all direct child subfolders.
 			+ `secrets`, `config`, `tte`, and `deploy_creds` should each be given [infra `.gitignore`](#infra-gitignore-files) files.
@@ -55,7 +55,7 @@ A) Entirely by themselves
 B) By working with the LLM
 C) By handing full architecture authority to the LLM.
 
-The design phase should "fill out" the [core planning docs](./docs.md#core-planning-documents). Each core service should be given a folder in `$pr/plans/core`, and filled out with architecture and design docs. Core services with internal hexagonal architecture should have module docs for each planned hexagonal module. Core services which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database should get a `db_schema.md` file documenting relational schema choices.
+The design phase should "fill out" the [core planning docs](./docs.md#core-planning-documents). Each codebase should be given a folder in `$pr/plans/core`, and filled out with architecture and design docs. Codebases with internal hexagonal architecture should have module docs for each planned hexagonal module. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database should get a `db_schema.md` file documenting relational schema choices.
 
 All these core planning docs are driven by `masterplan.md`. They "unpack" those high-level plans into more concrete architecture and design docs. 
 
@@ -65,14 +65,14 @@ __PART III__: Infrastructure Smoke Test
 3. Verify development preinfra exists with `./bin/docex preinfra development`
 	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
 4. Write `infra.yml` to reflect the needs of the core planning docs.
-5. Create the core service folders in `$pr/core` and the infrastructural concerns within each:
+5. Create the codebase folders in `$pr/core` and the infrastructural concerns within each:
 	1. A Dockerfile that defines the environment.
-		+ These don't need to be perfect. At this stage, we only know what the core services are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.
+		+ These don't need to be perfect. At this stage, we only know what the codebases are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.
 	2. `dist`, `src`, and `tests` folders.
 		+ These will be empty.
 	3. Infrastructure scripts: `build.sh`, `test.sh`.
 		+ These can be empty, they must merely exist.
-	4. If this core service owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
+	4. If this codebase owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
 		+ These can be empty, they must merely exist.
 6. Compile `infra.yml`.
 7. Use `./bin/docex secrets scaffold` and `./bin/docex config scaffold` to create configurable var `<env>.env` files.
@@ -92,9 +92,9 @@ The process is roughly:
 2. Make a commit "Inception Part IV: first draft complete"
 
 The first of these cycles is very important. It must do the following very well:
-1. Write the contents of `build.sh` and `test.sh` for the first time for each core service.
-2. Adjust each core service's Dockerfile for the specifics of the service it will be running.
-3. Core services which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database will need to write the initial migration file(s) which set up the database and the `migrate.sh` script which runs it.
+1. Write the contents of `build.sh` and `test.sh` for the first time for each codebase.
+2. Adjust each codebase's Dockerfile for the specifics of the code it will be running.
+3. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database will need to write the initial migration file(s) which set up the database and the `migrate.sh` script which runs it.
 4. Write the first drafts of [contracts](../infrastructure/contracts.md) for "provider" core services.
 
 The files in the above list will likely be edited again in future mods. However, this first one is terribly important because it establishes the conventions that future mods will follow. Care should be taken to get them right.

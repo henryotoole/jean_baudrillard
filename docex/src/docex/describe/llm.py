@@ -42,8 +42,8 @@ def render_llm(compiled: CompiledEnv) -> str:
             # hyphenated string to recover them (the same argument Mod 102 made
             # for two OTel attributes over one fused `service.name`). None for a
             # backing service, which has no process dimension.
-            "core_service": svc.core_service,
-            "process": svc.process,
+            "core_service": svc.codebase,
+            "service": svc.service,
             "role": svc.role,
             "engine": svc.engine,
             "networks": svc.networks,

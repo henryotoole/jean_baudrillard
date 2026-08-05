@@ -102,7 +102,7 @@ def fargate_pair_from_units(
             f"Reduce resources or split the service. Valid CPU buckets: "
             f"{list(_FARGATE_CPUS)}."
         ),
-        where=where or f"core_services.{service_name}.resources",
+        where=where or f"codebases.{service_name}.resources",
     )])
 
 
@@ -134,7 +134,7 @@ def fargate_pair(
             rule="rule_fargate_memory_unparseable",
             message=str(e),
             where=(f"{where}.memory" if where else
-                   f"core_services.{service_name}.resources.memory"),
+                   f"codebases.{service_name}.resources.memory"),
         )]) from e
 
     for cpu_attempt in [cpu_choice] + [
@@ -159,5 +159,5 @@ def fargate_pair(
             f"Reduce resources or split the service. Valid CPU buckets: "
             f"{list(_FARGATE_CPUS)}."
         ),
-        where=where or f"core_services.{service_name}.resources",
+        where=where or f"codebases.{service_name}.resources",
     )])

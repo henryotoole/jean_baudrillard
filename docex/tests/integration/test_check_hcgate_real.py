@@ -33,10 +33,10 @@ def _make_hc_project(root: Path, dockerfile_body: str) -> Path:
         'apex_domain: "example.com"\n'
         'container_registry: "registry.example.com"\n'
         'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
-        "domain_default_process: api.web\n"
-        "core_services:\n"
+        "domain_default_service: api.web\n"
+        "codebases:\n"
         "  api:\n"
-        "    processes:\n"
+        "    core_services:\n"
         "      web:\n"
         "        role: web\n"
         '        command: ["python", "/service/dist/root.py"]\n'

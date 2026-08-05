@@ -250,7 +250,7 @@ def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False, worker_hc=F
     hc_line = "        health_check_path: /health\n" if web_with_hc else ""
     worker_block = (
         "  worker:\n"
-        "    processes:\n"
+        "    core_services:\n"
         "      web:\n"
         "        role: web\n"
         '        command: ["python", "/service/dist/root.py"]\n'
@@ -268,10 +268,10 @@ def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False, worker_hc=F
         'apex_domain: "example.com"\n'
         'container_registry: "registry.example.com"\n'
         'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
-        "domain_default_process: api.web\n"
-        "core_services:\n"
+        "domain_default_service: api.web\n"
+        "codebases:\n"
         "  api:\n"
-        "    processes:\n"
+        "    core_services:\n"
         "      web:\n"
         "        role: web\n"
         '        command: ["python", "/service/dist/root.py"]\n'

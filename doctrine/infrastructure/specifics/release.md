@@ -37,7 +37,7 @@ For fixed-foundation projects, `./bin/docex release <env>` invokes `ansible-play
 The playbook's tasks, in order:
 1. `docker pull` the project's `build_image` at the tagged version. Uses the registry credentials already present in the target host's `~/.docker/config.json` — see [Registry Credentials](#registry-credentials) below.
 2. Render the env's compose file and `.env` from the compiled templates onto the host at `/opt/<project>/<env>/`. The compose file declares the env's services and `internal` networks, plus `external: true` references to the project-tier `-web` networks owned by [`projinfra/fixed_reverse_proxy.md`](./projinfra/fixed_reverse_proxy.md).
-3. Run the [migration step](./migrations.md#stage-and-prod-on-fixed-foundation) against the new image for any service with `schema_owned_by`. If any migration fails, abort here — `docker compose up -d` is not run.
+3. Run the [migration step](./migrations.md#stage-and-prod-on-fixed-foundation) against the new image for every codebase named by a backing service's `schema_owned_by`. If any migration fails, abort here — `docker compose up -d` is not run.
 4. Run `docker compose up -d` from that directory; Docker reconciles running containers to declared state. Env-tier services join the project-tier `-web` networks, where the project traefik (already running) picks them up via its docker provider and routes accordingly.
 
 Each task uses an idempotent Ansible module (`community.docker.docker_image`, `template`, `community.docker.docker_compose_v2`, etc.). Re-running the playbook against an unchanged target produces zero changes.
@@ -77,7 +77,7 @@ For elastic-foundation projects, `./bin/docex release <env>` performs three oper
 1. **Aggregate to SSM Parameter Store** per [`config_and_secrets.md`](./config_and_secrets.md) — the SSM prefix `/<project>/<env>/` *is* the elastic aggregate: TTE credentials minted put-if-absent (`SecureString`), secrets overwritten (`SecureString`), config overwritten (plain `String`). If this fails, no further steps run — the release fails cleanly with no infrastructure changes attempted.
 2. **Run migrations** against the existing database per [`migrations.md`](./migrations.md#stage-and-prod-on-elastic-foundation). On non-first releases, this runs *before* the main `tofu apply`; on first-time-ever releases, ordering swaps (see [`migrations.md § First-Time Release of an Env`](./migrations.md#first-time-release-of-an-env)).
 3. **Run `tofu apply`** against the env's HCL at `infra/output/<env>/main.tf`. This is where the env-tier rolling deploy happens.
-4. **Reconcile Service Connect consumers** — see [§ Service Connect Consumer Reconcile](#service-connect-consumer-reconcile) below. A no-op on any release that does not add a process type, which is nearly all of them.
+4. **Reconcile Service Connect consumers** — see [§ Service Connect Consumer Reconcile](#service-connect-consumer-reconcile) below. A no-op on any release that does not add a core service, which is nearly all of them.
 
 OpenTofu reads the emitted HCL, diffs against the current AWS state, and applies. The env-tier HCL pulls from two places:
 
@@ -100,12 +100,12 @@ ECS Service Connect fixes a client task's set of resolvable endpoint names **at 
 Because `tofu apply` creates every env-tier `aws_ecs_service` concurrently, a consumer and the [`consumes`](../cicl.md#consumes-relationships) target it depends on start racing. Whichever starts first may never see the other. So after the final apply, `release`:
 
 1. Diffs the env namespace's Service Connect endpoint names against a snapshot taken **before** any apply in this release.
-2. Redeploys (`forceNewDeployment`) every core process type declaring a `consumes` target whose endpoint is **new in that diff**.
+2. Redeploys (`forceNewDeployment`) every core service declaring a `consumes` target whose endpoint is **new in that diff**.
 3. Waits, bounded, for those services to reach steady state — so a release that exits 0 means the env actually works, and the following [`stagetest`](../tests.md#staging-tests) is not racing a rollout.
 
 Three properties are worth stating because they are what make this cheap and safe:
 
-- **It is a no-op unless the shape changed.** A release that adds no process type registers no endpoint, so the diff is empty and the cost is one extra API call. Ordinary image-tag releases pay nothing.
+- **It is a no-op unless the shape changed.** A release that adds no core service registers no endpoint, so the diff is empty and the cost is one extra API call. Ordinary image-tag releases pay nothing.
 - **The diff is per-target, not per-namespace.** A consumer whose own targets were already registered is left alone even when some unrelated endpoint appears.
 - **It handles cycles, which ordering cannot.** A `consumes` graph may legally contain cycles, and in a cycle some member must be created first — so no creation order exists. Acting *after* everything is registered is the only mechanism that works for `web ↔ worker`.
 

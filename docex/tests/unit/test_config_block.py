@@ -29,7 +29,7 @@ def _copy_with_api_config(fixture: Path, dest: Path) -> Path:
     shutil.copytree(fixture, dest, symlinks=False, dirs_exist_ok=False)
     infra_path = dest / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["config"] = {
+    doc["codebases"]["api"]["config"] = {
         "PARTNER_URL": "Partner API base URL (per-env)"
     }
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))

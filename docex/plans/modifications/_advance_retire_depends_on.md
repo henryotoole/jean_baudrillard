@@ -30,7 +30,7 @@ starting — but it is ergonomics, and the doctrine already says so.
 ### Job 2 — rule-7 bookkeeping
 
 A backing-service magic ref obliges a matching `depends_on` entry, or the compile
-fails. **This job is redundant.** The ref *is* the dependency: a process type
+fails. **This job is redundant.** The ref *is* the dependency: a core service
 holding `${backing_services.appdb.host}` demonstrably depends on `appdb`, and the
 compiler can see that without being told twice.
 
@@ -40,7 +40,7 @@ class of error exists solely because the doctrine requires both statements. Remo
 the second statement and the error class vanishes rather than going unchecked.
 
 Evidence from the seed: every `depends_on` entry in both smoke projects is backed
-by magic refs held by that same process type. `api.web` declares
+by magic refs held by that same core service. `api.web` declares
 `depends_on: [appdb, probe, events]` and holds refs to all three. `api.worker` and
 `reaper.prune` declare `[appdb]` and hold the six `DATABASE_*` refs. There is not
 one entry in the reference implementation that derivation would miss.
@@ -50,7 +50,7 @@ one entry in the reference implementation that derivation would miss.
 For that, the doctrine currently pays:
 
 - A first-class authored CICL field.
-- **Rule 24** — "a core process type in `depends_on` is an error" — a rule whose
+- **Rule 24** — "a core service in `depends_on` is an error" — a rule whose
   entire job is to stop authors reaching for the wrong one of two similar fields.
 - **Rule 7's backing arm**, the redundant bookkeeping above.
 - An asymmetry that must be explained every time: `depends_on` cycles are
@@ -64,7 +64,7 @@ For that, the doctrine currently pays:
 ## Proposal — derive it
 
 **Retire `depends_on` from the authoring surface. Have the compiler infer the
-fixed readiness gate from the backing-service magic refs each process type
+fixed readiness gate from the backing-service magic refs each core service
 holds.**
 
 The authoring surface then reduces to two things an author states for their own

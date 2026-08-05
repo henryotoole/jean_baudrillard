@@ -11,10 +11,10 @@ The doctrine commits to two foundations. Bugs hit each foundation differently �
 
 ## Shape
 
-Both projects share the **same code** under `core/`. There are **two codebases carrying three process types** between them:
+Both projects share the **same code** under `core/`. There are **two codebases carrying three core services** between them:
 
-- **`api`** — one codebase, one image, two process types. `api.web` (`role: web`) exposes `POST /pings` + `GET /health` + the `/health/api/worker` fan-out; `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, and serves its own `GET /health` off a monotonic loop tick. `api.web` `consumes: [api.worker]`. This is the pair that exercises the process-type expansion: one build, one ECR repo, one `-exec` container, one `-migrate` task definition, two sidecars.
-- **`reaper`** — a scheduler-only codebase with one process type, `reaper.prune` (`role: scheduler`), nightly-pruning expired processed pings. Kept separate deliberately: it is the only end-to-end coverage of the scheduler path anywhere, since no integration test touches one.
+- **`api`** — one codebase, one image, two core services. `api.web` (`role: web`) exposes `POST /pings` + `GET /health` + the `/health/api/worker` fan-out; `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, and serves its own `GET /health` off a monotonic loop tick. `api.web` `consumes: [api.worker]`. This is the pair that exercises the core-service expansion: one build, one ECR repo, one `-exec` container, one `-migrate` task definition, two sidecars.
+- **`reaper`** — a scheduler-only codebase with one core service, `reaper.prune` (`role: scheduler`), nightly-pruning expired processed pings. Kept separate deliberately: it is the only end-to-end coverage of the scheduler path anywhere, since no integration test touches one.
 
 They talk through a postgres backing service (`appdb`) and the `pings` table, plus two project-local container backings (`probe`, `events`).
 

@@ -33,7 +33,7 @@ configs:
 
       environment = OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 
-      environment = OTEL_RESOURCE_ATTRIBUTES=service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.core_service=reaper,docex.process_type=prune
+      environment = OTEL_RESOURCE_ATTRIBUTES=service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.codebase=reaper,docex.service=prune
 
       environment = OTEL_SERVICE_NAME=reaper-prune
 
@@ -56,7 +56,6 @@ configs:
       \ [debug] }\n"
 networks:
   internal:
-    internal: true
     name: docex-smoke-elastic-dev-internal
   web:
     external: true
@@ -83,7 +82,7 @@ services:
       DATABASE_USER: appuser
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.core_service=api
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.codebase=api
       OTEL_SERVICE_NAME: api
       PROJECT_VERSION: 0.0.18
     image: docex_smoke_elastic/api:0.0.18
@@ -128,7 +127,7 @@ services:
       DATABASE_USER: appuser
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.core_service=api,docex.process_type=web
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.codebase=api,docex.service=web
       OTEL_SERVICE_NAME: api-web
       PROJECT_VERSION: 0.0.18
       SIDECAR_HOST: docex-smoke-elastic-dev-probe
@@ -212,7 +211,7 @@ services:
       DATABASE_USER: appuser
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.core_service=api,docex.process_type=worker
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.codebase=api,docex.service=worker
       OTEL_SERVICE_NAME: api-worker
       PROJECT_VERSION: 0.0.18
     healthcheck:
@@ -318,7 +317,7 @@ services:
       DATABASE_USER: appuser
       OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.core_service=reaper
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=dev,docex.codebase=reaper
       OTEL_SERVICE_NAME: reaper
       PROJECT_VERSION: 0.0.18
     image: docex_smoke_elastic/reaper:0.0.18

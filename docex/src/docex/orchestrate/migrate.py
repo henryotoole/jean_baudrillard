@@ -4,7 +4,7 @@ dev/test: ``docker compose run --rm`` the ``./migrate.sh`` script inside each
 schema-owning codebase's **exec service** — the per-codebase operations
 container the compiler emits (Mod 099). A one-off container rather than an
 ``exec`` into a running one, so the migration sees codebase-scoped env only
-and does not depend on any process type's container being up.
+and does not depend on any core service's container being up.
 
 Stage/prod, fixed (Phase 3): invoke the ``migrate``-tagged step of the
 env's emitted Ansible playbook.
@@ -351,10 +351,10 @@ def _migration_task_family(
     ``svc`` is a CODEBASE key: migration is a per-codebase operation, so one
     codebase yields exactly one migrate family regardless of how many process
     types it declares. Mod 099: the naming policy is therefore a *codebase*
-    property, resolved across all of the codebase's process types with an
+    property, resolved across all of the codebase's core service with an
     agreement check (``_codebase_naming_policy``) — the same derivation
     ``exec_service_key`` uses, which is why both call it. Through Mod 096 it
-    was read off a single carrier process type; that carrier is gone.
+    was read off a single carrier core service; that carrier is gone.
 
     Both fallbacks are best-effort: the family is only a lookup key here, so
     an undeducible policy degrades to the hyphen form (mod 030 data-plane

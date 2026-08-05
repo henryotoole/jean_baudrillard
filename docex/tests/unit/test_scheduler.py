@@ -28,15 +28,15 @@ _ELASTIC = _FIXTURES / "sample_project_scheduler_elastic"
 # scheduler in its OWN codebase (`nightly_cleanup.nightly_cleanup`), where the
 # codebase and process names coincide — so "the identity is two-segment" is
 # unfalsifiable there and "exactly one sidecar per codebase" is unexpressible.
-# These add ONE scheduler process type to the existing `api` codebase, which is
+# These add ONE scheduler core service to the existing `api` codebase, which is
 # the shape the per-process claims actually bite on.
 _MIXED_FIXED = _FIXTURES / "sample_project"
 _MIXED_ELASTIC = _FIXTURES / "sample_project_elastic"
 
 # `depends_on: [appdb]`: the fixtures declare their DATABASE_* magic refs at the
-# SERVICE level, and a service-level ref obliges every process type of that
+# SERVICE level, and a service-level ref obliges every core service of that
 # codebase to carry the readiness edge (rule 7). `disk: 25GB` matches what the
-# elastic fixture's own process types use, so Fargate tiering accepts it.
+# elastic fixture's own core service use, so Fargate tiering accepts it.
 _JOB = {
     "role": "scheduler",
     "schedule": "0 3 * * *",
@@ -54,7 +54,7 @@ def _web_plus_job_project(fixture: Path, tmp_path: Path) -> Path:
 
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["nightly_cleanup"] = dict(_JOB)
+    doc["codebases"]["api"]["core_services"]["nightly_cleanup"] = dict(_JOB)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
     return root
 
@@ -384,7 +384,7 @@ def test_mixed_codebase_elastic_job_has_no_service_or_target_group(
     web_plus_job_elastic: Path,
 ):
     """Elastic counterpart, at ONE codebase rather than across two: the job
-    process type gets a task definition and nothing else — no `aws_ecs_service`,
+    core service gets a task definition and nothing else — no `aws_ecs_service`,
     no `aws_lb_target_group`, no sidecar container — while its sibling `web`
     process in the same codebase keeps all of them."""
     hcl = _stage_hcl(web_plus_job_elastic)
@@ -418,9 +418,9 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   job:
-    processes:
+    core_services:
       nightly:
         role: scheduler
         schedule: "0 3 * * *"
@@ -443,7 +443,7 @@ def test_scheduler_without_schedule_errors():
 
 
 def test_scheduler_without_command_errors():
-    """Mod 096: `command` is required on EVERY process type (rule 23), so a
+    """Mod 096: `command` is required on EVERY core service (rule 23), so a
     scheduler missing one is now a model-level parse error rather than the
     scheduler-specific `rule_scheduler_command_required` issue the validator
     used to raise. Same requirement, enforced one layer earlier."""
@@ -473,9 +473,9 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]

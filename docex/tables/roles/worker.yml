@@ -1,21 +1,21 @@
 # Role: worker
 #
-# Core service process type — long-running, event-driven, never publicly
+# Core-service role — long-running, event-driven, never publicly
 # routed. Canonically a queue consumer; a stream processor or polling loop
-# fits the same shape. Shares its codebase and image with sibling process
-# types.
+# fits the same shape. Shares its codebase and image with sibling core
+# services.
 #
-#   - fixed:   one compose service on the codebase's image with the process
-#              type's `command`.
+#   - fixed:   one compose service on the codebase's image with the core
+#              service's `command`.
 #   - elastic: task_definition + ecs_service. NO target_group — a worker is
 #              not an ingress target.
 #
-# `image:`, `cpu:`, `memory:`, `tmpfs:` are derived per-process by the
+# `image:`, `cpu:`, `memory:`, `tmpfs:` are derived per-core-service by the
 # compiler, exactly as for `web`.
 
 roles:
   worker:
-    description: "Core service process type — long-running, event-driven, not publicly routed."
+    description: "Core-service role — long-running, event-driven, not publicly routed."
     container:
       foundation: both
       emits:
@@ -48,7 +48,7 @@ roles:
       provides:
         # A worker that declares a `port` registers as Service-Connect-
         # discoverable on elastic (shape.md § service_discovery), which is what
-        # lets a sibling `web` process reach its /health one hop away.
+        # lets a sibling `web` core service reach its /health one hop away.
         host:
           fixed: "${global_service_name}"
           elastic: "${global_service_name}"

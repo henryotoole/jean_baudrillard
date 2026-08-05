@@ -75,7 +75,7 @@ resource "aws_security_group" "{{ short }}" {
   }
 {# Mod 060: network SG is env-scoped (service/role=etc); the network short
    name now rides in `descriptor` (was the bespoke `network` tag). -#}
-{{ tagblock(standard_tags("environment", shape_name="network", descriptor=short, project=project, env=env, service="etc", role="etc")) }}
+{{ tagblock(standard_tags("environment", shape_name="network", descriptor=short, project=project, env=env, codebase="etc", role="etc")) }}
 }
 {% if short == "web" %}
 # Web SG: open ingress only from the project reverse-proxy SG (project-tier).
@@ -128,7 +128,7 @@ resource "aws_service_discovery_private_dns_namespace" "env" {
   name        = "{{ project | replace('_', '-') | lower }}-{{ env }}"
   vpc         = data.terraform_remote_state.project.outputs.vpc_id
   description = "ECS Service Connect namespace for {{ project | replace('_', '-') | lower }} {{ env }}"
-{{ tagblock(standard_tags("environment", shape_name="service_discovery", descriptor="namespace", project=project, env=env, service="etc", role="etc")) }}
+{{ tagblock(standard_tags("environment", shape_name="service_discovery", descriptor="namespace", project=project, env=env, codebase="etc", role="etc")) }}
 }
 
 # ---------------------------------------------------------------------------
@@ -144,7 +144,7 @@ resource "aws_service_discovery_private_dns_namespace" "env" {
 {% if migrations_hcl %}
 # ---------------------------------------------------------------------------
 # Migration task definitions (Mod 099): one per schema-owning CODEBASE, not
-# per process type. Emitted here rather than inside the per-service loop
+# per core service. Emitted here rather than inside the per-service loop
 # because migration is a per-codebase operation — `docex migrate` and the
 # release's targeted pre-migrate apply both address `<codebase>_migrate`.
 # ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ resource "aws_route53_record" "env_wildcard" {
 {% if env == "prod" %}
 # Bare-project A-record: <project>.<apex_domain> -> project ALB. Per
 # `cicl.md § Domain`, the bare-project host routes to prod's
-# `domain_default_process` for user-URL ergonomics (replacing the old
+# `domain_default_service` for user-URL ergonomics (replacing the old
 # `www.<apex>` convention). Only emitted on prod since the bare-project
 # resolves to prod's default service regardless. Mod 048 added this
 # alongside the env subdomain + wildcard records; the listener rules

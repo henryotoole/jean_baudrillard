@@ -69,7 +69,7 @@ resource "aws_security_group" "internal" {
     descriptor = "internal"
     project = "docex_smoke_elastic"
     env = "prod"
-    service = "etc"
+    codebase = "etc"
     role = "etc"
     Name = "docex_smoke_elastic_prod_internal"
   }
@@ -108,7 +108,7 @@ resource "aws_security_group" "web" {
     descriptor = "web"
     project = "docex_smoke_elastic"
     env = "prod"
-    service = "etc"
+    codebase = "etc"
     role = "etc"
     Name = "docex_smoke_elastic_prod_web"
   }
@@ -161,7 +161,7 @@ resource "aws_service_discovery_private_dns_namespace" "env" {
     descriptor = "namespace"
     project = "docex_smoke_elastic"
     env = "prod"
-    service = "etc"
+    codebase = "etc"
     role = "etc"
     Name = "docex_smoke_elastic_prod_namespace"
   }
@@ -194,13 +194,13 @@ resource "aws_db_instance" "appdb" {
   storage_type = "gp3"
   tags = {
     Name = "docex_smoke_elastic_prod_appdb"
+    codebase = "appdb"
     descriptor = "RDS"
     env = "prod"
     infra_tier = "environment"
     managed_by = "doctrine"
     project = "docex_smoke_elastic"
     role = "relational_db"
-    service = "appdb"
     shape_name = "backing_service"
   }
   username = "appuser"
@@ -216,7 +216,7 @@ resource "aws_db_subnet_group" "appdb" {
 resource "aws_cloudwatch_log_group" "events" {
   name              = "/docex_smoke_elastic/prod/events"
   retention_in_days = 30
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", service = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", codebase = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
 }
 
 resource "aws_ecs_task_definition" "events" {
@@ -258,7 +258,7 @@ resource "aws_ecs_task_definition" "events" {
         }]
     },
   ])
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", service = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", codebase = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
 }
 
 resource "aws_ecs_service" "events" {
@@ -283,7 +283,7 @@ resource "aws_ecs_service" "events" {
       }
     }
   }
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", service = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", codebase = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
 }
 
 resource "aws_efs_file_system" "events" {
@@ -291,7 +291,7 @@ resource "aws_efs_file_system" "events" {
   encrypted        = true
   performance_mode = "generalPurpose"
   throughput_mode  = "bursting"
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "EFS", project = "docex_smoke_elastic", env = "prod", service = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "EFS", project = "docex_smoke_elastic", env = "prod", codebase = "events", role = "analytics_db", Name = "docex_smoke_elastic_prod_events" }
 }
 
 resource "aws_efs_backup_policy" "events" {
@@ -312,7 +312,7 @@ resource "aws_efs_mount_target" "events" {
 resource "aws_cloudwatch_log_group" "probe" {
   name              = "/docex_smoke_elastic/prod/probe"
   retention_in_days = 30
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", service = "probe", role = "sidecar", Name = "docex_smoke_elastic_prod_probe" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", codebase = "probe", role = "sidecar", Name = "docex_smoke_elastic_prod_probe" }
 }
 
 resource "aws_ecs_task_definition" "probe" {
@@ -342,7 +342,7 @@ resource "aws_ecs_task_definition" "probe" {
         }]
     },
   ])
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", service = "probe", role = "sidecar", Name = "docex_smoke_elastic_prod_probe" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", codebase = "probe", role = "sidecar", Name = "docex_smoke_elastic_prod_probe" }
 }
 
 resource "aws_ecs_service" "probe" {
@@ -367,14 +367,14 @@ resource "aws_ecs_service" "probe" {
       }
     }
   }
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", service = "probe", role = "sidecar", Name = "docex_smoke_elastic_prod_probe" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "backing_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", codebase = "probe", role = "sidecar", Name = "docex_smoke_elastic_prod_probe" }
 }
 
 
 resource "aws_cloudwatch_log_group" "api-web" {
   name              = "/docex_smoke_elastic/prod/api-web"
   retention_in_days = 30
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", service = "api", role = "web", process = "web", Name = "docex_smoke_elastic_prod_api_web" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "web", service = "web", Name = "docex_smoke_elastic_prod_api_web" }
 }
 
 resource "aws_ecs_task_definition" "api-web" {
@@ -423,7 +423,7 @@ resource "aws_ecs_task_definition" "api-web" {
           value = "http/protobuf"
         }, {
           name = "OTEL_RESOURCE_ATTRIBUTES"
-          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.core_service=api,docex.process_type=web"
+          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.codebase=api,docex.service=web"
         }, {
           name = "OTEL_SERVICE_NAME"
           value = "api-web"
@@ -492,7 +492,7 @@ resource "aws_ecs_task_definition" "api-web" {
         }]
     },
   ])
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", service = "api", role = "web", process = "web", Name = "docex_smoke_elastic_prod_api_web" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "web", service = "web", Name = "docex_smoke_elastic_prod_api_web" }
 }
 
 resource "aws_ecs_service" "api-web" {
@@ -522,7 +522,7 @@ resource "aws_ecs_service" "api-web" {
     container_name   = "api-web"
     container_port   = 8080
   }
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", service = "api", role = "web", process = "web", Name = "docex_smoke_elastic_prod_api_web" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "web", service = "web", Name = "docex_smoke_elastic_prod_api_web" }
 }
 
 resource "aws_lb_target_group" "api-web" {
@@ -538,7 +538,7 @@ resource "aws_lb_target_group" "api-web" {
     interval = 30
     timeout = 5
   }
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ALB-TG", project = "docex_smoke_elastic", env = "prod", service = "api", role = "web", process = "web", Name = "docex_smoke_elastic_prod_api_web" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ALB-TG", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "web", service = "web", Name = "docex_smoke_elastic_prod_api_web" }
 }
 
 resource "aws_lb_listener_rule" "api-web" {
@@ -559,7 +559,7 @@ resource "aws_lb_listener_rule" "api-web" {
 resource "aws_cloudwatch_log_group" "api-worker" {
   name              = "/docex_smoke_elastic/prod/api-worker"
   retention_in_days = 30
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", service = "api", role = "worker", process = "worker", Name = "docex_smoke_elastic_prod_api_worker" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "worker", service = "worker", Name = "docex_smoke_elastic_prod_api_worker" }
 }
 
 resource "aws_ecs_task_definition" "api-worker" {
@@ -602,7 +602,7 @@ resource "aws_ecs_task_definition" "api-worker" {
           value = "http/protobuf"
         }, {
           name = "OTEL_RESOURCE_ATTRIBUTES"
-          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.core_service=api,docex.process_type=worker"
+          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.codebase=api,docex.service=worker"
         }, {
           name = "OTEL_SERVICE_NAME"
           value = "api-worker"
@@ -666,7 +666,7 @@ resource "aws_ecs_task_definition" "api-worker" {
         }]
     },
   ])
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", service = "api", role = "worker", process = "worker", Name = "docex_smoke_elastic_prod_api_worker" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "worker", service = "worker", Name = "docex_smoke_elastic_prod_api_worker" }
 }
 
 resource "aws_ecs_service" "api-worker" {
@@ -691,14 +691,14 @@ resource "aws_ecs_service" "api-worker" {
       }
     }
   }
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", service = "api", role = "worker", process = "worker", Name = "docex_smoke_elastic_prod_api_worker" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "worker", service = "worker", Name = "docex_smoke_elastic_prod_api_worker" }
 }
 
 
 resource "aws_cloudwatch_log_group" "reaper-prune" {
   name              = "/docex_smoke_elastic/prod/reaper-prune"
   retention_in_days = 30
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", service = "reaper", role = "scheduler", process = "prune", Name = "docex_smoke_elastic_prod_reaper_prune" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", codebase = "reaper", role = "scheduler", service = "prune", Name = "docex_smoke_elastic_prod_reaper_prune" }
 }
 
 resource "aws_ecs_task_definition" "reaper-prune" {
@@ -734,7 +734,7 @@ resource "aws_ecs_task_definition" "reaper-prune" {
           value = "http/protobuf"
         }, {
           name = "OTEL_RESOURCE_ATTRIBUTES"
-          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.core_service=reaper,docex.process_type=prune"
+          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.codebase=reaper,docex.service=prune"
         }, {
           name = "OTEL_SERVICE_NAME"
           value = "reaper-prune"
@@ -759,7 +759,7 @@ resource "aws_ecs_task_definition" "reaper-prune" {
         }]
     },
   ])
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", service = "reaper", role = "scheduler", process = "prune", Name = "docex_smoke_elastic_prod_reaper_prune" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "task-def", project = "docex_smoke_elastic", env = "prod", codebase = "reaper", role = "scheduler", service = "prune", Name = "docex_smoke_elastic_prod_reaper_prune" }
 }
 
 resource "aws_iam_role" "reaper-prune_scheduler" {
@@ -772,7 +772,7 @@ resource "aws_iam_role" "reaper-prune_scheduler" {
       Action    = "sts:AssumeRole"
     }]
   })
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "scheduler-role", project = "docex_smoke_elastic", env = "prod", service = "reaper", role = "scheduler", process = "prune", Name = "docex_smoke_elastic_prod_reaper_prune" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "scheduler-role", project = "docex_smoke_elastic", env = "prod", codebase = "reaper", role = "scheduler", service = "prune", Name = "docex_smoke_elastic_prod_reaper_prune" }
 }
 
 resource "aws_iam_role_policy" "reaper-prune_scheduler" {
@@ -823,14 +823,14 @@ resource "aws_scheduler_schedule" "reaper-prune" {
 
 # ---------------------------------------------------------------------------
 # Migration task definitions (Mod 099): one per schema-owning CODEBASE, not
-# per process type. Emitted here rather than inside the per-service loop
+# per core service. Emitted here rather than inside the per-service loop
 # because migration is a per-codebase operation — `docex migrate` and the
 # release's targeted pre-migrate apply both address `<codebase>_migrate`.
 # ---------------------------------------------------------------------------
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/docex_smoke_elastic/prod/api"
   retention_in_days = 30
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", service = "api", role = "etc", Name = "docex_smoke_elastic_prod_api" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "logs", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "etc", Name = "docex_smoke_elastic_prod_api" }
 }
 
 resource "aws_ecs_task_definition" "api_migrate" {
@@ -866,7 +866,7 @@ resource "aws_ecs_task_definition" "api_migrate" {
           value = "http/protobuf"
         }, {
           name = "OTEL_RESOURCE_ATTRIBUTES"
-          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.core_service=api"
+          value = "service.namespace=docex_smoke_elastic,service.version=0.0.18,deployment.environment.name=prod,docex.codebase=api"
         }, {
           name = "OTEL_SERVICE_NAME"
           value = "api"
@@ -891,7 +891,7 @@ resource "aws_ecs_task_definition" "api_migrate" {
         }]
     },
   ])
-  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "migrate-task-def", project = "docex_smoke_elastic", env = "prod", service = "api", role = "etc", Name = "docex_smoke_elastic_prod_api" }
+  tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "migrate-task-def", project = "docex_smoke_elastic", env = "prod", codebase = "api", role = "etc", Name = "docex_smoke_elastic_prod_api" }
 }
 
 
@@ -932,7 +932,7 @@ resource "aws_route53_record" "env_wildcard" {
 
 # Bare-project A-record: <project>.<apex_domain> -> project ALB. Per
 # `cicl.md § Domain`, the bare-project host routes to prod's
-# `domain_default_process` for user-URL ergonomics (replacing the old
+# `domain_default_service` for user-URL ergonomics (replacing the old
 # `www.<apex>` convention). Only emitted on prod since the bare-project
 # resolves to prod's default service regardless. Mod 048 added this
 # alongside the env subdomain + wildcard records; the listener rules

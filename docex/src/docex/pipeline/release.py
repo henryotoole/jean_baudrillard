@@ -240,7 +240,7 @@ def _consumer_reconcile_set(
         svc = compiled.services[name]
         if not svc.is_core or not svc.consumes:
             continue
-        # WHY: a `scheduler` process type emits no `ecs_service`, so there is
+        # WHY: a `scheduler` core service emits no `ecs_service`, so there is
         # nothing to redeploy — and `update_service` against a service that
         # does not exist is an error, not a no-op.
         if "ecs_service" not in svc.emits.get("elastic", []):
@@ -317,7 +317,7 @@ def _reconcile_service_connect_consumers(
                 f"error: could not force a new deployment of {consumer!r}: "
                 f"{exc}. Its `consumes` target {target!r} is newly registered, "
                 f"so {consumer!r} cannot resolve it until redeployed — the "
-                f"/health/<svc>/<proc> fan-out will return 503. Re-run "
+                f"/health/<codebase>/<service> fan-out will return 503. Re-run "
                 f"`docex release {env}`, or redeploy it by hand.",
                 file=sys.stderr,
             )
@@ -335,7 +335,7 @@ def _reconcile_service_connect_consumers(
             f"warning: reconciled {len(services)} consumer(s) but they had not "
             f"reached steady state within {_RECONCILE_STABLE_TIMEOUT_S}s. The "
             f"deployments were accepted and should converge; the "
-            f"/health/<svc>/<proc> fan-out may return 503 until they do."
+            f"/health/<codebase>/<service> fan-out may return 503 until they do."
         )
     return 0
 
@@ -572,7 +572,7 @@ def _release_elastic(
             return rc_mig
         _do_apply()
 
-    # Mod 109: after the FINAL apply on both branches — a new process type can
+    # Mod 109: after the FINAL apply on both branches — a new core service can
     # be added to a long-lived env just as easily as to a fresh one, which is
     # exactly the `upgrade_1.6.0` path for downstream projects.
     rc_rec = _reconcile_service_connect_consumers(

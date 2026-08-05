@@ -1,15 +1,15 @@
-"""Mod 096 — process nesting: the emit half.
+"""Mod 096 — core-service nesting: the emit half.
 
-The headline assertion of the mod: **one** core service with **three**
-process types (``web`` / ``worker`` / ``nightly_cleanup``) expands into three
+The headline assertion of the mod: **one** codebase with **three** core
+services (``web`` / ``worker`` / ``nightly_cleanup``) expands into three
 compiled services on both foundations, while everything that is keyed on the
 *codebase* — the image, the build context, the ECR repo, the migrate task
 definition — stays singular.
 
-The three-process project is built once here rather than spread across the
+The three-service project is built once here rather than spread across the
 existing emitter modules, so the fixture and the assertions that depend on
 its exact shape stay in one place. Schema and validation coverage lives in
-``test_process_nesting.py``.
+``test_service_nesting.py``.
 """
 
 from __future__ import annotations
@@ -31,14 +31,14 @@ _FIXED = _FIXTURES / "sample_project"
 _ELASTIC = _FIXTURES / "sample_project_elastic"
 
 
-# A process-level `env:` key on the schema carrier (`web`, the lowest-sorted
+# A service-level `env:` key on the schema carrier (`web`, the lowest-sorted
 # non-scheduler process). It must appear in the app container's env and NOT
 # in the migrate task definition's — that is the codebase-scoped-env rule.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 
-# `depends_on: [appdb]` on EVERY process type: the fixture declares its
+# `depends_on: [appdb]` on EVERY core service: the fixture declares its
 # DATABASE_* magic refs at the SERVICE level, and a service-level ref obliges
-# every process type of that codebase to carry the readiness edge (rule 7,
+# every core service of that codebase to carry the readiness edge (rule 7,
 # cicl.md § Consumes Relationships § Three clarifications).
 # `consumes: [api.web]` (paired with `web`'s `consumes: [api.worker]` below)
 # gives the fixture the legal web ↔ worker cycle, so every assertion in this
@@ -68,7 +68,7 @@ def _three_process_project(fixture: Path, tmp_path: Path) -> Path:
 
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    procs = doc["core_services"]["api"]["processes"]
+    procs = doc["codebases"]["api"]["core_services"]
     procs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
     procs["web"]["consumes"] = ["api.worker"]
     procs["worker"] = dict(_WORKER)
@@ -158,7 +158,7 @@ def test_29_fixed_one_build_context_and_codebase_bind_mounts(fixed_root: Path):
 
 
 def test_30_fixed_core_processes_publish_no_host_ports(fixed_root: Path):
-    """Ruling 5: a core process type never publishes. Two codebases' workers
+    """Ruling 5: a core service never publishes. Two codebases' workers
     sharing a health port would otherwise collide in `dev` on day one."""
     services = _compose(fixed_root, "dev")["services"]
     for key in ("sample-dev-api-web", "sample-dev-api-worker"):
@@ -173,7 +173,7 @@ def test_30_fixed_core_processes_publish_no_host_ports(fixed_root: Path):
 def test_31_elastic_resource_counts(elastic_root: Path):
     hcl = _hcl(elastic_root, "stage")
     tds = _resources(hcl, "aws_ecs_task_definition")
-    # Exactly one per process type, plus the single codebase-keyed migrate.
+    # Exactly one per core service, plus the single codebase-keyed migrate.
     assert sorted(n for n in tds if not n.endswith("_migrate")) == [
         "api-nightly_cleanup", "api-web", "api-worker",
     ]
@@ -207,11 +207,11 @@ def test_33b_elastic_migrate_resources_are_the_per_dimension_max(
     elastic_root: Path,
 ):
     """Mod 099: the migration is sized at the per-dimension max across the
-    codebase's process types, taken over the already-Fargate-tiered values.
+    codebase's core service, taken over the already-Fargate-tiered values.
 
     `max` is commutative, so — unlike the Mod 096 bridge, which picked the
     lowest-sorted non-scheduler process — the migration's size cannot move
-    because a sibling process type was renamed or added. It also never
+    because a sibling core service was renamed or added. It also never
     under-provisions, which is what lets the rule drop the scheduler
     carve-out and have no exceptions at all.
     """
@@ -229,7 +229,7 @@ def test_33b_elastic_migrate_resources_are_the_per_dimension_max(
     want_mem = max(int(m) for _, m in per_process.values())
     assert f'cpu                      = "{want_cpu}"' in body, per_process
     assert f'memory                   = "{want_mem}"' in body, per_process
-    # Not vacuous: the codebase's process types really do differ in size, so
+    # Not vacuous: the codebase's core service really do differ in size, so
     # a "pick one" rule could have produced a different answer.
     assert len(set(per_process.values())) > 1, per_process
 
@@ -253,13 +253,13 @@ def test_33c_elastic_migrate_log_group_is_per_codebase(elastic_root: Path):
 def test_34_elastic_migrate_env_is_codebase_scoped(elastic_root: Path):
     """`migrate.sh` may depend only on codebase-scoped env, so the migrate
     task definition consumes `service_env` — the service-level `env:` block —
-    and never a process type's overlay."""
+    and never a core service's overlay."""
     hcl = _hcl(elastic_root, "stage")
     body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
     names = set(re.findall(r'name = "([A-Z_]+)"', body))
     assert "DATABASE_HOST" in names       # service-level env
     assert "PROJECT_VERSION" in names     # doctrine-injected
-    assert _WEB_ONLY_KEY not in names     # process-level overlay — excluded
+    assert _WEB_ONLY_KEY not in names     # service-level overlay — excluded
     # Guard against a vacuous pass: the carrier's own container DOES have it.
     app = _slice(hcl, "aws_ecs_task_definition", "api-web")
     assert _WEB_ONLY_KEY in app
@@ -273,16 +273,16 @@ def test_35_elastic_one_ecr_repo_per_codebase(elastic_root: Path):
     assert project_tf.count('output "ecr_repository_api_url"') == 1
 
 
-def test_36_elastic_envinfra_tags_split_service_and_process(elastic_root: Path):
+def test_36_elastic_envinfra_tags_split_codebase_and_service(elastic_root: Path):
     hcl = _hcl(elastic_root, "stage")
     svc = _slice(hcl, "aws_ecs_service", "api-web")
-    assert 'service = "api"' in svc
-    assert 'process = "web"' in svc
+    assert 'codebase = "api"' in svc
+    assert 'service = "web"' in svc
     assert 'Name = "sample_stage_api_web"' in svc
-    # A backing service has no process dimension, so the key is omitted
+    # A backing service has no service dimension, so the key is omitted
     # entirely and its tag block is byte-identical to its pre-expansion form.
     db = _slice(hcl, "aws_db_instance", "appdb")
-    assert "process =" not in db
+    assert "service =" not in db
     assert 'Name = "sample_stage_appdb"' in db
 
 
@@ -325,7 +325,7 @@ def test_39_migration_task_family_matches_codebase_global_name(elastic_root: Pat
         project_name=ctx.project.name, project_version=ctx.project.version,
     )
     # Mod 099: `schema_owned_by_db` is now an honest CODEBASE property, set on
-    # EVERY process type of a schema-owning codebase (the Mod 096 "carrier" is
+    # EVERY core service of a schema-owning codebase (the Mod 096 "carrier" is
     # gone). All of them therefore agree on the codebase-keyed name — which is
     # the point, and is asserted rather than assumed.
     owners = [
@@ -350,7 +350,7 @@ def test_40_ansible_emits_one_migration_task_per_codebase(fixed_root: Path):
     names = [t.get("name") for t in tasks]
     migrations = [n for n in names if n and n.startswith("Run migrations for")]
     # Mod 099: named for the codebase, and one task even though the codebase
-    # now has three process types.
+    # now has three core services.
     assert migrations == ["Run migrations for api"]
     # ...and it targets the EXEC service, not an app service. Fixed
     # stage/prod migration therefore reads codebase-scoped env only.
@@ -408,8 +408,8 @@ def test_25_iam_overflow_fails_compile_with_the_policys_message(tmp_path: Path):
     )
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["nightly_reconciliation_sweep"] = (
-        doc["core_services"]["api"]["processes"].pop("nightly_cleanup")
+    doc["codebases"]["api"]["core_services"]["nightly_reconciliation_sweep"] = (
+        doc["codebases"]["api"]["core_services"].pop("nightly_cleanup")
     )
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
 

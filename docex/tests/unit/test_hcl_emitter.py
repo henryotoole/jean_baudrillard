@@ -458,9 +458,9 @@ def test_projinfra_tags_ecr_descriptor_is_service_name(compiled_elastic_project:
     blk = _block(tf, 'resource "aws_ecr_repository" "api"')
     assert 'shape_name = "container_registry"' in blk
     assert 'descriptor = "api"' in blk
-    # The old `service = "api"` projinfra tag is gone (rides in descriptor).
+    # The old `codebase = "api"` projinfra tag is gone (rides in descriptor).
     assert 'service    = "api"' not in blk
-    assert 'service = "api"' not in blk
+    assert 'codebase = "api"' not in blk
 
 
 def test_projinfra_tags_task_exec_role(compiled_elastic_project: Path):
@@ -492,7 +492,7 @@ def test_envinfra_tags_network_sg_descriptor_carries_short(compiled_elastic_proj
     blk = _block(tf, 'resource "aws_security_group" "web"')
     assert 'shape_name = "network"' in blk
     assert 'descriptor = "web"' in blk
-    assert 'service = "etc"' in blk
+    assert 'codebase = "etc"' in blk
     # Mod 060 replaced the bespoke `network = "web"` tag with descriptor.
     assert 'network    = "web"' not in blk
     assert 'network = "web"' not in blk
@@ -503,7 +503,7 @@ def test_envinfra_tags_service_connect_namespace(compiled_elastic_project: Path)
     blk = _block(tf, 'resource "aws_service_discovery_private_dns_namespace" "env"')
     assert 'shape_name = "service_discovery"' in blk
     assert 'descriptor = "namespace"' in blk
-    assert 'service = "etc"' in blk
+    assert 'codebase = "etc"' in blk
 
 
 def test_envinfra_tags_rds_backing_service(compiled_elastic_project: Path):
@@ -512,8 +512,10 @@ def test_envinfra_tags_rds_backing_service(compiled_elastic_project: Path):
     assert 'infra_tier = "environment"' in blk
     assert 'shape_name = "backing_service"' in blk
     assert 'descriptor = "RDS"' in blk
-    assert 'service = "appdb"' in blk
-    # Per-service Name uses the service segment.
+    assert 'codebase = "appdb"' in blk
+    # A backing service has no service dimension, so the key is omitted.
+    assert 'service =' not in blk
+    # Per-service Name uses the codebase segment.
     assert 'Name = "sample_prod_appdb"' in blk
 
 
@@ -523,7 +525,8 @@ def test_envinfra_tags_ecs_service_core(compiled_elastic_project: Path):
     assert 'infra_tier = "environment"' in blk
     assert 'shape_name = "core_service"' in blk
     assert 'descriptor = "ecs-svc"' in blk
-    assert 'service = "api"' in blk
+    assert 'codebase = "api"' in blk
+    assert 'service = "web"' in blk
 
 
 def test_envinfra_tags_log_group_and_task_def(compiled_elastic_project: Path):
@@ -542,7 +545,7 @@ def test_migrate_resources_unchanged_for_a_single_process_codebase(
     compiled_elastic_project: Path,
 ):
     """Mod 099 sizes the migration at the per-dimension max across the
-    codebase's process types. A single-process codebase's max is that
+    codebase's core service. A single-process codebase's max is that
     process's value, so its emitted resources are byte-identical to the
     pre-mod emission — only a multi-process schema-owning codebase moves."""
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
@@ -572,7 +575,7 @@ _MIGRATE_WORKER = {
 
 @pytest.fixture
 def multi_process_elastic_tf(tmp_path: Path) -> str:
-    """The elastic fixture with a second process type planted on `api`, so the
+    """The elastic fixture with a second core service planted on `api`, so the
     codebase genuinely has two and de-qualification is observable rather than
     merely pinned. Returns the compiled prod `main.tf`."""
     dest = tmp_path / "project"
@@ -580,7 +583,7 @@ def multi_process_elastic_tf(tmp_path: Path) -> str:
     shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
     infra_path = dest / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["worker"] = dict(_MIGRATE_WORKER)
+    doc["codebases"]["api"]["core_services"]["worker"] = dict(_MIGRATE_WORKER)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
     assert run_compile(load_project_context(dest)) == 0
     return (dest / "infra" / "output" / "prod" / "main.tf").read_text()
@@ -602,8 +605,8 @@ def test_migrate_task_def_telemetry_identity_is_codebase_scoped(
 ):
     """Mod 102. The migration is a per-CODEBASE artifact, so it reports
     `service.name=api` — not `api-web`, the compiled identity of whichever
-    process type `group_by_codebase` happened to sort first. `docex.process_type`
-    is absent, which is the signal that this is not a declared process type.
+    core service `group_by_codebase` happened to sort first. `docex.service`
+    is absent, which is the signal that this is not a declared core service.
 
     Anti-vacuity guard in the same test: the sibling `api-web` app task
     definition still reports the two-segment name and does carry the process
@@ -613,14 +616,14 @@ def test_migrate_task_def_telemetry_identity_is_codebase_scoped(
     mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
     assert _container_env_value(mig, "OTEL_SERVICE_NAME") == "api"
     mig_attrs = _container_env_value(mig, "OTEL_RESOURCE_ATTRIBUTES")
-    assert "docex.core_service=api" in mig_attrs
-    assert "docex.process_type" not in mig_attrs, mig_attrs
+    assert "docex.codebase=api" in mig_attrs
+    assert "docex.service" not in mig_attrs, mig_attrs
 
     app = _block(tf, 'resource "aws_ecs_task_definition" "api-web"')
     assert _container_env_value(app, "OTEL_SERVICE_NAME") == "api-web"
     app_attrs = _container_env_value(app, "OTEL_RESOURCE_ATTRIBUTES")
-    assert "docex.core_service=api" in app_attrs
-    assert "docex.process_type=web" in app_attrs
+    assert "docex.codebase=api" in app_attrs
+    assert "docex.service=web" in app_attrs
 
 
 def test_env_main_tf_consumes_project_remote_state(compiled_elastic_project: Path):
@@ -968,7 +971,7 @@ def test_mod038_project_tier_alb_outputs_present(compiled_elastic_project: Path)
 
 
 # ---------------------------------------------------------------------------
-# Mod 108 — the process type's `command` reaches the ECS container definition.
+# Mod 108 — the core service's `command` reaches the ECS container definition.
 #
 # Regression guard for a cut-blocking defect found by the 1.6.0 pre-cut smoke
 # walk: `render_task_definition` built its container definition key-by-key and
@@ -978,7 +981,7 @@ def test_mod038_project_tier_alb_outputs_present(compiled_elastic_project: Path)
 #
 # Anti-vacuity note: a single-process codebase cannot detect this — its one
 # `CMD` is trivially "right". Every assertion below therefore runs against a
-# codebase with TWO process types, which is the only shape where no single
+# codebase with TWO core service, which is the only shape where no single
 # Dockerfile `CMD` can be correct.
 # ---------------------------------------------------------------------------
 
@@ -1024,16 +1027,16 @@ def _container_command(block: str, container_name: str) -> list[str]:
         m = re.search(r"command = \[(.*?)\]", obj, re.S)
         assert m is not None, (
             f"container {container_name!r} emitted no `command`; the Dockerfile "
-            f"CMD would decide which process type it runs:\n{obj}"
+            f"CMD would decide which core service it runs:\n{obj}"
         )
         return re.findall(r'"([^"]*)"', m.group(1))
     raise AssertionError(f"no container named {container_name!r} in:\n{block}")
 
 
-def test_mod108_each_process_type_emits_its_own_command(
+def test_mod108_each_core_service_emits_its_own_command(
     multi_process_elastic_tf: str,
 ):
-    """Two process types on ONE codebase (one image) must emit two DIFFERENT
+    """Two core service on ONE codebase (one image) must emit two DIFFERENT
     commands. This is the assertion whose absence let the defect ship: with a
     shared image, `command` is the only thing that distinguishes `api-web` from
     `api-worker`, and infrastructure.md § Core Service Containers says the
@@ -1051,13 +1054,13 @@ def test_mod108_each_process_type_emits_its_own_command(
     assert web == ["python", "/service/dist/app.py"], web
     assert worker == ["python", "-m", "entrypoints.worker"], worker
     assert web != worker, (
-        "both process types of one codebase emitted the same command — the "
+        "both core services of one codebase emitted the same command — the "
         "image CMD would be doing the work"
     )
 
 
 def test_mod108_scheduler_run_task_emits_its_command(tmp_path: Path):
-    """A scheduler process type is a RunTask, and `aws_scheduler_schedule`'s
+    """A scheduler core service is a RunTask, and `aws_scheduler_schedule`'s
     target carries no containerOverrides — so if the task definition omits
     `command`, a scheduled job has no second chance to supply one."""
     dest = tmp_path / "project"
@@ -1065,7 +1068,7 @@ def test_mod108_scheduler_run_task_emits_its_command(tmp_path: Path):
     shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
     infra_path = dest / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["nightly"] = {
+    doc["codebases"]["api"]["core_services"]["nightly"] = {
         "role": "scheduler",
         "schedule": "0 3 * * *",
         "command": ["python", "-m", "jobs.cleanup"],
@@ -1084,7 +1087,7 @@ def test_mod108_scheduler_run_task_emits_its_command(tmp_path: Path):
 
 
 def test_mod108_string_command_normalizes_to_list(tmp_path: Path):
-    """`ProcessType.command` is `str | list[str]`; ECS requires a list. A
+    """`CoreService.command` is `str | list[str]`; ECS requires a list. A
     string must split the same way the fixed side's scheduler wrapper splits
     it, so one declaration means one thing on both foundations."""
     dest = tmp_path / "project"
@@ -1092,7 +1095,7 @@ def test_mod108_string_command_normalizes_to_list(tmp_path: Path):
     shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
     infra_path = dest / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["worker"] = {
+    doc["codebases"]["api"]["core_services"]["worker"] = {
         **_MIGRATE_WORKER,
         "command": "python -m entrypoints.worker --verbose",
     }
@@ -1110,7 +1113,7 @@ def test_mod108_migrate_task_definition_command_unchanged(
     multi_process_elastic_tf: str,
 ):
     """The per-codebase migrate task definition supplies its own command and
-    must not pick up any process type's. Guards the fix against bleeding into
+    must not pick up any core service's. Guards the fix against bleeding into
     `render_migration_task_definitions`."""
     block = _block(multi_process_elastic_tf,
                    'resource "aws_ecs_task_definition" "api_migrate"')

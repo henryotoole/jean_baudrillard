@@ -150,7 +150,7 @@ def test_run_test_scheduler_only_codebase_uses_its_exec_service(
         c[2] for c in fake_docker.calls
         if c[0] == "compose_run_one_off" and c[3] == ("./test.sh",)
     ]
-    # `core_services` is sorted, so `api` precedes `nightly_cleanup`.
+    # `codebases` is sorted, so `api` precedes `nightly_cleanup`.
     assert test_services == [
         "sample-test-api-exec", "sample-test-nightly-cleanup-exec",
     ]

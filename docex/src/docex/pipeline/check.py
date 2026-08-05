@@ -34,13 +34,13 @@ from pathlib import Path
 
 import yaml
 
-from docex.cicl.model import CICLDocument, ProcessRef, ProcessType  # noqa: F401
+from docex.cicl.model import CICLDocument, ServiceRef, CoreService  # noqa: F401
 from docex.context import ProjectContext, load_project_context
 from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
 from docex.naming import dns_label
-from docex.orchestrate._common import core_services, services_with_schema
+from docex.orchestrate._common import codebases, services_with_schema
 from docex.pipeline._worktree import (
     cleanup_worktree,
     make_temp_branch,
@@ -117,7 +117,7 @@ _FALLBACK_CONTRACT_FORMAT = "openapi"
 
 
 def _contract_format_for_role(role: str) -> tuple[str, bool]:
-    """``(format, role_recognized)`` for a provider process type.
+    """``(format, role_recognized)`` for a provider core service.
 
     Mod 101 replaces a heuristic (`_infer_contract_format`) whose asyncapi branch
     was unreachable from the day it was written: its only call site passed a CORE
@@ -141,7 +141,7 @@ def _parse_contract_filename(name: str) -> tuple[str, str, str] | None:
 
     RIGHT-anchored, per contracts.md's `${service}.${process}.${format}.yml`. The
     left-anchored `name.split(".", 1)[0]` this replaces yielded "api" — a valid
-    `core_services` key purely because the codebase happens to be the first segment
+    `codebases` key purely because the codebase happens to be the first segment
     — and discarded the process entirely, so the health gate reasoned at codebase
     granularity and silently `continue`d on anything it could not match.
 
@@ -162,27 +162,27 @@ def _parse_contract_filename(name: str) -> tuple[str, str, str] | None:
     return parts[-3], parts[-2], parts[-1]
 
 
-def _resolve_process(
+def _resolve_service(
     infra: CICLDocument, dotted: str
-) -> tuple[str, str, ProcessType] | None:
-    """``"api.worker"`` → ``("api", "worker", <ProcessType>)`` if it names a real
-    core process type, else ``None``.
+) -> tuple[str, str, CoreService] | None:
+    """``"api.worker"`` → ``("api", "worker", <CoreService>)`` if it names a real
+    core service, else ``None``.
 
     Returning ``None`` for an unresolvable reference is deliberate: rule 25 already
     reports it, and this gate must not double-report it as a missing contract or a
     missing probe endpoint.
     """
     try:
-        ref = ProcessRef.parse(dotted)
+        ref = ServiceRef.parse(dotted)
     except ValueError:
         return None
-    svc = infra.core_services.get(ref.service)
+    svc = infra.codebases.get(ref.codebase)
     if svc is None:
         return None
-    proc = svc.processes.get(ref.process)
+    proc = svc.core_services.get(ref.service)
     if proc is None:
         return None
-    return ref.service, ref.process, proc
+    return ref.codebase, ref.service, proc
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +348,7 @@ def _gate_contracts(
     """Verify every required contract file is present.
 
     Per contracts.md, **the provider set is (`consumes` targets) ∪ (`web`-network
-    process types)**, minus `scheduler` process types. Both arms are load-bearing:
+    core service)**, minus `scheduler` core service. Both arms are load-bearing:
     the first is the declared interface graph; the second catches every publicly
     reachable boundary even when nothing inside the project consumes it, which is
     what gives the health-endpoint gate something to validate. Driving the set off
@@ -373,20 +373,20 @@ def _gate_contracts(
     # reader of `consumes`; it lives on the AUTHORING model (Mod 098 kept it off
     # `CompiledService` deliberately), which is what this gate reads.
     consumed: set[str] = set()
-    for _s, _p, _svc, proc in infra.all_processes():
+    for _s, _p, _svc, proc in infra.all_core_services():
         consumed |= proc.consumes_refs()
 
     contracts_dir = worktree / "infra" / "contracts"
     missing: list[str] = []
     fallbacks: list[str] = []
-    for svc_name, proc_name, _svc, proc in infra.all_processes():
-        # contracts.md § Health Checks: `scheduler` process types are exempt.
+    for svc_name, service_name, _svc, proc in infra.all_core_services():
+        # contracts.md § Health Checks: `scheduler` core services are exempt.
         # Rule 25 now forbids consuming one and rule 27 forbids `web` in its
         # networks, so neither arm can reach a scheduler — the gate states the
         # exemption anyway so it does not depend on the validator to be correct.
         if proc.role == "scheduler":
             continue
-        label = ProcessRef(svc_name, proc_name).dotted
+        label = ServiceRef(svc_name, service_name).dotted
         on_web = "web" in (proc.networks or [])
         if not (on_web or label in consumed):
             continue  # not a provider
@@ -394,7 +394,7 @@ def _gate_contracts(
         fmt, role_known = _contract_format_for_role(proc.role)
         if not role_known:
             fallbacks.append(f"{label} (role {proc.role!r})")
-        candidate = contracts_dir / f"{svc_name}.{proc_name}.{fmt}.yml"
+        candidate = contracts_dir / f"{svc_name}.{service_name}.{fmt}.yml"
         if candidate.is_file():
             existing.append(candidate)
         else:
@@ -417,7 +417,7 @@ def _gate_contracts(
         detail = (
             f"{len(existing)} contract(s) present"
             if existing
-            else "no provider process types — nothing to check"
+            else "no provider core service — nothing to check"
         )
         report.add("contracts_exist", True, detail + fallback_clause)
     return existing, providers
@@ -431,32 +431,32 @@ def _gate_health_endpoints(
 ) -> None:
     """Assert the doctrine's health model (contracts.md § Health Checks).
 
-    Three things, per process type:
+    Three things, per core service:
 
     1. **Self health** — every OpenAPI provider declares ``GET /health``. § Self
-       health says *every* long-running process type serves it; a `worker` is not
+       health says *every* long-running core service serves it; a `worker` is not
        checked here because its contract is AsyncAPI, which has no natural place
        for an HTTP path — not because it is exempt. Its self-health is asserted
        through its fields instead (3).
-    2. **Fan-out** — every `web`-network process type declares
-       ``GET /health/<svc>/<proc>`` for each of its `consumes` targets that is not
+    2. **Fan-out** — every `web`-network core service declares
+       ``GET /health/<codebase>/<service>`` for each of its `consumes` targets that is not
        itself on `web`. Keyed off `consumes`, not `depends_on`: a web edge does not
        depend on its worker (it needs the *broker* up), and rule 24 now forbids a
        core `depends_on` outright, so a `depends_on`-keyed gate requires nothing at
        all of a web → worker edge. A dead consumer is invisible from outside —
        requests keep returning 200 while work piles up behind it. Targets on `web`
        are skipped: they are publicly reachable and answer their own `/health`, so
-       there is nothing to proxy. Backing services have no `<svc>/<proc>` form and
+       there is nothing to proxy. Backing services have no `<codebase>/<service>` form and
        are not required (mod 047); a project may still declare them voluntarily.
     3. **Probeability** — a `consumes` target declares both `port` and
        `health_check_path`. Per § Declared by fields those two fields *are* the
        health declaration. On elastic the `port` is also exactly what makes the
        target Service-Connect-discoverable, which is what lets a sibling `web`
        process reach its `/health` one hop away. Distinct from rule 28, which
-       constrains a process type that *has* `health_check_path`; this requires a
+       constrains a core service that *has* `health_check_path`; this requires a
        consumes target to have it at all.
 
-    `scheduler` process types are exempt throughout.
+    `scheduler` core services are exempt throughout.
     """
     infra = ctx.infra
     if infra is None:
@@ -470,10 +470,10 @@ def _gate_health_endpoints(
         parsed = _parse_contract_filename(path.name)
         if parsed is None:
             continue  # not a contract filename this gate authored
-        svc, proc_name, fmt = parsed
-        resolved = _resolve_process(infra, f"{svc}.{proc_name}")
+        svc, service_name, fmt = parsed
+        resolved = _resolve_service(infra, f"{svc}.{service_name}")
         if resolved is None:
-            continue  # contract for an unknown process type — skip
+            continue  # contract for an unknown core service — skip
         _s, _p, proc = resolved
         if proc.role == "scheduler":
             continue
@@ -492,13 +492,13 @@ def _gate_health_endpoints(
         if fmt == "openapi" and not _declares("/health"):
             problems.append(
                 f"{path.name}: missing 'GET /health' (contracts.md § Self health "
-                f"— every long-running process type serves it)"
+                f"— every long-running core service serves it)"
             )
 
         if "web" not in (proc.networks or []):
             continue
         for dotted in sorted(proc.consumes_refs()):
-            target = _resolve_process(infra, dotted)
+            target = _resolve_service(infra, dotted)
             if target is None:
                 continue
             t_svc, t_proc_name, t_proc = target
@@ -510,16 +510,16 @@ def _gate_health_endpoints(
             if not _declares(key):
                 problems.append(
                     f"{path.name}: missing 'GET {key}' (required because "
-                    f"{svc}.{proc_name} consumes non-web {dotted})"
+                    f"{svc}.{service_name} consumes non-web {dotted})"
                 )
 
-    # --- 3: what the consumed process type's FIELDS must declare --------
+    # --- 3: what the consumed core service's FIELDS must declare --------
     # Keyed by target so two consumers of one under-declared target produce one
     # problem naming both, not two problems saying the same thing.
     underdeclared: dict[str, tuple[list[str], set[str]]] = {}
-    for svc_name, proc_name, _svc, proc in infra.all_processes():
+    for svc_name, service_name, _svc, proc in infra.all_core_services():
         for dotted in sorted(proc.consumes_refs()):
-            target = _resolve_process(infra, dotted)
+            target = _resolve_service(infra, dotted)
             if target is None:
                 continue
             _t_svc, _t_proc_name, t_proc = target
@@ -532,7 +532,7 @@ def _gate_health_endpoints(
                 absent.append("health_check_path")
             if absent:
                 entry = underdeclared.setdefault(dotted, (absent, set()))
-                entry[1].add(ProcessRef(svc_name, proc_name).dotted)
+                entry[1].add(ServiceRef(svc_name, service_name).dotted)
     for dotted in sorted(underdeclared):
         absent, consumers = underdeclared[dotted]
         problems.append(
@@ -590,23 +590,23 @@ def _gate_healthcheck_tooling(
         return
 
     qualifying: list[str] = []
-    for name in sorted(infra.core_services):
-        svc = infra.core_services[name]
-        # ``extra="allow"`` on ProcessType surfaces role fields like
+    for name in sorted(infra.codebases):
+        svc = infra.codebases[name]
+        # ``extra="allow"`` on CoreService surfaces role fields like
         # ``health_check_path`` in ``model_extra``; absent ⇒ None. Only
-        # ``role: web`` declares the field, but such a process type may sit on
+        # ``role: web`` declares the field, but such a core service may sit on
         # a non-``web`` network and still get the curl healthcheck — so do NOT
         # filter on web membership (mod 059).
         #
-        # Mod 096: read the PROCESS TYPE. A `getattr(svc, ...)` against the
-        # CoreService goes permanently None once the field is process-scoped,
+        # Mod 096: read the CORE SERVICE. A `getattr(svc, ...)` against the
+        # Codebase goes permanently None once the field is service-scoped,
         # so the gate would pass while checking nothing and Mod 051's curl
         # protection would be silently defeated. One image per codebase, so
-        # one qualifying entry per codebase — any process type declaring the
+        # one qualifying entry per codebase — any core service declaring the
         # field obliges the shared image to carry curl.
         declares_hc = any(
             (p.model_extra or {}).get("health_check_path") is not None
-            for p in svc.processes.values()
+            for p in svc.core_services.values()
         )
         if declares_hc:
             qualifying.append(name)
@@ -660,7 +660,7 @@ def _gate_service_scripts(
     """``build.sh`` and ``test.sh`` for every core service; ``migrate.sh``
     for any service that's a schema owner."""
     problems: list[str] = []
-    services = core_services(ctx)
+    services = codebases(ctx)
     schema_owners = set(services_with_schema(ctx))
 
     for svc in services:

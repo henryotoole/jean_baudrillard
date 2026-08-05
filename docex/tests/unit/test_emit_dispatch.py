@@ -55,8 +55,8 @@ def _svc(
     body: dict | None = None,
     emits: dict | None = None,
     port: int | None = None,
-    core_service: str | None = None,
-    process: str | None = None,
+    codebase: str | None = None,
+    service: str | None = None,
 ) -> CompiledService:
     """Construct a CompiledService for renderer unit tests."""
     return CompiledService(
@@ -78,10 +78,10 @@ def _svc(
         emits=emits or {"elastic": ["task_definition", "ecs_service"]},
         # Mod 096: the migrate block and the elastic `service` tag read the
         # codebase, so a core stub has to carry it.
-        core_service=core_service or (name if is_core else None),
-        process=process,
+        codebase=codebase or (name if is_core else None),
+        service=service,
         codebase_global_name=(
-            f"proj-stage-{core_service or name}" if is_core else None
+            f"proj-stage-{codebase or name}" if is_core else None
         ),
     )
 
@@ -154,8 +154,8 @@ def test_migration_taskdef_is_a_separate_per_codebase_pass():
         role="web",
         engine="container",
         is_core=True,
-        core_service="web",
-        process="app",
+        codebase="web",
+        service="app",
         body={
             "image": "registry/proj/web:0.0.1",
             "cpu": "256",
@@ -180,17 +180,17 @@ def test_migration_taskdef_is_a_separate_per_codebase_pass():
 
 def test_migration_taskdef_resources_are_the_per_dimension_max():
     """Mod 099: the migration is sized at the per-dimension max across the
-    codebase's process types — commutative, so it cannot move because a
+    codebase's core service — commutative, so it cannot move because a
     sibling was renamed, and it never under-provisions."""
     small = _svc(
         name="api-web", role="web", engine="container", is_core=True,
-        core_service="api", process="web",
+        codebase="api", service="web",
         body={"image": "i:1", "cpu": "1024", "memory": "2048"},
         emits={"elastic": ["task_definition"]},
     )
     big = _svc(
         name="api-worker", role="worker", engine="container", is_core=True,
-        core_service="api", process="worker",
+        codebase="api", service="worker",
         body={"image": "i:1", "cpu": "512", "memory": "4096"},
         emits={"elastic": ["task_definition"]},
     )

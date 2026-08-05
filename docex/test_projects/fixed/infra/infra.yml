@@ -1,10 +1,10 @@
 cicl_version: "2"
 foundation: fixed
 apex_domain: "luxrnd.tech"
-# The web *process type* on the bare <env>.<project>.<apex> subdomain.
-# Dotted and fully qualified — a bare core service name has no answer,
+# The web *core service* on the bare <env>.<project>.<apex> subdomain.
+# Dotted and fully qualified — a bare codebase name has no answer,
 # because a codebase has no single boundary (cicl.md § Domain).
-domain_default_process: api.web
+domain_default_service: api.web
 # Operator-provided container registry. See PRE_CUT_CHECKLIST.md
 # "Container registry" for the prerequisite setup (Docker Registry V2 at
 # this host, reachable from the dev machine and from itself in `prod`).
@@ -15,15 +15,15 @@ repo_url: "https://github.com/luxedo/jean_baudrillard"
 # specifics/telemetry_infra.md.
 observability_backend_url: "https://hyperdx.luxrnd.tech"
 
-core_services:
-  # One codebase, one image, two process types. `web` and `worker` were two
+codebases:
+  # One codebase, one image, two core services. `web` and `worker` were two
   # separate core services before CICL v2, purely because there was no way
   # to say "one artifact, two invocations" — they always shared a database,
   # a table, and six identical DATABASE_* refs.
   api:
-    # Codebase-scoped: both process types run the same artifact and both
+    # Codebase-scoped: both core services run the same artifact and both
     # need a database, so these live once at the service level and merge
-    # into every process type. (cicl.md § Field scoping.)
+    # into every core service. (cicl.md § Field scoping.)
     env:
       # Built from appdb's provided parts at startup (parts-only model).
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -32,7 +32,7 @@ core_services:
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/entrypoints/web.py"]
@@ -50,10 +50,10 @@ core_services:
         # declaration. (cicl.md § Consumes Relationships.)
         consumes: [api.worker]
         env:
-          # Process-scoped: only the web edge exposes /health/{probe,events},
+          # Service-scoped: only the web edge exposes /health/{probe,events},
           # so only it declares these refs — which is what keeps `probe` and
           # `events` out of the worker's depends_on. Per rule 7 a
-          # SERVICE-level ref would oblige EVERY process type to declare the
+          # SERVICE-level ref would oblige EVERY core service to declare the
           # edge, forcing the worker to depend on backings it never touches.
           #
           # Project-local container backings: nginx sidecar + ClickHouse
@@ -66,8 +66,8 @@ core_services:
           # (ECS Service Connect on elastic), used by the /health/api/worker
           # fan-out. Holding these refs is what obliges `consumes:
           # [api.worker]` above.
-          WORKER_HOST: ${core_services.api.worker.host}
-          WORKER_PORT: ${core_services.api.worker.port}
+          WORKER_HOST: ${codebases.api.core_services.worker.host}
+          WORKER_PORT: ${codebases.api.core_services.worker.port}
         resources:
           cpu: 0.25
           memory: 512MB
@@ -104,7 +104,7 @@ core_services:
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
       DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-    processes:
+    core_services:
       # Named after the job, not the role — a scheduler codebase commonly
       # carries several jobs (cicl.md § Naming convention). The codebase
       # keeps its own noun, so this emits `reaper-prune` rather than the
@@ -128,7 +128,7 @@ backing_services:
     engine: postgres
     version: "15"
     networks: [internal]
-    # Names a CODEBASE, never a process type — `migrate.sh` runs once per
+    # Names a CODEBASE, never a core service — `migrate.sh` runs once per
     # codebase, not once per invocation.
     schema_owned_by: api
 

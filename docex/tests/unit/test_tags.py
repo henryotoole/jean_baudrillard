@@ -1,7 +1,7 @@
 """Unit tests for the central tag helper (Mod 060).
 
 Locks the three doctrine tag blocks (cicl.md § Naming and Tagging) and the
-two baked-in rules: the env-scoped `service=etc` Name fallback to descriptor
+two baked-in rules: the env-scoped `codebase=etc` Name fallback to descriptor
 (decision 2) and the per-tier key sets.
 """
 
@@ -24,7 +24,7 @@ def test_prerequisite_block():
     # Preinfra carries no project / env / service / role.
     assert "project" not in tags
     assert "env" not in tags
-    assert "service" not in tags
+    assert "codebase" not in tags
     assert "role" not in tags
 
 
@@ -41,7 +41,7 @@ def test_project_block():
         "Name": "proj_dns_zone",
     }
     assert "env" not in tags
-    assert "service" not in tags
+    assert "codebase" not in tags
     assert "role" not in tags
 
 
@@ -52,7 +52,7 @@ def test_environment_block_per_service():
         descriptor="RDS",
         project="proj",
         env="prod",
-        service="db",
+        codebase="db",
         role="relational_db",
     )
     assert tags == {
@@ -62,15 +62,15 @@ def test_environment_block_per_service():
         "descriptor": "RDS",
         "project": "proj",
         "env": "prod",
-        "service": "db",
+        "codebase": "db",
         "role": "relational_db",
-        # Per-service Name uses the service segment.
+        # Per-service Name uses the codebase segment.
         "Name": "proj_prod_db",
     }
 
 
 def test_environment_block_env_scoped_name_falls_back_to_descriptor():
-    """Decision 2: env-scoped resources carry service=etc/role=etc, and the
+    """Decision 2: env-scoped resources carry codebase=etc/role=etc, and the
     Name segment falls back to the descriptor so Names stay unique (every
     such resource would otherwise be `proj_prod_etc`)."""
     tags = standard_tags(
@@ -79,10 +79,10 @@ def test_environment_block_env_scoped_name_falls_back_to_descriptor():
         descriptor="ecs-cluster",
         project="proj",
         env="prod",
-        service="etc",
+        codebase="etc",
         role="etc",
     )
-    assert tags["service"] == "etc"
+    assert tags["codebase"] == "etc"
     assert tags["role"] == "etc"
     assert tags["Name"] == "proj_prod_ecs-cluster"
 
@@ -96,12 +96,12 @@ def test_all_tag_keys_present_for_env_scoped():
         descriptor="web",
         project="proj",
         env="dev",
-        service="etc",
+        codebase="etc",
         role="etc",
     )
     assert set(tags) == {
         "managed_by", "infra_tier", "shape_name", "descriptor",
-        "project", "env", "service", "role", "Name",
+        "project", "env", "codebase", "role", "Name",
     }
 
 

@@ -445,12 +445,12 @@ foundation: __FND__
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: reg.example.com
-domain_default_process: api.web
-core_services:
+domain_default_service: api.web
+codebases:
   api:
     secrets:
       BESPOKE_API_KEY: "key for the bespoke API"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -536,8 +536,8 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-domain_default_process: web.http
-core_services:
+domain_default_service: web.http
+codebases:
   web:
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -545,7 +545,7 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    processes:
+    core_services:
       http:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -700,7 +700,7 @@ def test_project_tier_task_execution_policy_empty_core_services(tmp_path: Path):
         "foundation: elastic\n"
         "apex_domain: example.com\n"
         "observability_backend_url: \"https://obs.example.com\"\n"
-        "core_services: {}\n"
+        "codebases: {}\n"
         "backing_services: {}\n"
     )
     ctx = _load(proj)

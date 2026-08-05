@@ -4,7 +4,7 @@ Wires the postgres repo + reaper service + CLI controller and hands the
 driving adapter back. **The root constructs; it does not activate**
 (internal_dependency_rules.md § Entrypoints) — running the reap pass and
 exiting with its status is `entrypoints/prune.py`'s job, that being the
-module the `reaper.prune` process type's `command` invokes.
+module the `reaper.prune` core service's `command` invokes.
 
 Env is the doctrine parts-only surface — identical to `api`'s — so the
 same code runs unchanged on both foundations.
@@ -42,7 +42,7 @@ def _dsn_from_env() -> str:
 
 
 def build_reaper() -> ContReaperCli:
-    """Construct the `reaper.prune` process type's graph, un-run."""
+    """Construct the `reaper.prune` core service's graph, un-run."""
     repo = RepoPingsPostgres(dsn=_dsn_from_env())
     service = ReaperService(repo=repo, window=RetentionWindow(days=_RETENTION_DAYS))
     return ContReaperCli(service=service)

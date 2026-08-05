@@ -81,7 +81,7 @@ Application-origin telemetry signals flow like this:
 Application code runs in core service containers. Each container's code is given the OTel SDK for whatever language it is written in. The SDK should be configured for traces, metrics, and logs. It will likely be tied into key features of the language e.g. python's `logging` module. The SDK will emit signals over localhost to an OTel Collector (`otelcol` for short) sidecar.
 
 #### Collector Sidecar
-The telemetry signals hit the OTel Collector sidecar. This sidecar is a dedicated container running `otelcol`; there is one per *emitted* core service container — that is, one per [process type](./cicl.md#process-types), and one per replica. `scheduler` process types are the exception and get none: a cron job is short-lived and has no long-running container to pair with. The sidecar runs in a special subgroup with its parent container - in ECS this is a "task".
+The telemetry signals hit the OTel Collector sidecar. This sidecar is a dedicated container running `otelcol`; there is one per *emitted* core service container — that is, one per replica. `scheduler` core services are the exception and get none: a cron job is short-lived and has no long-running container to pair with. The sidecar runs in a special subgroup with its parent container - in ECS this is a "task".
 
 #### Observability Backend
 Each collector forwards signals to the project-wide observability backend. This backend will always be [prerequisite infrastructure](./infrastructure.md#infrastructure-tiers), both on `fixed` and `elastic` foundations. It will be centrally configured for each project with the `observability_backend_url` field and all sidecars will forward application telemetry to that URL.
@@ -111,10 +111,10 @@ Under the doctrine, telemetry signals are treated as near-ephemeral. They are ge
 Resource attributes form a critical part of telemetry. These identify the signals, their origins, and other information. They are set up by `docex` infrastructure and the developer should not have to set them manually. An overview of these attributes is below, however, so that the developer knows what to expect when observing telemetry reports.
 
 A handful of environmental variables are injected into each core service to aid the OTel SDKs:
-1. OTEL_SERVICE_NAME - The process type's two-segment compiled identity, `<core_service>-<process>` (e.g. `api-web`). OTel SDK will automatically include this as the `service.name` resource attribute. Per process type is the OTel-correct granularity: the semantic convention requires `service.name` to be identical across horizontally-scaled instances, so it must not vary per replica, and a codebase's web edge and queue consumer are genuinely different services.
+1. OTEL_SERVICE_NAME - The core service's two-segment compiled identity, `<codebase>-<service>` (e.g. `api-web`). OTel SDK will automatically include this as the `service.name` resource attribute. Per core service is the OTel-correct granularity: the semantic convention requires `service.name` to be identical across horizontally-scaled instances, so it must not vary per replica, and a codebase's web edge and queue consumer are genuinely different services.
 2. OTEL_EXPORTER_OTLP_ENDPOINT - Tells the SDK the sidecar's URL.
 3. OTEL_EXPORTER_OTLP_PROTOCOL - Protocol to use for transmitting to sidecar. Fixed to `http/protobuf`.
-4. OTEL_RESOURCE_ATTRIBUTES - Additional attributes the SDK will automatically set. `docex` will use: `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name},docex.core_service=${core_service},docex.process_type=${process}`. The last two carry the two axes `service.name` fuses, so each is independently queryable — a hyphenated `service.name` cannot be decomposed, since a service name and a process name may each contain `-`. See [transfer_tables.md § Per-core-service env](./specifics/transfer_tables.md#per-core-service-env-both-foundations) for the canonical table, including the per-codebase artifacts on which `docex.process_type` is absent.
+4. OTEL_RESOURCE_ATTRIBUTES - Additional attributes the SDK will automatically set. `docex` will use: `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name},docex.codebase=${codebase},docex.service=${service}`. The last two carry the two axes `service.name` fuses, so each is independently queryable — a hyphenated `service.name` cannot be decomposed, since a codebase name and a core service name may each contain `-`. See [transfer_tables.md § Per-core-service env](./specifics/transfer_tables.md#per-core-service-env-both-foundations) for the canonical table, including the per-codebase artifacts on which `docex.service` is absent.
 
 ## During Development
 
@@ -122,7 +122,7 @@ When `docex` implements the telemetry infrastructure, it will treat the `dev` an
 
 In `dev` and `test`, the sidecars are still emitted, but they are configured such that their exporter writes to the sidecar's `stdout` instead of forwarding to the observability backend.
 
-Developers and LLMs can still view trace and log output by tailing sidecars e.g. `docker compose logs <svc>-<proc>-otelcol`. This is the correct way to view logs and traces when developing.
+Developers and LLMs can still view trace and log output by tailing sidecars e.g. `docker compose logs <cb>-<svc>-otelcol`. This is the correct way to view logs and traces when developing.
 
 ## Planned but NOT Implemented
 

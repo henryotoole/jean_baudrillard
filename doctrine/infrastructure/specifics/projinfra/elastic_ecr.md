@@ -10,17 +10,17 @@ This is documentation for the implementer of `docex` and the curious developer; 
 
 ## Resources
 
-One ECR repository per core service, in the project's elastic region (currently `us-east-1`):
+One ECR repository per codebase, in the project's elastic region (currently `us-east-1`):
 
 | Resource | HCL | Name (rendered) |
 | -------- | --- | --------------- |
-| Repository for service `<svc>` | `aws_ecr_repository.<svc>` | `<project>/<svc>` |
+| Repository for codebase `<cb>` | `aws_ecr_repository.<cb>` | `<project>/<cb>` |
 
-For a project named `myproject` with core services `api` and `worker`, the resources are `aws_ecr_repository.api` and `aws_ecr_repository.worker`, with rendered names `myproject/api` and `myproject/worker`.
+For a project named `myproject` with codebases `api` and `frontend`, the resources are `aws_ecr_repository.api` and `aws_ecr_repository.frontend`, with rendered names `myproject/api` and `myproject/frontend`. The repository is keyed on the **codebase**, so a codebase declaring three core services still gets exactly one repo — they all run the same image.
 
-The repo name is a **two-segment path** joined by a literal `/`. ECR treats forward slashes in repo names as namespace separators, so this is a valid repository name (not a sub-resource) and yields image references that match the canonical form declared in [cicl.md § Container Registry and Service Images](../../cicl.md#container-registry-and-service-images): `${container_registry}/${project_name}/${service_name}:${version}`.
+The repo name is a **two-segment path** joined by a literal `/`. ECR treats forward slashes in repo names as namespace separators, so this is a valid repository name (not a sub-resource) and yields image references that match the canonical form declared in [cicl.md § Container Registry and Service Images](../../cicl.md#container-registry-and-service-images): `${container_registry}/${project_name}/${codebase_name}:${version}`.
 
-The slash is **not** rendered by the naming-policy machinery in [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies) — that machinery has a single global separator per policy and cannot express "slash between segments, underscore preserved within segments." ECR repo naming is therefore a structural emitter hardcoded in docex code: each segment (`${project_name}`, `${service_name}`) is passed verbatim with its own underscores preserved; the slash between them is emitted directly.
+The slash is **not** rendered by the naming-policy machinery in [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies) — that machinery has a single global separator per policy and cannot express "slash between segments, underscore preserved within segments." ECR repo naming is therefore a structural emitter hardcoded in docex code: each segment (`${project_name}`, `${codebase_name}`) is passed verbatim with its own underscores preserved; the slash between them is emitted directly.
 
 ## Configuration
 
@@ -33,16 +33,16 @@ Per-repository defaults emitted by `docex`:
 | `encryption_configuration.encryption_type` | `AES256` | Default; explicit for clarity in diffs. |
 | `force_delete` | `false` | Repositories with images can't be destroyed casually — `./bin/docex projinfra down production` will fail loudly rather than silently nuking image history. |
 
-Tags follow the **projinfra** block of the doctrine-wide standard in [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) with `shape_name=container_registry`. The repo is per-service, but the projinfra block has no `service` tag — the service name rides in `descriptor` (`descriptor=${service_name}`) and the derived `Name` (`${project}_container_registry_${service}`).
+Tags follow the **projinfra** block of the doctrine-wide standard in [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging) with `shape_name=container_registry`. The repo is per-codebase, but the projinfra block has no `codebase` tag — the codebase name rides in `descriptor` (`descriptor=${codebase_name}`) and the derived `Name` (`${project}_container_registry_${codebase}`).
 
 The doctrine does **not** emit lifecycle policies by default — no auto-deletion of old image versions. Image storage is cheap; preserving history makes rollback to old versions trivial. Projects that need cleanup can add a policy via project-local extension.
 
 ## Image Naming
 
-For an elastic project, each core service's image reference at run time is:
+For an elastic project, each codebase's image reference at run time is:
 
 ```
-<account>.dkr.ecr.us-east-1.amazonaws.com/<project>/<svc>:<version>
+<account>.dkr.ecr.us-east-1.amazonaws.com/<project>/<cb>:<version>
 ```
 
 The account ID is resolved by `docex` at compile time (or at `containerize` / `release` time when running the actual commands) via `aws sts get-caller-identity`. The version comes from `project.yml`. See [cicl.md § Container Registry](../../cicl.md#container-registry-and-service-images).
@@ -62,19 +62,19 @@ No long-lived registry creds are stored on any host. ECR auth tokens are short-l
 
 ## Outputs Consumed Downstream
 
-The project's `main.tf` declares one output per core service:
+The project's `main.tf` declares one output per codebase:
 
 | Output | Used by |
 | ------ | ------- |
-| `ecr_repository_<svc>_url` | Env-tier task definitions in each env's `main.tf` — referenced as the image source for the service |
+| `ecr_repository_<cb>_url` | Env-tier task definitions in each env's `main.tf` — referenced as the image source for every core service of that codebase |
 
-The compiler also emits an `ecr_repository_<svc>_arn` output for the task-execution role's resource-scoped permissions (see [`elastic_iam.md`](./elastic_iam.md)).
+The compiler also emits an `ecr_repository_<cb>_arn` output for the task-execution role's resource-scoped permissions (see [`elastic_iam.md`](./elastic_iam.md)).
 
 ## Lifecycle
 
 The repositories come up with `./bin/docex projinfra up production`. They persist across deploys; `release` pushes new image tags but never modifies the repository resource itself. `./bin/docex projinfra down production` will fail if any repository contains images (`force_delete: false`); the operator must explicitly empty repositories before tearing down project-tier infra.
 
-When a core service is added to `infra.yml`, the next `./bin/docex projinfra up production` creates the new repository. When a core service is removed, the repository remains in state (and in AWS) until the operator either manually empties it and re-runs projinfra, or removes the resource from the rendered HCL via project-local extension. The doctrine doesn't auto-delete repositories with image history; the failure mode of accidental deletion is worse than the operator overhead of explicit cleanup.
+When a **codebase** is added to `infra.yml`, the next `./bin/docex projinfra up production` creates the new repository. Adding or removing a core service within an existing codebase changes nothing here — the repo is codebase-keyed. When a codebase is removed, the repository remains in state (and in AWS) until the operator either manually empties it and re-runs projinfra, or removes the resource from the rendered HCL via project-local extension. The doctrine doesn't auto-delete repositories with image history; the failure mode of accidental deletion is worse than the operator overhead of explicit cleanup.
 
 ## Out of Scope
 

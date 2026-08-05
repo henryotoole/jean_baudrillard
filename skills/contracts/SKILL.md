@@ -7,13 +7,13 @@ metadata:
 
 # contracts
 
-Contracts define the boundary of a provider core service *process type*; a single file covers the formats, the mandatory endpoints, and how CI uses them.
+Contracts define the boundary of a provider **core service**; a single file covers the formats, the mandatory endpoints, and how CI uses them.
 
 ## General Information
 
 What contracts are and what they must contain. **Read this now.**
 
-[`contracts.md`](../../doctrine/infrastructure/contracts.md) — contract formats (OpenAPI for HTTP, AsyncAPI for queues), where they live, the mandatory `/health` and downstream `/health/<svc>/<proc>` endpoints, the loop-liveness tick a long-running process type owes, and how CI checks them.
+[`contracts.md`](../../doctrine/infrastructure/contracts.md) — contract formats (OpenAPI for HTTP, AsyncAPI for queues), where they live, the mandatory `/health` and downstream `/health/<codebase>/<service>` endpoints, the loop-liveness tick a long-running core service owes, and how CI checks them.
 
 ## Thread
 

@@ -42,8 +42,8 @@ fi
 
 # Registry images
 registry_remaining=0
-# One repo per CODEBASE, not per process type: `api` carries both the
-# `web` and `worker` process types on one image, so it is one repo. Keep
+# One repo per CODEBASE, not per core service: `api` carries both the
+# `web` and `worker` core services on one image, so it is one repo. Keep
 # this list in sync with infra.yml's `core_services:` keys — the next
 # codebase added must be added here or its registry repo survives
 # teardown, exactly as `reaper` did before mod 107.

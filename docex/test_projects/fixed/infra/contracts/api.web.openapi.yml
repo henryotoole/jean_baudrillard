@@ -1,15 +1,15 @@
-# OpenAPI contract for the `api.web` process type.
+# OpenAPI contract for the `api.web` core service.
 #
-# The path is keyed on the process type — <svc>.<proc>.<format>.yml — not
+# The path is keyed on the core service — <svc>.<proc>.<format>.yml — not
 # on the codebase: one codebase may run two HTTP boundaries and both
 # deserve their own contract (contracts.md).
 #
 # docex check's contract gate verifies that paths declared here exist in
-# the running process type (provider-side contract testing).
+# the running core service (provider-side contract testing).
 #
 # Health-endpoint rules (doctrine/infrastructure/contracts.md § Health Checks):
-#   - GET /health is mandatory for every long-running process type.
-#   - GET /health/<svc>/<proc> is mandatory on every `web`-network process
+#   - GET /health is mandatory for every long-running core service.
+#   - GET /health/<codebase>/<service> is mandatory on every `web`-network process
 #     type, one per `consumes` target that is not itself on the `web`
 #     network. Sourced from `consumes`, never from `depends_on`.
 #
@@ -18,7 +18,7 @@
 #     `consumes: [api.worker]`, and the worker sits on `[internal]` alone,
 #     so nothing outside can reach its own /health.
 #   - /health/probe and /health/events are NOT required (probe and events
-#     are backing services, not core process types). They're declared here
+#     are backing services, not core services). They're declared here
 #     because the advance-end smoke walk uses them to assert that Service
 #     Connect + EFS-backed ClickHouse + sidecar are all wired up correctly.
 
@@ -27,20 +27,20 @@ info:
   title: docex_smoke_fixed.api.web
   version: "0.0.1"
   description: |
-    Test-project web process type for the doctrine smoke test. POST a
-    payload to /pings, the `api.worker` process type picks it up via
+    Test-project web core service for the doctrine smoke test. POST a
+    payload to /pings, the `api.worker` core service picks it up via
     postgres. /health/{probe,events} exercise the project-local sidecar +
     analytics_db backings; /health/api/worker is the doctrine-required
     liveness fan-out onto the worker.
 servers:
   - url: "https://docex-smoke-fixed.luxrnd.tech"
-    description: prod (bare-project → prod's bare env → domain_default_process)
+    description: prod (bare-project → prod's bare env → domain_default_service)
   - url: "https://api-web.prod.docex-smoke-fixed.luxrnd.tech"
-    description: prod (canonical per-process host)
+    description: prod (canonical per-service host)
   - url: "https://stage.docex-smoke-fixed.luxrnd.tech"
-    description: stage (bare-env → domain_default_process)
+    description: stage (bare-env → domain_default_service)
   - url: "https://api-web.stage.docex-smoke-fixed.luxrnd.tech"
-    description: stage (canonical per-process host)
+    description: stage (canonical per-service host)
 
 paths:
   /health:
@@ -81,12 +81,12 @@ paths:
         "503":
           description: probe unreachable
 
-  # Doctrine-required health fan-out onto the `api.worker` process type.
+  # Doctrine-required health fan-out onto the `api.worker` core service.
   # One hop only: this proxies the worker's own /health and never its
   # fan-out endpoints, because the `consumes` graph may legally cycle.
   /health/api/worker:
     get:
-      summary: Liveness of the `api.worker` process type (consumes fan-out).
+      summary: Liveness of the `api.worker` core service (consumes fan-out).
       operationId: healthApiWorker
       responses:
         "200":

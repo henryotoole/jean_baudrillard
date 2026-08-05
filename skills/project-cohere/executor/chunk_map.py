@@ -16,13 +16,13 @@ docs with no code) to help that curation.
 
 A chunk takes one of these shapes, chosen by size:
   - the entire source                     (small projects — one subagent for all)
-  - one or more whole core services       (packed together up to the budget)
-  - a subset of one service's hex modules  (a service too big to fit whole)
+  - one or more whole codebases           (packed together up to the budget)
+  - a subset of one codebase's hex modules (a codebase too big to fit whole)
 
-Bounded contexts stay separate: hex modules from *different* services are never
-mixed into one chunk. Whole *services* may share a chunk (the common "one big
-service + a couple of tiny ones" pattern), and a single oversized service is split
-into its own module chunks — never merged with another service's modules.
+Bounded contexts stay separate: hex modules from *different* codebases are never
+mixed into one chunk. Whole *codebases* may share a chunk (the common "one big
+codebase + a couple of tiny ones" pattern), and a single oversized codebase is split
+into its own module chunks — never merged with another codebase's modules.
 
 What counts as "source": an ALLOWLIST of the extensions of the doctrine's
 supported languages (see languages.md). This is deliberate — a denylist can't

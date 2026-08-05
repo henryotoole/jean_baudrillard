@@ -17,7 +17,7 @@ This file applies to **every machine that hosts at least one doctrine project's 
 We will perform this routing with HAProxy. SNI-routing is used for 443 traffic without decrypting, and plain old HTTP routing for 80 traffic.
 
 The `web_demux` can infer routing target entirely from the domain of the request, which can come in three forms:
-1. `<service>-<process>.<env>.<project_name>.<apex_domain>` 
+1. `<codebase>-<service>.<env>.<project_name>.<apex_domain>` 
 2. `<env>.<project_name>.<apex_domain>`
 3. `<project_name>.<apex_domain>`
 
@@ -103,13 +103,13 @@ networks:
 --
 -- Doctrine-prescribed SNI/Host-header -> project-name parse.
 -- The canonical doctrine forms are:
---   <service>-<process>.<env>.<project>.<apex_domain>
+--   <codebase>-<service>.<env>.<project>.<apex_domain>
 --   <env>.<project>.<apex_domain>
 --   <project>.<apex_domain>
 --
 -- The parse does not actually count them. It is right-anchored and has no
 -- opinion about how many labels sit to the LEFT of the project, which is why
--- the service label gaining a process segment needed no change here.
+-- the service label gaining a core-service segment needed no change here.
 --
 -- Returns the project segment regardless of which form arrived, for ANY
 -- TLD. The apex (registrable domain the operator owns) is the public

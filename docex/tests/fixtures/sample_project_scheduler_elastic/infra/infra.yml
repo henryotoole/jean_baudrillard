@@ -2,9 +2,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
-domain_default_process: api.web
+domain_default_service: api.web
 
-core_services:
+codebases:
   # A long-running web service alongside the scheduler — used to assert
   # that the OTel sidecar omission is scoped to one-shot tasks only.
   api:
@@ -14,7 +14,7 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/app.py"]
@@ -30,7 +30,7 @@ core_services:
       DATABASE_HOST: ${backing_services.appdb.host}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    processes:
+    core_services:
       nightly_cleanup:
         role: scheduler
         schedule: "0 3 * * *"

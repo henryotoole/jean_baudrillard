@@ -8,9 +8,9 @@ This guide covers best practices for working with relational databases.
 
 ## Schema Setup and Changes ##
 
-All SQL queries which set up the database should be stored outside of `src/` — in the schema-owning service's `migrations` folder — as they do not represent application code.
+All SQL queries which set up the database should be stored outside of `src/` — in the schema-owning codebase's `migrations` folder — as they do not represent application code.
 
-The choice of migration tool is left to the project. What the doctrine fixes is the *interface*, not the tool: every schema-owning core service exposes a `migrate.sh` shim whose only contract is its exit code (`0` on success), invoked by `docex` at doctrine-defined lifecycle points. Behind that shim the project may use whatever tool fits its stack. See [migrations.md](../infrastructure/specifics/migrations.md) for the full mechanism.
+The choice of migration tool is left to the project. What the doctrine fixes is the *interface*, not the tool: every schema-owning codebase exposes a `migrate.sh` shim whose only contract is its exit code (`0` on success), invoked by `docex` at doctrine-defined lifecycle points. Behind that shim the project may use whatever tool fits its stack. See [migrations.md](../infrastructure/specifics/migrations.md) for the full mechanism.
 
 The doctrine's default recommendation is `dbmate` — a simple, well-known migration tool ([github](https://github.com/amacneil/dbmate)) that suits most SQL-backed projects. Reach for something else only when the project's ecosystem has a strongly idiomatic alternative (e.g. `alembic` in a Python/SQLAlchemy stack).
 

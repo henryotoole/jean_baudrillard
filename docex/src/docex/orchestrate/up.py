@@ -20,7 +20,7 @@ from docex.naming import dns_label
 from docex.orchestrate._common import (
     assert_fixed_env,
     compose_file_for,
-    core_services,
+    codebases,
     ensure_compiled,
     env_compose_project,
     exec_service_key,
@@ -81,7 +81,7 @@ def _ensure_codebase_image(
     """Build a codebase's dev-local image tag, for dev.
 
     In ``dev``, the codebase tag is the Dockerfile ``dev`` stage — for every
-    process type, including a cron job. Two facts make that invariant
+    core service, including a cron job. Two facts make that invariant
     load-bearing rather than arbitrary (Mod 103):
 
     1. Ofelia spawns the job through the Docker API with **no bind mounts**,
@@ -210,9 +210,9 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     if env == "dev":
         # Scheduler-ONLY codebases are the ones with no bind-mounted compose
         # service at all; a codebase that also declares a long-running
-        # process type still needs its host-side dist/ pre-populated.
+        # core service still needs its host-side dist/ pre-populated.
         schedulers = set(scheduler_only_services(ctx))
-        for svc in core_services(ctx):
+        for svc in codebases(ctx):
             # Scheduler-only codebases aren't bind-mounted and never run as
             # a compose service, so the host-dist/ pre-populate is
             # meaningless for them. They instead need their codebase image
@@ -224,7 +224,7 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
         # so nothing in the compose graph builds its image — `up --build` skips
         # the `profiles: [exec]` exec service, and `compose run` builds only when
         # the image is absent. docex builds it here. A codebase that also
-        # declares a long-running process type needs nothing: `compose up
+        # declares a long-running core service needs nothing: `compose up
         # --build` below builds that same tag, at the same `dev` target.
         for svc in scheduler_only_services(ctx):
             _ensure_codebase_image(ctx, docker, svc)

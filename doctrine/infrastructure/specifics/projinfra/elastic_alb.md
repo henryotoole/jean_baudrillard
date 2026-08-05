@@ -61,7 +61,7 @@ The ALB itself (and its listeners) is project-tier. The listener *rules* — the
 1. Listener rules are 1:1 with env-tier ECS services. Adding a new service to `stage` adds a rule; removing a service removes one. Coupling rule lifecycle to env-tier release is the natural fit.
 2. Rule priorities are scoped per-listener but otherwise unstructured. The compiler assigns deterministic priorities at compile time per env, so env-A's rules don't collide with env-B's.
 
-Each env-tier listener rule references the project ALB by ARN, which the env's `main.tf` reads via (this example assumes `api.web` is the project's `domain_default_process` per [cicl.md § Domain](../../cicl.md#domain), which is why the `values` list carries the bare-prod-env and bare-project alternates; process types that are not the default get only the full `<service>-<process>.<env>.<project>.<apex>` host):
+Each env-tier listener rule references the project ALB by ARN, which the env's `main.tf` reads via (this example assumes `api.web` is the project's `domain_default_service` per [cicl.md § Domain](../../cicl.md#domain), which is why the `values` list carries the bare-prod-env and bare-project alternates; core services that are not the default get only the full `<codebase>-<service>.<env>.<project>.<apex>` host):
 
 ```hcl
 data "terraform_remote_state" "project" {

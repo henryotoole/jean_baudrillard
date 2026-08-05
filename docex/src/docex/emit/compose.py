@@ -17,7 +17,7 @@ Alongside the per-process app containers, the emitter writes exactly one
 ``<codebase>-exec`` block per codebase: the container that *is* the codebase,
 into which the three per-**codebase** operations (``migrate``, ``test``,
 ``build``) run one-off via ``docker compose run --rm``. It exists because
-those operations previously had to *pick* one process type's container to
+those operations previously had to *pick* one core service's container to
 ``compose exec`` into, through a heuristic that was duplicated three times
 and wrong at least once.
 
@@ -27,10 +27,10 @@ Two properties carry the design:
   ``compose run`` implicitly enables the profile of the service it names. The
   block is inert until something runs in it.
 - Its ``environment:`` is the **service-level** ``env:`` surface only
-  (``CompiledService.service_env``), never a process type's overlay. That is
+  (``CompiledService.service_env``), never a core service's overlay. That is
   what turns *``migrate.sh``, ``test.sh`` and ``build.sh`` may depend only on
   codebase-scoped env* from a convention into an enforceable rule: a
-  process-level key is not merely discouraged there, it is absent.
+  service-level key is not merely discouraged there, it is absent.
 """
 
 from __future__ import annotations
@@ -158,7 +158,7 @@ def _traefik_labels(
 
     The router rule ORs together every host the service answers at — a
     service is reachable at ``<service>.<env>.<project>.<apex_domain>``,
-    and the ``domain_default_process`` additionally at the bare
+    and the ``domain_default_service`` additionally at the bare
     ``<env>.<project>.<apex_domain>``; in prod it also answers at the
     bare-project host ``<project>.<apex_domain>``. Traefik reaches the
     container over the docker network on ``svc.port``; no host port is
@@ -292,7 +292,7 @@ def _replica_networks(svc: CompiledService) -> dict[str, Any]:
     ``{global_name}`` any more, so the name is carried by an alias that
     Docker's embedded DNS resolves to all N containers, round-robin.
 
-    The alias goes on EVERY network the process type joins. A consumer
+    The alias goes on EVERY network the core service joins. A consumer
     resolves the target over whichever network the two share, so restricting
     the alias to non-``web`` networks would break a web→web reference for no
     gain.
@@ -363,10 +363,10 @@ def _ofelia_ini(
     svc: CompiledService, project_dns_label: str, env: str,
     env_file_source: str,
 ) -> str:
-    """Render the ofelia INI for one scheduler process type.
+    """Render the ofelia INI for one scheduler core service.
 
     One section, whose name is the **two-segment compiled identity** of the
-    process type — ``[job-run "api-nightly_cleanup"]``, i.e.
+    core service — ``[job-run "api-nightly_cleanup"]``, i.e.
     ``<codebase>-<process>``, not the codebase alone. It carries: the
     translated 6-field ofelia schedule, the **codebase's** image ref, the
     job's docker network (its first non-``web`` network — a scheduler is
@@ -375,7 +375,7 @@ def _ofelia_ini(
     secret-sourcing + re-exporting command wrapper, and the env-file mount.
     See scheduler.md § Fixed Foundation.
 
-    The image is **shared with every sibling process type of the same
+    The image is **shared with every sibling core service of the same
     codebase** — a job and its sibling ``web`` run one tag. That is why
     mod 074's separate, self-contained job image is gone (Mod 103): a second
     consumer of one tag has to agree with the first about what is inside it,
@@ -548,10 +548,10 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # doctrinal defaults; see infrastructure.md § Core Service Containers.
         if compiled.env == "dev" and svc.is_core:
             # Mod 096: keyed on the CODEBASE, not the compiled identity —
-            # `core/<svc>/` is one source folder shared by every process type.
+            # `core/<svc>/` is one source folder shared by every core service.
             bind_mounts = [
-                f"./core/{svc.core_service}/src:/service/src",
-                f"./core/{svc.core_service}/dist:/service/dist",
+                f"./core/{svc.codebase}/src:/service/src",
+                f"./core/{svc.codebase}/dist:/service/dist",
             ]
             existing_vols = block.get("volumes")
             if isinstance(existing_vols, list):
@@ -570,7 +570,7 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         if compiled.env in ("dev", "test") and svc.is_core:
             block["build"] = {
                 # Mod 096: the codebase, matching the bind mounts above.
-                "context": f"./core/{svc.core_service}",
+                "context": f"./core/{svc.codebase}",
                 "dockerfile": "Dockerfile",
                 "target": compiled.env,  # "dev" stage or "test" stage
             }
@@ -701,7 +701,7 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             # the service it names. The first `profiles:` key in the codebase.
             "profiles": ["exec"],
             # The image ref is codebase-keyed, so it is identical across every
-            # process type of the codebase: one tag, one build.
+            # core service of the codebase: one tag, one build.
             "image": head.body.get("image", ""),
         }
         if compiled.env in ("dev", "test"):
@@ -714,12 +714,12 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
                 "target": compiled.env,
             }
         # WHY `service_env` and not `env`: the codebase-scoped surface. It is
-        # identical across a codebase's process types by construction (the
+        # identical across a codebase's core service by construction (the
         # compiler builds it from the service-level `env:` block alone), so
         # reading it off `procs[0]` picks nothing — there is nothing to pick.
         # Mod 102 made that true of EVERY key: the telemetry identity on this
         # surface is codebase-scoped too (`OTEL_SERVICE_NAME={codebase}`, no
-        # `docex.process_type`), where it previously leaked `procs[0]`'s
+        # `docex.service`), where it previously leaked `procs[0]`'s
         # process segment.
         if head.service_env:
             exec_block["environment"] = _translate_tree(head.service_env)

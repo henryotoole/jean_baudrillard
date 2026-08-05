@@ -39,13 +39,13 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
     secrets:
       STRIPE_KEY: "Stripe secret API key"
     config:
       PARTNER_URL: "Partner API base URL (per-env)"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -107,11 +107,11 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
     secrets:
       SHARED_KEY: "shared across services"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -123,7 +123,7 @@ core_services:
   worker:
     secrets:
       SHARED_KEY: "shared across services"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -191,11 +191,11 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
     secrets:
       SHARED_KEY: "shared across services"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -207,7 +207,7 @@ core_services:
   worker:
     secrets:
       SHARED_KEY: "declared again on worker"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -247,11 +247,11 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
     secrets:
       STRIPE_KEY: "Stripe secret API key"
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]

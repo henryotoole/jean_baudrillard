@@ -112,7 +112,7 @@ def test_preinfra_dev_does_not_call_aws(
 
 
 # The sample fixture: project `sample`, apex `example.com`, `api` is the
-# web + domain_default_process. So `dev` web hosts are the per-service host
+# web + domain_default_service. So `dev` web hosts are the per-service host
 # plus the bare-env host (api is the default service).
 _DEV_HOSTS = ["api-web.dev.sample.example.com", "dev.sample.example.com"]
 
@@ -193,14 +193,14 @@ def test_preinfra_dev_dns_resolver_error_surfaced_not_crashed(
     assert "api-web.dev.sample.example.com" in out
 
 
-def test_preinfra_dev_dns_enumerates_per_web_process_type(
+def test_preinfra_dev_dns_enumerates_per_web_core_service(
     sample_ctx, fake_docker, fake_dns,
 ):
-    """A codebase with TWO web process types has TWO dev hosts checked.
+    """A codebase with TWO web core service has TWO dev hosts checked.
 
     Mod 104. The check delegates to `web_hostnames_for_env`, which is
-    per-process-type since Mod 096 — but every other test in this module runs
-    against the one-process-type sample fixture, so a regression that collapsed
+    per-core service since Mod 096 — but every other test in this module runs
+    against the one-core service sample fixture, so a regression that collapsed
     the enumeration back to one host per CODEBASE would pass all of them. This
     test fails against such an implementation.
     """
@@ -209,13 +209,13 @@ def test_preinfra_dev_dns_enumerates_per_web_process_type(
 
     infra_path = sample_ctx.project_root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["admin"] = {
+    doc["codebases"]["api"]["core_services"]["admin"] = {
         "role": "web",
         "command": ["python", "/service/dist/admin.py"],
         "port": 8081,
         "networks": ["web", "internal"],
         # Rule 7: the fixture's DATABASE_* refs are declared at the SERVICE
-        # level, so every process type of `api` owes the readiness edge.
+        # level, so every core service of `api` owes the readiness edge.
         "depends_on": ["appdb"],
         "resources": {"cpu": 0.5, "memory": "1GB", "disk": "20GB"},
     }
@@ -228,8 +228,8 @@ def test_preinfra_dev_dns_enumerates_per_web_process_type(
         ctx, fake_docker, aws=None, side="development", dns=fake_dns,
     )
     assert rc == 0
-    # Both web process types of the ONE codebase, plus the bare-env host that
-    # `api.web` earns as `domain_default_process`.
+    # Both web core service of the ONE codebase, plus the bare-env host that
+    # `api.web` earns as `domain_default_service`.
     assert set(fake_dns.asked) == {
         "api-web.dev.sample.example.com",
         "api-admin.dev.sample.example.com",

@@ -4,32 +4,32 @@ stratum: conditional
 
 # Migrations
 
-This file describes how database schema migrations — changes applied to a service's owned database — are invoked by `docex` at well-defined points in the lifecycle. The mechanism is foundation-aware in implementation but identical in contract: every core service that owns a database schema provides a `migrate.sh` shim that `docex` runs against the right database at the right time.
+This file describes how database schema migrations — changes applied to a codebase's owned database — are invoked by `docex` at well-defined points in the lifecycle. The mechanism is foundation-aware in implementation but identical in contract: every codebase that owns a database schema provides a `migrate.sh` shim that `docex` runs against the right database at the right time.
 
 This is documentation for the implementer of `docex` and the curious developer; it is not meant to be force-loaded as general doctrine context. The shorter doctrine-prose summary is in [cicd.md § Migrate Step](../cicd.md#migrate-step).
 
 ## Source of Truth
 
-Each backing service whose role uses `schema_owned_by` in `infra.yml` names a core service in that field — the **schema owner**. The named core service provides:
+Each backing service whose role uses `schema_owned_by` in `infra.yml` names a codebase in that field — the **schema owner**. The named codebase provides:
 
 ```
-core/<service>/
+core/<codebase>/
   migrate.sh          # the shim, invoked by docex — once per codebase
   migrations/         # the actual migration files (project tool's format)
 ```
 
 The migration tool is the project's choice — `dbmate`, `alembic`, `flyway`, `goose`, etc. `migrate.sh` is a small shim that invokes the chosen tool against the database identified by the same environment variables the service itself uses at runtime — i.e. the connection parts the service binds from the backing service's `provides:` block (in the doctrine's examples, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_SSLMODE`). Because those env-var names are identical across foundations (see [transfer_tables.md § provides](./transfer_tables.md)), the same `migrate.sh` works unchanged on fixed and elastic — including `DATABASE_SSLMODE`, which is load-bearing on elastic where RDS rejects non-SSL connections under its default `pg_hba.conf`. `migrate.sh` must build its connection string from the parts rather than hardcoding `sslmode=disable` or `sslmode=require`. The shim's contract is exit-code only: `0` on success, non-zero on any failure.
 
-Migration is a **per-codebase** operation. `schema_owned_by` names a core service — a codebase — and `migrate.sh` runs once for that codebase however many [process types](../cicl.md#process-types) it declares. There is no per-process-type migration.
+Migration is a **per-codebase** operation. `schema_owned_by` names a codebase and `migrate.sh` runs once for that codebase however many [core services](../cicl.md#core-services) it declares. There is no per-core-service migration.
 
-Only one core service may own a given database. This is enforced via the `schema_owned_by` field in CICL — by this mechanism, a backing service can only have one core service that controls its schema. This invariant exists specifically to avoid race conditions where two services concurrently run migrations against the same schema.
+Only one codebase may own a given database. This is enforced via the `schema_owned_by` field in CICL — by this mechanism, a backing service can only have one codebase that controls its schema. This invariant exists specifically to avoid race conditions where two codebases concurrently run migrations against the same schema.
 
 ## Invocation Timing
 
 Migrations are run by [`./bin/docex migrate <env>`](../docex.md#migrate), which the operator can invoke directly. The command is also invoked implicitly by three lifecycle operations:
 
 - **`./bin/docex envinfra up dev`**: after the compose stack is up, before the developer interacts with the env.
-- **`./bin/docex test`**: after the `test` env's compose stack is up, before any service's `test.sh` runs. Tests always see a fully-migrated schema.
+- **`./bin/docex test`**: after the `test` env's compose stack is up, before any codebase's `test.sh` runs. Tests always see a fully-migrated schema.
 - **`./bin/docex release <env>`** (`stage`, `prod`): after the database is reachable but before the new application code is fully rolled out. Per-env-category mechanism below.
 
 In every case, migration runs as a separate process invocation against the codebase's image — never on the host, never woven into the application's startup sequence. The exact invocation mechanism varies by env category — `dev`/`test` use the same mechanism on both foundations (since dev/test are always fixed-style per [shape.md § Shape and Environment](../shape.md#shape-and-environment)); `stage`/`prod` mechanism varies by foundation.
@@ -40,17 +40,17 @@ For `dev` and `test` envs, on both foundations, `./bin/docex migrate <env>` runs
 
 ```bash
 docker compose -f infra/output/<env>/docker-compose.yml \
-    run --rm <project>-<env>-<core_service>-exec ./migrate.sh
+    run --rm <project>-<env>-<codebase>-exec ./migrate.sh
 ```
 
-(`./migrate.sh` is relative because the image's working directory is the fixed `/service` root — see [Core Service Containers](../infrastructure.md#core-service-containers). `--build` is added in `test` only; `dev` reuses the existing image.)
+(`./migrate.sh` is relative because the image's working directory is the fixed `/service` root — see [Codebase Containers](../infrastructure.md#codebase-containers). `--build` is added in `test` only; `dev` reuses the existing image.)
 
-The exec service is the compiled block that *is* the codebase: one per core service, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `depends_on` rewritten to `condition: service_healthy`. Two properties matter here:
+The exec service is the compiled block that *is* the codebase: one per codebase, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `depends_on` rewritten to `condition: service_healthy`. Two properties matter here:
 
 - **Nothing needs to be running.** The exec service is gated behind `profiles: [exec]` so `compose up` never starts it, while `compose run` implicitly enables the profile of the service it names. And because it gates on its backing services' healthchecks, the one-off waits for the database instead of assuming the stack is already up.
-- **It carries service-level `env:` only** — never a process type's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a process-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
+- **It carries codebase-level `env:` only** — never a core service's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a service-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
 
-This also removes a question that has no good answer. A codebase with several [process types](../cicl.md#process-types) offers no principled way to pick one of their containers to `exec` into, and any rule for choosing a representative moves the migration's environment when an unrelated process type is renamed.
+This also removes a question that has no good answer. A codebase with several [core services](../cicl.md#core-services) offers no principled way to pick one of their containers to `exec` into, and any rule for choosing a representative moves the migration's environment when an unrelated core service is renamed.
 
 If `migrate.sh` exits non-zero, the env stays up and `./bin/docex migrate <env>` returns the non-zero code. The schema may be in a partial state; the operator fixes the migration and re-invokes the command. Since the env is unchanged otherwise, retry is just another one-off run — no env teardown or rebuild required.
 
@@ -76,7 +76,7 @@ If any migration fails, the playbook aborts before `docker compose up -d` runs t
 
 ## Stage and Prod on Elastic Foundation
 
-For `stage`/`prod` on elastic projects, the compiler emits one "migration" ECS task definition per schema-owning **codebase** — family `${project}-${env}-${codebase}-migrate`, not one per process type, since `migrate.sh` runs once per codebase. Its sizing is the per-dimension **maximum** across the codebase's process types, which is order-independent (so the migration cannot be resized by renaming or adding an unrelated process type) and never under-provisions. Its environment is the codebase-scoped surface only, matching the fixed path. The migration and the application task definitions reference the same image — the difference is the command:
+For `stage`/`prod` on elastic projects, the compiler emits one "migration" ECS task definition per schema-owning **codebase** — family `${project}-${env}-${codebase}-migrate`, not one per core service, since `migrate.sh` runs once per codebase. Its sizing is the per-dimension **maximum** across the codebase's core services, which is order-independent (so the migration cannot be resized by renaming or adding an unrelated core service) and never under-provisions. Its environment is the codebase-scoped surface only, matching the fixed path. The migration and the application task definitions reference the same image — the difference is the command:
 
 - Main task definition: runs the application's normal entrypoint.
 - Migration task definition: runs `/service/migrate.sh` and exits.
@@ -93,7 +93,7 @@ This ordering ensures migrations are fully complete and verified before any new 
 
 ### First-Time Release of an Env
 
-The first time an elastic env is released, the env's ECS services, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. (The ECS cluster itself is project-tier and always present — see [shape.md § ecs_cluster](../shape.md#elastic-foundation).) `./bin/docex release` detects a first release via an ECS-service-existence probe (the env's service is not yet in its cluster) and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
+The first time an elastic env is released, the env's ECS services, RDS, and migration task definition referenced in steps 2-4 above don't exist yet — they're created by step 5's `tofu apply`. (The ECS cluster itself is project-tier and always present — see [shape.md § ecs_cluster](../shape.md#elastic-foundation).) `./bin/docex release` detects a first release via an ECS-service-existence probe (the env's ECS service is not yet in its cluster) and swaps the order to `1 → 5 → 2-4`: push secrets, run `tofu apply` (creating the RDS, task definitions, and the ECS service with the new image), then `RunTask` the migration against the now-live RDS.
 
 The transient consequence: on a first release, the application's ECS service comes up before the migration runs. Until the migration completes, the application tasks may crash-loop or 500 against the not-yet-created schema. This is acceptable because there are no users on a first deploy and the window is bounded by migration runtime. Subsequent releases find the cluster present and follow the steady-state order, preserving the zero-downtime properties documented below.
 
@@ -116,7 +116,7 @@ The same requirement underlies the [rollback](../cicd.md#rollback) mechanism's "
 
 ## Caveats
 
-- **Schema ownership is enforced at compile time.** Each database backing service's `schema_owned_by` field names exactly one core service — a **codebase, never a process type** — and the field is a single scalar, not a list, so a database with two competing schema owners is structurally unrepresentable. No escape hatch for "two services migrate the same schema" — that's an architectural smell the doctrine refuses to accept.
+- **Schema ownership is enforced at compile time.** Each database backing service's `schema_owned_by` field names exactly one codebase and the field is a single scalar, not a list, so a database with two competing schema owners is structurally unrepresentable. No escape hatch for "two codebases migrate the same schema" — that's an architectural smell the doctrine refuses to accept.
 - **Migration tool is project-local.** The doctrine does not prescribe `dbmate` or any other tool; only the shim's exit-code contract.
 - **No automatic rollback.** A failed migration leaves the database in whatever partial state the tool produced. The doctrine assumes migrations are idempotent and forward-only; fixing a partially-applied migration is the operator's responsibility.
 - **Migration runs use the new image.** This means the new code's migration files run against the existing schema — which is correct, but means a project's `migrate.sh` and migration files must work *standalone* (not depend on the application being running, not require any one-off bootstrap state).

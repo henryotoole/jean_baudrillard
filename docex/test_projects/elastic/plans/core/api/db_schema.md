@@ -1,12 +1,12 @@
 # api — db schema
 
-The `api` **codebase** owns the schema of the project's relational database backing service, `appdb` (postgres 15 — RDS on elastic `stage`/`prod`, a postgres container on `dev`/`test`). `schema_owned_by` names a codebase, never a process type — `migrate.sh` runs once per codebase, not once per invocation.
+The `api` **codebase** owns the schema of the project's relational database backing service, `appdb` (postgres 15 — RDS on elastic `stage`/`prod`, a postgres container on `dev`/`test`). `schema_owned_by` names a codebase, never a core service — `migrate.sh` runs once per codebase, not once per invocation.
 
 ## Tables
 
 ### `pings`
 
-Stores each ping created by `POST /pings` until the `api.worker` process type processes it.
+Stores each ping created by `POST /pings` until the `api.worker` core service processes it.
 
 | Column | Type | Notes |
 | ------ | ---- | ----- |

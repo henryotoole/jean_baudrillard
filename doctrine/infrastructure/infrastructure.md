@@ -28,7 +28,7 @@ In this doctrine, much effort has gone into preventing this major choice from af
 
 ## Infrastructure as Code
 
-The project codebase should fully describe both the code and the infrastructure it runs on. To support both possible foundations, there is one source of truth for infrastructure: the `infra.yml` file. It contains everything that is needed to deterministically create either a docker-compose stack or an OpenTofu HCL file, depending on which is needed. It is the one source of truth. It is written in the [*Clausewitzian Infrastructure Configuration Language* (CICL)](./cicl.md), which is a bespoke invention defined in this doctrine.
+The project repository should fully describe both the code and the infrastructure it runs on. To support both possible foundations, there is one source of truth for infrastructure: the `infra.yml` file. It contains everything that is needed to deterministically create either a docker-compose stack or an OpenTofu HCL file, depending on which is needed. It is the one source of truth. It is written in the [*Clausewitzian Infrastructure Configuration Language* (CICL)](./cicl.md), which is a bespoke invention defined in this doctrine.
 
 ### Fixed v. Elastic
 
@@ -100,7 +100,7 @@ The code follows the usual process of:
 `source` --(build)--> `build artifact` --(containerize)--> `build image` --(release)--> `release`
 
 The overall code-writing process is:
-1. Develop freely in `dev`, making changes and testing in accordance with the [mod process](../practices/modifications.md). The result is the project codebase at a specific commit.
+1. Develop freely in `dev`, making changes and testing in accordance with the [mod process](../practices/modifications.md). The result is the project at a specific commit.
 	1. Many 'informal' builds will occur during development.
 2. Bring up a fresh `test` environment and run unit and integration tests on the informal build at that final commit.
 	1. If tests don't pass, errors must be fixed before proceeding.
@@ -113,18 +113,20 @@ The overall code-writing process is:
 
 Essentially the entire pipeline can be performed using `docex` commands.
 
-## Codebase Structure
+## Repository Structure
 One of the core tenets of the `doctrine` is that filepaths encode meaning. By looking at a file's location in the project folder structure, both its location in infrastructure and its architectural purpose should be clear. Architecture path structure is discussed elsewhere in the [hex docs](../hexagonal_architecture/hex_overview.md). Infrastructure path structure is described here.
 
 Projects are composed of *services*:
 + **backing services** which are *not* maintained by the project (e.g. postgres, object stores), and
-+ **core services** which contain bespoke code from the project codebase.
++ **core services** built from **codebases** which *are* maintained by the project.
 
-Both take the form of containers and both are described by `infra.yml`. However, **core services** also must be described by the codebase - they contain both our project code and custom configuration for their containers. This doctrine sets down some hard rules for core services:
-1. **Core service sources never share code**. This is a strict choice intended to enforce separation of concerns and prevent confusion. Choosing *how* to achieve this in practice is a design concern. Core services are very distinct; all that ties them together is a shared purpose, backing services, and build version. Note the scope: the rule governs *sources*. A core service may be invoked several ways — an HTTP edge, a queue consumer, a nightly job — and those [process types](./cicl.md#process-types) all run the same codebase and the same image, so nothing is shared between them and the rule is not engaged. When only the *invocation* differs, the answer is another process type, not another core service. Two core services are for two genuinely distinct codebases: a different bounded context, a different language, a radically different runtime footprint, or a different security posture.
+Both take the form of containers and both are described by `infra.yml`. However, **codebases** are substantially more complex. Each codebase produces exactly one build artifact, which can be invoked in one or many ways via the [core services](./cicl.md#core-services) it declares. For example, a single codebase might be invoked as one core service to operate as an HTTP-based API *and* as another as a queue-based worker.
+
+This doctrine sets down some hard rules for codebases and their core services:
+1. **Codebases never share code**. Each codebase is a distinct source tree. This is a strict choice intended to enforce separation of concerns and prevent confusion. Choosing *how* to achieve this in practice is a design concern. Codebases are very distinct; all that ties them together is a shared purpose, backing services, and build version. Core services of the *same* codebase, by contrast, share everything — they are one artifact started different ways.
 2. **Core services execute as stateless processes**. This is a direct principle of the 12-factor app. Processes are stateless and share nothing. All persistent data is stored in a backing service like a database.
 
-An example codebase is shown below:
+An example project structure is shown below:
 ```
 $pr
 ├── .gitignore
@@ -185,7 +187,7 @@ $pr
     └── references
 ```
 
-Core services go in the `core` folder. Each is given a name (like `api`) that will match the key under `core_services` in `infra.yml`. Each of these folders is a *core service root* — one codebase, one build artifact, however many [process types](./cicl.md#process-types) that artifact is invoked as. One of these service roots will always contain:
+Codebases go in the `core` folder. Each is given a name (like `api`) that will match the key under `codebases` in `infra.yml`. Each of these folders is a *codebase root* and will always contain:
 + `dist` - host folder where `build.sh` writes artifacts during dev iteration via the dev container's bind-mount. The formal containerize path keeps artifacts entirely inside `docker build` and does not touch this folder. Typically gitignored.
 + `src` - a folder that contains all source code. Structure within this folder is an architectural concern.
 + `tests` - contains all the tests that `test.sh` will run.
@@ -219,15 +221,15 @@ The `docex_version` field pins which `docex` image runs against the project; it 
 
 Version control is done with git using [trunk-based branch conventions](./version_control.md#branch-conventions).
 
-### Core Service Containers
+### Codebase Containers
 
-Core services must all have a Dockerfile which describes the environment the container provides to the code. 
+Every codebase must have a Dockerfile which describes the environment the container provides to the code.
 
-All core service containers place the service working directory at a fixed root: `/service`. This root maps to the "core service folder" in the source code, e.g. `api` in the above example codebase. Every process type of a core service runs the same image and therefore sees the same `/service`. `docex` relies on this convention:
+Every container built from a codebase places the working directory at a fixed root: `/service`. This root maps to the "codebase folder" in the source code, e.g. `api` in the above example project. Every core service of a codebase runs the same image and therefore sees the same `/service`. `docex` relies on this convention:
 1. It bind-mounts to this `/service` in compiled compose.yml output.
-2. It expects to find service scripts like `migrate.sh` at `/service/migrate.sh`.
+2. It expects to find the codebase's scripts like `migrate.sh` at `/service/migrate.sh`.
 
-Dockerfiles will all describe multi-stage builds. The following list of stages must be available for *all* core services, as the CI/CD scripts will reference them by name. Additional stages may be added "in between" the standard stages if the developer desires.
+Dockerfiles will all describe multi-stage builds. The following list of stages must be available for *all* codebases, as the CI/CD scripts will reference them by name. Additional stages may be added "in between" the standard stages if the developer desires.
 
 | Stage Name | CI/CD purpose |
 | ---------- | ------------- |
@@ -238,26 +240,24 @@ Dockerfiles will all describe multi-stage builds. The following list of stages m
 
 `build.sh` is the canonical build entry point and is invoked by the `build` stage during `docker build`. See [Build Step](./cicd.md#build-step) for how `build.sh` is shared between the formal and dev-iteration paths.
 
-A core service's Dockerfile `CMD` is not used. Every process type declares its own [`command`](./cicl.md#process-types) in `infra.yml`, which is what the compiler emits — so with several process types sharing one image, no `CMD` could be correct for all of them, and the ambiguity is deleted rather than answered.
+A codebase's Dockerfile `CMD` is not used. Every core service declares its own [`command`](./cicl.md#core-services) in `infra.yml`, which is what the compiler emits — so with several core services sharing one image, no `CMD` could be correct for all of them, and the ambiguity is deleted rather than answered.
 
-Any core service that declares a `health_check_path` must carry `curl` in its image. Dockerfiles for such services should be written to install `curl`. The [`./bin/docex check`](./cicd.md#check-step) gate check will fail if `curl` is omitted.
+Any codebase whose core services declare a `health_check_path` must carry `curl` in its image. Dockerfiles for such services should be written to install `curl`. The [`./bin/docex check`](./cicd.md#check-step) gate check will fail if `curl` is omitted.
 
 ### Contracts
 
-Contracts define the boundaries of core service containers. They exist both:
+Contracts define the boundaries of core services. They exist both:
 1. As a form of documentation, making it easy for a developer to know how to interact with a core service from the outside without having to understand the interior.
 2. To allow contract testing, the details and benefits of which are discussed [here](./tests.md#contract-tests).
 
-The idea is that all core service [process types](./cicl.md#process-types) are either providers, consumers, or both. A very simple case is a webapp with a `frontend` core service and an `api` core service, where `api` declares two process types: `web` (an HTTP edge) and `worker` (a queue consumer). The `frontend` communicates with `api.web` over HTTP and `api.web` communicates with `api.worker` over a task queue. This makes:
+The idea is that all [core services](./cicl.md#core-services) are either providers, consumers, or both. A very simple case is a webapp two codebases: `frontend` and `api`, where `frontend` declares one core service `web` (a webapp) and `api` declares two core services: `web` (an HTTP edge) and `worker` (a queue consumer). The `frontend` communicates with `api.web` over HTTP and `api.web` communicates with `api.worker` over a task queue. This makes:
 + `frontend.web` a consumer only
 + `api.web` a provider and a consumer
 + `api.worker` a provider only
 
-Note that `api.web` and `api.worker` are one codebase and one image, and are still a genuine boundary between them: sharing source does not make a queue any less of an interface.
-
 In practice, these relationships are declared by `infra.yml`'s [consumes](./cicl.md#consumes-relationships) field.
 
-Provider process types have a contract which is stored at `$pr/infra/contracts/${service_name}.${process_name}.${contract_format}.yml`. The contract format follows from the provider's role — a request-based boundary is OpenAPI, a queue-based one is AsyncAPI. In the above example:
+Provider core services have a contract which is stored at `$pr/infra/contracts/${codebase_name}.${service_name}.${contract_format}.yml`. The contract format follows from the provider's role — a request-based boundary is OpenAPI, a queue-based one is AsyncAPI. In the above example:
 + `frontend.web` has no contract, as it is only a consumer relative to other core services.
 + `api.web` has contract `api.web.openapi.yml` because it is driven by a request-based interface.
 + `api.worker` has contract `api.worker.asyncapi.yml` because it is driven by a queue system.

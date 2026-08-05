@@ -4,7 +4,7 @@ stratum: conditional
 
 # Advance
 
-The "advance" is a planned collection of mods and other processes executed together in service of one or more goals. It provides the framework for organizing those high level goals into an *advance plan*, and then translating the plan into a set of mod cycles which realize the plan in the codebase.
+The "advance" is a planned collection of mods and other processes executed together in service of one or more goals. It provides the framework for organizing those high level goals into an *advance plan*, and then translating the plan into a set of mod cycles which realize the plan by altering the project.
 
 ## Structure
 
@@ -43,10 +43,10 @@ The backend should be able to send emails when certain trigger events occur. The
 
 # Tactical Plan
 
-1. **Mod: scaffold `frontend` core service.** `corporal`.
-   Add the `frontend` service to `infra.yml` (depends-on `web`, consumer of the
-   `web` contract, health-check path + curl in image), Dockerfile with the
-   standard build/dev/prod/test stages, and `build.sh`/`test.sh` shims. Its own
+1. **Mod: scaffold `frontend` codebase.** `corporal`.
+   Add the `frontend` codebase and its one core service to `infra.yml` (consumer
+   of the `api.web` contract, health-check path + curl in image), Dockerfile with
+   the standard build/dev/prod/test stages, and `build.sh`/`test.sh` shims. Its own
    mod not for size, but because it is a *verification gate* — the service must
    stand and health-check green before features land on it — and because it is
    infra territory (`infra.yml`, `infra-compile`), distinct from the frontend app
@@ -116,8 +116,8 @@ The following process should be followed rigidly for every advance.
 		1. If you foresee any definite blockers only the operator can resolve (e.g. needing an API key for email), note them now.
 3. **Act**
 	1. Perform the plan, but keep in mind that *plans can change*. Unexpected problems can and will surface during design which may alter the original plan. An extra mod cycle might need to be injected to refactor a module or add some needed infrastructure. 
-	2. After each plan step is performed, be sure to update your context with the results and the resulting change to the codebase.
-		1. For mod-cycle steps, always use git-diffs to see what parts of the project's *core planning docs* have changed. The core planning docs reflect the actual resultant state of the codebase after a mod cycle. Keeping abreast of changes to core planning docs ensures that surprises can't sneak by you (e.g. decisions silently made by the subagent) and that an accurate map of the project's code is always present in context. Project-map context rot is thus avoided by recency bias.
+	2. After each plan step is performed, be sure to update your context with the results and the resulting change to the project.
+		1. For mod-cycle steps, always use git-diffs to see what parts of the project's *core planning docs* have changed. The core planning docs reflect the actual resultant state of the project after a mod cycle. Keeping abreast of changes to core planning docs ensures that surprises can't sneak by you (e.g. decisions silently made by the subagent) and that an accurate map of the project's code is always present in context. Project-map context rot is thus avoided by recency bias.
 4. **Report**
 	1. Write a report summarizing the advance to `report.md`.
 	2. End turn and report to the operator that the advance has completed:

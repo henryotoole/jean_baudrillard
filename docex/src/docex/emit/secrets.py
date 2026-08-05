@@ -22,7 +22,7 @@ def _group_header(source: str, doc: CICLDocument) -> str:
     backing blocks."""
     if source == "doctrine":
         return "# Doctrine-injected secrets"
-    if source in doc.core_services:
+    if source in doc.codebases:
         return f"# {source} (core service)"
     svc = doc.backing_services.get(source)
     if svc is not None:

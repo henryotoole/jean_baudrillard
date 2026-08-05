@@ -1,9 +1,9 @@
-"""Smoke tests for the `api.web` process type.
+"""Smoke tests for the `api.web` core service.
 
 These run in the `test` stage container against the live test-env stack
 (real postgres). They verify the wiring docex composes works end-to-end.
 
-One image, two process types: `test.sh` runs this file and
+One image, two core services: `test.sh` runs this file and
 `test_processor_smoke.py` together, because tests are keyed on the
 codebase, not on the invocation.
 """

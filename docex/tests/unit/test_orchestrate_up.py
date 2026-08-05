@@ -188,7 +188,7 @@ def test_up_calls_compose_up_then_migrate(sample_ctx, fake_docker):
     assert methods.index("compose_up") < methods.index("compose_run_one_off")
 
     # migrate.sh for the api codebase (it owns the appdb schema), in the
-    # per-codebase exec service — not a process type's app container.
+    # per-codebase exec service — not a core service's app container.
     migrate_calls = [
         c for c in fake_docker.calls
         if c[0] == "compose_run_one_off" and "migrate.sh" in " ".join(c[3])

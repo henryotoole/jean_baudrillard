@@ -44,10 +44,10 @@ foundation: fixed
 apex_domain: example.com
 container_registry: registry.example.com
 observability_backend_url: "https://obs.example.com"
-domain_default_process: api.web
-core_services:
+domain_default_service: api.web
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -186,11 +186,11 @@ def test_llm_nodes_carry_both_axes_and_consumes():
     web = nodes["api.web"]
     assert web["short"] == "api.web"
     assert web["core_service"] == "api"
-    assert web["process"] == "web"
+    assert web["service"] == "web"
     assert web["consumes"] == ["api.worker"]
     db = nodes["appdb"]
     assert db["core_service"] is None
-    assert db["process"] is None
+    assert db["service"] is None
 
 
 # ---------------------------------------------------------------------------

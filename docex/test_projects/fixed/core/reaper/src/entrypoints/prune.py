@@ -1,7 +1,7 @@
-"""Entrypoint for the `prune` process type of the `reaper` codebase.
+"""Entrypoint for the `prune` core service of the `reaper` codebase.
 
 Run-to-completion: one reap pass, then exit with the adapter's status. No
-tick and no health server — `scheduler` process types are **exempt** from
+tick and no health server — `scheduler` core services are **exempt** from
 the health model (contracts.md § Self health). There is no long-running
 container to probe, and a scheduler is never a `consumes` target; "did last
 night's job run" is a telemetry question.

@@ -12,8 +12,8 @@ from docex.cicl.magic_refs import (
 from docex.cicl.model import (
     BackingService,
     CICLDocument,
+    Codebase,
     CoreService,
-    ProcessType,
     Resources,
 )
 from docex.cicl.transfer import EngineEntry, EnvVarSpec, TransferTables
@@ -83,8 +83,8 @@ def _db_engine_like(src: EngineEntry) -> EngineEntry:
 
 
 def _make_doc(foundation: str = "fixed") -> CICLDocument:
-    def _proc(role: str, **kw) -> ProcessType:
-        return ProcessType(
+    def _proc(role: str, **kw) -> CoreService:
+        return CoreService(
             role=role,
             command=["python", "/service/dist/root.py"],
             resources=Resources(cpu=1.0, memory="2GB"),
@@ -97,10 +97,10 @@ def _make_doc(foundation: str = "fixed") -> CICLDocument:
         apex_domain="example.com",
         observability_backend_url="https://obs.example.com",
         container_registry="reg.example.com",
-        core_services={
-            "api": CoreService(
+        codebases={
+            "api": Codebase(
                 env={},
-                processes={
+                core_services={
                     "web": _proc(
                         "web", networks=["web", "internal"],
                         depends_on=["db"], port=8080,
@@ -111,9 +111,9 @@ def _make_doc(foundation: str = "fixed") -> CICLDocument:
             ),
             # Hyphenated names are legal and must round-trip through both
             # regexes — see test_hyphenated_names_round_trip.
-            "my-api": CoreService(
+            "my-api": Codebase(
                 env={},
-                processes={
+                core_services={
                     "web": _proc(
                         "web", networks=["web", "internal"], port=8080,
                     ),
@@ -191,11 +191,11 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
 
 def test_find_magic_refs():
     refs = find_magic_refs(
-        "a ${backing_services.x.y} b ${core_services.z.p.w} c"
+        "a ${backing_services.x.y} b ${codebases.z.core_services.p.w} c"
     )
     assert [(m.kind, m.body) for m in refs] == [
         ("backing_services", "x.y"),
-        ("core_services", "z.p.w"),
+        ("codebases", "z.core_services.p.w"),
     ]
 
 
@@ -203,8 +203,8 @@ def test_find_magic_refs_matches_malformed_refs():
     """Capture is body-agnostic on purpose: whether a string IS a magic ref
     is decided independently of whether it is WELL-FORMED. A malformed ref
     must still be *seen*, or it falls through and is emitted verbatim."""
-    refs = find_magic_refs("${core_services.api.host}")
-    assert [(m.kind, m.body) for m in refs] == [("core_services", "api.host")]
+    refs = find_magic_refs("${codebases.api.host}")
+    assert [(m.kind, m.body) for m in refs] == [("codebases", "api.host")]
     with pytest.raises(MagicRefArityError):
         refs[0].parse()
 
@@ -322,7 +322,7 @@ def test_four_segment_core_ref_resolves():
     for foundation in ("fixed", "elastic"):
         resolver, _ = _make_resolver(foundation=foundation)
         rendered = resolver.resolve_in_string(
-            "${core_services.api.web.host}", consumer="api-worker"
+            "${codebases.api.core_services.web.host}", consumer="api-worker"
         )
         assert rendered.value == "p-dev-api-web", foundation
 
@@ -331,11 +331,11 @@ def test_three_segment_core_ref_arity_message():
     resolver, _ = _make_resolver()
     with pytest.raises(MagicRefArityError) as exc:
         resolver.resolve_in_string(
-            "${core_services.api.host}", consumer="api-worker"
+            "${codebases.api.host}", consumer="api-worker"
         )
     msg = str(exc.value)
-    assert "${core_services.<service>.<process>.<part>}" in msg
-    assert "Did you mean ${core_services.api.<process>.host}?" in msg
+    assert "${codebases.<codebase>.core_services.<service>.<part>}" in msg
+    assert "Did you mean ${codebases.api.core_services.<service>.host}?" in msg
 
 
 def test_four_segment_backing_ref_arity_message():
@@ -346,14 +346,14 @@ def test_four_segment_backing_ref_arity_message():
         )
     msg = str(exc.value)
     assert "${backing_services.<service>.<part>}" in msg
-    assert "no process types" in msg
+    assert "no core service" in msg
     assert "Did you mean ${backing_services.db.host}?" in msg
 
     # The two arity messages come from one generator and must stay
     # recognizable siblings.
     with pytest.raises(MagicRefArityError) as core_exc:
         resolver.resolve_in_string(
-            "${core_services.api.host}", consumer="api-worker"
+            "${codebases.api.host}", consumer="api-worker"
         )
     for m in (msg, str(core_exc.value)):
         assert m.endswith("See cicl.md § Magic Refs.")
@@ -361,11 +361,11 @@ def test_four_segment_backing_ref_arity_message():
 
 def test_hyphenated_names_round_trip():
     """Regression pin. A hyphen used to decide whether a ref was *seen* at
-    all: `${core_services.my-api.web.host}` matched neither _MAGIC_RE nor
+    all: `${codebases.my-api.core_services.web.host}` matched neither _MAGIC_RE nor
     _COMPILE_RE and was written verbatim into the emitted compose/HCL."""
     resolver, _ = _make_resolver()
     core = resolver.resolve_in_string(
-        "${core_services.my-api.web.host}", consumer="api-web"
+        "${codebases.my-api.core_services.web.host}", consumer="api-web"
     )
     assert core.value == "p-dev-my-api-web"
     assert "${" not in core.value
@@ -381,7 +381,7 @@ def test_self_reference_rejected():
     resolver, _ = _make_resolver()
     with pytest.raises(SubstitutionError) as exc:
         resolver.resolve_in_string(
-            "${core_services.api.web.host}", consumer="api-web"
+            "${codebases.api.core_services.web.host}", consumer="api-web"
         )
     assert "localhost" in str(exc.value)
 
@@ -389,29 +389,29 @@ def test_self_reference_rejected():
 def test_cycle_through_two_processes_of_one_codebase():
     resolver, _ = _make_resolver()
     resolver.engines["api-web"].provides["host"] = {
-        "fixed": "${core_services.api.worker.host}",
-        "elastic": "${core_services.api.worker.host}",
+        "fixed": "${codebases.api.core_services.worker.host}",
+        "elastic": "${codebases.api.core_services.worker.host}",
     }
     resolver.engines["api-worker"].provides["host"] = {
-        "fixed": "${core_services.api.web.host}",
-        "elastic": "${core_services.api.web.host}",
+        "fixed": "${codebases.api.core_services.web.host}",
+        "elastic": "${codebases.api.core_services.web.host}",
     }
     with pytest.raises(SubstitutionError) as exc:
         resolver.resolve_in_string(
-            "${core_services.api.web.host}", consumer="my-api-web"
+            "${codebases.api.core_services.web.host}", consumer="my-api-web"
         )
     assert "cyclic magic-ref chain" in str(exc.value)
 
 
 def test_scheduler_process_ref_rejected():
     """Free behavior, pinned deliberately: `scheduler` engines declare
-    `provides: {}`, so a scheduler process type publishes no discovery
+    `provides: {}`, so a scheduler core service publishes no discovery
     surface and cannot be a magic-ref target. This test exists so that a
     future change to tables/roles/scheduler.yml cannot silently open it."""
     resolver, _ = _make_resolver()
     with pytest.raises(SubstitutionError) as exc:
         resolver.resolve_in_string(
-            "${core_services.api.nightly_cleanup.host}", consumer="api-web"
+            "${codebases.api.core_services.nightly_cleanup.host}", consumer="api-web"
         )
     assert "exposes no parts" in str(exc.value)
 
@@ -419,13 +419,13 @@ def test_scheduler_process_ref_rejected():
 def test_dependency_records_target_process():
     resolver, _ = _make_resolver()
     resolver.resolve_in_string(
-        "${core_services.api.web.host}", consumer="api-worker"
+        "${codebases.api.core_services.web.host}", consumer="api-worker"
     )
     resolver.resolve_in_string(
         "${backing_services.db.host}", consumer="api-worker"
     )
     recorded = [
-        (d.consumer, d.target, d.target_process, d.part) for d in resolver.deps
+        (d.consumer, d.target, d.target_service, d.part) for d in resolver.deps
     ]
     assert ("api-worker", "api", "web", "host") in recorded
     assert ("api-worker", "db", None, "host") in recorded
@@ -437,38 +437,38 @@ def test_dependency_records_target_process():
 
 
 def _rule_3_issues(
-    template: str, *, service: str = "api", process: str = "worker"
+    template: str, *, codebase: str = "api", service: str = "worker"
 ) -> list:
-    """Validate a doc carrying ``template`` in one process type's env.
+    """Validate a doc carrying ``template`` in one core service's env.
 
     Filters to rule 3 — the synthetic document trips unrelated rules, which
     is expected and not this mod's business.
     """
     doc = _make_doc()
-    doc.core_services[service].processes[process].env["UPSTREAM"] = template
+    doc.codebases[codebase].core_services[service].env["UPSTREAM"] = template
     issues = validate_document(doc, _make_tables(_engines()))
     return [i for i in issues if i.rule.startswith("rule_3_")]
 
 
 def test_validator_accepts_four_segment_core_ref():
-    assert _rule_3_issues("${core_services.api.web.host}") == []
+    assert _rule_3_issues("${codebases.api.core_services.web.host}") == []
 
 
 def test_validator_flags_three_segment_core_ref_arity():
-    hits = _rule_3_issues("${core_services.api.host}")
+    hits = _rule_3_issues("${codebases.api.host}")
     assert [i.rule for i in hits] == ["rule_3_magic_ref_arity"]
-    assert "${core_services.<service>.<process>.<part>}" in hits[0].message
+    assert "${codebases.<codebase>.core_services.<service>.<part>}" in hits[0].message
 
 
-def test_validator_flags_unknown_process_of_known_codebase():
-    hits = _rule_3_issues("${core_services.api.nope.host}")
+def test_validator_flags_unknown_service_of_known_codebase():
+    hits = _rule_3_issues("${codebases.api.core_services.nope.host}")
     assert [i.rule for i in hits] == ["rule_3_unresolved_magic_ref"]
-    assert "declares no process type 'nope'" in hits[0].message
+    assert "declares no core service 'nope'" in hits[0].message
     assert "nightly_cleanup" in hits[0].message
     assert "worker" in hits[0].message
 
 
 def test_validator_flags_self_reference():
-    hits = _rule_3_issues("${core_services.api.web.host}", process="web")
+    hits = _rule_3_issues("${codebases.api.core_services.web.host}", service="web")
     assert [i.rule for i in hits] == ["rule_3_self_magic_ref"]
     assert "localhost" in hits[0].message

@@ -28,8 +28,8 @@ from docex.cicl.magic_refs import MagicRefResolver
 from docex.cicl.model import (
     BackingService,
     CICLDocument,
-    CoreService,
-    ProcessRef,
+    Codebase,
+    ServiceRef,
     Resources,
 )
 from docex.cicl.substitute import HCLLiteral, substitute_tree
@@ -156,8 +156,8 @@ def _resources_to_elastic(
     bare-core request alone would have.
 
     Mod 096: ``where`` is the caller-built CICL path the error messages
-    point at (``core_services.<svc>.processes.<proc>.resources`` for a core
-    process type, ``backing_services.<svc>.resources`` for a backing
+    point at (``codebases.<svc>.core_services.<proc>.resources`` for a core
+    core service, ``backing_services.<svc>.resources`` for a backing
     service). ``service_name`` stays the human-readable display name used in
     the rounding notice — the compiled two-segment identity for core.
 
@@ -260,7 +260,7 @@ def _resources_to_elastic(
                     f"or omit it to inherit Fargate's default."
                 ),
                 where=(f"{where}.disk" if where else
-                       f"core_services.{service_name}.resources.disk"),
+                       f"codebases.{service_name}.resources.disk"),
             )])
         if disk_gib > _FARGATE_DISK_MAX_GIB:
             raise ValidationError([ValidationIssue(
@@ -270,7 +270,7 @@ def _resources_to_elastic(
                     f"requested disk={res.disk!r} resolves to {disk_gib} GiB."
                 ),
                 where=(f"{where}.disk" if where else
-                       f"core_services.{service_name}.resources.disk"),
+                       f"codebases.{service_name}.resources.disk"),
             )])
         out["ephemeral_storage"] = {"size_in_gib": disk_gib}
     # GPU rejected at validation time; not handled here.
@@ -283,19 +283,22 @@ def _resources_to_elastic(
 
 
 def _global_service_name(
-    project: str, env: str, service: str, policy: NamingPolicy,
-    *, process: str | None = None,
+    project: str, env: str, name: str, policy: NamingPolicy,
+    *, service: str | None = None,
 ) -> str:
     """The globally-unique name of one emitted service.
 
-    Core process types carry a fourth segment (``{project}_{env}_{service}_
-    {process}``); backing services stay three. Called with ``process=None``
+    Core services carry a fourth segment (``{project}_{env}_{codebase}_
+    {service}``); backing services stay three. Called with ``service=None``
     for the *codebase*-keyed form too — see
     ``CompiledService.codebase_global_name``.
+
+    ``name`` is the codebase name for core services and the backing-service
+    name for backings, which is why it is not spelled ``codebase``.
     """
     raw = (
-        f"{project}_{env}_{service}_{process}" if process is not None
-        else f"{project}_{env}_{service}"
+        f"{project}_{env}_{name}_{service}" if service is not None
+        else f"{project}_{env}_{name}"
     )
     return apply_policy(raw, policy)
 
@@ -369,7 +372,7 @@ def _env_subdomain(apex_domain: str, project: str, env: str) -> str:
 
 def _bare_project_subdomain(apex_domain: str, project: str) -> str:
     """The bare-project host: ``<project>.<apex_domain>`` per cicl.md §
-    Domain. Used to route prod's ``domain_default_process`` for user URL
+    Domain. Used to route prod's ``domain_default_service`` for user URL
     ergonomics, replacing the old ``www.<apex>`` convention. Project
     segment is DNS-labeled (see :func:`_env_subdomain`)."""
     return f"{_dns_label(project)}.{apex_domain}"
@@ -383,9 +386,9 @@ def _web_hosts(
     """The public host(s) a web-network service is reachable at.
 
     ``name`` is the *compiled* identity — two-segment (``api-web``) for a
-    core process type, the bare name for a backing service — and
+    core service, the bare name for a backing service — and
     ``default_process_compiled`` is the compiled identity of
-    ``domain_default_process``.
+    ``domain_default_service``.
 
     Every web-network service gets ``<label>.<env_subdomain>``. The default
     process additionally answers at the bare ``<env_subdomain>``; in ``prod``
@@ -428,13 +431,13 @@ def web_hostnames_for_env(
     bare_project = _bare_project_subdomain(doc.apex_domain, project_name)
     policy = naming_policies.get("http_host")
     default_compiled = (
-        ProcessRef.parse(doc.domain_default_process).compiled
-        if doc.domain_default_process is not None else None
+        ServiceRef.parse(doc.domain_default_service).compiled
+        if doc.domain_default_service is not None else None
     )
     hosts: list[str] = []
     entries: list[tuple[str, list[str]]] = [
-        (ProcessRef(svc_name, proc_name).compiled, list(proc.networks))
-        for svc_name, proc_name, _svc, proc in doc.all_processes()
+        (ServiceRef(svc_name, service_name).compiled, list(proc.networks))
+        for svc_name, service_name, _svc, proc in doc.all_core_services()
     ]
     entries.extend(
         (name, list(svc.networks))
@@ -501,18 +504,18 @@ class CompiledService:
     # --- Process expansion (Mod 096) -------------------------------------
     # The codebase this compiled service belongs to. None for backing
     # services. `name` is the two-segment compiled identity (`api-web`);
-    # `core_service` is what stays keyed on the codebase — the image ref, the
+    # `codebase` is what stays keyed on the codebase — the image ref, the
     # ECR repo, `schema_owned_by`, and the `core/<svc>/` source folder.
-    core_service: str | None = None
-    process: str | None = None
-    # `{project}-{env}-{core_service}` under the same naming policy as
+    codebase: str | None = None
+    service: str | None = None
+    # `{project}-{env}-{codebase}` under the same naming policy as
     # `global_name`. The migrate task definition's family derives from this,
     # NOT from `global_name`, so one codebase yields one migrate family.
     # orchestrate/migrate.py reconstructs the identical string.
     codebase_global_name: str | None = None
     # The codebase-scoped env surface: the service-level `env:` block
     # resolved, plus secrets / config / doctrine-injected keys, EXCLUDING any
-    # process-level `env:` overlay. Consumed by the migrate task definition
+    # service-level `env:` overlay. Consumed by the migrate task definition
     # (and by Mod 099's exec service). See overview.md § Migration carrier.
     service_env: dict[str, Any] = field(default_factory=dict)
     # Declared parallelism. The DECLARED value — `effective_replicas` applies
@@ -575,20 +578,20 @@ def group_by_codebase(
 
     The per-codebase emissions — the exec service (compose), the migration task
     definition (HCL), the playbook's migrate task (ansible) — all iterate this
-    rather than picking a representative process type. Mod 099 deleted the
-    "pick one process type" bridge; this is what replaced it.
+    rather than picking a representative core service. Mod 099 deleted the
+    "pick one core service" bridge; this is what replaced it.
 
     Backing services are excluded (they have no codebase). ``scheduler``
-    process types are INCLUDED: a scheduler-only codebase contributes no
+    core services are INCLUDED: a scheduler-only codebase contributes no
     long-running compose service, but it still has a source tree to build,
     test, and migrate, so it still gets an exec service.
     """
     groups: dict[str, list[CompiledService]] = {}
     for name in sorted(compiled.services):
         svc = compiled.services[name]
-        if not svc.is_core or svc.core_service is None:
+        if not svc.is_core or svc.codebase is None:
             continue
-        groups.setdefault(svc.core_service, []).append(svc)
+        groups.setdefault(svc.codebase, []).append(svc)
     return {cb: groups[cb] for cb in sorted(groups)}
 
 
@@ -637,23 +640,23 @@ def compile_env(
     project_dns_label = _dns_label(project_name)
 
     # The unit of work is one EMITTED service: a backing service, or one
-    # process type of one core service. `key` is the compiled identity — the
+    # core service of one core service. `key` is the compiled identity — the
     # key `engines_by_service`, `contexts` and `compiled_services` are all
     # keyed on, because `role` (and therefore the engine) is per-process now.
-    # (key, model, core_service_name | None, process_name | None)
+    # (key, model, core_service_name | None, service_name | None)
     work: list[tuple[str, Any, str | None, str | None]] = []
     for name in sorted(doc.backing_services):
         work.append((name, doc.backing_services[name], None, None))
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
-        work.append((ProcessRef(svc_name, proc_name).compiled, proc, svc_name, proc_name))
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
+        work.append((ServiceRef(svc_name, service_name).compiled, proc, svc_name, service_name))
 
     # Resolve engines per emitted service first; magic refs need them.
     engines_by_service: dict[str, EngineEntry] = {}
-    for key, svc, svc_name, proc_name in work:
+    for key, svc, svc_name, service_name in work:
         if isinstance(svc, BackingService):
             entry = tables.engine_for(svc.role, svc.engine, foundation)
         else:
-            # Core process types have a single engine per role; pick the
+            # Core core services have a single engine per role; pick the
             # first supporting the foundation.
             engines = tables.role(svc.role)
             entry = None
@@ -667,23 +670,23 @@ def compile_env(
                 raise ValidationError([ValidationIssue(
                     rule="rule_4_engine_foundation_mismatch",
                     message=(
-                        f"core process type "
-                        f"{ProcessRef(svc_name, proc_name).dotted!r} role "
+                        f"core service "
+                        f"{ServiceRef(svc_name, service_name).dotted!r} role "
                         f"{svc.role!r}: no engine supports foundation "
                         f"{foundation!r}"
                     ),
-                    where=f"core_services.{svc_name}.processes.{proc_name}",
+                    where=f"codebases.{svc_name}.core_services.{service_name}",
                 )])
         engines_by_service[key] = entry
 
     # Build substitution contexts per emitted service.
     contexts: dict[str, dict[str, Any]] = {}
-    for key, svc, svc_name, proc_name in work:
+    for key, svc, svc_name, service_name in work:
         engine = engines_by_service[key]
         policy = tables.naming_policies.get(engine.naming)
         gname = _global_service_name(
-            project_name, env, svc_name if proc_name is not None else key,
-            policy, process=proc_name,
+            project_name, env, svc_name if service_name is not None else key,
+            policy, service=service_name,
         )
         contexts[key] = {
             "name": key,
@@ -700,11 +703,11 @@ def compile_env(
             # Mod 096: None for a backing service — `standard_tags` omits the
             # `process` tag entirely in that case, keeping backing tag blocks
             # byte-identical to what they were before process expansion.
-            "process": proc_name,
+            "service": service_name,
             # The codebase, for the elastic `service` tag: the tag block
-            # splits the two dimensions (`service = api`, `process = web`)
+            # splits the two dimensions (`service = api`, `service = web`)
             # rather than carrying the fused compiled identity.
-            "codebase_name": svc_name if proc_name is not None else key,
+            "codebase_name": svc_name if service_name is not None else key,
         }
 
     # The magic-ref resolver shares state across all services in this env.
@@ -724,21 +727,21 @@ def compile_env(
         if getattr(bsvc, "schema_owned_by", None)
     }
 
-    # The compiled identity of `domain_default_process`, compared against
+    # The compiled identity of `domain_default_service`, compared against
     # each emitted service's `name`.
     default_process_compiled = (
-        ProcessRef.parse(doc.domain_default_process).compiled
-        if doc.domain_default_process is not None else None
+        ServiceRef.parse(doc.domain_default_service).compiled
+        if doc.domain_default_service is not None else None
     )
     http_host_policy = tables.naming_policies.get("http_host")
 
-    for name, svc, svc_name, proc_name in work:
-        # `svc` is a BackingService, or the ProcessType when `svc_name` /
-        # `proc_name` are set. `core_svc` is the owning CoreService, which
+    for name, svc, svc_name, service_name in work:
+        # `svc` is a BackingService, or the CoreService when `svc_name` /
+        # `service_name` are set. `codebase` is the owning Codebase, which
         # holds the codebase-scoped fields (env / secrets / config).
         is_core = svc_name is not None
-        core_svc: CoreService | None = (
-            doc.core_services[svc_name] if is_core else None
+        codebase: Codebase | None = (
+            doc.codebases[svc_name] if is_core else None
         )
         engine = engines_by_service[name]
         ctx = contexts[name]
@@ -801,7 +804,7 @@ def compile_env(
 
         # The CICL path errors about this emitted service point at.
         where_path = (
-            f"core_services.{svc_name}.processes.{proc_name}" if is_core
+            f"codebases.{svc_name}.core_services.{service_name}" if is_core
             else f"backing_services.{name}"
         )
 
@@ -810,7 +813,7 @@ def compile_env(
             body = _apply_fixed_invariants(body, svc, ctx)
             if is_core:
                 # WHY `svc_name`, not `name`: the image is built from the
-                # CODEBASE, once, and every process type of that codebase
+                # CODEBASE, once, and every core service of that codebase
                 # runs it. Passing the two-segment compiled identity here
                 # would make the deploy pull `<proj>/api-web:<ver>` while
                 # containerize.py pushed `<proj>/api:<ver>`. Mod 096.
@@ -820,7 +823,7 @@ def compile_env(
                 )
                 body = _deep_merge(body, _resources_to_fixed(svc.resources))
                 body["command"] = svc.command
-                # Core process types never publish a host port. A `web`
+                # Core core service never publish a host port. A `web`
                 # process is reached through the reverse proxy over the docker
                 # network; a non-web process's port (e.g. a worker's health
                 # port) is probed from inside the netns by the container
@@ -861,8 +864,8 @@ def compile_env(
         # 4. Resolve `env:` block on core services (magic refs live here).
         #
         # Two surfaces are built from the same tail so they cannot drift:
-        #   env_block    — the process type's EFFECTIVE env (service-level
-        #                  `env:` with the process-level block merged over
+        #   env_block    — the core service's EFFECTIVE env (service-level
+        #                  `env:` with the service-level block merged over
         #                  it). What the container runs with.
         #   service_env  — the CODEBASE-scoped surface: the service-level
         #                  `env:` only. What per-codebase operations (the
@@ -873,7 +876,7 @@ def compile_env(
             source: dict[str, Any],
             *,
             otel_service_name: str,
-            otel_process: str | None,
+            otel_service: str | None,
         ) -> dict[str, Any]:
             out: dict[str, Any] = {}
             for ekey in sorted(source):
@@ -911,14 +914,14 @@ def compile_env(
             # referential runtime ref so the existing secret path delivers it —
             # compose ${KEY} (fixed) / ECS secrets[] (elastic). Validation
             # forbids a key in both env and secrets.
-            for ekey in sorted(core_svc.secrets):
+            for ekey in sorted(codebase.secrets):
                 out[ekey] = f"$[{ekey}]"
             # Core-service `config:` are declared, non-secret, per-env values.
             # Wired exactly like secrets — a self-referential runtime ref that
             # the existing secret path delivers (compose ${KEY} / ECS secrets[]).
             # The value is non-secret (String on elastic); the compiled shape is
             # identical to a secret. See config_and_secrets.md.
-            for ekey in sorted(core_svc.config or {}):
+            for ekey in sorted(codebase.config or {}):
                 out[ekey] = f"$[{ekey}]"
             # Doctrine-injected: PROJECT_VERSION on every core service.
             # See transfer_tables.md § Per-core-service env (both foundations).
@@ -936,12 +939,12 @@ def compile_env(
             out["OTEL_SERVICE_NAME"] = otel_service_name
             out["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:4318"
             out["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
-            # Mod 102: `docex.core_service` and `docex.process_type` carry the
+            # Mod 102: `docex.codebase` and `docex.service` carry the
             # two authoring names, even though `service.name` already fuses
             # them.
             #
             # WHY both, given the fused name: both axes must be independently
-            # QUERYABLE ("every process type of the `api` codebase", "every
+            # QUERYABLE ("every core service of the `api` codebase", "every
             # `worker` across all codebases"), and a hyphenated `service.name`
             # does not decompose — `_SERVICE_NAME_RE` (cicl/model.py:24) admits
             # `-` inside BOTH segments, so `api-web-v2` has no recoverable
@@ -958,25 +961,25 @@ def compile_env(
                 f"service.namespace={project_name}",
                 f"service.version={project_version}",
                 f"deployment.environment.name={env}",
-                f"docex.core_service={svc_name}",
+                f"docex.codebase={svc_name}",
             ]
-            if otel_process is not None:
-                # `docex.process_type` is present IFF the emitter is a declared
-                # process type. Its absence is the signal that this is a
+            if otel_service is not None:
+                # `docex.service` is present IFF the emitter is a declared
+                # core service. Its absence is the signal that this is a
                 # per-codebase artifact (the exec container, the migrate task
                 # definition) — NOT an omission to be filled in.
-                attrs.append(f"docex.process_type={otel_process}")
+                attrs.append(f"docex.service={otel_service}")
             out["OTEL_RESOURCE_ATTRIBUTES"] = ",".join(attrs)
             return out
 
         env_block: dict[str, Any] = {}
         service_env: dict[str, Any] = {}
         if is_core:
-            effective_env = {**(core_svc.env or {}), **(svc.env or {})}
+            effective_env = {**(codebase.env or {}), **(svc.env or {})}
             env_block = _build_env_surface(
                 effective_env,
                 otel_service_name=name,
-                otel_process=proc_name,
+                otel_service=service_name,
             )
             # Mod 102: built through the helper UNCONDITIONALLY. There used to
             # be a `dict(env_block)` shortcut here, taken whenever the process
@@ -991,7 +994,7 @@ def compile_env(
             # definition, emit/hcl.py:562), which read it off `procs[0]` —
             # sorted by compiled name. Carrying a process segment there means a
             # migration reports the name of, say, a cron job, and renaming a
-            # process type silently changes the identity a migration reports.
+            # core service silently changes the identity a migration reports.
             # De-qualifying removes the choice rather than making it better.
             #
             # Resolving the service-level block a second time is not a new code
@@ -999,9 +1002,9 @@ def compile_env(
             # `MagicRefResolver.deps` is append-only with no consumer and the
             # cycle guard is discarded in a `finally`.
             service_env = _build_env_surface(
-                dict(core_svc.env or {}),
+                dict(codebase.env or {}),
                 otel_service_name=svc_name,
-                otel_process=None,
+                otel_service=None,
             )
 
         networks_seen.update(svc.networks)
@@ -1036,16 +1039,16 @@ def compile_env(
             schema_owned_by=getattr(svc, "schema_owned_by", None),
             # Mod 099: an honest CODEBASE property — "this compiled service's
             # codebase owns a backing DB schema" — and therefore true of EVERY
-            # process type of that codebase. Through Mod 096 it was set on
-            # exactly one "carrier" process type, picked by a now-deleted
-            # "pick one process type" bridge, so that the once-per-codebase
+            # core service of that codebase. Through Mod 096 it was set on
+            # exactly one "carrier" core service, picked by a now-deleted
+            # "pick one core service" bridge, so that the once-per-codebase
             # migrate emissions it gates fired
             # once. That invariant is now provided STRUCTURALLY by
             # `group_by_codebase`: every consumer groups first and reads the
             # flag off the group. Nothing downstream may reintroduce a
-            # "pick one process type" read of this flag — if you need the one
+            # "pick one core service" read of this flag — if you need the one
             # container that stands in for a codebase, the answer is the exec
-            # service, not a process type.
+            # service, not a core service.
             schema_owned_by_db=(is_core and svc_name in core_owning_schema),
             target_extras=target_extras,
             emits={fnd: list(dests) for fnd, dests in (engine.emits or {}).items()},
@@ -1059,8 +1062,8 @@ def compile_env(
                 if (sched := (svc.model_extra or {}).get("schedule")) is not None
                 else None
             ),
-            core_service=svc_name,
-            process=proc_name,
+            codebase=svc_name,
+            service=service_name,
             codebase_global_name=(
                 _global_service_name(
                     project_name, env, svc_name,
@@ -1077,7 +1080,7 @@ def compile_env(
             # is known-parseable by construction.
             consumes=(
                 sorted(
-                    ProcessRef.parse(dotted).compiled
+                    ServiceRef.parse(dotted).compiled
                     for dotted in svc.consumes_refs()
                 )
                 if is_core else []
@@ -1171,7 +1174,7 @@ def _apply_elastic_invariants(
 
     The ``tags`` dict is built via :func:`docex.emit.tags.standard_tags`
     so it carries the full envinfra block (cicl.md § Naming and Tagging):
-    shape_name (``core_service``/``backing_service`` by ``is_core``) and a
+    shape_name (``codebase``/``backing_service`` by ``is_core``) and a
     per-resource descriptor picked from the engine's elastic destinations.
     """
     from docex.emit.tags import standard_tags
@@ -1190,12 +1193,12 @@ def _apply_elastic_invariants(
         descriptor=descriptor,
         project=ctx["project_name"],
         env=ctx["env_name"],
-        service=ctx.get("codebase_name", ctx["name"]),
+        codebase=ctx.get("codebase_name", ctx["name"]),
         role=ctx["role_name"],
         # Mod 096: None for a backing service, which has no process
         # dimension — standard_tags then omits the key entirely, so backing
         # tag blocks are byte-identical to their pre-expansion form.
-        process=ctx.get("process"),
+        service=ctx.get("service"),
     )
     return out
 
@@ -1314,7 +1317,7 @@ def run_compile(ctx: Any) -> int:
             project=ctx.project.name,
             project_version=ctx.project.version,
             apex_domain=ctx.infra.apex_domain,
-            core_service_names=list(ctx.infra.core_services.keys()),
+            core_service_names=list(ctx.infra.codebases.keys()),
             naming_policies=ctx.transfer_tables.naming_policies,
             out_path=prod_project_dir / "main.tf",
             reverse_proxy=ctx.infra.reverse_proxy,

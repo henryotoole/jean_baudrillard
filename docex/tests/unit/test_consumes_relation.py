@@ -2,15 +2,15 @@
 
 `consumes` is the interface half of the split `depends_on` used to conflate:
 `depends_on` is a readiness gate naming backing services only (rule 24),
-`consumes` is an interface edge between core process types (rule 25). This
+`consumes` is an interface edge between core service (rule 25). This
 module covers rule 25 itself, rule 7's newly kind-aware split (a backing
 target is answered by `depends_on`, a core one by `consumes`), and the three
 clarifications that fall out of *where* the rule-7 check sits rather than out
 of extra conditionals.
 
-In-memory documents in the style of ``test_process_nesting.py``. The
+In-memory documents in the style of ``test_service_nesting.py``. The
 "nothing is emitted from `consumes`" guard needs a real project on disk and
-lives in ``test_process_expansion_emit.py``.
+lives in ``test_service_expansion_emit.py``.
 """
 
 from __future__ import annotations
@@ -93,11 +93,11 @@ def _codebase(name: str, *procs: str, env: dict[str, str] | None = None) -> str:
     if env:
         out += "    env:\n"
         out += "".join(f"      {k}: {json.dumps(v)}\n" for k, v in env.items())
-    return out + "    processes:\n" + "".join(procs)
+    return out + "    core_services:\n" + "".join(procs)
 
 
 def _src(*codebases: str, backing: str = "") -> str:
-    return _HEAD + "core_services:\n" + "".join(codebases) + backing
+    return _HEAD + "codebases:\n" + "".join(codebases) + backing
 
 
 _APPDB = """\
@@ -135,19 +135,19 @@ def test_base_with_backing_service_is_clean():
 
 
 # ---------------------------------------------------------------------------
-# Rule 25 — `consumes` names core process types, fully qualified, not itself.
+# Rule 25 — `consumes` names core service, fully qualified, not itself.
 # ---------------------------------------------------------------------------
 
 
 def test_1_bare_core_service_target_rejected():
     """A bare service name is illegal, not shorthand: a codebase has no one
-    boundary. `ProcessRef.parse` already owns that rule and its reasoning, so
+    boundary. `ServiceRef.parse` already owns that rule and its reasoning, so
     rule 25 reuses it rather than growing a second parser."""
     src = _src(_api(web=_proc("web", "web", consumes=["api"])))
     hits = _hits(src, "rule_25_")
     assert [i.rule for i in hits] == ["rule_25_consumes_malformed"]
     assert "no single boundary" in hits[0].message
-    assert hits[0].where == "core_services.api.processes.web.consumes"
+    assert hits[0].where == "codebases.api.core_services.web.consumes"
 
 
 def test_2_bare_backing_service_target_names_depends_on():
@@ -195,7 +195,7 @@ def test_5_wrong_arity_rejected(entry):
     src = _src(_api(web=_proc("web", "web", consumes=[entry])))
     hits = _hits(src, "rule_25_")
     assert [i.rule for i in hits] == ["rule_25_consumes_malformed"]
-    assert "<service>.<process>" in hits[0].message
+    assert "<codebase>.<service>" in hits[0].message
 
 
 def test_6_self_consume_rejected_and_shares_the_rule_clause():
@@ -214,7 +214,7 @@ def test_6_self_consume_rejected_and_shares_the_rule_clause():
     # The sibling states the same rule and a different consequence.
     ref_src = _src(
         _api(web=_proc(
-            "web", "web", env={"U": "${core_services.api.web.host}"},
+            "web", "web", env={"U": "${codebases.api.core_services.web.host}"},
         ))
     )
     sibling = _hits(ref_src, "rule_3_self_magic_ref")
@@ -242,7 +242,7 @@ def test_legal_consumes_entry_is_clean():
 
 
 _DB_REF = {"DATABASE_HOST": "${backing_services.appdb.host}"}
-_WEB_REF = {"UPSTREAM": "${core_services.api.web.host}"}
+_WEB_REF = {"UPSTREAM": "${codebases.api.core_services.web.host}"}
 
 
 def test_7_backing_kind_unchanged_violated_without_depends_on():
@@ -277,7 +277,7 @@ def test_8_core_kind_violated_without_consumes():
     hits = _hits(src, "rule_7_")
     assert [i.rule for i in hits] == ["rule_7_magic_ref_implies_consumes"]
     assert "api.web" in hits[0].message
-    assert hits[0].where == "core_services.api.processes.worker"
+    assert hits[0].where == "codebases.api.core_services.worker"
 
 
 def test_8_core_kind_satisfied_with_consumes():
@@ -329,11 +329,11 @@ def test_9_one_directional_edge_without_a_ref_is_clean():
 
 
 def test_9_one_directional_the_target_owes_nothing_back():
-    """The consumed process type declares nothing, and that is correct."""
+    """The consumed core service declares nothing, and that is correct."""
     src = _src(
         _api(
             web=_proc("web", "web", consumes=["api.worker"], env={
-                "W": "${core_services.api.worker.host}"
+                "W": "${codebases.api.core_services.worker.host}"
             }),
             worker=_proc("worker"),
         )
@@ -355,7 +355,7 @@ def test_10_cross_codebase_omits_the_same_codebase_clause():
     """The clause is conditional, not boilerplate."""
     src = _src(
         _api(worker=_proc(
-            "worker", env={"U": "${core_services.other.web.host}"}
+            "worker", env={"U": "${codebases.other.core_services.web.host}"}
         )),
         _codebase("other", _proc("web", "web")),
     )
@@ -365,10 +365,10 @@ def test_10_cross_codebase_omits_the_same_codebase_clause():
     assert "same-codebase is not exempt" not in hits[0].message
 
 
-def test_11_service_level_env_ref_obliges_every_process_type():
-    """Free from Mod 096's structure: the scan runs once per process type
+def test_11_service_level_env_ref_obliges_every_core_service():
+    """Free from Mod 096's structure: the scan runs once per core service
     over its EFFECTIVE env, so a service-level ref is seen on every pass.
-    The assertion that matters is the COUNT — one ref, two process types,
+    The assertion that matters is the COUNT — one ref, two core services,
     one edge declared, therefore exactly one issue, naming the other.
 
     The target is a second codebase so that rule 3's self-reference clause
@@ -378,13 +378,13 @@ def test_11_service_level_env_ref_obliges_every_process_type():
         _api(
             web=_proc("web", "web", consumes=["other.web"]),
             worker=_proc("worker"),
-            env={"WEB_HOST": "${core_services.other.web.host}"},
+            env={"WEB_HOST": "${codebases.other.core_services.web.host}"},
         ),
         _codebase("other", _proc("web", "web")),
     )
     hits = _hits(src, "rule_7_magic_ref_implies_consumes")
     assert len(hits) == 1
-    assert hits[0].where == "core_services.api.processes.worker"
+    assert hits[0].where == "codebases.api.core_services.worker"
 
 
 def test_11_service_level_env_ref_clean_when_every_process_declares_it():
@@ -392,7 +392,7 @@ def test_11_service_level_env_ref_clean_when_every_process_declares_it():
         _api(
             web=_proc("web", "web", consumes=["other.web"]),
             worker=_proc("worker", consumes=["other.web"]),
-            env={"WEB_HOST": "${core_services.other.web.host}"},
+            env={"WEB_HOST": "${codebases.other.core_services.web.host}"},
         ),
         _codebase("other", _proc("web", "web")),
     )
@@ -407,7 +407,7 @@ def test_11_service_level_ref_to_own_process_reports_as_self_reference():
         _api(
             web=_proc("web", "web"),
             worker=_proc("worker", consumes=["api.web"]),
-            env={"WEB_HOST": "${core_services.api.web.host}"},
+            env={"WEB_HOST": "${codebases.api.core_services.web.host}"},
         )
     )
     rules = _issues(src)
@@ -430,7 +430,7 @@ def test_12_consumes_cycle_is_legal_while_a_depends_on_cycle_is_fatal():
 
     The two halves are one test on purpose. Mechanically the legal half is
     *doing nothing*: rule 6's DFS walks the backing graph alone, since rule
-    24 made core process types leaves of it. The hazard is a future reader
+    24 made core service leaves of it. The hazard is a future reader
     "completing" the walk — which would break the first half while leaving
     the second half green, so neither assertion is a guard on its own.
     """
@@ -468,7 +468,7 @@ backing_services:
 
 
 # The design record's own example: an object_store whose CORS-origin field
-# names a core web process type. Role-specific fields (not an `env:` block)
+# names a core web core service. Role-specific fields (not an `env:` block)
 # because that is the shape the example describes — and because a backing
 # `env:` block is currently scanned twice, once as an attribute and once
 # through `model_extra`, which would make the counts below say nothing.
@@ -478,7 +478,7 @@ backing_services:
     role: object_store
     engine: minio
     networks: [internal]
-    cors_origin: "${core_services.api.web.host}"
+    cors_origin: "${codebases.api.core_services.web.host}"
     audit_sink: "${backing_services.appdb.host}"
   appdb:
     role: relational_db
@@ -491,7 +491,7 @@ backing_services:
 
 
 def test_backing_referencer_core_ref_is_not_obliged():
-    """A backing service holding `${core_services.api.web.host}` owes no
+    """A backing service holding `${codebases.api.core_services.web.host}` owes no
     edge. It has no `consumes:`, and rule 24 forbids it `depends_on: [api]`
     — but more to the point the ref is not a CALL: embedding a hostname in
     your own config (a CORS origin) implies no readiness coupling and
@@ -509,13 +509,13 @@ def test_backing_referencer_core_ref_is_not_obliged():
 
 def test_backing_referencer_core_ref_still_resolves_under_rule_3():
     """Skipping rule 7 does not skip rule 3 — a backing service's core ref
-    must still name a process type that exists and exposes the part."""
+    must still name a core service that exists and exposes the part."""
     src = _src(_api(), backing=_STORE_WITH_CORE_REF)
     assert _hits(src, "rule_3_") == []
 
     bad = _src(
         _api(),
-        backing=_STORE_WITH_CORE_REF.replace("api.web.host", "api.ghost.host"),
+        backing=_STORE_WITH_CORE_REF.replace("core_services.web.host", "core_services.ghost.host"),
     )
     assert [i.rule for i in _hits(bad, "rule_3_")] == [
         "rule_3_unresolved_magic_ref"
@@ -528,7 +528,7 @@ def test_backing_referencer_core_ref_still_resolves_under_rule_3():
 
 
 def test_14_consumes_on_a_backing_service_is_rejected_as_undeclared():
-    """`consumes` is a ProcessType field. On a backing service it lands in
+    """`consumes` is a CoreService field. On a backing service it lands in
     `model_extra` and transfer-table rule 4 rejects it as a role-specific
     field no engine declares. Adequate — a bespoke message would be a new
     rule — but pinned so it cannot silently become permitted."""
@@ -571,7 +571,7 @@ def test_consumes_scheduler_rejected():
     assert hits[0].rule == "rule_25_consumes_scheduler"
     assert "jobs.nightly" in hits[0].message
     assert "scheduler" in hits[0].message
-    assert hits[0].where == "core_services.api.processes.web.consumes"
+    assert hits[0].where == "codebases.api.core_services.web.consumes"
 
 
 def test_consumes_non_scheduler_in_the_same_document_is_clean():

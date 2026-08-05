@@ -37,7 +37,7 @@ from docex.errors import (
     WorkingTreeDirty,
 )
 from docex.git.client import GitClient
-from docex.orchestrate._common import core_services
+from docex.orchestrate._common import codebases
 from docex.ssh.client import SSHClient
 from docex.pipeline._worktree import (
     cleanup_worktree,
@@ -247,7 +247,7 @@ def _target_cicl_version(
 
     WHY a single-key read rather than ``CICLDocument`` validation: a
     pre-v2 ``infra.yml`` fails full validation for several unrelated
-    reasons at once (no ``processes:``, ``domain_default_service``,
+    reasons at once (no ``core_services:``, ``domain_default_service``,
     service-level ``resources:`` under ``extra="forbid"``), and which
     one pydantic reports first decides what the operator sees. "You are
     across the v1 boundary" is the only fact that matters here, and it
@@ -348,7 +348,7 @@ def _missing_images(
             return ["<no container_registry configured>"]
 
     missing: list[str] = []
-    for svc in core_services(ctx):
+    for svc in codebases(ctx):
         ref = f"{registry.rstrip('/')}/{project}/{svc}:{target_version}"
         if infra.foundation == "elastic":
             present = aws.ecr_image_exists(f"{project}/{svc}", target_version)

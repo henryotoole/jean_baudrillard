@@ -174,7 +174,7 @@ def run_projinfra_elastic_down(
         return 1
 
     # ---- Gate 2: refuse on any non-empty project ECR repository. ------
-    core_names = sorted((ctx.infra.core_services or {}) if ctx.infra else {})
+    core_names = sorted((ctx.infra.codebases or {}) if ctx.infra else {})
     nonempty: list[tuple[str, int]] = []
     for name in core_names:
         repo = f"{project}/{name}"

@@ -10,11 +10,11 @@ Unit tests only — nothing here crosses docker, AWS, or git.
 
 The shared fixtures are NOT modified. Each compile test copies
 ``sample_project`` / ``sample_project_elastic`` into ``tmp_path`` and injects
-a ``worker`` **process type** onto the copy's ``api`` core service. Adding a
+a ``worker`` **core service** onto the copy's ``api`` core service. Adding a
 permanent process to the shared fixtures would churn unrelated emitter tests.
 
 Mod 096: the injection moved from a flat sibling *service* to a second
-process type of the *same codebase*, which is the shape the worker role was
+core service of the *same codebase*, which is the shape the worker role was
 always for — one image, two ways to invoke it. The compiled identities are
 therefore ``api-web`` and ``api-worker``, and both reference
 ``sample/api:0.1.0``.
@@ -63,7 +63,7 @@ def _copy(fixture: Path, tmp_path: Path) -> Path:
 
 
 def _inject_worker(root: Path) -> None:
-    """Add a ``worker`` process type to the fixture's ``api`` codebase.
+    """Add a ``worker`` core service to the fixture's ``api`` codebase.
 
     Mod 096: no ``core/worker/`` folder is created, and that is the point —
     the worker shares ``api``'s build artifact, so the compose build context
@@ -71,7 +71,7 @@ def _inject_worker(root: Path) -> None:
     """
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["processes"]["worker"] = dict(_WORKER)
+    doc["codebases"]["api"]["core_services"]["worker"] = dict(_WORKER)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
 
 
@@ -272,9 +272,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -336,9 +336,9 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   consumer:
-    processes:
+    core_services:
       worker:
         role: worker
         command: ["python", "-m", "entrypoints.worker"]

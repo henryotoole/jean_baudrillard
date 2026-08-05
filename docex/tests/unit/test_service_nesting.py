@@ -1,14 +1,14 @@
-"""Mod 096 — process nesting: schema and validation coverage.
+"""Mod 096 — core-service nesting: schema and validation coverage.
 
-One core service key in ``infra.yml`` expands into N compiled services, one
-per process type. This module covers the *authoring* half of that break —
-the ``processes:`` block's schema, ``ProcessRef``, the ``cicl_version`` gate,
+One codebase key in ``infra.yml`` expands into N compiled services, one
+per core service. This module covers the *authoring* half of that break —
+the ``core_services:`` block's schema, ``ServiceRef``, the ``cicl_version`` gate,
 and the validation rules the expansion adds or re-scopes (5, 12, 14, 16, 21,
 22, 23, 24, 26, 27, 28) — plus the ``http_host`` naming policy that now
 governs the emitted hostname label.
 
-The emit half (one codebase, three process types, both foundations) lives in
-``test_process_expansion_emit.py``, which needs a purpose-built project on
+The emit half (one codebase, three core services, both foundations) lives in
+``test_service_expansion_emit.py``, which needs a purpose-built project on
 disk rather than an in-memory document.
 """
 
@@ -18,7 +18,7 @@ import pytest
 import yaml
 from pydantic import ValidationError as PydanticValidationError
 
-from docex.cicl.model import CICLDocument, ProcessRef
+from docex.cicl.model import CICLDocument, ServiceRef
 from docex.cicl.transfer import load_transfer_tables
 from docex.cicl.validate import _RESERVED_CORE_ENV_KEYS, validate_document
 from docex.naming import apply_policy, dns_label
@@ -55,7 +55,7 @@ _WEB_PROCESS = """\
           memory: 2GB
 """
 
-_BASE = _HEAD + "core_services:\n  api:\n    processes:\n" + _WEB_PROCESS
+_BASE = _HEAD + "codebases:\n  api:\n    core_services:\n" + _WEB_PROCESS
 
 
 def test_base_document_is_clean():
@@ -70,21 +70,21 @@ def test_base_document_is_clean():
 
 def test_1_processes_absent_rejected():
     src = _HEAD + """
-core_services:
+codebases:
   api:
     secrets:
       K: "desc"
 """
     with pytest.raises(PydanticValidationError) as exc:
         _doc(src)
-    assert "processes" in str(exc.value)
+    assert "core_services" in str(exc.value)
 
 
 def test_2_processes_empty_rejected():
-    src = _HEAD + "core_services:\n  api:\n    processes: {}\n"
+    src = _HEAD + "codebases:\n  api:\n    core_services: {}\n"
     with pytest.raises(PydanticValidationError) as exc:
         _doc(src)
-    assert "processes" in str(exc.value)
+    assert "core_services" in str(exc.value)
 
 
 def test_3_service_level_resources_names_processes_block():
@@ -94,7 +94,7 @@ def test_3_service_level_resources_names_processes_block():
     with pytest.raises(PydanticValidationError) as exc:
         _doc(src)
     msg = str(exc.value)
-    assert "processes:" in msg
+    assert "core_services:" in msg
     assert "'resources'" in msg
     assert "upgrade_1.6.0.md" in msg
     assert "Extra inputs are not permitted" not in msg
@@ -111,12 +111,12 @@ def test_4_service_level_role_or_command_names_processes_block(block, field):
     with pytest.raises(PydanticValidationError) as exc:
         _doc(_BASE + block)
     msg = str(exc.value)
-    assert "processes:" in msg
+    assert "core_services:" in msg
     assert repr(field) in msg
 
 
 # ---------------------------------------------------------------------------
-# 5-6 — rule 23: `command` is required and non-empty on EVERY process type.
+# 5-6 — rule 23: `command` is required and non-empty on EVERY core service.
 # ---------------------------------------------------------------------------
 
 
@@ -148,7 +148,7 @@ def test_7_cicl_version_1_rejected_with_upgrade_pointer():
         _doc(_BASE.replace('cicl_version: "2"', 'cicl_version: "1"'))
     msg = str(exc.value)
     assert "upgrade_1.6.0.md" in msg
-    assert "processes:" in msg
+    assert "core_services:" in msg
 
 
 def test_8_unknown_cicl_version_rejected_with_distinct_message():
@@ -161,13 +161,13 @@ def test_8_unknown_cicl_version_rejected_with_distinct_message():
 
 
 def test_8b_real_v1_document_surfaces_the_version_message_not_field_errors():
-    """A *genuinely* v1 ``infra.yml`` — flat core services, no ``processes:``
+    """A *genuinely* v1 ``infra.yml`` — flat core services, no ``core_services:``
     block, ``domain_default_service`` — must surface the version message.
 
     Tests 7 and 8 above feed a valid v2 document with only the version string
     swapped, which nested validation accepts, so they would still pass with the
     gate in a ``mode="after"`` validator. This one would not: an ``after``
-    validator never runs, because ``CoreService`` fails first and the operator
+    validator never runs, because ``Codebase`` fails first and the operator
     gets a wall of per-service field-scoping errors plus ``extra_forbidden`` on
     ``domain_default_service`` instead. That is the single most-read error the
     1.6.0 release produces — every downstream project hits it exactly once,
@@ -181,7 +181,7 @@ apex_domain: example.com
 domain_default_service: web
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   web:
     role: web
     command: ["python", "/service/dist/root.py"]
@@ -198,7 +198,7 @@ core_services:
     assert "upgrade_1.6.0.md" in msg
     # Exactly one error, and none of the noise the `after` placement produced.
     assert "1 validation error" in msg
-    assert "moved from the core service to the process type" not in msg
+    assert "moved from the core service to the core service" not in msg
     assert "domain_default_service" not in msg
 
 
@@ -210,13 +210,13 @@ core_services:
 def _two_process_doc(svc_a, proc_a, svc_b, proc_b) -> str:
     def blk(svc, proc):
         return (
-            f"  {svc}:\n    processes:\n      {proc}:\n"
+            f"  {svc}:\n    core_services:\n      {proc}:\n"
             f"        role: worker\n"
             f'        command: ["python", "-m", "x"]\n'
             f"        networks: [internal]\n"
             f"        resources:\n          cpu: 0.5\n          memory: 512MB\n"
         )
-    return _HEAD + "core_services:\n" + blk(svc_a, proc_a) + blk(svc_b, proc_b)
+    return _HEAD + "codebases:\n" + blk(svc_a, proc_a) + blk(svc_b, proc_b)
 
 
 def test_9_rule_5_collision_form_a_two_process_pairs():
@@ -227,9 +227,9 @@ def test_9_rule_5_collision_form_a_two_process_pairs():
 
 def test_10_rule_5_collision_form_b_core_vs_backing():
     src = _HEAD + """
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       db:
         role: worker
         command: ["python", "-m", "x"]
@@ -268,7 +268,7 @@ def test_rule_5_distinct_identities_clean():
 
 
 @pytest.mark.parametrize(
-    "process,derivative",
+    "service,derivative",
     [
         # The suffix Mod 099 adds: `api`'s exec container renders `api-exec`.
         ("exec", "the exec container"),
@@ -280,16 +280,16 @@ def test_rule_5_distinct_identities_clean():
     ],
 )
 def test_rule_5_rejects_process_colliding_with_own_codebase_derivative(
-    process: str, derivative: str
+    service: str, derivative: str
 ):
-    """A process type whose compiled identity is byte-identical to one of the
+    """A core service whose compiled identity is byte-identical to one of the
     compiler's *codebase*-keyed derivatives. `api` + process `exec` renders
     `api-exec`, the same compose key as `api`'s exec container: one would
     silently clobber the other."""
     src = _HEAD + f"""
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -298,7 +298,7 @@ core_services:
         resources:
           cpu: 1.0
           memory: 2GB
-      {process}:
+      {service}:
         role: worker
         command: ["python", "-m", "x"]
         networks: [internal]
@@ -328,15 +328,15 @@ def test_rule_5_rejects_collision_with_a_siblings_collector_sidecar():
 
 
 def test_rule_5_rejects_collision_with_a_siblings_scheduler_trigger():
-    """The same shape for the Ofelia trigger: a `scheduler`-role process type
+    """The same shape for the Ofelia trigger: a `scheduler`-role core service
     gets `-scheduler` instead of `-otelcol` (it has no long-running container
     to pair a collector with), so codebase `api` process `job` yields
     `api-job-scheduler` and a sibling codebase `api-job` with a process named
     `scheduler` collides with it."""
     src = _HEAD + """
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       job:
         role: scheduler
         schedule: "0 3 * * *"
@@ -346,7 +346,7 @@ core_services:
           cpu: 0.25
           memory: 512MB
   api-job:
-    processes:
+    core_services:
       scheduler:
         role: worker
         command: ["python", "-m", "x"]
@@ -378,9 +378,9 @@ def test_rule_5_derivatives_do_not_over_reject():
 
 
 _TWO_CODEBASES = _HEAD + """
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -391,7 +391,7 @@ core_services:
           cpu: 1.0
           memory: 2GB
   billing:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -450,9 +450,9 @@ backing_services:
 
 
 _SCHEDULER = _HEAD + """
-core_services:
+codebases:
   job:
-    processes:
+    core_services:
       nightly:
         role: scheduler
         schedule: "0 3 * * *"
@@ -481,9 +481,9 @@ def test_15_replicas_unset_on_scheduler_clean():
 @pytest.mark.parametrize("role", ["worker", "scheduler"])
 def test_16_web_network_on_non_web_role_rejected(role):
     src = _HEAD + f"""
-core_services:
+codebases:
   svc:
-    processes:
+    core_services:
       p:
         role: {role}
         schedule: "0 3 * * *"
@@ -502,18 +502,18 @@ def test_16_web_network_on_web_role_clean():
 
 
 # ---------------------------------------------------------------------------
-# 17 — rule 28 reads the PROCESS TYPE.
+# 17 — rule 28 reads the CORE SERVICE.
 # ---------------------------------------------------------------------------
 
 
 def test_17_health_check_path_without_port_on_process_rejected():
     """Regression for the silent pass Mod 095's corporal flagged: reading
-    `health_check_path` off the CoreService sees permanently empty extras
-    once the field is process-scoped."""
+    `health_check_path` off the Codebase sees permanently empty extras
+    once the field is service-scoped."""
     src = _HEAD + """
-core_services:
+codebases:
   consumer:
-    processes:
+    core_services:
       worker:
         role: worker
         command: ["python", "-m", "x"]
@@ -541,7 +541,7 @@ def test_18_reserved_process_name_rejected(reserved):
 
 
 # ---------------------------------------------------------------------------
-# 19 — rule 12: domain_default_process is a dotted, web-network process.
+# 19 — rule 12: domain_default_service is a dotted, web-network process.
 # ---------------------------------------------------------------------------
 
 
@@ -559,7 +559,7 @@ _WITH_WORKER = _BASE + """\
 def _with_default(src: str, value: str) -> str:
     return src.replace(
         "container_registry: registry.example.com",
-        f"container_registry: registry.example.com\ndomain_default_process: {value}",
+        f"container_registry: registry.example.com\ndomain_default_service: {value}",
     )
 
 
@@ -594,7 +594,7 @@ def _with_process_env(src: str, body: str) -> str:
 
 def test_20_process_env_key_colliding_with_service_secrets_rejected():
     src = _with_process_env(_BASE, "          SHARED: literal\n").replace(
-        "    processes:\n", '    secrets:\n      SHARED: "desc"\n    processes:\n'
+        "    core_services:\n", '    secrets:\n      SHARED: "desc"\n    core_services:\n'
     )
     assert "rule_env_secrets_config_overlap" in _issues(src)
 
@@ -602,21 +602,21 @@ def test_20_process_env_key_colliding_with_service_secrets_rejected():
 @pytest.mark.parametrize("reserved_key", sorted(_RESERVED_CORE_ENV_KEYS))
 def test_21_process_env_cannot_shadow_a_reserved_key(reserved_key: str):
     """Every doctrine-reserved key, not just `OTEL_SERVICE_NAME`. Parametrized
-    off the validator's own frozenset so a key added there without process-level
+    off the validator's own frozenset so a key added there without service-level
     coverage fails here rather than passing silently."""
     src = _with_process_env(_BASE, f'          {reserved_key}: "mine"\n')
     issues = validate_document(_doc(src), _tables())
     hits = [i for i in issues if i.rule == "rule_reserved_env_key"]
     assert hits, reserved_key
     # The diagnostic points at the process, not the codebase.
-    assert "processes.web.env" in hits[0].where
+    assert "core_services.web.env" in hits[0].where
 
 
 def test_21_service_level_reserved_key_reported_once_not_per_process():
     """A service-level `env:` key is a codebase-level fact — reporting it
-    once per process type would multiply one mistake into N diagnostics."""
+    once per core service would multiply one mistake into N diagnostics."""
     src = _WITH_WORKER.replace(
-        "    processes:\n", '    env:\n      OTEL_SERVICE_NAME: "mine"\n    processes:\n'
+        "    core_services:\n", '    env:\n      OTEL_SERVICE_NAME: "mine"\n    core_services:\n'
     )
     issues = validate_document(_doc(src), _tables())
     hits = [
@@ -624,7 +624,7 @@ def test_21_service_level_reserved_key_reported_once_not_per_process():
         if i.rule == "rule_reserved_env_key" and "OTEL_SERVICE_NAME" in i.message
     ]
     assert len(hits) == 1
-    assert hits[0].where == "core_services.api.env"
+    assert hits[0].where == "codebases.api.env"
 
 
 # ---------------------------------------------------------------------------
@@ -635,32 +635,32 @@ def test_21_service_level_reserved_key_reported_once_not_per_process():
 
 def test_22_bare_core_magic_ref_rejected_with_arity_message():
     src = _with_process_env(
-        _BASE, "          UPSTREAM: ${core_services.api.host}\n"
+        _BASE, "          UPSTREAM: ${codebases.api.host}\n"
     )
     issues = validate_document(_doc(src), _tables())
     hits = [i for i in issues if i.rule == "rule_3_magic_ref_arity"]
     assert hits
-    assert "${core_services.<service>.<process>.<part>}" in hits[0].message
+    assert "${codebases.<codebase>.core_services.<service>.<part>}" in hits[0].message
 
 
 # ---------------------------------------------------------------------------
-# 23 — ProcessRef.
+# 23 — ServiceRef.
 # ---------------------------------------------------------------------------
 
 
 def test_23_process_ref_round_trips():
-    ref = ProcessRef.parse("api.web")
-    assert (ref.service, ref.process) == ("api", "web")
+    ref = ServiceRef.parse("api.web")
+    assert (ref.codebase, ref.service) == ("api", "web")
     assert ref.dotted == "api.web"
     assert ref.compiled == "api-web"
-    assert ProcessRef.parse(ref.dotted) == ref
+    assert ServiceRef.parse(ref.dotted) == ref
 
 
 @pytest.mark.parametrize("raw", ["api", "api.web.x", "", "api.", ".web", " . "])
-def test_23_process_ref_rejects_malformed(raw):
+def test_23_service_ref_rejects_malformed(raw):
     with pytest.raises(ValueError) as exc:
-        ProcessRef.parse(raw)
-    assert "<service>.<process>" in str(exc.value)
+        ServiceRef.parse(raw)
+    assert "<codebase>.<service>" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

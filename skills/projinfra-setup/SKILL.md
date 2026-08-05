@@ -29,7 +29,7 @@ The per-resource detail. **Read the one(s) you are provisioning** — note the f
 
 [`elastic_route53_zone.md`](../../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md) — the per-project hosted zone and the NS-delegation step.
 
-[`elastic_ecr.md`](../../doctrine/infrastructure/specifics/projinfra/elastic_ecr.md) — the per-core-service ECR repositories.
+[`elastic_ecr.md`](../../doctrine/infrastructure/specifics/projinfra/elastic_ecr.md) — the per-codebase ECR repositories.
 
 [`elastic_iam.md`](../../doctrine/infrastructure/specifics/projinfra/elastic_iam.md) — the per-project ECS task-execution role.
 

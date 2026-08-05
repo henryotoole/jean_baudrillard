@@ -10,7 +10,7 @@ Every project has an `infra.yml` file which describes the project's infrastructu
 
 ## The CICL Format
 
-The CICL format defines the backing and core services that compose the [environment infrastructure](./infrastructure.md#infrastructure-tiers) on which the project code runs. It is really just YAML with a bunch of special keywords and a string interpolation feature. Every project gets one, and only one, CICL file: `infra.yml`. The file is broken into `core_services`, `backing_services`, and some toplevel config. Each of those has one field per service, the name of which is the name of the service. Then, every service has its own fields which define the service parameters.
+The CICL format defines the backing and core services that compose the [environment infrastructure](./infrastructure.md#infrastructure-tiers) on which the project code runs. It is really just YAML with a bunch of special keywords and a string interpolation feature. Every project gets one, and only one, CICL file: `infra.yml`. The file is broken into `codebases`, `backing_services`, and some toplevel config. `codebases` has one field per codebase, each of which declares its `core_services`; `backing_services` has one field per backing service. Then, every service has its own fields which define the service parameters.
 
 CICL language defines infrastructure in *general, provider-agnostic* terms. For example, when describing an object storage service we will call it an `object_store` instead of `S3`. When describing an `object_store`'s configuration, we would say `versioning: true` instead of bothering with `aws_s3_bucket_versioning` resources. These represent the fundamental properties of the *role* of the service.
 
@@ -24,18 +24,18 @@ The below yaml snippet is a non-exhaustive example of a CICL `infra.yml` file.
 cicl_version: "2"
 foundation: fixed # or "elastic". [More info](./infrastructure.md#foundation).
 apex_domain: "example.com"
-domain_default_process: api.web  # the web process type mapped to the bare <env>.<project>.<apex_domain>
+domain_default_service: api.web  # the web core service mapped to the bare <env>.<project>.<apex_domain>
 container_registry: "registry.example.com"  # required for fixed; optional for elastic (defaults to project ECR)
 repo_url: "https://github.com/owner_account/project_name"
 observability_backend_url: "https://hyperdx.example.com"
 # Defines reverse proxy choice. Elastic foundations only.
 # reverse_proxy: alb # or ec2_traefik_eip or ec2_traefik_pip
 
-core_services:
+codebases:
 
-	# One codebase, one image, three process types.
+	# One codebase, one image, three core services.
 	api:
-		# Codebase-scoped fields sit at the service level.
+		# Codebase-scoped fields sit at the codebase level.
 		secrets:
 			DISCORD_API_KEY: "Key to the discord bot used by the API."
 		env:
@@ -46,7 +46,7 @@ core_services:
 			DATABASE_USER: ${backing_services.database.user}
 			DATABASE_PASSWORD: ${backing_services.database.password}
 			DATABASE_SSLMODE: ${backing_services.database.sslmode}
-		processes:
+		core_services:
 			web:
 				role: web
 				command: ["python", "-m", "entrypoints.http"]
@@ -104,22 +104,20 @@ backing_services:
 		networks: [web, internal]
 ```
 
-Two things in that example are worth naming. `api.web` and `api.worker` each `consumes` the other — a legal cycle, and the most common web/worker topology there is; see [Consumes Relationships](#consumes-relationships). And the `worker` process type's broker is the `cache` backing service: the doctrine ships no dedicated `queue` role, so a redis broker is declared under the `cache` role. `depends_on` names only backing services, which is why the worker's dependency on `api.web` appears under `consumes` and not there.
+### Core Services
 
-### Process Types
+A **codebase** is a source tree and the single *build artifact* compiled from it. A **core service** is a named way of invoking that artifact: its own role, command, resources, networks, and port. One codebase, one image, N core services — a web edge, a queue consumer, and a nightly job can all be the same image started three different ways.
 
-A core service is a *codebase* and the single *build artifact* compiled from it. A **process type** is a named way of invoking that artifact: its own role, command, resources, networks, and port. One codebase, one image, N process types — a web edge, a queue consumer, and a nightly job can all be the same image started three different ways.
-
-The `processes:` block is **required** on every core service and must be non-empty. There is no flat form and no single-process shorthand. That costs a few lines on a service that really does have one process type, and buys a great deal: every emitted identity is unconditionally two-segment, so the collapse logic that a shorthand would demand — at the emitted name, the hostname, the contract path, the health path, `OTEL_SERVICE_NAME`, and every tag — lives in zero places rather than in all of them.
+The codebase is the unit of *code*; the core service is the unit of *deployment*. Everything that is true of the source belongs to the codebase (e.g. the Dockerfile, `build.sh`, `migrate.sh`, the image, "never share code"). Everything that is true of a running container belongs to a core service (e.g. a port, a replica count, a health check, a routable address).
 
 ```yml
-core_services:
+codebases:
 	api:
 		secrets: { ... }        # codebase-scoped
 		config:  { ... }        # codebase-scoped
-		env:     { ... }        # codebase-scoped, merged into every process type
-		processes:
-			web:                # a process type
+		env:     { ... }        # codebase-scoped, merged into every core service
+		core_services:
+			web:                # a core service
 				role: web
 				command: [...]
 			worker:
@@ -127,64 +125,37 @@ core_services:
 				command: [...]
 ```
 
-#### Field scoping
-
-One principle generates the whole split, including for fields not yet invented:
-
-> A field belongs to the **codebase** iff its value is determined by the source code. It belongs to the **process type** iff its value is determined by the invocation.
-
-| Codebase-scoped (on the core service) | Process-type-scoped |
-| ------------------------------------- | ------------------- |
-| `processes:` | `role`, `command` |
-| `secrets:`, `config:` | `resources`, `replicas` |
-| migration ownership (`migrate.sh` runs once per codebase) | `networks`, `port` |
-| `env:` (shared) | `depends_on`, `consumes` |
-| | `env:` (merges over service-level) |
-| | every role-specific field (`health_check_path`, `schedule`, …) |
-
-Applying it: the *code* is what reads `STRIPE_API_KEY`, so `secrets:` is codebase-scoped. `migrations/` lives in the source tree, so migration ownership is too. **Role-specific fields follow `role`**, which is invocation-determined, so they are process-scoped by derivation — the table never needs revisiting when a role gains a field.
-
-`env:` is the one field that straddles the principle, because some variables are code-determined (`DATABASE_HOST` — the code needs a database) and some are invocation-determined (a worker's concurrency knob). It is therefore valid at **both** levels, and a process type's effective environment is the service-level block merged under its own, process-level winning on a key collision. It is the only such exception, and it exists because the principle genuinely lands on both sides rather than as an oddity.
-
-**The service level accepts only `{processes, secrets, config, env}`.** Anything else is a hard error. A stray `resources:` at the service level is almost always a mis-nested process-type field, and failing loudly beats silently doing nothing.
-
-**`command` is required on every process type, including `web`.** With several process types sharing one image, at most one could inherit the Dockerfile `CMD`, and "which one" is an ambiguity worth deleting rather than answering. Requiring it universally is self-documenting and makes the Dockerfile `CMD` irrelevant for core services.
-
-#### Naming convention
-
-Not a hard rule, but a documented convention — unspecified naming drifts across projects (`api.web` / `api.api` / `api.main` / `api.server`) and cross-project familiarity is a stated goal of this doctrine.
-
-> **A process type is named after its role**, unless a codebase declares two process types on the same role. `role: web` → `web`; `role: worker` → `worker`; `role: scheduler` → the job's name (`nightly_cleanup`), since a codebase commonly has several jobs.
-
-A project that genuinely needs two HTTP boundaries names them by boundary — `api.public`, `api.admin` — and deviates deliberately.
+> **Naming**: A core service is generally named after its role, unless a codebase declares two on the same role. `role: web` → `web`; `role: worker` → `worker`; `role: scheduler` → the job's name (`nightly_cleanup`), since a codebase commonly has several jobs.
 
 ### Service Fields
 
-The table below lists all standard fields for services.
+The table below lists all standard fields for codebases and/or core services.
 
 | Field Name | Required | Scope | Description |
 | ---------- | -------- | ----- | ----------- |
-| processes | yes | core (service) | The core service's [process types](#process-types). Must be present and non-empty. |
-| secrets | no | core (service) | Bespoke, project-supplied secret env vars with no in-project source. Surfaced in the project's secrets file (`<env>.env`). See [configurable.md](./configurable.md#secrets). |
-| config | no | core (service) | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [configurable.md](./configurable.md#config). |
-| env | no | core (both levels) | Contains fields which define infrastructure-driven environment variables for the container. Valid at the service level and on a process type; a process type's own block merges over the service's. |
-| role | yes | core (process type), backing | What this process type or backing service *does* for the project e.g. 'web', 'worker', 'relational_db', 'cache'. |
-| command | yes | core (process type) | The command that launches this process type. Required on every process type; supersedes the Dockerfile `CMD`. |
-| networks | yes | core (process type), backing | Lists the networks this process type or backing service will belong to. |
-| resources | yes | core (process type) | Computing resources the process type requires at runtime. See [Resources](#resources). |
-| port | no | core (process type), backing | The port that the process type or backing service should be available on. |
-| depends_on | no | core (process type), backing | Readiness gate. Names **backing services only**. See [Depends-On Relationships](#depends-on-relationships). |
-| consumes | no | core (process type) | Interface edges to other core process types, dotted and fully qualified. See [Consumes Relationships](#consumes-relationships). |
-| replicas | no | core (process type) | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. Not permitted on a `scheduler` process type. |
+| core_services | yes | codebase | The codebase's [core services](#core-services). Must be present and non-empty. |
+| secrets | no | codebase | Bespoke, project-supplied secret env vars with no in-project source. Surfaced in the project's secrets file (`<env>.env`). See [configurable.md](./configurable.md#secrets). |
+| config | no | codebase | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [configurable.md](./configurable.md#config). |
+| env | no | codebase + core service | Contains fields which define infrastructure-driven environment variables for the container. Valid at the codebase level and on a core service; a core service's own block merges over the codebase's. |
+| role | yes | core service, backing | What this core service or backing service *does* for the project e.g. 'web', 'worker', 'relational_db', 'cache'. |
+| command | yes | core service | The command that launches this core service. Required on every core service; supersedes the Dockerfile `CMD`. |
+| networks | yes | core service, backing | Lists the networks this core service or backing service will belong to. |
+| resources | yes | core service | Computing resources the core service requires at runtime. See [Resources](#resources). |
+| port | no | core service, backing | The port that the core service or backing service should be available on. |
+| depends_on | no | core service, backing | Readiness gate. Names **backing services only**. See [Depends-On Relationships](#depends-on-relationships). |
+| consumes | no | core service | Interface edges to other core services, dotted and fully qualified. See [Consumes Relationships](#consumes-relationships). |
+| replicas | no | core service | The number of parallel containers to launch in production. Ignored in `dev`, `test`, and `stage`. Defaults to 1. Not permitted on a `scheduler` core service. |
 | engine | yes | backing | The underlying software package the service will use e.g. 'postgres', 'redis', etc. Can define two options if `fixed` and `elastic` foundations require different engines. |
 | version | yes | backing | The version of the engine to use. Format depends on engine. |
-| schema_owned_by | sometimes | backing | Required for database roles (e.g. `relational_db`) to denote which core service owns the database schema and drives migrations. Names a **core service** (a codebase), never a process type — `migrate.sh` runs once per codebase. |
+| schema_owned_by | sometimes | backing | Required for database roles (e.g. `relational_db`) to denote which codebase owns the database schema and drives migrations. Names a **codebase**, never a core service — `migrate.sh` runs once per codebase. |
 
-Note that core services do **not** declare an `image` field. Image references are derived deterministically by the compiler from the top-level [`container_registry`](#container-registry-and-service-images), the project name and version (from `project.yml`), and the core service name. The image is keyed on the **codebase**, so every process type of a core service runs the same image. See [Container Registry](#container-registry-and-service-images) for the full format.
+Note that codebases do **not** declare an `image` field. Image references are derived deterministically by the compiler from the top-level [`container_registry`](#container-registry-and-service-images), the project name and version (from `project.yml`), and the codebase name. The image is keyed on the **codebase**, so every core service of a codebase runs the same image. See [Container Registry](#container-registry-and-service-images) for the full format.
 
 The values for these fields can have "magic refs" like ${backing_services.object_store.bucket_name} which reference service [provided fields](#provided-fields) and are filled with the correct interpolated values when `infra.yml` is converted to docker-compose or OpenTofu config files.
 
 Some services will have additional fields. These are role specific, and will be translated with the [transfer tables](#cicl-transfer-tables) during compilation.
+
+`./bin/docex compile` will always fail loudly when a field is placed in the wrong scope, or if a required field is absent.
 
 ### Provided Fields
 
@@ -196,32 +167,24 @@ The provided fields for each role live in the `docex` transfer tables, not in th
 
 ### Magic Refs
 
-A magic ref reads a [provided field](#provided-fields) off another service. Refs to core services carry the process dimension; refs to backing services do not:
+A magic ref reads a [provided field](#provided-fields) off another service. A core ref is a **literal path** into the document — every segment names a key the reader can walk in `infra.yml`, including the intermediate `core_services` collection. A backing ref has no such collection to traverse:
 
 ```
-${core_services.<service>.<process>.<part>}     # four segments — api.web.host
-${backing_services.<service>.<part>}            # three segments — database.host
+${codebases.<codebase>.core_services.<service>.<part>}   # five segments — api.web.host
+${backing_services.<service>.<part>}                     # three segments — database.host
 ```
-
-The asymmetry is honest rather than accidental: a backing service has no process types, so there is nothing to qualify. A **bare** core service name is illegal rather than shorthand — a codebase has no single boundary, so `${core_services.api.host}` has no answer.
 
 Refs are always **dotted**. Emitted names are hyphenated; see [Domain](#domain).
 
-A process type may not reference **itself**. Beyond being degenerate, `provides.host` is the *internal* discovery name, so the one plausible motive — building an absolute URL to oneself — would not return what the author expects. Use `localhost`.
-
-A magic ref implies a declared edge, and which edge depends on the target's kind — see [validation rule 7](#validation-rules).
-
 ### Environmental Variables
 
-Three fields define a core service's container environment variables, distinguished by *where the value comes from* and *how it is handled*:
+Three fields define a container's environment variables, distinguished by *where the value comes from* and *how it is handled*:
 
 - **`env:`** — values the compiler resolves at compile time: literals and magic refs to other services' provided parts.
 - **`secrets:`** — bespoke secrets the operator supplies, never committed. Each declared key is delivered to the container as an env var of the same name, defined in `infra/secrets/<env>.env`.
 - **`config:`** — non-secret, deployment-specific, per-env values (e.g. a third-party URL that differs by environment). Each declared key is delivered to the container the same way a secret is, differing only in that the value is non-secret. Defined in the non-tracked, LLM-readable `infra/config/<env>.env`. Config is the doctrine's escape valve for per-environment values that are neither compile-resolvable nor secret.
 
 A given key may appear in **at most one** of `env:`, `secrets:`, and `config:` on a service. Across the whole project the three value *categories* are disjoint by key — an overlap is a compile error. See [configurable.md](./configurable.md) for the full model.
-
-Of the three, only `env:` is valid at both the core service and the process type level; `secrets:` and `config:` are codebase-scoped and declared once on the service. A process type's effective environment is the service-level `env:` merged under its own, and the disjointness rule above is evaluated against that effective set. See [Process Types § Field scoping](#field-scoping).
 
 ### Rules
 
@@ -239,7 +202,7 @@ Consistent naming and tagging conventions are employed wherever possible to ensu
 
 For `fixed`-foundation infrastructure resources, there are no tags. Naming standards are:
 1. Docker networks: `${project_name}-${env_name}-${network_definition_name}`
-2. Docker containers `${project}-${env}-${service}-${process}`
+2. Docker containers `${project}-${env}-${codebase}-${service}`
 
 #### Elastic Foundation
 
@@ -267,42 +230,31 @@ envinfra_tags:
 + `descriptor`: "*"
 + `project`: "${project_name}"
 + `env`: "${env_name}"
++ `codebase`: "${codebase_name}"
 + `service`: "${core_service_name}"
-+ `process`: "${process_name}"
 + `role`: "${role_name}"
-+ `Name`: "${project}_${env}_${service}_${process}"
++ `Name`: "${project}_${env}_${codebase}_${service}"
 
 Notes on certain tags:
 + `shape_name` - The name from the [shape table](./shape.md#elastic-foundation) for elastic resources. If no shape name applies, set to `etc`.
 + `descriptor` - A looser descriptor for this resource. Use AWS abbreviations when possible e.g. ALB, IGW, etc. Not required, but useful for differentiating especially pre- and projinfra resources that belong to the same "shape name" from each other.
-+ `process` - The process type name. Present on env-tier resources that belong to a specific core service process type; omitted for backing services, which have none.
++ `codebase` - The codebase name. On a backing service this carries the backing service's own name, since a backing service has no codebase.
++ `service` - The core service name. Present on env-tier resources that belong to a specific core service; omitted for backing services, which have none.
 + `Name` - Redundant; present only for AWS console ergonomics.
 
 These tags are not exclusive - some specific resources define their own tags which are load-bearing and used by `docex` machinery.
 
 ### Domain
 
-The anatomy of a project's domain is rigidly defined and critical to the "just works" nature of CICL machinery. A full domain describes a specific process type uniquely across all projects. The form is:
+The anatomy of a project's domain is rigidly defined and critical to the "just works" nature of CICL machinery. A full domain describes a specific core service uniquely across all projects. The form is:
 
-`<service>-<process>.<env>.<project_name>.<apex_domain>` e.g. `api-web.dev.myproject.example.com`
+`<codebase>-<service>.<env>.<project_name>.<apex_domain>` e.g. `api-web.dev.myproject.example.com`
 
 Simply by assessing the domain of a request, any machinery with no further context can determine the destination project name, environment, and service. The `infra.yml` config `apex_domain` field sets the project's bare apex domain e.g. `example.com` or `example.co.uk`. Projects may or may not share apex domains with other projects.
 
 Keep in mind, the domain structure is not the exclusive means of inter-service communication. Only `web`-network services are reachable from the outside; a domain pointing at a non-`web` service would not be routed there. There's also some variation by foundation - `elastic` backing services like S3 have their own endpoints provided by AWS whereas `fixed` backing services like `minio` require routing with the domain mechanism.
 
-#### The service label is single and hyphen-joined
-
-The process type occupies the *same* label as the core service, joined by a hyphen — `api-web.dev.…`, never `web.api.dev.…`. Three independent reasons, any one of which is decisive:
-
-1. **TLS wildcards cover exactly one label.** The elastic certs are `*.stage.<project>.<apex>`; a `web.api.stage.…` host sits two labels deep and is uncovered, and multi-level wildcards are not valid in TLS, so no cert could cover it.
-2. **The domain parse is positional.** The promise above — that machinery with no further context can determine project and environment — holds because the anatomy has a fixed number of parts.
-3. The [bare-env and bare-project routes](#bare-subdomains) are defined relative to that four-part form.
-
-**Nothing ever reverse-parses the label back into `(service, process)`.** This is worth stating, because `api-web` looks ambiguous — it could be service `api` + process `web`, or a service literally named `api-web`. Nothing cares. The master network's demux parses the domain *right-anchored* (public suffix, then apex, then the project label immediately left of it) and has no opinion about how many labels sit further left; traefik and the ALB match whole host strings that the compiler generated. The label is a rendered output, never an input to be decomposed. What the ambiguity *does* require is that rendered identities be unique — see [validation rule 5](#validation-rules).
-
-#### Dots for reference, hyphens for emission
-
-One rule covers the whole system. Authoring and reference forms are **dotted**: `consumes:` targets, `domain_default_process`, [magic refs](#magic-refs), and `describe` node ids. Emitted data-plane names are **hyphenated**: container names, security groups, hostnames, log streams, and traefik router keys.
+Unfortunately, combining the codebase and service into one label does mean that a domain can not be string-interpolated back out into the codebase and core service name. However, because the two are joined into one container of the same name, in practice we can always route requests to the right container by domain.
 
 #### Bare Subdomains
 
@@ -310,7 +262,7 @@ There are a few "bare" subdomains possible with the above anatomy, listed in the
 
 | "Bare" Subdomain | Schema | Route |
 | ---------------- | ------ | --- |
-| Bare Env | `<env>.<project_name>.<apex_domain>` | Route to env's `domain_default_process`. |
+| Bare Env | `<env>.<project_name>.<apex_domain>` | Route to env's `domain_default_service`. |
 | Bare Project | `<project_name>.<apex_domain>` | Route to prod's "bare env". |
 | Bare Apex | `<apex_domain>` | Does nothing. |
 
@@ -340,15 +292,15 @@ On `fixed` foundations, DNS-01 is not available and HTTP-01 is used instead. We 
 
 ### Container Registry and Service Images
 
-The `container_registry` top-level config option declares where core service [build images](./shape.md) are pushed and pulled from. The compiler derives every image reference deterministically on the basis of environment:
-- **`dev` / `test`** build each core service's image **locally** from its Dockerfile (the compiled compose file carries a `build:` block) and never pull from a registry. The image is therefore a **registry-less local tag**:
-	`${project_name}/${service_name}:${version}`.
+The `container_registry` top-level config option declares where codebase [build images](./shape.md) are pushed and pulled from. The compiler derives every image reference deterministically on the basis of environment:
+- **`dev` / `test`** build each codebase's image **locally** from its Dockerfile (the compiled compose file carries a `build:` block) and never pull from a registry. The image is therefore a **registry-less local tag**:
+	`${project_name}/${codebase_name}:${version}`.
 - **`stage` / `prod`** reference an image that is pushed to and pulled from a registry, so the ref carries the full registry host:
-	`${container_registry}/${project_name}/${service_name}:${version}`
+	`${container_registry}/${project_name}/${codebase_name}:${version}`
 
-with `name` and `version` from `project.yml` and `service_name` from the CICL key under `core_services`. Each core service gets its own image; all images for a project share the project-wide version.
+with `project_name` and `version` from `project.yml` and `codebase_name` from the CICL key under `codebases`. Each codebase gets its own image; all images for a project share the project-wide version.
 
-The image is keyed on the **codebase**, not the process type. A core service declaring three [process types](#process-types) produces one image, which all three run with different [`command`](#process-types) values. This is the joint the doctrine holds at 1:1 — one codebase, one build artifact — while the artifact-to-process-type joint is 1:N.
+The image is keyed on the **codebase**, not the core service. A codebase declaring three [core services](#core-services) produces one image, which all three run with different [`command`](#core-services) values.
 
 - **Fixed foundation:** `container_registry` is **required**. The doctrine does not provision a registry for fixed projects — it is [prerequisite infrastructure](./shape.md#fixed-foundation). Typical values are a self-hosted Docker Registry V2 URL or a public registry (Docker Hub, ghcr.io, etc.).
 - **Elastic foundation:** `container_registry` is **optional**. When omitted, `stage`/`prod` images resolve to the project's auto-provisioned registry (ECR). The registry domain is deterministically interpolated by OpenTofu using provider (AWS) account ID, the `doctrine`-pinned region, and standard AWS form. When provided, `container_registry` explicitly overrides the ECR default such that an external registry can be used instead.
@@ -361,11 +313,9 @@ This field currently only serves a documentary role. The git host and repo are p
 
 ### CICL Version
 
-The top-level `cicl_version` field declares which generation of the CICL format `infra.yml` is written in. The current version is **`"2"`**, which introduced the mandatory [`processes:`](#process-types) block, the [`consumes`](#consumes-relationships) relation, and four-segment [core magic refs](#magic-refs).
+The top-level `cicl_version` field declares which generation of the CICL format `infra.yml` is written in. The current version is **`"2"`**.
 
-`cicl_version: "1"` is **rejected**, not shimmed. A compatibility parser accepting both forms would reintroduce the flat pre-`processes:` shape as a permanent second code path, in exchange for serving a migration that every project performs exactly once. The compiler fails with a message naming the relevant project-upgrade guide.
-
-One consequence is worth knowing before it is needed: a [rollback](./cicd.md#rollback) recompiles the target version's `infra.yml` with the *current* compiler, so rollback across the v1 → v2 boundary is not possible. It aborts at pre-flight, before anything is applied, with a fix-forward message.
+Previous versions are **rejected**, not shimmed. A compatibility parser accepting both forms would reintroduce the flat, one-service-per-codebase shape that predates nesting core services under a codebase, as a permanent second code path, in exchange for serving a migration that every project performs exactly once. The compiler fails with a message naming the relevant project-upgrade guide.
 
 ### Observability Backend
 
@@ -380,8 +330,6 @@ The purpose of a network is to scope windows of access by service. Networks are 
 Some networks will get special properties if they have a certain name. The full list is:
 1. `web` - A network named web will be open to the broader internet via HTTP. Services on `web` can be accessed from the internet.
 
-`web` membership is restricted on core services: a `worker` or `scheduler` process type may not declare it (see [validation rule 27](#validation-rules)). The principle behind the rule is that a process type wanting public ingress *is* a web process type, and should say so with `role: web`. Network membership is declared per **process type**, not per core service — the web edge and the queue consumer of one codebase routinely sit on different networks.
-
 The default is for networks to be internal and closed, such that only services on the network get access to each other.
 
 Network names are defined in `infra.yml` with simple names e.g. `web`, `internal`, etc. for developer convenience. However, in practice the compiler will create networks scoped by "simple name", project, and environment. A REST API service on the `web` network will be placed on a Docker network with a name something like `${project_name}-${env_name}-${network_definition_name}` (or a similar SG in `elastic`).
@@ -392,7 +340,7 @@ Details on networks, how they are evaluated, and how they compile out can be fou
 
 ### Resources
 
-The `resources:` field declares the computing resources a [process type](#process-types) requires at runtime. It is **required** on every process type — sizing is invocation-determined, so a web edge and a queue consumer of the same codebase size independently. It is not valid at the core service level. Resources are described in provider-agnostic units; the compiler translates them per foundation. The full translation rules live in [transfer_tables.md § Resources Translation](./specifics/transfer_tables.md#resources-translation).
+The `resources:` field declares the computing resources a [core service](#core-services) requires at runtime. It is **required** on every core service — sizing is invocation-determined, so a web edge and a queue consumer of the same codebase size independently. Resources are described in provider-agnostic units; the compiler translates them per foundation. The full translation rules live in [transfer_tables.md § Resources Translation](./specifics/transfer_tables.md#resources-translation).
 
 ```yml
 resources:
@@ -417,15 +365,15 @@ resources:
 - The `disk` translation is asymmetric: on elastic, `ephemeral_storage` bounds the whole writable layer; on fixed, the compiler sizes a tmpfs at `/tmp` and the container's overlay layer remains unbounded (a limitation of the overlay2 storage driver). Apps that respect the [12-factor app](https://12factor.net/) ephemeral-storage principle write temp files to `/tmp` and are unaffected.
 - Backing services do not take a `resources:` block in v1. Their sizing comes from the engine's defaults in the transfer table; projects needing different sizes use project-local transfer tables.
 - **Fargate tier rounding (elastic only).** AWS Fargate supports only a discrete set of `(vCPU, memory)` combinations. The compiler rounds the requested `(cpu, memory)` (plus any doctrine-fixed sidecar overhead) up to the smallest supported Fargate tier that meets or exceeds both dimensions, and surfaces the rounding in compile output. Values that exceed the largest Fargate tier fail compile cleanly. The `resources:` block stays foundation-agnostic — the project author writes the sizing that makes sense; the compiler does the tier translation. See [transfer_tables.md § Resources Translation](./specifics/transfer_tables.md#resources-translation).
-- Compile errors on this block name the full path, e.g. `core_services.api.processes.worker.resources.disk`.
+- Compile errors on this block name the full path, e.g. `codebases.api.core_services.worker.resources.disk`.
 
 ### Depends-On Relationships
 
-`depends_on` is a **readiness gate**, and it names **backing services only**. It provides the DAG the compiler needs to bring infrastructure online in the right order: a process type that declares `depends_on: [database]` is not started until the database is healthy.
+`depends_on` is a **readiness gate**, and it names **backing services only**. It provides the DAG the compiler needs to bring infrastructure online in the right order: a core service that declares `depends_on: [database]` is not started until the database is healthy.
 
-A core process type may **not** appear in a `depends_on` list. Interface coupling between core process types is a different relation with different rules, and lives in [`consumes`](#consumes-relationships).
+A core service may **not** appear in a `depends_on` list. Interface coupling between core services is a different relation with different rules, and lives in [`consumes`](#consumes-relationships).
 
-Furthermore, if a process type references a backing service's information via [magic ref](#magic-refs), it depends on that backing service. If the relationship doesn't show up in the process type's `depends_on` field, the compiler will trip an error.
+Furthermore, if a core service references a backing service's information via [magic ref](#magic-refs), it depends on that backing service. If the relationship doesn't show up in the core service's `depends_on` field, the compiler will trip an error.
 
 **`depends_on` is a convenience, never a correctness guarantee.** It is honoured on `fixed` foundations, where the compiler emits it as a compose `condition:`. On `elastic` it is discarded, because it *cannot* be honoured: ECS has no cross-service ordering primitive, and even a deploy-time emulation would hold exactly once and then be silently violated forever after, as ECS independently replaces tasks for scaling, AZ rebalance, failed health checks, and platform updates.
 
@@ -439,7 +387,7 @@ The rule above answers *reachability*: a dependency that is down, restarting, or
 
 ECS Service Connect fixes a client task's set of **resolvable endpoint names at task start**. An endpoint registered in the namespace *after* a client task started is not merely unreachable from that task — it is unresolvable, for the entire remaining life of the task. The name does not exist. Backing off and retrying never converges, because there is nothing to converge on.
 
-So a core process type created alongside a [`consumes`](#consumes-relationships) target it has never seen registered can be permanently unable to reach it, with both sides healthy. The externally visible symptom is a `503` on the [health fan-out](./contracts.md#fan-out); the invisible one is that every real call across that edge fails too.
+So a core service created alongside a [`consumes`](#consumes-relationships) target it has never seen registered can be permanently unable to reach it, with both sides healthy. The externally visible symptom is a `503` on the [health fan-out](./contracts.md#fan-out); the invisible one is that every real call across that edge fails too.
 
 **`docex` closes this at release time**, by redeploying any consumer whose `consumes` target registered during that release. Note carefully that this is *not* the deploy-time ordering emulation rejected above, and the distinction is what makes it sound: an endpoint **registration is durable state**, owned by the service rather than by task liveness, and it survives every task replacement. Holding once is therefore permanently sufficient — after the first registration, every later task (scaling, AZ rebalance, failed health check, platform update) starts into a namespace that already contains the name. A readiness gate decays because liveness changes; a registration does not.
 
@@ -447,28 +395,30 @@ Ordering could not have solved it in any case: a `consumes` graph may legally [c
 
 ### Consumes Relationships
 
-`consumes` is an **interface** edge between core process types. Where `depends_on` says *"do not start me until this is up"*, `consumes` says *"I speak to this boundary"*.
+`consumes` is an **interface** edge between core services. Where `depends_on` says *"do not start me until this is up"*, `consumes` says *"I speak to this boundary"*.
 
 ```yml
-processes:
-	web:
-		consumes: [api.worker]
+codebases:
+	api:
+		core_services:
+			web:
+				consumes: [api.worker]
 ```
 
-Targets are **dotted and fully qualified**. A bare core service name is illegal, not shorthand for "all its process types": an interface edge points at a specific boundary, and a codebase does not have one contract.
+Targets are **dotted and fully qualified**. A bare codebase name is illegal, not shorthand for "all its core services": an interface edge points at a specific boundary, and a codebase does not have one contract.
 
 `consumes` **emits nothing** — no compose key, no HCL resource. It is read by CI, by validation, and by the elastic release, where it does four jobs:
 
-1. It declares the [provider / consumer](./infrastructure.md#contracts) relationships that determine which process types must carry a contract, and in which format.
+1. It declares the [provider / consumer](./infrastructure.md#contracts) relationships that determine which core services must carry a contract, and in which format.
 2. It drives the health-check fan-out — see [contracts.md § Health Checks](./contracts.md#health-checks).
-3. It satisfies [validation rule 7](#validation-rules) for magic refs whose target is a core process type.
+3. It satisfies [validation rule 7](#validation-rules) for magic refs whose target is a core service.
 4. On elastic, it identifies which consumers must be redeployed after a release that registers a new Service Connect endpoint — see [§ Resilience covers reachability, not resolvability](#resilience-covers-reachability-not-resolvability).
 
 Job 4 is a *release-time orchestration* read, not an emit: nothing derived from `consumes` reaches the compiled output. "Emits nothing" and "is read only by CI" are separate claims, and only the first is a rule — the emit-free property is worth pinning by test, whereas the set of readers may grow.
 
 | | `depends_on` | `consumes` |
 | --- | --- | --- |
-| Names | backing services only | core process types only |
+| Names | backing services only | core services only |
 | Job | readiness gate | contracts, health fan-out, rule 7, elastic consumer reconcile |
 | Cycles | fatal | **legal** |
 | Emitted | compose `condition:` on fixed; nothing on elastic | **nothing, on either foundation** |
@@ -479,9 +429,9 @@ This is why the two relations cannot merge. `api.web` enqueues a job; `api.worke
 
 #### Three clarifications
 
-- **One-directional: a ref implies an edge, never the reverse.** A magic ref to a core process type obliges a matching `consumes` entry. A `consumes` entry does *not* oblige a magic ref — in the cycle above, `api.web` declares `consumes: [api.worker]` for the contract and the health fan-out but holds no ref to the worker, because it reaches it through the broker.
-- **Same-codebase is not exempt.** `api.worker` referencing `${core_services.api.web.host}` still declares `consumes: [api.web]`. Sharing source does not make it not a boundary.
-- **A service-level `env:` ref obliges every process type** to declare the edge, consistent with how `depends_on` is treated. If every process receives `WEB_HOST`, every process talks to `api.web`.
+- **One-directional: a ref implies an edge, never the reverse.** A magic ref to a core service obliges a matching `consumes` entry. A `consumes` entry does *not* oblige a magic ref — in the cycle above, `api.web` declares `consumes: [api.worker]` for the contract and the health fan-out but holds no ref to the worker, because it reaches it through the broker.
+- **Same-codebase is not exempt.** `api.worker` referencing `${codebases.api.core_services.web.host}` still declares `consumes: [api.web]`. Sharing source does not make it not a boundary.
+- **A codebase-level `env:` ref obliges every core service** to declare the edge, consistent with how `depends_on` is treated. If every core service receives `WEB_HOST`, every core service talks to `api.web`.
 
 ### Reverse Proxy
 
@@ -581,27 +531,27 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 2. All roles must either be defined in the standard transfer tables or the project-local ones.
 3. All "magic refs" must resolve.
 4. Engines must be known and engines must match foundation (e.g. minio for `fixed` foundation, S3 for `elastic`).
-5. The rendered data-plane identity of every emitted service must be unique after naming-policy normalization. The set spans core process types, backing services, **and the derivatives the compiler appends to them** — `-otelcol` (the paired collector sidecar), `-scheduler` (the Ofelia trigger), `-exec` (the per-codebase operations container), `-migrate` (the migration task definition), and `-1`…`-N` (the replica index, on a process type declaring `replicas: N`) — since all of them render into the same namespace. So a process type named `exec` on core service `api` is an error: it renders `api-exec`, which is byte-identical to the exec container the compiler emits for the `api` codebase, and the two would silently share one compose key. Likewise a core service `api` declaring process types `web` with `replicas: 3` and `web-1` is an error: replica 1 of `web` renders `api-web-1`, byte-identical to the `web-1` process type's own compiled identity. The rule is keyed on **collision, not on a list of forbidden names**, which is what makes it cover every suffix the compiler learns in future without a further edit, and what keeps a name that collides with nothing from being forbidden for its own sake.
+5. The rendered data-plane identity of every emitted service must be unique after naming-policy normalization. The set spans core services, backing services, **and the derivatives the compiler appends to them** — `-otelcol` (the paired collector sidecar), `-scheduler` (the Ofelia trigger), `-exec` (the per-codebase operations container), `-migrate` (the migration task definition), and `-1`…`-N` (the replica index, on a core service declaring `replicas: N`) — since all of them render into the same namespace. So a core service named `exec` on codebase `api` is an error: it renders `api-exec`, which is byte-identical to the exec container the compiler emits for the `api` codebase, and the two would silently share one compose key. Likewise a codebase `api` declaring core services `web` with `replicas: 3` and `web-1` is an error: replica 1 of `web` renders `api-web-1`, byte-identical to the `web-1` core service's own compiled identity. The rule is keyed on **collision, not on a list of forbidden names**, which is what makes it cover every suffix the compiler learns in future without a further edit, and what keeps a name that collides with nothing from being forbidden for its own sake.
 6. Cyclic dependency chains with `depends_on` are not allowed. (Cycles in `consumes` **are** allowed — see [Consumes Relationships](#consumes-relationships).)
-7. Magic refs which imply a dependency must be matched by a corresponding edge, of the kind the target calls for: a ref to a **backing service** must be matched by a `depends_on` entry on the referencing process type; a ref to a **core process type** must be matched by a `consumes` entry. This rule governs **process-type referencers**, since a process type is the only thing that can hold either edge. A backing service that embeds a core process type's part — an `object_store` holding `${core_services.api.web.host}` as a CORS origin, say — cannot satisfy it at all: backing services have no `consumes:`, and rule 24 forbids them a `depends_on` to a core service. That is rule 7 correctly **not applying** rather than a gap, because a backing service embedding a core hostname is not *calling* it, so there is no readiness or interface implication for either relation to express. See [Consumes Relationships](#consumes-relationships) for the one-directional, same-codebase, and service-level-`env:` clarifications.
-8. Database roles (e.g. `relational_db`) all specify a valid `schema_owned_by` core service.
+7. Magic refs which imply a dependency must be matched by a corresponding edge, of the kind the target calls for: a ref to a **backing service** must be matched by a `depends_on` entry on the referencing core service; a ref to a **core service** must be matched by a `consumes` entry. This rule governs **core-service referencers**, since a core service is the only thing that can hold either edge. A backing service that embeds a core service's part — an `object_store` holding `${codebases.api.core_services.web.host}` as a CORS origin, say — cannot satisfy it at all: backing services have no `consumes:`, and rule 24 forbids them a `depends_on` to a core service. That is rule 7 correctly **not applying** rather than a gap, because a backing service embedding a core hostname is not *calling* it, so there is no readiness or interface implication for either relation to express. See [Consumes Relationships](#consumes-relationships) for the one-directional, same-codebase, and codebase-level-`env:` clarifications.
+8. Database roles (e.g. `relational_db`) all specify a valid `schema_owned_by` codebase.
 9. `container_registry` is set when `foundation: fixed`. Omission is permitted under elastic, where it defaults to the project's auto-provisioned ECR.
-10. Every core service **process type** has a `resources:` block declaring at least `cpu` and `memory`.
+10. Every core service has a `resources:` block declaring at least `cpu` and `memory`.
 11. `resources.gpu` is not declared when `foundation: elastic` — GPU workloads are not supported on Fargate.
-12. `domain_default_process`, if set, names a process type that is on the `web` network.
+12. `domain_default_service`, if set, names a core service that is on the `web` network.
 13. `apex_domain` must be a bare apex domain without subdomains.
-14. Neither core service names nor process type names can be one of the following: [`dev`, `test`, `stage`, `prod`, `www`], because it makes domain parsing challenging and because a process named `prod` renders `api-prod.dev.myproject.example.com`, which reads as a production host in a dev environment.
-15. Every `web`-network **process type** declares a `port`.
-16. A process type's *effective* `env:` (service-level merged under process-level) does not declare a key that also appears in the core service's `secrets:` or `config:`.
+14. Neither codebase names nor core service names can be one of the following: [`dev`, `test`, `stage`, `prod`, `www`], because it makes domain parsing challenging and because a core service named `prod` renders `api-prod.dev.myproject.example.com`, which reads as a production host in a dev environment.
+15. Every `web`-network **core service** declares a `port`.
+16. A core service's *effective* `env:` (codebase-level merged under service-level) does not declare a key that also appears in the codebase's `secrets:` or `config:`.
 17. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).
 18. `reverse_proxy` can only appear on `foundation: elastic` projects.
-19. Every key a core service consumes from `config:` is declared in that service's `config:` block; config values live in the non-tracked `infra/config/<env>.env`. See [config_and_secrets.md](./specifics/config_and_secrets.md).
-20. The three env-value categories — engine-minted (transfer-table `kind: minted`), secret (core `secrets:` + doctrine-injected), and config (core `config:`) — are disjoint across the whole project by source key. A key claimed by more than one category is a compile error, and doctrine-injected keys (e.g. `TELEMETRY_API_KEY`) are reserved and may not be redeclared in any category.
+19. Every key a core service consumes from `config:` is declared in its codebase's `config:` block; config values live in the non-tracked `infra/config/<env>.env`. See [config_and_secrets.md](./specifics/config_and_secrets.md).
+20. The three env-value categories — engine-minted (transfer-table `kind: minted`), secret (codebase `secrets:` + doctrine-injected), and config (codebase `config:`) — are disjoint across the whole project by source key. A key claimed by more than one category is a compile error, and doctrine-injected keys (e.g. `TELEMETRY_API_KEY`) are reserved and may not be redeclared in any category.
 21. `cicl_version` is `"2"`. Earlier generations of the format are rejected, not translated.
-22. Every core service declares a non-empty `processes:` block, and declares nothing at the service level outside `{processes, secrets, config, env}`.
-23. Every process type declares a `command`.
-24. `depends_on` names only backing services. A core process type in a `depends_on` list is an error.
-25. `consumes` names only core process types, fully qualified as `<service>.<process>`. A bare core service name is an error, and a process type may not consume itself. A `scheduler` process type may not be a `consumes` target: cron invokes it and nobody else does, so it exposes no boundary to consume and is exempt from the health fan-out that `consumes` drives.
-26. `replicas` is not declared on a `scheduler` process type.
-27. `worker` and `scheduler` process types do not declare `web` in `networks`.
-28. Every process type that declares `health_check_path` also declares a `port`. The path is only meaningful against a port — the probe is issued at `http://localhost:<port><path>` — and no role fixes a default health port, deliberately: an implicit one would silently oblige the application to bind it. Without this rule the omission emits a malformed probe and surfaces as a container that never becomes healthy, rather than as a compile error.
+22. Every codebase declares a non-empty `core_services:` block, and declares nothing at the codebase level outside `{core_services, secrets, config, env}`.
+23. Every core service declares a `command`.
+24. `depends_on` names only backing services. A core service in a `depends_on` list is an error.
+25. `consumes` names only core services, fully qualified as `<codebase>.<service>`. A bare codebase name is an error, and a core service may not consume itself. A `scheduler` core service may not be a `consumes` target: cron invokes it and nobody else does, so it exposes no boundary to consume and is exempt from the health fan-out that `consumes` drives.
+26. `replicas` is not declared on a `scheduler` core service.
+27. `worker` and `scheduler` core services do not declare `web` in `networks`.
+28. Every core service that declares `health_check_path` also declares a `port`. The path is only meaningful against a port — the probe is issued at `http://localhost:<port><path>` — and no role fixes a default health port, deliberately: an implicit one would silently oblige the application to bind it. Without this rule the omission emits a malformed probe and surfaces as a container that never becomes healthy, rather than as a compile error.

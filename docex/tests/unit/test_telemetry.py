@@ -33,7 +33,7 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -41,7 +41,7 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -67,7 +67,7 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-core_services:
+codebases:
   api:
     env:
       DATABASE_HOST: ${backing_services.appdb.host}
@@ -75,7 +75,7 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -110,7 +110,7 @@ cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 container_registry: registry.example.com
-core_services: {}
+codebases: {}
 """
     with pytest.raises(ValidationError) as exc:
         _doc(src)
@@ -175,9 +175,9 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -187,7 +187,7 @@ core_services:
           cpu: 1.0
           memory: 2GB
   worker:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -206,9 +206,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -219,7 +219,7 @@ core_services:
           memory: 2GB
           disk: 25GB
   worker:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -244,11 +244,11 @@ def test_otel_env_vars_injected_on_every_core_service_fixed():
     # Mod 096: the compiled identity is two-segment, and
     # OTEL_SERVICE_NAME follows it (`api-web`, not `api`).
     #
-    # Mod 102: two codebases each naming their process `web` — so
-    # docex.process_type is `web` on both while docex.core_service differs.
+    # Mod 102: two codebases each naming their core service `web` — so
+    # docex.service is `web` on both while docex.codebase differs.
     # That is the useful shape: it catches an implementation that sourced
     # either attribute from the fused compiled name.
-    for svc_name, codebase, process in (
+    for svc_name, codebase, service in (
         ("api-web", "api", "web"),
         ("worker-web", "worker", "web"),
     ):
@@ -262,8 +262,8 @@ def test_otel_env_vars_injected_on_every_core_service_fixed():
         assert "service.namespace=myproj" in attrs
         assert "service.version=1.2.3" in attrs
         assert "deployment.environment.name=dev" in attrs
-        assert f"docex.core_service={codebase}" in attrs
-        assert f"docex.process_type={process}" in attrs
+        assert f"docex.codebase={codebase}" in attrs
+        assert f"docex.service={service}" in attrs
 
 
 def test_otel_env_vars_injected_on_every_core_service_elastic():
@@ -276,7 +276,7 @@ def test_otel_env_vars_injected_on_every_core_service_elastic():
     )
     # Mod 096: the compiled identity is two-segment, and
     # OTEL_SERVICE_NAME follows it (`api-web`, not `api`).
-    for svc_name, codebase, process in (
+    for svc_name, codebase, service in (
         ("api-web", "api", "web"),
         ("worker-web", "worker", "web"),
     ):
@@ -290,8 +290,8 @@ def test_otel_env_vars_injected_on_every_core_service_elastic():
         assert "service.namespace=myproj" in attrs
         assert "service.version=1.2.3" in attrs
         assert "deployment.environment.name=prod" in attrs
-        assert f"docex.core_service={codebase}" in attrs
-        assert f"docex.process_type={process}" in attrs
+        assert f"docex.codebase={codebase}" in attrs
+        assert f"docex.service={service}" in attrs
 
 
 def test_otel_env_vars_not_injected_on_backing_services():
@@ -372,8 +372,8 @@ def test_secret_manifest_telemetry_key_position():
     # postgres declares no `kind: secret` env vars, so key off a core
     # service's own `secrets:` entry instead of a backing one.
     src = _MINIMAL_FIXED.replace(
-        "    processes:\n",
-        "    secrets:\n      API_KEY: \"bespoke api key\"\n    processes:\n",
+        "    core_services:\n",
+        "    secrets:\n      API_KEY: \"bespoke api key\"\n    core_services:\n",
         1,
     )
     manifest = secret_manifest(_doc(src), _tables())
@@ -404,8 +404,8 @@ def test_otel_resource_attributes_format():
         "service.namespace=myproj,"
         "service.version=9.9.9,"
         "deployment.environment.name=stage,"
-        "docex.core_service=api,"
-        "docex.process_type=web"
+        "docex.codebase=api,"
+        "docex.service=web"
     )
 
 
@@ -420,9 +420,9 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -442,12 +442,12 @@ core_services:
 
 
 def test_docex_attributes_decompose_the_fused_identity():
-    """The point of Mod 102's two attributes: one codebase, two process types,
+    """The point of Mod 102's two attributes: one codebase, two core services,
     and BOTH axes queryable on their own.
 
-    `docex.core_service` is identical across the pair (so "every process type
+    `docex.codebase` is identical across the pair (so "every core service
     of `api`" is one exact-match query) while `OTEL_SERVICE_NAME` and
-    `docex.process_type` differ (so "every `worker`" is too). Neither question
+    `docex.service` differ (so "every `worker`" is too). Neither question
     needs a prefix/suffix match on the hyphenated `service.name`.
     """
     compiled = compile_env(
@@ -463,13 +463,13 @@ def test_docex_attributes_decompose_the_fused_identity():
     assert worker["OTEL_SERVICE_NAME"] == "api-worker"
 
     # Same codebase axis...
-    assert "docex.core_service=api" in web["OTEL_RESOURCE_ATTRIBUTES"]
-    assert "docex.core_service=api" in worker["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.codebase=api" in web["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.codebase=api" in worker["OTEL_RESOURCE_ATTRIBUTES"]
     # ...different process axis.
-    assert "docex.process_type=web" in web["OTEL_RESOURCE_ATTRIBUTES"]
-    assert "docex.process_type=worker" in worker["OTEL_RESOURCE_ATTRIBUTES"]
-    assert "docex.process_type=worker" not in web["OTEL_RESOURCE_ATTRIBUTES"]
-    assert "docex.process_type=web" not in worker["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.service=web" in web["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.service=worker" in worker["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.service=worker" not in web["OTEL_RESOURCE_ATTRIBUTES"]
+    assert "docex.service=web" not in worker["OTEL_RESOURCE_ATTRIBUTES"]
 
 
 def test_service_instance_id_set_nowhere():
@@ -480,7 +480,7 @@ def test_service_instance_id_set_nowhere():
 
     Asserted on BOTH compiled env surfaces of every service on both
     foundations, so the claim cannot rot in the codebase-scoped surface while
-    holding in the process-scoped one.
+    holding in the service-scoped one.
     """
     for doc, env in (
         (_multi_core_fixed_doc(), "dev"),

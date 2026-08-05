@@ -2,11 +2,15 @@
 
 A *magic ref* is a compile-time variable in ``infra.yml`` of the form
 
-    ${core_services.<service>.<process>.<part>}     # four segments
-    ${backing_services.<service>.<part>}            # three segments
+    ${codebases.<codebase>.core_services.<service>.<part>}   # five segments
+    ${backing_services.<service>.<part>}                     # three segments
 
 The asymmetry is honest rather than accidental: a backing service has no
-process types, so there is nothing to qualify.
+core service, so there is nothing to qualify.
+
+A core ref is a LITERAL PATH into the document: every segment names a key
+the reader can walk in ``infra.yml``, including the intermediate
+``core_services`` collection. See cicl.md § Magic Refs.
 
 It resolves by:
 
@@ -28,7 +32,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from docex.cicl.model import BackingService, CICLDocument, CoreService, ProcessRef
+from docex.cicl.model import BackingService, CICLDocument, Codebase, ServiceRef
 from docex.cicl.substitute import (
     HCLLiteral,
     RenderedValue,
@@ -39,7 +43,7 @@ from docex.cicl.transfer import EngineEntry, TransferTables
 from docex.errors import SubstitutionError
 
 
-# Matches ANY ``${<kind>.<body>}`` where kind ∈ {core_services,
+# Matches ANY ``${<kind>.<body>}`` where kind ∈ {codebases,
 # backing_services}. Deliberately body-agnostic: whether a string IS a magic
 # ref must be decided independently of whether that ref is WELL-FORMED.
 #
@@ -49,20 +53,27 @@ from docex.errors import SubstitutionError
 # compose/HCL output as literal '${...}' text — silent corruption of
 # infrastructure config rather than a compile error. Claiming every
 # kind-prefixed ref here and arity-checking after the split is what closes it.
-_MAGIC_RE = re.compile(r"\$\{(core_services|backing_services)\.([^{}$]*)\}")
+_MAGIC_RE = re.compile(r"\$\{(codebases|backing_services)\.([^{}$]*)\}")
 
 # Same shape as substitute._RUNTIME_RE — a ``$[VAR]`` runtime ref.
 _RUNTIME_REF_RE = re.compile(r"\$\[([A-Z_][A-Z0-9_]*)\]")
 
 
 # Segment counts are stated the way cicl.md states them — INCLUDING the kind
-# segment. A core ref is four segments; the body this module splits is three.
+# segment. A core ref is five segments; the body this module splits is four.
 _REF_FORM = {
-    "core_services": "${core_services.<service>.<process>.<part>}",
+    "codebases": "${codebases.<codebase>.core_services.<service>.<part>}",
     "backing_services": "${backing_services.<service>.<part>}",
 }
-_REF_BODY_SEGMENTS = {"core_services": 3, "backing_services": 2}
-_REF_SEGMENT_WORD = {"core_services": "four-segment", "backing_services": "three-segment"}
+_REF_BODY_SEGMENTS = {"codebases": 4, "backing_services": 2}
+_REF_SEGMENT_WORD = {"codebases": "five-segment", "backing_services": "three-segment"}
+
+# The literal collection segment a core ref must carry at body position 1.
+# WHY a literal rather than a wildcard: the ref is a path walk, so the segment
+# that names the nested key is part of the grammar, not a name the author
+# chooses. Rejecting anything else here is what makes the pre-1.7.0
+# four-segment form a loud, migratable error instead of a "codebase not found".
+_CORE_COLLECTION = "core_services"
 
 
 class MagicRefArityError(SubstitutionError):
@@ -73,16 +84,19 @@ class MagicRefArityError(SubstitutionError):
 class ParsedMagicRef:
     kind: str
     target: str
-    process: str | None  # None for backing services — they have no processes
+    service: str | None  # None for backing services — they have no core services
     part: str
     raw: str  # the literal "${...}" text, for messages
 
     @property
     def text(self) -> str:
         """Canonical rendering — the form the author should have written."""
-        if self.process is None:
+        if self.service is None:
             return f"${{{self.kind}.{self.target}.{self.part}}}"
-        return f"${{{self.kind}.{self.target}.{self.process}.{self.part}}}"
+        return (
+            f"${{{self.kind}.{self.target}.{_CORE_COLLECTION}."
+            f"{self.service}.{self.part}}}"
+        )
 
 
 @dataclass(frozen=True)
@@ -102,8 +116,10 @@ class MagicRefMatch:
         segs = self.segments
         if len(segs) != _REF_BODY_SEGMENTS[self.kind] or not all(s.strip() for s in segs):
             raise MagicRefArityError(self._arity_message())
-        if self.kind == "core_services":
-            return ParsedMagicRef(self.kind, segs[0], segs[1], segs[2], self.raw)
+        if self.kind == "codebases":
+            if segs[1] != _CORE_COLLECTION:
+                raise MagicRefArityError(self._arity_message())
+            return ParsedMagicRef(self.kind, segs[0], segs[2], segs[3], self.raw)
         return ParsedMagicRef(self.kind, segs[0], None, segs[1], self.raw)
 
     def _arity_message(self) -> str:
@@ -112,19 +128,35 @@ class MagicRefMatch:
             f"magic ref {self.raw} is malformed: `{self.kind}` refs take the "
             f"{_REF_SEGMENT_WORD[self.kind]} form `{_REF_FORM[self.kind]}`."
         )
-        if self.kind == "core_services":
-            if len(segs) == 2 and all(s.strip() for s in segs):
+        if self.kind == "codebases":
+            # The pre-1.7.0 four-segment form, `${codebases.api.web.host}`.
+            # Naming the exact replacement is the whole migration story for
+            # this ref, so spell it out rather than restating the grammar.
+            if len(segs) == 3 and all(s.strip() for s in segs) \
+                    and segs[1] != _CORE_COLLECTION:
                 msg += (
-                    f" Did you mean "
-                    f"${{core_services.{segs[0]}.<process>.{segs[1]}}}?"
+                    f" This looks like the pre-1.7.0 four-segment form. Did "
+                    f"you mean ${{codebases.{segs[0]}.{_CORE_COLLECTION}."
+                    f"{segs[1]}.{segs[2]}}}?"
+                )
+            elif len(segs) == 4 and segs[1] != _CORE_COLLECTION:
+                msg += (
+                    f" Body segment 2 must be the literal "
+                    f"`{_CORE_COLLECTION}`, not {segs[1]!r} — a core ref is a "
+                    f"path walk through the document."
+                )
+            elif len(segs) == 2 and all(s.strip() for s in segs):
+                msg += (
+                    f" Did you mean ${{codebases.{segs[0]}."
+                    f"{_CORE_COLLECTION}.<service>.{segs[1]}}}?"
                 )
             msg += (
-                " A codebase has no single boundary, so a bare core service "
+                " A codebase has no single boundary, so a bare codebase "
                 "name has no answer."
             )
         else:
             msg += (
-                " A backing service has no process types, so there is nothing "
+                " A backing service has no core service, so there is nothing "
                 "to qualify."
             )
             if len(segs) == 3 and all(s.strip() for s in segs):
@@ -134,17 +166,17 @@ class MagicRefMatch:
         return msg + " See cicl.md § Magic Refs."
 
 
-# The self-reference rule, stated once. Two rules forbid a process type from
+# The self-reference rule, stated once. Two rules forbid a core service from
 # pointing at itself — a magic ref (rule 3) and a `consumes` entry (rule 25) —
 # and their messages must state the RULE identically while differing in
 # consequence. A shared constant is what makes that a guarantee rather than a
 # request; the previous form was a docstring asking the next editor to keep
 # them alike.
-_SELF_REF_RULE = "A process type may not reference itself"
+_SELF_REF_RULE = "A core service may not reference itself"
 
 
 def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
-    """cicl.md § Magic Refs — a process type may not reference itself.
+    """cicl.md § Magic Refs — a core service may not reference itself.
 
     Sibling to :func:`self_consumes_message` below (rule 25's self-`consumes`
     clause). Both state ``_SELF_REF_RULE`` and then diverge on consequence.
@@ -154,13 +186,13 @@ def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
         f"type itself. {_SELF_REF_RULE}: "
         f"`provides.{ref.part}` is the *internal* discovery name, so the one "
         f"plausible motive — building an absolute URL to oneself — would not "
-        f"return what you expect. Use `localhost` with the process type's own "
+        f"return what you expect. Use `localhost` with the core service's own "
         f"`port`. See cicl.md § Magic Refs."
     )
 
 
-def self_consumes_message(ref: ProcessRef) -> str:
-    """cicl.md rule 25 — a process type may not consume itself.
+def self_consumes_message(ref: ServiceRef) -> str:
+    """cicl.md rule 25 — a core service may not consume itself.
 
     Lives in this module, beside :func:`self_reference_message`, despite being
     a `consumes` concern rather than a magic-ref one: the two messages must
@@ -168,11 +200,11 @@ def self_consumes_message(ref: ProcessRef) -> str:
     visible to whoever edits either. Do not "tidy" it into validate.py.
     """
     return (
-        f"process type {ref.dotted!r} lists itself in `consumes:`. "
+        f"core service {ref.dotted!r} lists itself in `consumes:`. "
         f"{_SELF_REF_RULE}: a self-edge makes both derivations `consumes` "
-        f"feeds nonsensical — the process type would be its own contract "
+        f"feeds nonsensical — the core service would be its own contract "
         f"provider, and its health fan-out would proxy its own `/health` at "
-        f"`/health/{ref.service}/{ref.process}`. "
+        f"`/health/{ref.codebase}/{ref.service}`. "
         f"See cicl.md § Consumes Relationships."
     )
 
@@ -182,12 +214,12 @@ class MagicRefDependency:
     """One magic ref detected during compile."""
 
     # The COMPILED identity of whatever holds the ref: 'api-web' for a core
-    # process type (Mod 096 re-keyed contexts/engines onto it), the service
+    # core service (Mod 096 re-keyed contexts/engines onto it), the service
     # name for a backing service.
     consumer: str
-    kind: str  # 'core_services' | 'backing_services'
+    kind: str  # 'codebases' | 'backing_services'
     target: str  # service being referenced — the CODEBASE name for core
-    target_process: str | None  # process type; None for backing targets
+    target_service: str | None  # core service; None for backing targets
     part: str  # the provides[] part referenced
 
 
@@ -233,19 +265,19 @@ class MagicRefResolver:
                 kind=m.group(1), body=m.group(2), raw=m.group(0)
             ).parse()  # MagicRefArityError propagates — it IS the message
 
-            # cicl.md § Magic Refs: a process type may not reference itself.
+            # cicl.md § Magic Refs: a core service may not reference itself.
             if (
-                ref.kind == "core_services"
-                and ProcessRef(ref.target, ref.process).compiled == consumer
+                ref.kind == "codebases"
+                and ServiceRef(ref.target, ref.service).compiled == consumer
             ):
                 raise SubstitutionError(self_reference_message(ref, consumer))
 
             self.deps.append(MagicRefDependency(
                 consumer=consumer, kind=ref.kind, target=ref.target,
-                target_process=ref.process, part=ref.part,
+                target_service=ref.service, part=ref.part,
             ))
 
-            key = (ref.kind, ref.target, ref.process, ref.part)
+            key = (ref.kind, ref.target, ref.service, ref.part)
             if key in self._resolving:
                 raise SubstitutionError(
                     f"cyclic magic-ref chain through {ref.text}"
@@ -298,22 +330,22 @@ class MagicRefResolver:
 
     def _resolve_part(self, ref: ParsedMagicRef) -> RenderedValue:
         # `key` is what contexts/engines are keyed on: the two-segment compiled
-        # identity for a core process type (Mod 096), the bare name for a
+        # identity for a core service (Mod 096), the bare name for a
         # backing service.
-        if ref.kind == "core_services":
-            svc = self.doc.core_services.get(ref.target)
+        if ref.kind == "codebases":
+            svc = self.doc.codebases.get(ref.target)
             if svc is None:
                 raise SubstitutionError(
                     f"magic ref {ref.text} -> unknown core service "
-                    f"{ref.target!r}; known: {sorted(self.doc.core_services)}"
+                    f"{ref.target!r}; known: {sorted(self.doc.codebases)}"
                 )
-            if ref.process not in svc.processes:
+            if ref.service not in svc.core_services:
                 raise SubstitutionError(
-                    f"magic ref {ref.text} -> core service {ref.target!r} "
-                    f"declares no process type {ref.process!r}; known: "
-                    f"{sorted(svc.processes)}"
+                    f"magic ref {ref.text} -> codebase {ref.target!r} "
+                    f"declares no core service {ref.service!r}; known: "
+                    f"{sorted(svc.core_services)}"
                 )
-            key = ProcessRef(ref.target, ref.process).compiled
+            key = ServiceRef(ref.target, ref.service).compiled
         elif ref.kind == "backing_services":
             if ref.target not in self.doc.backing_services:
                 raise SubstitutionError(
@@ -322,7 +354,7 @@ class MagicRefResolver:
             key = ref.target
         else:  # pragma: no cover — the pattern admits no other kind
             raise SubstitutionError(
-                f"magic ref kind must be core_services or backing_services, "
+                f"magic ref kind must be codebases or backing_services, "
                 f"got {ref.kind!r}"
             )
 

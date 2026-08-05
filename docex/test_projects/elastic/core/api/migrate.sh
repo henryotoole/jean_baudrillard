@@ -2,10 +2,10 @@
 # migrate.sh — apply database migrations via dbmate.
 # Doctrine: databases.md mandates dbmate for SQL migrations.
 #
-# Runs once per CODEBASE (`schema_owned_by: api`), never per process type.
+# Runs once per CODEBASE (`schema_owned_by: api`), never per core service.
 # It may therefore only read SERVICE-level `env:` — the six DATABASE_*
 # parts below are declared at the `api` service level for exactly this
-# reason. A process-scoped var (SIDECAR_HOST, WORKER_HOST) would simply be
+# reason. A service-scoped var (SIDECAR_HOST, WORKER_HOST) would simply be
 # absent here, silently.
 set -eu
 

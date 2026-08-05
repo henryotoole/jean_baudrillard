@@ -27,6 +27,6 @@ logger = logging.getLogger(__name__)
 
 Application **telemetry** — the structured logs, traces, and metrics you want to query — is emitted through the **OTel SDK**, which auto-discovers the doctrine-injected `OTEL_*` env vars and exports OTLP to the paired collector sidecar (→ the observability backend). Wire your telemetry through the SDK; do **not** also mirror it to stdout/stderr.
 
-**Seeing telemetry in dev:** in `dev`/`test` the sidecar's exporter is `debug`, which dumps every signal to the *sidecar's* stdout — read it with `docker compose logs -f <svc>-<proc>-otelcol`. That is the dev "watch the telemetry" path; no application-side echo is needed.
+**Seeing telemetry in dev:** in `dev`/`test` the sidecar's exporter is `debug`, which dumps every signal to the *sidecar's* stdout — read it with `docker compose logs -f <cb>-<svc>-otelcol`. That is the dev "watch the telemetry" path; no application-side echo is needed.
 
 **Reserve stdout/stderr for Class-2 diagnostics:** crash output, panics, pre-SDK-init messages, and shell scripts (`migrate.sh`). These can't go through the SDK and are exactly what `docker logs` (fixed) / CloudWatch (elastic) exist to capture. The `basicConfig` stub above is fine for that diagnostic logging — just don't route application *telemetry* through a stdout handler in addition to the SDK.

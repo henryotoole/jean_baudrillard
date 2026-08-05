@@ -9,13 +9,13 @@ infra.yml plus the transfer tables and the foundation context:
     Rule 4: engines known + match foundation.
     Rule 6: no depends_on cycles.
     Rule 7: magic-ref-implied edges — `depends_on` for a backing target,
-            `consumes` for a core process type.
+            `consumes` for a core service.
     Rule 8: relational_db has valid schema_owned_by.
     Rule 9: container_registry set on fixed foundation.
     Rule 10: every core service has cpu+memory (covered by pydantic;
              re-checked here as defense-in-depth).
     Rule 11: resources.gpu not declared under elastic foundation.
-    Rule 25: `consumes` names core process types, fully qualified as
+    Rule 25: `consumes` names core service, fully qualified as
              `<service>.<process>`, and never itself.
 
 Field validation (rule 4 in transfer_tables.md: every role-specific
@@ -40,9 +40,9 @@ from docex.cicl.magic_refs import (
 from docex.cicl.model import (
     BackingService,
     CICLDocument,
+    Codebase,
+    ServiceRef,
     CoreService,
-    ProcessRef,
-    ProcessType,
 )
 from docex.cicl.transfer import TransferTables
 from docex.errors import ValidationIssue
@@ -50,10 +50,10 @@ from docex.errors import ValidationIssue
 
 # Standard CICL service fields (not subject to "must be declared in
 # engine.fields" check).
-# Service level is model-enforced (CoreService.extra="forbid"); listed for
+# Service level is model-enforced (Codebase.extra="forbid"); listed for
 # documentation only.
-_STANDARD_SERVICE_FIELDS = {"processes", "secrets", "config", "env"}
-# Process level: everything ProcessType declares as a real field. Anything
+_STANDARD_SERVICE_FIELDS = {"core_services", "secrets", "config", "env"}
+# Process level: everything CoreService declares as a real field. Anything
 # else must be declared in the engine's `fields:` block (tt rule 4).
 _STANDARD_PROCESS_FIELDS = {
     "role", "command", "networks", "depends_on", "consumes", "port", "env",
@@ -65,14 +65,14 @@ _STANDARD_BACKING_FIELDS = {
 }
 
 
-def _process_where(svc_name: str, proc_name: str) -> str:
-    """The canonical ``where=`` path of one core process type."""
-    return f"core_services.{svc_name}.processes.{proc_name}"
+def _service_where(svc_name: str, service_name: str) -> str:
+    """The canonical ``where=`` path of one core service."""
+    return f"codebases.{svc_name}.core_services.{service_name}"
 
 
-def _effective_env(svc: CoreService, proc: ProcessType) -> dict[str, Any]:
-    """A process type's effective env: the codebase-scoped service-level
-    ``env:`` block with the process-level ``env:`` merged over it
+def _effective_env(svc: Codebase, proc: CoreService) -> dict[str, Any]:
+    """A core service's effective env: the codebase-scoped service-level
+    ``env:`` block with the service-level ``env:`` merged over it
     (cicl.md § Field scoping)."""
     out: dict[str, Any] = dict(svc.env or {})
     out.update(proc.env or {})
@@ -110,7 +110,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_container_registry(doc))
     issues.extend(_validate_resources(doc))
     issues.extend(_validate_rendered_identity(doc))
-    issues.extend(_validate_domain_default_process(doc))
+    issues.extend(_validate_domain_default_service(doc))
     issues.extend(_validate_web_service_ports(doc))
     issues.extend(_validate_process_role_rules(doc))
     issues.extend(_validate_env_secrets_config_overlap(doc))
@@ -136,15 +136,15 @@ def _validate_roles_and_engines(
     doc: CICLDocument, tables: TransferTables
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    # `role` is per-process type in CICL v2, so role/engine resolution is too.
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
-        where = _process_where(svc_name, proc_name)
-        label = ProcessRef(svc_name, proc_name).dotted
+    # `role` is per-core service in CICL v2, so role/engine resolution is too.
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
+        where = _service_where(svc_name, service_name)
+        label = ServiceRef(svc_name, service_name).dotted
         if proc.role not in tables.by_role:
             issues.append(ValidationIssue(
                 rule="rule_2_unknown_role",
                 message=(
-                    f"core process type {label!r} uses unknown role "
+                    f"core service {label!r} uses unknown role "
                     f"{proc.role!r}"
                 ),
                 where=where,
@@ -157,7 +157,7 @@ def _validate_roles_and_engines(
             issues.append(ValidationIssue(
                 rule="rule_2_role_has_no_engines",
                 message=(
-                    f"core process type {label!r} role {proc.role!r} has no "
+                    f"core service {label!r} role {proc.role!r} has no "
                     f"engines defined"
                 ),
                 where=where,
@@ -225,7 +225,7 @@ def _validate_role_specific_fields(
         if isinstance(svc, BackingService):
             engines = svc.engine if isinstance(svc.engine, list) else [svc.engine]
         else:
-            # Core process types have a single canonical engine per role. We
+            # Core core services have a single canonical engine per role. We
             # just check the union of fields across all engines of the role.
             engines = list(tables.role(role).keys())
 
@@ -253,12 +253,12 @@ def _validate_role_specific_fields(
                     where=f"{where_base}.{fname}",
                 ))
 
-    # The service level needs no walk — CoreService forbids extras outright,
+    # The service level needs no walk — Codebase forbids extras outright,
     # so a stray service-level field is a parse error, not an issue here.
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
         check(
-            ProcessRef(svc_name, proc_name).dotted, proc, "core_services",
-            _STANDARD_PROCESS_FIELDS, _process_where(svc_name, proc_name),
+            ServiceRef(svc_name, service_name).dotted, proc, "codebases",
+            _STANDARD_PROCESS_FIELDS, _service_where(svc_name, service_name),
         )
     for name, svc in sorted(doc.backing_services.items()):
         check(
@@ -286,7 +286,7 @@ def _validate_magic_refs(
         """Rule 3 + rule 7 over one referencer's templates.
 
         Rule 7 is kind-aware: ``depends_on`` answers it for a backing target,
-        ``consumes`` answers it for a core process type. ``consumes=None``
+        ``consumes`` answers it for a core service. ``consumes=None``
         means the referencer is a *backing service*, which cannot answer it at
         all — see the core branch below for why that is rule 7 correctly not
         applying rather than a hole in it.
@@ -304,15 +304,15 @@ def _validate_magic_refs(
                     continue
 
                 # --- core target -------------------------------------------
-                if ref.kind == "core_services":
-                    if own_ref is not None and (ref.target, ref.process) == own_ref:
+                if ref.kind == "codebases":
+                    if own_ref is not None and (ref.target, ref.service) == own_ref:
                         issues.append(ValidationIssue(
                             rule="rule_3_self_magic_ref",
                             message=self_reference_message(ref, label),
                             where=where_label,
                         ))
                         continue
-                    target_core = doc.core_services.get(ref.target)
+                    target_core = doc.codebases.get(ref.target)
                     if target_core is None:
                         issues.append(ValidationIssue(
                             rule="rule_3_unresolved_magic_ref",
@@ -323,15 +323,15 @@ def _validate_magic_refs(
                             where=where_label,
                         ))
                         continue
-                    target_proc = target_core.processes.get(ref.process)
+                    target_proc = target_core.core_services.get(ref.service)
                     if target_proc is None:
                         issues.append(ValidationIssue(
                             rule="rule_3_unresolved_magic_ref",
                             message=(
-                                f"magic ref {ref.text} in {label!r}: core "
-                                f"service {ref.target!r} declares no process "
-                                f"type {ref.process!r}; known: "
-                                f"{sorted(target_core.processes)}"
+                                f"magic ref {ref.text} in {label!r}: codebase "
+                                f"{ref.target!r} declares no core service "
+                                f"{ref.service!r}; known: "
+                                f"{sorted(target_core.core_services)}"
                             ),
                             where=where_label,
                         ))
@@ -368,12 +368,12 @@ def _validate_magic_refs(
                     # web/worker topology in existence.
                     if consumes is None:
                         # A backing service holds this ref. Rule 7 is worded
-                        # "on the referencing PROCESS TYPE"; a backing service
+                        # "on the referencing CORE SERVICE"; a backing service
                         # has no `consumes:` and (rule 24) may not depends_on a
                         # core service, so there is nothing it could declare.
                         # WHY skipped rather than rejected: the ref can be
                         # perfectly legitimate — an object_store CORS origin set
-                        # to ${core_services.api.web.host} — and it is not a
+                        # to ${codebases.api.core_services.web.host} — and it is not a
                         # CALL. Embedding a hostname in your own config implies
                         # no readiness coupling and crosses no interface
                         # boundary, so there is nothing for either relation to
@@ -381,10 +381,10 @@ def _validate_magic_refs(
                         # hole in it. Pinned by
                         # test_consumes_relation.py::test_backing_referencer_*.
                         continue
-                    dotted = ProcessRef(ref.target, ref.process).dotted
+                    dotted = ServiceRef(ref.target, ref.service).dotted
                     if dotted not in consumes:
                         msg = (
-                            f"process type {label!r} references {dotted!r} via "
+                            f"core service {label!r} references {dotted!r} via "
                             f"{ref.text} but does not list it in consumes"
                         )
                         if own_ref is not None and ref.target == own_ref[0]:
@@ -458,12 +458,12 @@ def _validate_magic_refs(
                         where=where_label,
                     ))
 
-    # Core: one scan per process type, over its EFFECTIVE env (service-level
-    # merged under process-level). A service-level `env:` ref therefore
-    # obliges EVERY process type of that codebase to carry the edge ITS KIND
+    # Core: one scan per core service, over its EFFECTIVE env (service-level
+    # merged under service-level). A service-level `env:` ref therefore
+    # obliges EVERY core service of that codebase to carry the edge ITS KIND
     # CALLS FOR — `depends_on` for a backing target, `consumes` for a core
     # one — cicl.md § Consumes Relationships § Three clarifications.
-    for svc_name, proc_name, svc, proc in doc.all_processes():
+    for svc_name, service_name, svc, proc in doc.all_core_services():
         templates: list[str] = []
         for v in _effective_env(svc, proc).values():
             if isinstance(v, str):
@@ -478,9 +478,9 @@ def _validate_magic_refs(
         for v in (proc.model_extra or {}).values():
             templates.extend(walk_strings(v))
         scan(
-            ProcessRef(svc_name, proc_name).dotted,
-            _process_where(svc_name, proc_name),
-            (svc_name, proc_name),
+            ServiceRef(svc_name, service_name).dotted,
+            _service_where(svc_name, service_name),
+            (svc_name, service_name),
             templates,
             list(proc.depends_on or []),
             proc.consumes_refs(),
@@ -517,17 +517,17 @@ def _validate_magic_refs(
 
 def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    all_services = doc.all_services()
+    all_authored = doc.all_authored()
 
     def check_edges(label: str, where: str, deps: list[str]) -> None:
         for dep in deps or []:
-            if dep not in all_services:
+            if dep not in all_authored:
                 issues.append(ValidationIssue(
                     rule="rule_6_unknown_depends_on",
                     message=f"service {label!r} depends_on unknown service {dep!r}",
                     where=where,
                 ))
-            elif dep in doc.core_services:
+            elif dep in doc.codebases:
                 # Rule 24 (Mod 096).
                 issues.append(ValidationIssue(
                     rule="rule_24_depends_on_core_service",
@@ -535,25 +535,25 @@ def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
                         f"{label!r} declares depends_on: [{dep!r}], "
                         f"which is a core service. `depends_on` is a readiness gate and "
                         f"names backing services ONLY. Interface coupling between core "
-                        f"process types is a different relation with different rules and "
+                        f"core service is a different relation with different rules and "
                         f"lives in `consumes:`. "
                         f"See cicl.md § Depends-On Relationships."
                     ),
                     where=f"{where}.depends_on",
                 ))
 
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
         check_edges(
-            f"core process type {ProcessRef(svc_name, proc_name).dotted}",
-            _process_where(svc_name, proc_name),
+            f"core service {ServiceRef(svc_name, service_name).dotted}",
+            _service_where(svc_name, service_name),
             list(proc.depends_on or []),
         )
     for name, svc in sorted(doc.backing_services.items()):
         check_edges(name, name, list(svc.depends_on or []))
 
     # Cycle detection (rule 6) over the BACKING-service graph only. With
-    # rule 24 in force a core process type can only point at a backing
-    # service, so core process types are leaves and cannot participate in
+    # rule 24 in force a core service can only point at a backing
+    # service, so core services are leaves and cannot participate in
     # a cycle.
     backing = doc.backing_services
     WHITE, GRAY, BLACK = 0, 1, 2
@@ -582,24 +582,24 @@ def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 25: `consumes` names core process types, fully qualified, not itself.
+# Rule 25: `consumes` names core service, fully qualified, not itself.
 # ---------------------------------------------------------------------------
 
 
 def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 25. `ProcessRef.parse` is the parser — Mod 096 already wrote the
+    """Rule 25. `ServiceRef.parse` is the parser — Mod 096 already wrote the
     bare-name-is-illegal rule and its reasoning into it, and a second parser
     would be a second place for that rule to drift."""
     issues: list[ValidationIssue] = []
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
-        label = ProcessRef(svc_name, proc_name).dotted
-        where = f"{_process_where(svc_name, proc_name)}.consumes"
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
+        label = ServiceRef(svc_name, service_name).dotted
+        where = f"{_service_where(svc_name, service_name)}.consumes"
 
         def backing_message(entry: str, label: str = label) -> str:
             return (
-                f"process type {label!r} lists {entry!r} in `consumes:`, which "
+                f"core service {label!r} lists {entry!r} in `consumes:`, which "
                 f"names the backing service {entry.split('.')[0]!r}. `consumes` "
-                f"is an interface edge between core process types; readiness "
+                f"is an interface edge between core service; readiness "
                 f"coupling to a backing service lives in `depends_on:`. "
                 f"See cicl.md § Depends-On Relationships."
             )
@@ -616,12 +616,12 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                 ))
                 continue
             try:
-                ref = ProcessRef.parse(raw)
+                ref = ServiceRef.parse(raw)
             except ValueError as exc:
                 issues.append(ValidationIssue(
                     rule="rule_25_consumes_malformed",
                     message=(
-                        f"process type {label!r}: invalid `consumes:` entry — "
+                        f"core service {label!r}: invalid `consumes:` entry — "
                         f"{exc} Rule 25 requires the same fully-qualified form "
                         f"(cicl.md § Consumes Relationships)."
                     ),
@@ -630,20 +630,20 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                 continue
             # Before the existence check: an author who consumes themselves
             # should get the self message, not a redundant pair.
-            if (ref.service, ref.process) == (svc_name, proc_name):
+            if (ref.codebase, ref.service) == (svc_name, service_name):
                 issues.append(ValidationIssue(
                     rule="rule_25_self_consumes",
                     message=self_consumes_message(ref), where=where,
                 ))
                 continue
-            target = doc.core_services.get(ref.service)
+            target = doc.codebases.get(ref.codebase)
             if target is None:
                 message = (
-                    backing_message(raw) if ref.service in doc.backing_services
+                    backing_message(raw) if ref.codebase in doc.backing_services
                     else (
-                        f"process type {label!r} lists {raw!r} in `consumes:`, "
-                        f"but no core service {ref.service!r} is declared; "
-                        f"known: {sorted(doc.core_services)}"
+                        f"core service {label!r} lists {raw!r} in `consumes:`, "
+                        f"but no codebase {ref.codebase!r} is declared; "
+                        f"known: {sorted(doc.codebases)}"
                     )
                 )
                 issues.append(ValidationIssue(
@@ -651,24 +651,24 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                     message=message, where=where,
                 ))
                 continue
-            if ref.process not in target.processes:
+            if ref.service not in target.core_services:
                 issues.append(ValidationIssue(
                     rule="rule_25_unresolved_consumes",
                     message=(
-                        f"process type {label!r} lists {raw!r} in `consumes:`, "
-                        f"but core service {ref.service!r} declares no process "
-                        f"type {ref.process!r}; known: "
-                        f"{sorted(target.processes)}"
+                        f"core service {label!r} lists {raw!r} in `consumes:`, "
+                        f"but codebase {ref.codebase!r} declares no core service "
+                        f"type {ref.service!r}; known: "
+                        f"{sorted(target.core_services)}"
                     ),
                     where=where,
                 ))
                 continue
-            if target.processes[ref.process].role == "scheduler":
+            if target.core_services[ref.service].role == "scheduler":
                 issues.append(ValidationIssue(
                     rule="rule_25_consumes_scheduler",
                     message=(
-                        f"process type {label!r} lists {raw!r} in `consumes:`, but "
-                        f"{raw!r} is a `scheduler` process type. Cron invokes a "
+                        f"core service {label!r} lists {raw!r} in `consumes:`, but "
+                        f"{raw!r} is a `scheduler` core service. Cron invokes a "
                         f"scheduler and nobody else does, so it exposes no boundary "
                         f"to consume — and it is exempt from the health fan-out that "
                         f"`consumes` drives. See cicl.md rule 25 and "
@@ -699,7 +699,7 @@ def _validate_schema_owned_by(doc: CICLDocument) -> list[ValidationIssue]:
                 where=f"backing_services.{name}",
             ))
             continue
-        if owner not in doc.core_services:
+        if owner not in doc.codebases:
             issues.append(ValidationIssue(
                 rule="rule_8_schema_owned_by_unknown",
                 message=(
@@ -735,14 +735,14 @@ def _validate_container_registry(doc: CICLDocument) -> list[ValidationIssue]:
 
 def _validate_resources(doc: CICLDocument) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
-        where = _process_where(svc_name, proc_name)
-        label = ProcessRef(svc_name, proc_name).dotted
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
+        where = _service_where(svc_name, service_name)
+        label = ServiceRef(svc_name, service_name).dotted
         # Rule 10 (defense in depth): resources required.
         if proc.resources is None:  # pragma: no cover - pydantic enforces this
             issues.append(ValidationIssue(
                 rule="rule_10_resources_required",
-                message=f"core process type {label!r} must declare resources",
+                message=f"core service {label!r} must declare resources",
                 where=where,
             ))
             continue
@@ -751,7 +751,7 @@ def _validate_resources(doc: CICLDocument) -> list[ValidationIssue]:
             issues.append(ValidationIssue(
                 rule="rule_11_no_gpu_on_elastic",
                 message=(
-                    f"core process type {label!r}: resources.gpu is not "
+                    f"core service {label!r}: resources.gpu is not "
                     f"supported on elastic foundation (Fargate)"
                 ),
                 where=where,
@@ -789,7 +789,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     *compiler* appends — ``-otelcol`` (collector sidecar), ``-scheduler``
     (Ofelia trigger), ``-exec`` (per-codebase operations container) and
     ``-migrate`` (migration task definition). They render into the same
-    namespace as the services the author wrote, so a process type named
+    namespace as the services the author wrote, so a core service named
     ``exec`` on codebase ``api`` produces ``api-exec``, byte-identical to
     ``api``'s exec container — one compose key, one silently clobbering the
     other. Three of the four holes predate Mod 099; the rule is keyed on
@@ -797,29 +797,29 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     every suffix the compiler learns in future with no further edit.
 
     Mod 100 added the fifth such derivative — the ``-1``…``-N`` replica index
-    the fixed-prod compose unroll appends — seeded only where the process type
+    the fixed-prod compose unroll appends — seeded only where the core service
     declares ``replicas > 1``. See the comment at its seeding site.
     """
     buckets: dict[str, list[str]] = {}
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
-        ref = ProcessRef(svc_name, proc_name)
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
+        ref = ServiceRef(svc_name, service_name)
         buckets.setdefault(_normalized_identity(ref.compiled), []).append(
-            f"core process type {ref.dotted!r}"
+            f"core service {ref.dotted!r}"
         )
-        # Compiler-emitted, per process type. A scheduler has no long-running
+        # Compiler-emitted, per core service. A scheduler has no long-running
         # container to pair a collector with; it gets an Ofelia trigger
-        # instead. Exactly one of the two suffixes exists per process type.
+        # instead. Exactly one of the two suffixes exists per core service.
         if proc.role == "scheduler":
             buckets.setdefault(
                 _normalized_identity(f"{ref.compiled}-scheduler"), []
-            ).append(f"the scheduler trigger for core process type {ref.dotted!r}")
+            ).append(f"the scheduler trigger for core service {ref.dotted!r}")
         else:
             buckets.setdefault(
                 _normalized_identity(f"{ref.compiled}-otelcol"), []
-            ).append(f"the collector sidecar for core process type {ref.dotted!r}")
+            ).append(f"the collector sidecar for core service {ref.dotted!r}")
         # Mod 100: the replica index. On fixed-prod the compiler unrolls a
-        # process type with `replicas: N` into N compose services keyed
-        # `{compiled}-{i}`, so `api` with process types `web` (replicas: 3)
+        # core service with `replicas: N` into N compose services keyed
+        # `{compiled}-{i}`, so `api` with core service `web` (replicas: 3)
         # and `web-1` renders `api-web-1` twice — one container silently
         # clobbering the other, in prod-fixed only, which is the worst place
         # to discover it.
@@ -829,7 +829,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
         # collides with nothing. Unlike `-migrate` (seeded unconditionally
         # because whether it exists depends on a DIFFERENT service's
         # `schema_owned_by` — action at a distance), bumping `replicas` is an
-        # edit on this very process type, so the error surfaces in the
+        # edit on this very core service, so the error surfaces in the
         # reader's hand at the moment they create the collision.
         #
         # Seeding the container identity alone is sufficient: a sidecar
@@ -841,7 +841,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
                 buckets.setdefault(
                     _normalized_identity(f"{ref.compiled}-{i}"), []
                 ).append(
-                    f"replica {i} of core process type {ref.dotted!r}"
+                    f"replica {i} of core service {ref.dotted!r}"
                 )
     for name in sorted(doc.backing_services):
         buckets.setdefault(_normalized_identity(name), []).append(
@@ -852,7 +852,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     # a property of a *backing* service's `schema_owned_by` and can be added
     # later without touching the codebase — a name that would collide the
     # moment it is should not be legal in the meantime.
-    for codebase in sorted(doc.core_services):
+    for codebase in sorted(doc.codebases):
         buckets.setdefault(
             _normalized_identity(f"{codebase}-exec"), []
         ).append(f"the exec container for codebase {codebase!r}")
@@ -870,7 +870,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
                 f"{' and '.join(sorted(members))} both render into the same "
                 f"data-plane identity {rendered!r}. Every emitted service "
                 f"shares the {{project}}_{{env}} prefix, so the suffix must be "
-                f"unique across core process types, backing services, and the "
+                f"unique across core service, backing services, and the "
                 f"derivatives the compiler appends to them (-otelcol, "
                 f"-scheduler, -exec, -migrate, and the -1..-N replica index) "
                 f"after naming-policy normalization (hyphenate + lowercase). "
@@ -886,69 +886,69 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
 # ---------------------------------------------------------------------------
 
 
-def _validate_domain_default_process(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 12: ``domain_default_process`` names a web-network *process
+def _validate_domain_default_service(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 12: ``domain_default_service`` names a web-network *process
     type*, dotted (``api.web``)."""
-    ddp = doc.domain_default_process
+    ddp = doc.domain_default_service
     if ddp is None:
         return []
     try:
-        ref = ProcessRef.parse(ddp)
+        ref = ServiceRef.parse(ddp)
     except ValueError as exc:
         return [ValidationIssue(
             rule="rule_domain_default_malformed",
-            message=f"domain_default_process {ddp!r}: {exc}",
-            where="domain_default_process",
+            message=f"domain_default_service {ddp!r}: {exc}",
+            where="domain_default_service",
         )]
-    svc = doc.core_services.get(ref.service)
+    svc = doc.codebases.get(ref.codebase)
     if svc is None:
         return [ValidationIssue(
             rule="rule_domain_default_unknown",
             message=(
-                f"domain_default_process {ddp!r} names core service "
-                f"{ref.service!r}, which is not declared"
+                f"domain_default_service {ddp!r} names codebase "
+                f"{ref.codebase!r}, which is not declared"
             ),
-            where="domain_default_process",
+            where="domain_default_service",
         )]
-    proc = svc.processes.get(ref.process)
+    proc = svc.core_services.get(ref.service)
     if proc is None:
         return [ValidationIssue(
             rule="rule_domain_default_unknown",
             message=(
-                f"domain_default_process {ddp!r}: core service "
-                f"{ref.service!r} declares no process type {ref.process!r} "
-                f"(known: {sorted(svc.processes)})"
+                f"domain_default_service {ddp!r}: codebase "
+                f"{ref.codebase!r} declares no core service {ref.service!r} "
+                f"(known: {sorted(svc.core_services)})"
             ),
-            where="domain_default_process",
+            where="domain_default_service",
         )]
     if "web" not in proc.networks:
         return [ValidationIssue(
             rule="rule_domain_default_not_web",
             message=(
-                f"domain_default_process {ddp!r} must be on the 'web' network "
-                f"(only web process types are reachable at a subdomain)"
+                f"domain_default_service {ddp!r} must be on the 'web' network "
+                f"(only web core services are reachable at a subdomain)"
             ),
-            where="domain_default_process",
+            where="domain_default_service",
         )]
     return []
 
 
 def _validate_web_service_ports(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 15: every web-network process type / backing service must declare
+    """Rule 15: every web-network core service / backing service must declare
     a port — the reverse proxy (Traefik / ALB) needs the container port to
     route to."""
     issues: list[ValidationIssue] = []
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
         if "web" in proc.networks and proc.port is None:
             issues.append(ValidationIssue(
                 rule="rule_web_service_needs_port",
                 message=(
-                    f"core process type "
-                    f"{ProcessRef(svc_name, proc_name).dotted!r} is on the "
+                    f"core service "
+                    f"{ServiceRef(svc_name, service_name).dotted!r} is on the "
                     f"'web' network and must declare a port (the reverse "
                     f"proxy routes to it)"
                 ),
-                where=_process_where(svc_name, proc_name),
+                where=_service_where(svc_name, service_name),
             ))
     for name, svc in sorted(doc.backing_services.items()):
         if "web" in svc.networks and svc.port is None:
@@ -971,8 +971,8 @@ def _validate_env_secrets_config_overlap(doc: CICLDocument) -> list[ValidationIs
     so a shared key is ambiguous."""
     issues: list[ValidationIssue] = []
     # `secrets:` and `config:` are both service-level, so their overlap is a
-    # service-level fact — reported once, not once per process type.
-    for name, svc in sorted(doc.core_services.items()):
+    # service-level fact — reported once, not once per core service.
+    for name, svc in sorted(doc.codebases.items()):
         for key in sorted(set(svc.secrets or {}) & set(svc.config or {})):
             issues.append(ValidationIssue(
                 rule="rule_env_secrets_config_overlap",
@@ -980,21 +980,21 @@ def _validate_env_secrets_config_overlap(doc: CICLDocument) -> list[ValidationIs
                     f"core service {name!r}: key {key!r} appears in both "
                     f"`secrets:` and `config:` — declare it in exactly one"
                 ),
-                where=f"core_services.{name}",
+                where=f"codebases.{name}",
             ))
-    for svc_name, proc_name, svc, proc in doc.all_processes():
+    for svc_name, service_name, svc, proc in doc.all_core_services():
         env_keys = set(_effective_env(svc, proc))
         for other in ("secrets", "config"):
             for key in sorted(env_keys & set(getattr(svc, other) or {})):
                 issues.append(ValidationIssue(
                     rule="rule_env_secrets_config_overlap",
                     message=(
-                        f"core process type "
-                        f"{ProcessRef(svc_name, proc_name).dotted!r}: key "
+                        f"core service "
+                        f"{ServiceRef(svc_name, service_name).dotted!r}: key "
                         f"{key!r} appears in both `env:` and `{other}:` — "
                         f"declare it in exactly one"
                     ),
-                    where=_process_where(svc_name, proc_name),
+                    where=_service_where(svc_name, service_name),
                 ))
     return issues
 
@@ -1026,7 +1026,7 @@ def _engine_for_service(
     """Resolve the engine entry that applies to ``svc`` under ``foundation``.
 
     ``svc`` is a :class:`BackingService` (walk its ``engine:`` candidates)
-    or a :class:`ProcessType` (delegate to :func:`_engine_for_role`).
+    or a :class:`CoreService` (delegate to :func:`_engine_for_role`).
     """
     if not isinstance(svc, BackingService):
         return _engine_for_role(svc.role, tables, foundation)
@@ -1062,18 +1062,18 @@ def _validate_emits(
     if doc.foundation == "elastic":
         project_foundations.append("elastic")
 
-    # (label, where, model) over backing services plus core process types —
+    # (label, where, model) over backing services plus core service —
     # `role`, and therefore the engine, is per-process in CICL v2.
     targets: list[tuple[str, str, Any]] = [
         (name, name, svc) for name, svc in doc.backing_services.items()
     ]
     targets.extend(
         (
-            ProcessRef(svc_name, proc_name).dotted,
-            _process_where(svc_name, proc_name),
+            ServiceRef(svc_name, service_name).dotted,
+            _service_where(svc_name, service_name),
             proc,
         )
-        for svc_name, proc_name, _svc, proc in doc.all_processes()
+        for svc_name, service_name, _svc, proc in doc.all_core_services()
     )
 
     seen_engines: set[tuple[str, str]] = set()
@@ -1232,21 +1232,21 @@ def _validate_reserved_env_keys(
     from docex.cicl.categories import DOCTRINE_INJECTED_SECRETS
 
     issues: list[ValidationIssue] = []
-    for svc_name, svc in sorted(doc.core_services.items()):
+    for svc_name, svc in sorted(doc.codebases.items()):
         # (source label, where suffix, key set). The service-level blocks are
-        # reported once for the codebase; each process type's own `env:` is
-        # reported against that process. Deduped by construction: a
-        # service-level key is never re-reported per process.
+        # reported once for the codebase; each core service's own `env:` is
+        # reported against that core service. Deduped by construction: a
+        # codebase-level key is never re-reported per core service.
         sources: list[tuple[str, str, set[str]]] = [
-            ("env", f"core_services.{svc_name}.env", set(svc.env or {})),
-            ("secrets", f"core_services.{svc_name}.secrets", set(svc.secrets or {})),
-            ("config", f"core_services.{svc_name}.config", set(svc.config or {})),
+            ("env", f"codebases.{svc_name}.env", set(svc.env or {})),
+            ("secrets", f"codebases.{svc_name}.secrets", set(svc.secrets or {})),
+            ("config", f"codebases.{svc_name}.config", set(svc.config or {})),
         ]
-        for proc_name in sorted(svc.processes):
-            proc = svc.processes[proc_name]
+        for service_name in sorted(svc.core_services):
+            proc = svc.core_services[service_name]
             sources.append((
                 "env",
-                f"{_process_where(svc_name, proc_name)}.env",
+                f"{_service_where(svc_name, service_name)}.env",
                 set(proc.env or {}),
             ))
         for source, where, block_keys in sources:
@@ -1254,7 +1254,7 @@ def _validate_reserved_env_keys(
                 issues.append(ValidationIssue(
                     rule="rule_reserved_env_key",
                     message=(
-                        f"core service {svc_name!r} declares "
+                        f"codebase {svc_name!r} declares "
                         f"{key!r} under `{source}:`. This name is "
                         f"doctrine-reserved: docex auto-injects it "
                         f"on every core service. Remove the "
@@ -1383,7 +1383,7 @@ def _validate_service_name_blacklist(doc: CICLDocument) -> list[ValidationIssue]
     ``stage``, ``prod``, or ``www`` — they collide with the canonical domain
     anatomy."""
     issues: list[ValidationIssue] = []
-    for name in sorted(doc.all_services()):
+    for name in sorted(doc.all_authored()):
         if name in _RESERVED_SERVICE_NAMES:
             issues.append(ValidationIssue(
                 rule="rule_14_service_name_blacklist",
@@ -1400,22 +1400,22 @@ def _validate_service_name_blacklist(doc: CICLDocument) -> list[ValidationIssue]
     # is bound by the same blacklist: `api` + a process named `prod` renders
     # `api-prod.dev.<project>.<apex>`, which reads as a production host
     # inside a dev environment.
-    for svc_name, proc_name, _svc, _proc in doc.all_processes():
-        if proc_name in _RESERVED_SERVICE_NAMES:
+    for svc_name, service_name, _svc, _proc in doc.all_core_services():
+        if service_name in _RESERVED_SERVICE_NAMES:
             issues.append(ValidationIssue(
                 rule="rule_14_service_name_blacklist",
                 message=(
-                    f"process name {proc_name!r} (on core service "
+                    f"process name {service_name!r} (on core service "
                     f"{svc_name!r}) is reserved (one of "
                     f"{sorted(_RESERVED_SERVICE_NAMES)}). Per cicl.md § "
                     f"Validation Rules rule 14, these collide with the "
                     f"canonical domain anatomy "
                     f"<service>-<process>.<env>.<project>.<apex_domain>: a "
-                    f"process named {proc_name!r} renders "
-                    f"{svc_name}-{proc_name}.dev.<project>.<apex_domain>, "
+                    f"process named {service_name!r} renders "
+                    f"{svc_name}-{service_name}.dev.<project>.<apex_domain>, "
                     f"which reads as a production host in a dev environment."
                 ),
-                where=_process_where(svc_name, proc_name),
+                where=_service_where(svc_name, service_name),
             ))
     return issues
 
@@ -1445,33 +1445,33 @@ def _validate_reverse_proxy_field(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
-    """Mod 055: a ``scheduler`` core process type must declare a
+    """Mod 055: a ``scheduler`` core service must declare a
     well-formed 5-field cron ``schedule``.
 
-    ``schedule`` on a *non*-scheduler process type is already rejected by
+    ``schedule`` on a *non*-scheduler core service is already rejected by
     rule 4 (``tt_rule_4_undeclared_field``) since only ``scheduler/
     container`` declares it as a role-specific field. Here we add the
     scheduler-side requirement and surface a malformed cron at compile
     time rather than at apply / job-run time.
 
-    The command-required half is gone: ``ProcessType.command`` is required
-    and non-empty on EVERY process type (rule 23), so the check would be
+    The command-required half is gone: ``CoreService.command`` is required
+    and non-empty on EVERY core service (rule 23), so the check would be
     unreachable.
     """
     from docex.cicl.cron import cron_validation_issue
 
     issues: list[ValidationIssue] = []
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
         if proc.role != "scheduler":
             continue
-        where = f"{_process_where(svc_name, proc_name)}.schedule"
+        where = f"{_service_where(svc_name, service_name)}.schedule"
         schedule = (proc.model_extra or {}).get("schedule")
         if not isinstance(schedule, str) or not schedule.strip():
             issues.append(ValidationIssue(
                 rule="rule_scheduler_schedule_required",
                 message=(
-                    f"scheduler process type "
-                    f"{ProcessRef(svc_name, proc_name).dotted!r} must declare "
+                    f"scheduler core service "
+                    f"{ServiceRef(svc_name, service_name).dotted!r} must declare "
                     f"a non-empty `schedule` (a 5-field cron expression)"
                 ),
                 where=where,
@@ -1488,8 +1488,8 @@ def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
 # ---------------------------------------------------------------------------
 
 
-# Roles that never take public ingress. A process type wanting it *is* a web
-# process type and should say so with `role: web`.
+# Roles that never take public ingress. A core service wanting it *is* a web
+# core service and should say so with `role: web`.
 _NON_WEB_ROLES = frozenset({"worker", "scheduler"})
 
 
@@ -1501,22 +1501,22 @@ def _validate_process_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
     rejected on every non-scheduler role — inert fields fail rather than being
     silently ignored.
 
-    Rule 27: a `worker` or `scheduler` process type may not declare `web` in
-    `networks`. A process type wanting public ingress *is* a web process type
+    Rule 27: a `worker` or `scheduler` core service may not declare `web` in
+    `networks`. A core service wanting public ingress *is* a web core service
     and should say so with `role: web`. Replaces the prose-only, unenforced
     note this file carried for scheduler.
     """
     issues: list[ValidationIssue] = []
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
-        where = _process_where(svc_name, proc_name)
-        label = ProcessRef(svc_name, proc_name).dotted
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
+        where = _service_where(svc_name, service_name)
+        label = ServiceRef(svc_name, service_name).dotted
         # Rule 26. `replicas` defaults to 1, so "declared" is the only
         # meaningful test — model_fields_set distinguishes it from the default.
         if proc.role == "scheduler" and "replicas" in proc.model_fields_set:
             issues.append(ValidationIssue(
                 rule="rule_26_replicas_on_scheduler",
                 message=(
-                    f"scheduler process type {label!r} declares `replicas: "
+                    f"scheduler core service {label!r} declares `replicas: "
                     f"{proc.replicas}`. A scheduler fires one job per tick, so "
                     f"a replica count is inert — remove it. See cicl.md § "
                     f"Validation Rules rule 26."
@@ -1528,10 +1528,10 @@ def _validate_process_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
             issues.append(ValidationIssue(
                 rule="rule_27_web_network_on_non_web_role",
                 message=(
-                    f"{proc.role} process type {label!r} declares 'web' in "
+                    f"{proc.role} core service {label!r} declares 'web' in "
                     f"`networks:`. The web network carries public ingress "
-                    f"through the reverse proxy; a process type that wants it "
-                    f"*is* a web process type and should declare `role: web`. "
+                    f"through the reverse proxy; a core service that wants it "
+                    f"*is* a web core service and should declare `role: web`. "
                     f"See cicl.md § Validation Rules rule 27."
                 ),
                 where=f"{where}.networks",
@@ -1559,24 +1559,24 @@ def _validate_health_check_path_port(doc: CICLDocument) -> list[ValidationIssue]
     stay that way rather than being special-cased per role.
     """
     issues: list[ValidationIssue] = []
-    # Both the field and the port are process-scoped in CICL v2 — reading
-    # them off the CoreService would see permanently empty extras and pass
+    # Both the field and the port are service-scoped in CICL v2 — reading
+    # them off the Codebase would see permanently empty extras and pass
     # while checking nothing.
-    for svc_name, proc_name, _svc, proc in doc.all_processes():
+    for svc_name, service_name, _svc, proc in doc.all_core_services():
         if (proc.model_extra or {}).get("health_check_path") is None:
             continue
         if proc.port is None:
             issues.append(ValidationIssue(
                 rule="rule_28_health_check_path_needs_port",
                 message=(
-                    f"core process type "
-                    f"{ProcessRef(svc_name, proc_name).dotted!r} declares "
+                    f"core service "
+                    f"{ServiceRef(svc_name, service_name).dotted!r} declares "
                     f"`health_check_path` but no `port`. The health probe is "
                     f"issued at http://localhost:<port><path>, so the path is "
                     f"meaningless without one, and no role supplies a default "
                     f"health port. See cicl.md § Validation Rules rule 28."
                 ),
-                where=f"{_process_where(svc_name, proc_name)}.port",
+                where=f"{_service_where(svc_name, service_name)}.port",
             ))
     return issues
 
@@ -1591,12 +1591,12 @@ def _validate_reverse_proxy_role_removed(
     issues: list[ValidationIssue] = []
     targets: list[tuple[str, str, str, Any]] = [
         (
-            "core_services",
-            ProcessRef(svc_name, proc_name).dotted,
-            _process_where(svc_name, proc_name),
+            "codebases",
+            ServiceRef(svc_name, service_name).dotted,
+            _service_where(svc_name, service_name),
             proc,
         )
-        for svc_name, proc_name, _svc, proc in doc.all_processes()
+        for svc_name, service_name, _svc, proc in doc.all_core_services()
     ]
     targets.extend(
         ("backing_services", name, f"backing_services.{name}", svc)

@@ -23,9 +23,9 @@ foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -48,10 +48,10 @@ backing_services:
 # Anchors for injecting extra YAML into _BASE_FIXED. Service-level blocks
 # (`env:` / `secrets:` / `config:`) sit under `  api:` at 4 spaces; anything
 # invocation-determined sits inside `      web:` at 8.
-_SVC_ANCHOR = "    processes:\n"
+_SVC_ANCHOR = "    core_services:\n"
 _PROC_ANCHOR = "          memory: 2GB\n"
 
-# A second, non-web process type on the same codebase.
+# A second, non-web core service on the same codebase.
 _WORKER_PROCESS = """\
       worker:
         role: worker
@@ -69,7 +69,7 @@ def _with_service_block(src: str, block: str) -> str:
 
 
 def _with_process_block(src: str, block: str) -> str:
-    """Attach a process-level block (8-space indented) to ``api.web``."""
+    """Attach a service-level block (8-space indented) to ``api.web``."""
     return src.replace(_PROC_ANCHOR, _PROC_ANCHOR + block, 1)
 
 
@@ -99,14 +99,14 @@ def test_repo_url_accepted():
 
 
 def test_rule_domain_default_must_be_web():
-    # A process type off the `web` network cannot be the domain default.
+    # A core service off the `web` network cannot be the domain default.
     # (`appdb` no longer works as the negative case — a bare backing-service
     # name is malformed as a *process* reference, which rule 12 reports
     # separately.)
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
-        "domain_default_process: api.worker",
+        "domain_default_service: api.worker",
     ).replace(_SVC_ANCHOR, _SVC_ANCHOR + _WORKER_PROCESS, 1)
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_domain_default_not_web" for i in issues)
@@ -116,7 +116,7 @@ def test_rule_domain_default_malformed():
     """A bare core-service name is not shorthand for a process — rule 12."""
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
-        "container_registry: registry.example.com\ndomain_default_process: api",
+        "container_registry: registry.example.com\ndomain_default_service: api",
     )
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_domain_default_malformed" for i in issues)
@@ -126,7 +126,7 @@ def test_rule_domain_default_unknown():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
-        "domain_default_process: ghost.web",
+        "domain_default_service: ghost.web",
     )
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_domain_default_unknown" for i in issues)
@@ -136,7 +136,7 @@ def test_rule_domain_default_unknown_process():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
-        "domain_default_process: api.nope",
+        "domain_default_service: api.nope",
     )
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_domain_default_unknown" for i in issues)
@@ -146,7 +146,7 @@ def test_rule_domain_default_web_process_clean():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
-        "domain_default_process: api.web",
+        "domain_default_service: api.web",
     )
     issues = validate_document(_doc(src), _tables())
     assert issues == []
@@ -190,8 +190,8 @@ def test_rule_secrets_config_overlap():
 
 
 def test_rule_16_process_env_vs_service_secrets():
-    """Mod 096: the overlap is computed against the process type's
-    EFFECTIVE env, so a process-level `env:` key colliding with the
+    """Mod 096: the overlap is computed against the core service's
+    EFFECTIVE env, so a service-level `env:` key colliding with the
     codebase's `secrets:` is caught too."""
     src = _with_service_block(_BASE_FIXED, '    secrets:\n      SHARED: "desc"\n')
     src = _with_process_block(src, "        env:\n          SHARED: literal\n")
@@ -249,7 +249,7 @@ def test_rule_3_unresolved_magic_ref_unknown_part():
 def test_rule_6_depends_on_cycle():
     # Force a cycle. Mod 096: the cycle must live entirely in the
     # backing-service graph — rule 24 makes a core `depends_on` target a
-    # hard error, so core process types are leaves and cannot form one.
+    # hard error, so core services are leaves and cannot form one.
     src = _BASE_FIXED.replace(
         "    schema_owned_by: api\n",
         "    schema_owned_by: api\n    depends_on: [cache]\n"
@@ -408,9 +408,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -510,9 +510,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -536,9 +536,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -718,7 +718,7 @@ def test_apex_domain_accepts_three_part_country_apex():
 def test_service_name_blacklist(reserved: str):
     """A service named with any reserved token (`dev`/`test`/`stage`/
     `prod`/`www`) fails validation. Rule 14."""
-    # Replace api -> reserved in core_services and update depends_on chain.
+    # Replace api -> reserved in codebases and update depends_on chain.
     src = _BASE_FIXED.replace("  api:", f"  {reserved}:").replace(
         "schema_owned_by: api", f"schema_owned_by: {reserved}",
     )

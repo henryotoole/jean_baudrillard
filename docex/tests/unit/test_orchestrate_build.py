@@ -55,7 +55,7 @@ def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monk
     rc = run_build(sample_ctx, fake_docker, service="api")
     assert rc == 0
 
-    # It ran in the exec service, not in a process type's app container.
+    # It ran in the exec service, not in a core service's app container.
     assert seen == ["sample-dev-api-exec"]
     # Stale file should be gone; fresh one written by "build.sh" should be there.
     assert not (dist / "stale.txt").exists()

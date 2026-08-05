@@ -22,7 +22,7 @@ def _policies():
     return load_transfer_tables(project_root=None).naming_policies
 
 
-# Two web process types (`api.web` is the domain_default_process,
+# Two web core service (`api.web` is the domain_default_service,
 # `admin.web` is not) plus a purely-internal backing service that must never
 # be routed. Mod 096: `api` also carries a non-web `worker` process, which
 # must get no host at all.
@@ -31,10 +31,10 @@ cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
-domain_default_process: api.web
-core_services:
+domain_default_service: api.web
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -53,7 +53,7 @@ core_services:
           memory: 512MB
           disk: 20GB
   admin:
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -82,7 +82,7 @@ def test_dev_default_service_gets_per_service_and_bare_env():
 
 
 def test_non_web_process_gets_no_host():
-    """Mod 096: hosts are per PROCESS TYPE, and a non-web one gets none —
+    """Mod 096: hosts are per CORE SERVICE, and a non-web one gets none —
     even though its codebase has a web sibling."""
     hosts = web_hostnames_for_env(_DOC, "sample", "dev", _policies())
     assert not any(h.startswith("api-worker.") for h in hosts)

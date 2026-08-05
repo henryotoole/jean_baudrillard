@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Captures requests as `Ping` rows in postgres for the `api.worker` process type to process. Implements the `POST /pings` write surface and exposes the persistence shape that the sibling `processor` module reads against.
+Captures requests as `Ping` rows in postgres for the `api.worker` core service to process. Implements the `POST /pings` write surface and exposes the persistence shape that the sibling `processor` module reads against.
 
 ## Domain
 
@@ -26,5 +26,5 @@ Captures requests as `Ping` rows in postgres for the `api.worker` process type t
 
 ## Hard Boundaries
 
-- `pings` does not own the `processed_at = now()` write — that belongs to the sibling [`processor`](./processor.md) module, driven by the `api.worker` process type, with its own `RepoPings` instance. Two modules pointing at the same table is intentional; each reaches it via its own adapter, and sharing a codebase does not change that.
+- `pings` does not own the `processed_at = now()` write — that belongs to the sibling [`processor`](./processor.md) module, driven by the `api.worker` core service, with its own `RepoPings` instance. Two modules pointing at the same table is intentional; each reaches it via its own adapter, and sharing a codebase does not change that.
 - `pings` does not implement queue semantics. There is no broker, no acknowledgment, no retry policy. The table *is* the queue, in the simplest possible way.

@@ -38,8 +38,8 @@ def _ctx(dest: Path):
     shutil.copytree(_FIXTURE, dest, symlinks=False, dirs_exist_ok=False)
     infra_path = dest / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["api"]["secrets"] = {"STRIPE_KEY": "Stripe secret API key"}
-    doc["core_services"]["api"]["config"] = {
+    doc["codebases"]["api"]["secrets"] = {"STRIPE_KEY": "Stripe secret API key"}
+    doc["codebases"]["api"]["config"] = {
         "PARTNER_URL": "Partner API base URL (per-env)"
     }
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))

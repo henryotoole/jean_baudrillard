@@ -82,7 +82,7 @@ The operator's central question — *"I'm setting up the X side of a Y project �
 
 | Aspect | Detail |
 | ------ | ------ |
-| What gets created | OpenTofu state backend (S3 + DynamoDB); Route53 hosted zone; two ACM certs; the project reverse proxy (ALB *or* EC2-traefik depending on `reverse_proxy:`); one ECR repository per core service; the task-execution IAM role; the two production-side ECS clusters (`${project}-stage`, `${project}-prod`), created empty so they exist before any env release attaches services (see [shape.md § ecs_cluster](../../shape.md#elastic-foundation)) |
+| What gets created | OpenTofu state backend (S3 + DynamoDB); Route53 hosted zone; two ACM certs; the project reverse proxy (ALB *or* EC2-traefik depending on `reverse_proxy:`); one ECR repository per codebase; the task-execution IAM role; the two production-side ECS clusters (`${project}-stage`, `${project}-prod`), created empty so they exist before any env release attaches services (see [shape.md § ecs_cluster](../../shape.md#elastic-foundation)) |
 | Resource files | [`elastic_state_backend.md`](./elastic_state_backend.md), [`elastic_route53_zone.md`](./elastic_route53_zone.md), [`elastic_acm_certs.md`](./elastic_acm_certs.md), [`elastic_alb.md`](./elastic_alb.md) *or* [`ec2_traefik.md`](./ec2_traefik.md), [`elastic_ecr.md`](./elastic_ecr.md), [`elastic_iam.md`](./elastic_iam.md) |
 | Preinfra it depends on | The [elastic master network](../../preinfra/elastic_master_network.md) (master VPC, IGW, NAT, subnets) |
 | Compiled output | `infra/output/project/production/main.tf` |

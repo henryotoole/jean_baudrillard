@@ -1,4 +1,4 @@
-"""Entrypoint for the `web` process type of the `api` codebase.
+"""Entrypoint for the `web` core service of the `api` codebase.
 
 Takes the graph `root.build_app()` constructed and hands it to a runtime
 host. The host (uvicorn) belongs here and not in an adapter

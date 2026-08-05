@@ -1,4 +1,4 @@
-# AsyncAPI contract for the `api.worker` process type.
+# AsyncAPI contract for the `api.worker` core service.
 #
 # Why this file exists: `api.web` declares `consumes: [api.worker]`, which
 # makes the worker a provider, and the format follows from the provider's
@@ -32,10 +32,10 @@ info:
   title: docex_smoke_elastic.api.worker
   version: "0.0.1"
   description: |
-    Test-project worker process type for the doctrine smoke test. Claims
+    Test-project worker core service for the doctrine smoke test. Claims
     unprocessed pings from the `pings` table in batches, marks each
     processed, and repeats. Shares its codebase, image, and database with
-    the `api.web` process type.
+    the `api.web` core service.
 
 defaultContentType: application/json
 
@@ -44,7 +44,7 @@ channels:
     description: |
       The work queue, which is a postgres table rather than a broker topic
       (see the header). `api.web` appends a row per POST /pings; this
-      process type claims rows where `processed_at IS NULL`, oldest first,
+      core service claims rows where `processed_at IS NULL`, oldest first,
       in batches of 32, and stamps `processed_at` on success.
 
       Address is the table name because that is the truth. A broker-backed
@@ -77,6 +77,6 @@ channels:
               type: ["string", "null"]
               format: date-time
               description: >
-                Null while unprocessed; stamped by this process type on a
+                Null while unprocessed; stamped by this core service on a
                 successful pass. Also the retention key the `reaper.prune`
                 scheduler reaps against.

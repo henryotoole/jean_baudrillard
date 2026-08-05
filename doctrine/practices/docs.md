@@ -10,7 +10,7 @@ This provides an overview of different forms of documentation and where they bel
 
 | Name | Purpose |
 | ---- | ------- |
-| Product Docs | These are README's, wikis, and onboarding guides that describe the codebase at the highest level. Generally aimed at an outside operator of the software rather than an internal developer. |
+| Product Docs | These are README's, wikis, and onboarding guides that describe the project at the highest level. Generally aimed at an outside operator of the software rather than an internal developer. |
 | Architecture / Design Docs | These are more detailed documents that describe the major architectural components of the project, how they fit together, and why key decisions were made. |
 | Module Docs | These describe a specific module, explain its responsibilities, describe boundaries, etc. |
 | Code Level Docs | These are inline comments, function and class docstrings, even file docstrings. Any documentation that lives alongside code. This is the lowest level and has mostly to do with implementation. |
@@ -56,17 +56,17 @@ It's **critical** that core planning documents be kept up to date with the actua
 #### Structure
 
 The core folder should contain:
-1. **Service Documentation Folders** - Folders that represent core services (like backend, frontend, etc.). These are services at the infra level e.g. docker compose services. They have the **exact same name** as the services they represent.
+1. **Codebase Documentation Folders** - Folders that represent codebases (like backend, frontend, etc.). These mirror the codebase roots under `$pr/core/`, and have the **exact same name** as the codebases they represent. A codebase's core services are documented within its folder, not as folders of their own.
 2. **masterplan.md** - The absolute, toplevel architecture doc for the project. This document should describe all the pieces at a high level and how they fit together.
 3. **conventions.md** - (OPTIONAL) A document that details any project-specific conventions, like a specific driven adapter pattern.
 
-The service folders contain both architecture and module documentation. The file structure *within* a service folder should approximately mirror the structure of the service code itself. For example, hexagonally-architected backends will often have a `hex` folder that contains the hexagonal modules. The backend service folder would therefore also have a `hex` folder containing module documentation files for each hexagonal module. This is shown in the "Standard Documentation Structure" above.
+The codebase folders contain both architecture and module documentation. The file structure *within* a codebase folder should approximately mirror the structure of the codebase's source itself. For example, hexagonally-architected backends will often have a `hex` folder that contains the hexagonal modules. The backend codebase folder would therefore also have a `hex` folder containing module documentation files for each hexagonal module. This is shown in the "Standard Documentation Structure" above.
 
-Some other specific files that might wind up in a service folder include:
-1. `db_schema.md` - A file that documents the relational structure for a database, if that service [owns the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database.
-2. `$service_name.md` - The toplevel architectural document for this service code - it will supplement `masterplan.md`. It does not necessarily have to exist.
+Some other specific files that might wind up in a codebase folder include:
+1. `db_schema.md` - A file that documents the relational structure for a database, if that codebase [owns the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database.
+2. `$codebase_name.md` - The toplevel architectural document for this codebase - it will supplement `masterplan.md`. It does not necessarily have to exist.
 
-Other supporting docs may exist in the service folders too.
+Other supporting docs may exist in the codebase folders too.
 
 #### The Masterplan
 The Masterplan, or `masterplan.md`, is the most important document. As mentioned, it is the absolute toplevel architecture document for the project. It describes:
@@ -77,14 +77,14 @@ The Masterplan, or `masterplan.md`, is the most important document. As mentioned
 	1. Foundation
 	2. Domain
 	3. Backing Services
-	4. Core Services - All core services with hexagonal architecture should document:
+	4. Codebases - All codebases with hexagonal architecture should document:
 		1. The hexagonal module dependency structure.
 		2. A brief overview of each module as a subheading.
 5. Primary project flows (see below).
 
 Project flows are the critical pathways which move information or action through the project. They tie modules and infrastructure together by describing the project in use. They indicate how the project works as a whole and hint at the user (or other) interfaces which will be required.
 
-For example, take a project with the objective "Generate text-based scripts from videos of talkshows". It has a `frontend` and `backend` core services, and within the `backend` there are three modules: `video_manip` which has video manipulation tools, `speech` which contains speech-to-text code, and `formatter` which formats the text conversation as a script. Some key flows in this project would be:
+For example, take a project with the objective "Generate text-based scripts from videos of talkshows". It has `frontend` and `backend` codebases, and within the `backend` there are three modules: `video_manip` which has video manipulation tools, `speech` which contains speech-to-text code, and `formatter` which formats the text conversation as a script. Some key flows in this project would be:
 1. Upload Flow - User uses `frontend` to upload a video to `backend`. 
 2. Video Conversion Flow - Using `frontend` to select a video, the user kicks off a video conversion for it. `video_manip` divides up the video by scene, `speech` converts those scenes to text, and `formatter` combines them all back into one coherent package. The result is then viewed by the user in `frontend`.
 
@@ -93,9 +93,9 @@ For example, take a project with the objective "Generate text-based scripts from
 
 Modifications can also be known as "mods".
 
-This folder contains plans for modifications on the codebase. These follow a pretty rigid structure - `modifications` contains folders with names of the form `${modification_number}_${modification_name}`. Within a modification folder, there may be a handful of files. The most important are:
+This folder contains plans for modifications on the project. These follow a pretty rigid structure - `modifications` contains folders with names of the form `${modification_number}_${modification_name}`. Within a modification folder, there may be a handful of files. The most important are:
 1. **overview.md** - An overview of the requested modification from a design perspective.
-2. **implementation.md** - Specific implementation steps to effect the modifications on the codebase.
+2. **implementation.md** - Specific implementation steps to effect the modifications on the source code.
 
 Modification files are almost always irrelevant to development and should not ever be loaded into context unless specifically requested.
 

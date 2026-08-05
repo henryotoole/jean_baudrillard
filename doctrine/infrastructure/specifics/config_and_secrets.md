@@ -23,8 +23,8 @@ Every env-tier key/value pair belongs to exactly one category, defined by its
 | Category | Provenance | Handling | Home |
 | -------- | ---------- | -------- | ---- |
 | **TTE** (Transfer-Table-Engine) | an engine `env:` var declared `kind: minted` (e.g. `POSTGRES_PASSWORD`) | generated once by `docex`, never hand-edited, never git-tracked | the TTE store (see [§ TTE Vars](#tte-vars)) |
-| **Secret** | a core service's `secrets:` block, a backing engine's `kind: secret` env var, or a doctrine-injected key (`TELEMETRY_API_KEY`) | operator-supplied, never in LLM context, never git-tracked | `infra/secrets/<env>.env` |
-| **Config** | a core service's `config:` block | operator-supplied, non-secret, freely LLM-readable, non-git-tracked | `infra/config/<env>.env` |
+| **Secret** | a codebase's `secrets:` block, a backing engine's `kind: secret` env var, or a doctrine-injected key (`TELEMETRY_API_KEY`) | operator-supplied, never in LLM context, never git-tracked | `infra/secrets/<env>.env` |
+| **Config** | a codebase's `config:` block | operator-supplied, non-secret, freely LLM-readable, non-git-tracked | `infra/config/<env>.env` |
 
 Because provenance is single-valued, the categories are **disjoint by key**. An
 overlap is a compile error, and doctrine-injected keys are reserved (see
@@ -63,7 +63,7 @@ tables, and doctrine-injected keys).
 ### Direct generation, not copy-and-fill
 
 The **secret manifest** — the set of secrets a project requires — is fully
-deterministic from `infra.yml` + doctrine (core `secrets:` blocks + backing
+deterministic from `infra.yml` + doctrine (codebase `secrets:` blocks + backing
 engines' `kind: secret` env vars + doctrine-injected keys). It is never
 committed as a file; it is computed on demand from those committed sources.
 
@@ -162,8 +162,8 @@ mirrors the doctrine's existing deferral of secret [rotation](#caveats).
 A stage/prod `docex release` **refuses to proceed if any required secret is
 unset**, and it checks this *before any side effect* — before aggregation, the
 SSM push, or the ansible/tofu apply. A **required secret** is any key in the
-[secret manifest](#direct-generation-not-copy-and-fill) (core `secrets:` blocks
-+ backing engines' `kind: secret` vars + doctrine-injected secrets); **unset**
+[secret manifest](#direct-generation-not-copy-and-fill) (codebase `secrets:`
+blocks + backing engines' `kind: secret` vars + doctrine-injected secrets); **unset**
 means absent from `infra/secrets/<env>.env` or present with an empty value. The
 release aborts with a message naming every unset key and its
 `docex secrets set <env> <KEY>` remediation.

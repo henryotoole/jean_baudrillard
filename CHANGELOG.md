@@ -403,7 +403,7 @@ fix-forward message). Downstream projects upgrade per
   `aws_ecs_task_definition` shipped `command = null`, so every ECS task ran
   whatever the image's Dockerfile `CMD` happened to be — and since one image
   serves N process types, at most one could be correct. This inverted
-  [`infrastructure.md § Core Service Containers`](./doctrine/infrastructure/infrastructure.md#core-service-containers),
+  [`infrastructure.md § Core Service Containers`](./doctrine/infrastructure/infrastructure.md#codebase-containers),
   which says the `CMD` "is not used" and each process type's `command` is "what
   the compiler emits": on elastic the `CMD` was the *only* thing used, making
   1.6.0's headline feature inert on that foundation.

@@ -4,7 +4,7 @@ stratum: conditional
 
 # Networks
 
-This file describes **env-tier per-process network attachment** — which docker networks a container joins on fixed, which security groups a service joins on elastic, and how the `internal` default behaves. It is intentionally narrow: the project-tier `-web` network surface (and the reverse proxy that spans those networks) lives in [`projinfra/`](./projinfra/projinfra.md); the master networks live in [`preinfra/`](../preinfra/preinfra.md).
+This file describes **env-tier per-service network attachment** — which docker networks a container joins on fixed, which security groups a service joins on elastic, and how the `internal` default behaves. It is intentionally narrow: the project-tier `-web` network surface (and the reverse proxy that spans those networks) lives in [`projinfra/`](./projinfra/projinfra.md); the master networks live in [`preinfra/`](../preinfra/preinfra.md).
 
 This is documentation for the implementer of `docex` and the curious developer; it is not meant to be force-loaded as general doctrine context.
 
@@ -14,9 +14,9 @@ This is documentation for the implementer of `docex` and the curious developer; 
 | ---- | -------- | ------------- |
 | Preinfra | The master network (`docex-ingress` bridge on fixed; master VPC on elastic) | [preinfra/fixed_master_network.md](../preinfra/fixed_master_network.md), [preinfra/elastic_master_network.md](../preinfra/elastic_master_network.md) |
 | Projinfra | The four per-project `-web` networks; the per-project reverse proxy that spans them | [projinfra/fixed_reverse_proxy.md](./projinfra/fixed_reverse_proxy.md), [projinfra/elastic_alb.md](./projinfra/elastic_alb.md), [projinfra/ec2_traefik.md](./projinfra/ec2_traefik.md) |
-| Envinfra | Per-env `internal` (and any other non-`web`) networks; per-process (and per-backing-service) network attachment | This file |
+| Envinfra | Per-env `internal` (and any other non-`web`) networks; per-service (and per-backing-service) network attachment | This file |
 
-This file is concerned with the third row. Per-service network attachment is what the compiler decides on the basis of each core service **process type**'s `networks:` list — and each backing service's. Membership is declared per process type, not per codebase: a codebase's web edge and its queue consumer routinely sit on different networks.
+This file is concerned with the third row. Per-service network attachment is what the compiler decides on the basis of each core service's `networks:` list — and each backing service's. Membership is declared per core service, not per codebase: a codebase's web edge and its queue consumer routinely sit on different networks.
 
 ## CICL Interpretation
 
@@ -41,7 +41,7 @@ The same form applies whether the underlying resource is a Docker network (fixed
 
 ### `networks: [web]`
 
-A service on the `web` network is reachable from the public internet over HTTP/S, at the [domain](../cicl.md#domain) derived from its **two-segment identity** (`<service>-<process>`), env, and project. A `worker` or `scheduler` process type may not declare `web` at all (rule 27), so the carriers here are `web`-role process types and `web`-network backing services. Routing is **network-driven**: any service on `web`, regardless of role, is routed; the compiler generates the routing config from network membership, not from the service's role.
+A service on the `web` network is reachable from the public internet over HTTP/S, at the [domain](../cicl.md#domain) derived from its **two-segment identity** (`<codebase>-<service>`), env, and project. A `worker` or `scheduler` core service may not declare `web` at all (rule 27), so the carriers here are `web`-role core services and `web`-network backing services. Routing is **network-driven**: any service on `web`, regardless of role, is routed; the compiler generates the routing config from network membership, not from the service's role.
 
 `web`-network services **do not publish host ports**. The project's reverse proxy reaches them over the project network on their declared `port`, so there's nothing to bind on the host. (This is why a `web` service may use any port — including 80 — and why two web services never collide.)
 
@@ -57,7 +57,7 @@ Managed backing services (RDS, S3, ElastiCache) on `web` are not ALB targets —
 
 A service on a non-`web` network is reachable only from other services on the same network. These networks are **env-tier** — declared inside each env's compiled output, torn up and down with the env. The doctrine has no notion of a per-project shared `internal` network; if two services need to talk, they declare the same network name in the same env.
 
-- **Fixed:** the container joins the `${project}-${env}-${network}` docker network, declared inside the env's compose file (not `external: true` — owned by the env). Other containers on the same network reach it by container name, which equals `${global_service_name}`. In `prod`, a process type declaring `replicas` is emitted as N containers and `${global_service_name}` becomes a **shared network alias** across all of them rather than any one container's name, so the same reference resolves round-robin. Docker enforces network isolation. The network is a plain user-defined bridge — the isolation comes from Docker's inter-bridge isolation rules plus the absence of published host ports, and Docker's `internal: true` flag is deliberately not used, because it would additionally strip the bridge's masquerade rule and so remove the egress that [§ Egress](#egress) guarantees.
+- **Fixed:** the container joins the `${project}-${env}-${network}` docker network, declared inside the env's compose file (not `external: true` — owned by the env). Other containers on the same network reach it by container name, which equals `${global_service_name}`. In `prod`, a core service declaring `replicas` is emitted as N containers and `${global_service_name}` becomes a **shared network alias** across all of them rather than any one container's name, so the same reference resolves round-robin. Docker enforces network isolation. The network is a plain user-defined bridge — the isolation comes from Docker's inter-bridge isolation rules plus the absence of published host ports, and Docker's `internal: true` flag is deliberately not used, because it would additionally strip the bridge's masquerade rule and so remove the egress that [§ Egress](#egress) guarantees.
 - **Elastic:** the service is attached to the `${project}-${env}-${network}` security group within the master VPC. That SG accepts ingress only from itself — i.e., from other services attached to the same SG. Cross-project isolation in the shared master VPC is enforced exclusively at the SG layer; there is no L3 subnet boundary between projects.
 
 ## Egress

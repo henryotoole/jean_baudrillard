@@ -1,6 +1,6 @@
-"""Entrypoint for the `worker` process type of the `api` codebase.
+"""Entrypoint for the `worker` core service of the `api` codebase.
 
-Owns the three things a loop-owning process type owes and an adapter must
+Owns the three things a loop-owning core service owes and an adapter must
 not: the poll loop itself, the signal handling that stops it, and the
 liveness surface that proves it is still turning.
 
@@ -38,7 +38,7 @@ _STALENESS_SECONDS = 30.0
 # second is comfortably inside the 10 s ceiling.
 _POLL_INTERVAL_SECONDS = 1.0
 
-# Health port. Must match infra.yml's `port: 8081` on this process type —
+# Health port. Must match infra.yml's `port: 8081` on this core service —
 # nothing injects it, so the two are coupled by convention, as in web.py.
 _HEALTH_PORT = 8081
 

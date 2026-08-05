@@ -1,7 +1,7 @@
 #!/bin/sh
 # build.sh — canonical build entry point for the `api` codebase.
 # Copies src/ -> dist/. Pure-Python service, so no compilation.
-# One build per CODEBASE, shared by every process type it declares.
+# One build per CODEBASE, shared by every core service it declares.
 set -eu
 
 cd "$(dirname "$0")"

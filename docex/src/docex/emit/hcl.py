@@ -367,12 +367,12 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # compiler-owned invariants, not table-overridable.
     container_def.update(svc.target_extras.get("container_definition", {}))
 
-    # Mod 108: the process type's `command`. Deliberately AFTER the
+    # Mod 108: the core service's `command`. Deliberately AFTER the
     # target_extras merge, alongside the other compiler-owned invariants: a
-    # transfer table must not be able to override which process type this
+    # transfer table must not be able to override which core service this
     # container actually is. That is the one substitution that would
     # reintroduce the ambiguity infrastructure.md § Core Service Containers
-    # deletes — with N process types on one image, no Dockerfile `CMD` can be
+    # deletes — with N core services on one image, no Dockerfile `CMD` can be
     # correct for all of them, so `command` is the only thing distinguishing
     # them and it is not negotiable.
     #
@@ -387,7 +387,7 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # rather than gating on `svc.is_core`.
     command = body.get("command")
     if command:
-        # `str | list[str]` per ProcessType.command. ECS requires a list;
+        # `str | list[str]` per CoreService.command. ECS requires a list;
         # split a string the same way the fixed side's scheduler wrapper does
         # so one `infra.yml` declaration means the same thing on both
         # foundations.
@@ -484,7 +484,7 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
 
     # Mod 060: shape_name distinguishes the per-service tier; the task
     # definition's own resources (log group, task-def, _migrate) carry
-    # core_service/backing_service per `svc.is_core`.
+    # codebase/backing_service per `svc.is_core`.
     td_shape = "core_service" if svc.is_core else "backing_service"
 
     out: list[str] = []
@@ -501,8 +501,8 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name=td_shape, descriptor="logs",
         project=ctx.project, env=ctx.env,
-        service=svc.core_service or svc.name, role=svc.role,
-        process=svc.process,
+        codebase=svc.codebase or svc.name, role=svc.role,
+        service=svc.service,
     )))
     out.append("}")
     out.append("")
@@ -538,8 +538,8 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name=td_shape, descriptor="task-def",
         project=ctx.project, env=ctx.env,
-        service=svc.core_service or svc.name, role=svc.role,
-        process=svc.process,
+        codebase=svc.codebase or svc.name, role=svc.role,
+        service=svc.service,
     )))
     out.append("}")
 
@@ -560,8 +560,8 @@ def render_migration_task_definitions(
     A per-**codebase** pass (Mod 099). Through Mod 096 this block was emitted
     inside :func:`render_task_definition` — a per-*process* renderer — and the
     "exactly one per codebase" invariant was bought by setting
-    ``schema_owned_by_db`` on a single carrier process type, picked by a
-    "pick one process type" bridge that Mod 099 deleted outright. It has to
+    ``schema_owned_by_db`` on a single carrier core service, picked by a
+    "pick one core service" bridge that Mod 099 deleted outright. It has to
     be exactly one, because
     ``orchestrate/migrate.py::_migration_task_family`` and
     ``pipeline/release.py``'s targeted pre-migrate apply each independently
@@ -580,12 +580,12 @@ def render_migration_task_definitions(
         # WHY: `-migrate` suffix (mod 030) — the task family is a data-plane
         # resolvable ECS identifier, so the joiner uses the unified hyphen.
         # The family keys on `codebase_global_name` and the resource address
-        # on `core_service`: both are what migrate.py / release.py
+        # on `codebase`: both are what migrate.py / release.py
         # reconstruct, and both must stay byte-stable.
         mig_family = f"{head.codebase_global_name}-migrate"
         # WHY `service_env`, not any app container's env (Mod 096): the
         # migration runs per codebase, so it may depend only on codebase-scoped
-        # env. Inheriting a process type's `env:` overlay would make
+        # env. Inheriting a core service's `env:` overlay would make
         # `migrate.sh` silently depend on whichever process was picked.
         mig_env_entries, mig_secret_entries = _container_env_entries(
             head.service_env, ctx.project, ctx.env
@@ -594,7 +594,7 @@ def render_migration_task_definitions(
         # not a compiled identity (Mod 099, a deliberate emitted-value
         # change): they previously carried the carrier's two-segment name
         # (`api-web`). This is a per-codebase artifact — a process segment in
-        # it names a process type that has nothing to do with the migration.
+        # it names a core service that has nothing to do with the migration.
         mig_container = {
             "name": codebase,
             "image": head.body.get("image", ""),
@@ -604,7 +604,7 @@ def render_migration_task_definitions(
             # case — a failing `migrate.sh` was previously invisible.
             #
             # The group is the per-CODEBASE one emitted just below, not any
-            # process type's. NOT optional bookkeeping: `aws_cloudwatch_log_group`
+            # core service's. NOT optional bookkeeping: `aws_cloudwatch_log_group`
             # resources are addressed by compiled identity (`api-web`), so a
             # codebase-keyed reference with no codebase-keyed group would be a
             # dangling address that `tofu validate` rejects. Either both are
@@ -621,7 +621,7 @@ def render_migration_task_definitions(
         # types, taken over the already-Fargate-tiered values.
         #
         # WHY max: it is commutative, so — unlike "pick one" — the migration's
-        # size cannot move because an unrelated process type was renamed or
+        # size cannot move because an unrelated core service was renamed or
         # added. And it never under-provisions, which retires the OOM risk
         # that motivated the old non-scheduler-first carve-out, so the rule
         # has no exceptions. A single-process codebase's max is that process's
@@ -640,7 +640,7 @@ def render_migration_task_definitions(
         # broken by a refactor.
         cpu, memory = fargate_pair_from_units(
             cpu, memory, service_name=codebase,
-            where=f"core_services.{codebase}.processes.*.resources",
+            where=f"codebases.{codebase}.core_services.*.resources",
         )
         if out:
             out.append("")
@@ -654,7 +654,7 @@ def render_migration_task_definitions(
         out.append(render_hcl_tags(standard_tags(
             "environment", shape_name="core_service", descriptor="logs",
             project=ctx.project, env=ctx.env,
-            service=codebase, role="etc",
+            codebase=codebase, role="etc",
         )))
         out.append("}")
         out.append("")
@@ -670,10 +670,10 @@ def render_migration_task_definitions(
         out.append("  container_definitions = jsonencode([")
         out.append(f"    {_hcl_value(mig_container, indent=4)},")
         out.append("  ])")
-        # WHY no `process=` and `role="etc"` (Mod 099): both used to carry the
-        # carrier process type's values. A per-codebase artifact has neither —
+        # WHY no `service=` and `role="etc"` (Mod 099): both used to carry the
+        # carrier core service's values. A per-codebase artifact has neither —
         # any value for them would be a pick-one, and after the carrier's
-        # removal `procs[0]` is merely the alphabetically-first process type,
+        # removal `procs[0]` is merely the alphabetically-first core service,
         # so "preserving" them would silently change what they say (on the
         # three-process fixture, role would flip `web` -> `scheduler`).
         # `"etc"` is the established sentinel for "no single service/role
@@ -683,7 +683,7 @@ def render_migration_task_definitions(
             "environment", shape_name="core_service",
             descriptor="migrate-task-def",
             project=ctx.project, env=ctx.env,
-            service=codebase, role="etc",
+            codebase=codebase, role="etc",
         )))
         out.append("}")
     return "\n".join(out)
@@ -750,7 +750,7 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append(f'    container_port   = {svc.port or 80}')
         out.append("  }")
     # Mod 060: the ECS service's envinfra tags ride on `svc.body["tags"]`,
-    # populated at compile time with shape_name=core_service / descriptor
+    # populated at compile time with shape_name=codebase / descriptor
     # ecs-svc (see compile._apply_elastic_invariants).
     out.append(render_hcl_tags(svc.body.get("tags", {})))
     out.append("}")
@@ -802,9 +802,9 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
         descriptor="ALB-TG",
         project=ctx.project,
         env=ctx.env,
-        service=svc.core_service or svc.name,
+        codebase=svc.codebase or svc.name,
         role=svc.role,
-        process=svc.process,
+        service=svc.service,
     )))
     out.append("}")
     if ctx.reverse_proxy == "alb":
@@ -820,7 +820,7 @@ def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
         out.append( '    host_header {')
         # Per-service host(s): <service>.<env>.<project>.<apex_domain>, plus
         # the bare <env>.<project>.<apex_domain> for the
-        # domain_default_process; prod's default service also picks up
+        # domain_default_service; prod's default service also picks up
         # <project>.<apex_domain>.
         hosts_hcl = ", ".join(f'"{h}"' for h in svc.web_hosts)
         out.append(f'      values = [{hosts_hcl}]')
@@ -945,8 +945,8 @@ def render_efs_file_system(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name="backing_service", descriptor="EFS",
         project=ctx.project, env=ctx.env,
-        service=svc.core_service or svc.name, role=svc.role,
-        process=svc.process,
+        codebase=svc.codebase or svc.name, role=svc.role,
+        service=svc.service,
     )))
     out.append("}")
 
@@ -1019,8 +1019,8 @@ def render_scheduled_task(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(render_hcl_tags(standard_tags(
         "environment", shape_name="core_service", descriptor="scheduler-role",
         project=ctx.project, env=ctx.env,
-        service=svc.core_service or svc.name, role=svc.role,
-        process=svc.process,
+        codebase=svc.codebase or svc.name, role=svc.role,
+        service=svc.service,
     )))
     out.append("}")
     out.append("")
@@ -1400,7 +1400,7 @@ def emit_hcl(
         env=compiled.env,
         apex_domain=compiled.apex_domain,
         subdomain=compiled.subdomain,
-        # Mod 048: bare-project host used by prod's `domain_default_process`
+        # Mod 048: bare-project host used by prod's `domain_default_service`
         # A-record. Template gates on `env == "prod"`.
         bare_project_subdomain=compiled.bare_project_subdomain,
         region=ELASTIC_REGION,

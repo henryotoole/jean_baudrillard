@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Claims unprocessed rows from the `pings` table and marks each one processed. Driven by the `api.worker` process type. Demonstrates a second module inside the same codebase reaching the same table through its own adapter.
+Claims unprocessed rows from the `pings` table and marks each one processed. Driven by the `api.worker` core service. Demonstrates a second module inside the same codebase reaching the same table through its own adapter.
 
 ## Domain
 

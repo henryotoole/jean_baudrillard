@@ -91,7 +91,7 @@ def assert_fixed_env(env: str, *, command: str) -> None:
         )
 
 
-def core_services(ctx: ProjectContext) -> list[str]:
+def codebases(ctx: ProjectContext) -> list[str]:
     """Return the codebase keys of every core service, sorted.
 
     These are *authoring* keys (``api``), not compiled identities
@@ -104,13 +104,13 @@ def core_services(ctx: ProjectContext) -> list[str]:
     """
     if ctx.infra is None:
         return []
-    return sorted(ctx.infra.core_services or {})
+    return sorted(ctx.infra.codebases or {})
 
 
 def scheduler_only_services(ctx: ProjectContext) -> list[str]:
-    """Codebase keys with NO long-running process type, sorted.
+    """Codebase keys with NO long-running core service, sorted.
 
-    Every process type of such a codebase is a ``scheduler``, so the
+    Every core service of such a codebase is a ``scheduler``, so the
     codebase contributes no ordinary compose service block at all — only
     Ofelia triggers in ``dev``, and in ``test`` nothing but its exec
     service (mod 073 drops the trigger there). That makes it the one
@@ -131,9 +131,9 @@ def scheduler_only_services(ctx: ProjectContext) -> list[str]:
         return []
     return sorted(
         name
-        for name, svc in (ctx.infra.core_services or {}).items()
-        if svc.processes
-        and all(p.role == "scheduler" for p in svc.processes.values())
+        for name, svc in (ctx.infra.codebases or {}).items()
+        if svc.core_services
+        and all(p.role == "scheduler" for p in svc.core_services.values())
     )
 
 
@@ -142,7 +142,7 @@ def services_with_schema(ctx: ProjectContext) -> list[str]:
 
     These are the services whose ``migrate.sh`` must be invoked by
     ``up`` (dev/test), ``migrate`` (dev/test), and ``test``. Sorted
-    for determinism, matching ``core_services``.
+    for determinism, matching ``codebases``.
     """
     if ctx.infra is None:
         return []
@@ -155,7 +155,7 @@ def services_with_schema(ctx: ProjectContext) -> list[str]:
         if owner:
             schema_owners.add(owner)
     # Filter to those that are actually core services in the doc.
-    valid_core = set(core_services(ctx))
+    valid_core = set(codebases(ctx))
     return sorted(schema_owners & valid_core)
 
 
@@ -164,8 +164,8 @@ def _codebase_naming_policy(
 ) -> NamingPolicy | None:
     """The naming policy for a codebase-keyed identity.
 
-    A codebase-keyed name has no process type and therefore no single role to
-    resolve an engine from. Every process type of the codebase must agree on
+    A codebase-keyed name has no core service and therefore no single role to
+    resolve an engine from. Every core service of the codebase must agree on
     the policy for the name to be well-defined, so we resolve all of them and
     require agreement rather than picking one — picking one is precisely the
     instability Mod 099 removed from migration sizing. All bundled core roles
@@ -179,20 +179,20 @@ def _codebase_naming_policy(
     ``migrate.py::_migration_task_family`` (``-migrate``).
 
     Returns ``None`` when the policy cannot be derived at all (unknown
-    codebase, no process types, or no engine supporting ``foundation``); each
+    codebase, no core service, or no engine supporting ``foundation``); each
     caller decides whether that is a hard error or a best-effort fallback.
-    Raises when the process types *disagree*, which is never a fallback case:
+    Raises when the core service *disagree*, which is never a fallback case:
     the name would be ambiguous and silently wrong.
     """
-    core = (ctx.infra.core_services or {}).get(codebase) if ctx.infra else None
-    if core is None or not core.processes:
+    core = (ctx.infra.codebases or {}).get(codebase) if ctx.infra else None
+    if core is None or not core.core_services:
         return None
     tables = ctx.transfer_tables
-    # policy name -> the first process type that resolved to it (for the
+    # policy name -> the first core service that resolved to it (for the
     # disagreement message; naming both sides is what makes it diagnosable).
     resolved: dict[str, str] = {}
-    for proc_name in sorted(core.processes):
-        engines = tables.role(core.processes[proc_name].role)
+    for service_name in sorted(core.core_services):
+        engines = tables.role(core.core_services[service_name].role)
         entry = next(
             (
                 engines[cand] for cand in sorted(engines)
@@ -202,7 +202,7 @@ def _codebase_naming_policy(
         )
         if entry is None:
             continue
-        resolved.setdefault(entry.naming, proc_name)
+        resolved.setdefault(entry.naming, service_name)
     if not resolved:
         return None
     if len(resolved) > 1:
@@ -210,7 +210,7 @@ def _codebase_naming_policy(
             f"{proc!r} → {pol!r}" for pol, proc in sorted(resolved.items())
         )
         raise InfraFileError(
-            f"core service {codebase!r}: its process types resolve to "
+            f"core service {codebase!r}: its core service resolve to "
             f"different naming policies ({detail}), so the codebase-keyed "
             f"name is ambiguous. A codebase-scoped identity (the exec "
             f"service, the migration task definition) needs one policy for "
@@ -226,7 +226,7 @@ def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
     operations container ``migrate``, ``test`` and ``build`` run one-off inside
     (Mod 099). This replaced a codebase → app-container resolver that scanned
     the emitted compose file for a key ending in the codebase's lowest-sorted
-    non-scheduler process type, and could resolve to the wrong container
+    non-scheduler core service, and could resolve to the wrong container
     outright: a codebase literally named ``web`` matched a *sibling*
     codebase's ``…-api-web``, silently, with no error.
 
@@ -246,7 +246,7 @@ def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
         raise InfraFileError(
             f"cannot derive the exec service key for codebase {codebase!r} "
             f"in {env!r}: it is not a core service in infra.yml, declares no "
-            f"process types, or none of its roles has an engine supporting "
+            f"core service, or none of its roles has an engine supporting "
             f"the fixed foundation."
         )
     key = f"{codebase_global_name(ctx.project.name, env, codebase, policy)}-exec"

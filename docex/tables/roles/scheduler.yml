@@ -1,11 +1,11 @@
 # Role: scheduler
 #
-# Core service process type run on a cron schedule (a job), not a
+# Core-service role run on a cron schedule (a job), not a
 # long-running server. Foundation-aware in mechanism, identical in
-# contract: the process type declares a `command` and a `schedule`, and
+# contract: the core service declares a `command` and a `schedule`, and
 # docex arranges for that command to run, in the codebase's image, on that
 # schedule, with the same resolved env-and-secret surface any core service
-# process type of that env gets.
+# of that env gets.
 #
 #   - fixed:   one mcuadros/ofelia container per scheduler service,
 #              launching the job as a one-off container on each fire.
@@ -26,7 +26,7 @@
 
 roles:
   scheduler:
-    description: "Core service process type run on a cron schedule (a job), not a long-running server."
+    description: "Core-service role run on a cron schedule (a job), not a long-running server."
     container:
       foundation: both
       emits:

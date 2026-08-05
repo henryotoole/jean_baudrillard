@@ -26,7 +26,7 @@ _FIXED = _FIXTURES / "sample_project"
 # A second codebase whose *name* collides with the first codebase's process
 # type. This is the shape the deleted suffix scan got wrong.
 _WEB_CODEBASE = {
-    "processes": {
+    "core_services": {
         "web": {
             "role": "web",
             "command": ["python", "/service/dist/root.py"],
@@ -47,7 +47,7 @@ def colliding_root(tmp_path_factory) -> Path:
     shutil.rmtree(root / "infra" / "output", ignore_errors=True)
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    doc["core_services"]["web"] = {
+    doc["codebases"]["web"] = {
         k: (dict(v) if isinstance(v, dict) else v)
         for k, v in _WEB_CODEBASE.items()
     }
@@ -156,7 +156,7 @@ def test_10b_unknown_codebase_raises(colliding_root: Path):
 # as the subject of a test. Splitting them keeps that gate meaningful while
 # still pinning the deletion.
 _DELETED = [
-    ("docex.cicl.model", "primary_" + "process"),
+    ("docex.cicl.model", "primary_" + "service"),
     ("docex.orchestrate._common", "compose_" + "service_key"),
 ]
 
@@ -165,9 +165,9 @@ _DELETED = [
 def test_22_deleted_bridges_are_gone(module_name: str, attr: str):
     """The two bridges Mod 096 planted and Mod 099 pulled.
 
-    1. ``cicl/model.py``'s "pick one process type to stand in for the
+    1. ``cicl/model.py``'s "pick one core service to stand in for the
        codebase" helper. Both of its consumers are gone — migration sizing is
-       the per-dimension max across the codebase's process types, and
+       the per-dimension max across the codebase's core service, and
        container selection is the exec service.
     2. ``orchestrate/_common.py``'s suffix-scanning codebase → app-container
        resolver, replaced by :func:`exec_service_key`.
@@ -204,7 +204,7 @@ def test_mod_074_and_the_scheduler_test_carveout_are_gone(
        stage directly and ran ``test.sh`` outside compose. Mod 099's exec
        service is emitted for every codebase, so it had nothing left to solve.
     2. ``orchestrate/_common.py::scheduler_services`` — "codebases with AT
-       LEAST ONE scheduler process type", whose sole consumer was mod 074's
+       LEAST ONE scheduler core service", whose sole consumer was mod 074's
        self-contained job-image build. That build is gone (its ``prod``-stage
        image on the codebase's dev tag is what broke ``docex build dev``), and
        what replaced it is scoped to ``scheduler_only_services``.

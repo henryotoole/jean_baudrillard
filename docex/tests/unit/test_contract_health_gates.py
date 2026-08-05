@@ -7,10 +7,10 @@ Three things land here:
    `_infer_contract_format` — a heuristic whose asyncapi branch was unreachable
    from the day it was written, which is why no test in this codebase's history
    ever produced an AsyncAPI provider.
-2. The provider set is (`consumes` targets) ∪ (`web`-network process types),
+2. The provider set is (`consumes` targets) ∪ (`web`-network core service),
    minus schedulers — Mod 098 added `consumes` and nothing read it until now.
 3. The health fan-out keys off `consumes`, not `depends_on`. Under rule 24 a web
-   process type cannot `depends_on` its worker at all, so the old gate required
+   core service cannot `depends_on` its worker at all, so the old gate required
    *nothing* of a web → worker edge.
 
 Inline-`infra.yml` projects under `tmp_path` in the style of `_hc_ctx`
@@ -43,8 +43,8 @@ _HEAD = (
     'apex_domain: "example.com"\n'
     'container_registry: "registry.example.com"\n'
     'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
-    "domain_default_process: api.web\n"
-    "core_services:\n"
+    "domain_default_service: api.web\n"
+    "codebases:\n"
 )
 
 
@@ -81,12 +81,12 @@ def _proc(
 
 
 def _codebase(name: str, *procs: str) -> str:
-    return f"  {name}:\n    processes:\n" + "".join(procs)
+    return f"  {name}:\n    core_services:\n" + "".join(procs)
 
 
 def _project(
     tmp_path: Path,
-    core_services: str,
+    codebases: str,
     contracts: dict[str, str] | None = None,
 ):
     """Build a loadable project on disk. Returns ``(ctx, root)``."""
@@ -95,7 +95,7 @@ def _project(
     (root / "project.yml").write_text(
         'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
     )
-    (root / "infra" / "infra.yml").write_text(_HEAD + core_services)
+    (root / "infra" / "infra.yml").write_text(_HEAD + codebases)
     for filename, body in (contracts or {}).items():
         (root / "infra" / "contracts" / filename).write_text(body)
     return load_project_context(root), root
@@ -230,7 +230,7 @@ def test_two_web_processes_each_get_a_contract(tmp_path):
 
 
 def test_scheduler_is_never_a_provider(tmp_path):
-    """§ Health Checks: `scheduler` process types are exempt. Cron invokes one
+    """§ Health Checks: `scheduler` core services are exempt. Cron invokes one
     and nobody else does, so it exposes no boundary to contract."""
     src = (
         _codebase(

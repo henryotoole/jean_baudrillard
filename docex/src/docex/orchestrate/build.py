@@ -26,7 +26,7 @@ from docex.docker.client import DockerClient
 from docex.errors import BuildFailed, EnvNotRunning, EnvNotSupported
 from docex.orchestrate._common import (
     compose_file_for,
-    core_services,
+    codebases,
     ensure_compiled,
     env_compose_project,
     exec_service_key,
@@ -73,7 +73,7 @@ def run_build(
             "dev env is not running; run 'docex up dev' first."
         )
 
-    all_cores = core_services(ctx)
+    all_cores = codebases(ctx)
     if service is None:
         targets = all_cores
     else:

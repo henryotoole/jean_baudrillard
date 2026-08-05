@@ -16,9 +16,9 @@ The companion project at `docex/test_projects/elastic/` exercises the `elastic`-
 
 | Term | Meaning |
 | ---- | ------- |
-| Ping | A small unit of work created by the `api.web` process type and consumed (processed) by the `api.worker` process type. Postgres-mediated; no real queue. |
+| Ping | A small unit of work created by the `api.web` core service and consumed (processed) by the `api.worker` core service. Postgres-mediated; no real queue. |
 | Codebase | A core service: one source tree, one build artifact, one image. `api` and `reaper` are the two codebases here. |
-| Process type | One named way of invoking a codebase's artifact — its own role, command, port, networks, and resources. Emitted as `<codebase>-<process>`. |
+| Core service | One named way of invoking a codebase's artifact — its own role, command, port, networks, and resources. Emitted as `<codebase>-<process>`. |
 | Smoke test | The operator-driven manual walk through `PRE_CUT_CHECKLIST.md` against this project before a `docex` cut. |
 
 ## Architecture
@@ -29,7 +29,7 @@ The companion project at `docex/test_projects/elastic/` exercises the `elastic`-
 
 ### Domain
 
-`apex_domain: luxrnd.tech` — the bare apex domain (`infra.yml` rule 13). The project segment is derived from `project.yml`'s `name` field DNS-labeled, yielding `docex-smoke-fixed.luxrnd.tech` as the project subdomain. Per-env hosts compile to the doctrine's canonical form `<service>-<process>.<env>.docex-smoke-fixed.luxrnd.tech` — two segments in one DNS label, hyphen-joined, e.g. `api-web.prod.docex-smoke-fixed.luxrnd.tech` — plus the bare-env (`<env>.docex-smoke-fixed.luxrnd.tech`) and bare-project (`docex-smoke-fixed.luxrnd.tech`) forms, both of which route to `domain_default_process: api.web`.
+`apex_domain: luxrnd.tech` — the bare apex domain (`infra.yml` rule 13). The project segment is derived from `project.yml`'s `name` field DNS-labeled, yielding `docex-smoke-fixed.luxrnd.tech` as the project subdomain. Per-env hosts compile to the doctrine's canonical form `<service>-<process>.<env>.docex-smoke-fixed.luxrnd.tech` — two segments in one DNS label, hyphen-joined, e.g. `api-web.prod.docex-smoke-fixed.luxrnd.tech` — plus the bare-env (`<env>.docex-smoke-fixed.luxrnd.tech`) and bare-project (`docex-smoke-fixed.luxrnd.tech`) forms, both of which route to `domain_default_service: api.web`.
 
 TLS certs are issued by the per-project Traefik via Let's Encrypt's DNS-01 challenge against the parent `luxrnd.tech` zone in Route53 (HTTP-01 won't work for wildcards). Traefik's Route53 credentials and ACME email are supplied at runtime as `TRAEFIK_DNS_PROVIDER`/`TRAEFIK_ACME_EMAIL` env vars on the project Traefik container (operator-side setup).
 
@@ -39,7 +39,7 @@ Inbound 443/80 reaches the host machine's HAProxy `web_demux` (preinfra; see `do
 
 | Service | Role | Engine | Purpose |
 | ------- | ---- | ------ | ------- |
-| `appdb` | `relational_db` | postgres 15 | Stores `pings` rows. `schema_owned_by: api` — a codebase, never a process type. |
+| `appdb` | `relational_db` | postgres 15 | Stores `pings` rows. `schema_owned_by: api` — a codebase, never a core service. |
 | `probe` | `sidecar` (project-local) | nginx | Stateless sidecar reachability target. |
 | `events` | `analytics_db` (project-local) | clickhouse | Stateful OLAP container backing; opts into AWS Backup on elastic. |
 
@@ -47,9 +47,9 @@ The two project-local backings exercise the project-local transfer-table feature
 
 ### Core Services
 
-**Two codebases, three process types.** Both codebases are hexagonally-architectured per `doctrine/hexagonal_architecture/` and written in Python.
+**Two codebases, three core services.** Both codebases are hexagonally-architectured per `doctrine/hexagonal_architecture/` and written in Python.
 
-| Codebase | Process type | Role | Networks | Port | Trigger |
+| Codebase | Core service | Role | Networks | Port | Trigger |
 | -------- | ------------ | ---- | -------- | ---- | ------- |
 | `api` | `web` | `web` | `web`, `internal` | 8080 | long-running |
 | `api` | `worker` | `worker` | `internal` | 8081 (health only) | long-running |
@@ -59,26 +59,26 @@ One image per **codebase**, so `api-web` and `api-worker` run the same tag start
 
 #### `api` — the application codebase
 
-See [`api/api.md`](./api/api.md). Two process types on one artifact; they were two separate core services until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
+See [`api/api.md`](./api/api.md). Two core services on one artifact; they were two separate core services until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
 
 - **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`) and [`processor`](./api/hex/processor.md) (driven by `api.worker`). They share a codebase but not a module boundary — no imports cross between them.
-- **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI). Two boundaries, two contracts; the path is keyed on the process type.
-- **`consumes`**: `api.web consumes api.worker`, one direction only. `api.web` holds four-segment magic refs to `${core_services.api.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
-- **Schema owner**: `schema_owned_by: api`. `migrate.sh` runs once for the codebase, not once per process type.
+- **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI). Two boundaries, two contracts; the path is keyed on the core service.
+- **`consumes`**: `api.web consumes api.worker`, one direction only. `api.web` holds four-segment magic refs to `${codebases.api.core_services.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
+- **Schema owner**: `schema_owned_by: api`. `migrate.sh` runs once for the codebase, not once per core service.
 
-`api.web` is the `domain_default_process`, so prod's web edge answers at three hosts: `api-web.prod.docex-smoke-fixed.luxrnd.tech`, `prod.docex-smoke-fixed.luxrnd.tech` (bare-env), and `docex-smoke-fixed.luxrnd.tech` (bare-project).
+`api.web` is the `domain_default_service`, so prod's web edge answers at three hosts: `api-web.prod.docex-smoke-fixed.luxrnd.tech`, `prod.docex-smoke-fixed.luxrnd.tech` (bare-env), and `docex-smoke-fixed.luxrnd.tech` (bare-project).
 
 `api.worker` is never routed and carries a `port` + `health_check_path` solely because a `consumes` target must be probeable. Its `/health` reports the **poll loop's** monotonic tick, not the process's aliveness: 503 once the tick is 30 s stale, tick at least every 10 s even when idle. Both thresholds are doctrine-fixed. `replicas: 2` is declared and honoured in `prod` only.
 
-`api.web` exposes `/health` (doctrine-mandated), `/health/api/worker` (doctrine-mandated — the `consumes` fan-out, one hop, short hard timeout), and `/health/probe` + `/health/events` (**not** doctrine-mandated — probe and events are *backing services*, not core process types; they let the stage tests catch wiring regressions in Service Connect, SG self-ingress, and EFS mount-target setup on the elastic counterpart).
+`api.web` exposes `/health` (doctrine-mandated), `/health/api/worker` (doctrine-mandated — the `consumes` fan-out, one hop, short hard timeout), and `/health/probe` + `/health/events` (**not** doctrine-mandated — probe and events are *backing services*, not core services; they let the stage tests catch wiring regressions in Service Connect, SG self-ingress, and EFS mount-target setup on the elastic counterpart).
 
 #### `reaper` — the scheduler codebase
 
-One process type, `prune`, named after the **job** rather than the role, per `cicl.md § Naming convention` — a scheduler codebase commonly carries several jobs. That is what makes the emitted name `reaper-prune` rather than the `reaper-reaper` a mechanical nesting would have produced.
+One core service, `prune`, named after the **job** rather than the role, per `cicl.md § Naming convention` — a scheduler codebase commonly carries several jobs. That is what makes the emitted name `reaper-prune` rather than the `reaper-reaper` a mechanical nesting would have produced.
 
 - **Role**: `scheduler` — a cron-triggered, run-to-completion job, not a long-running server. On fixed, an Ofelia container launches it as a one-off container per fire; on the elastic counterpart, an EventBridge Scheduler invokes an ECS `RunTask` (no `ecs_service`). Suppressed entirely in the `test` env (the trigger is dropped so a job never fires inside the test window).
 - **Schedule**: `0 3 * * *` (03:00 UTC daily).
-- **Contract**: none. `scheduler` process types are exempt from both the contract and the health model — cron invokes them and nobody else does, so a scheduler is never a `consumes` target.
+- **Contract**: none. `scheduler` core services are exempt from both the contract and the health model — cron invokes them and nobody else does, so a scheduler is never a `consumes` target.
 - **Driving adapters**: `ContReaperCli` (translates the job trigger into a single `reap()` call, then exits 0).
 - **Driven adapters**: `RepoPingsPostgres` (its own minimal repo — a single `delete_processed_before` method; no code shared with `api` per the cross-module rule).
 - **Hex modules**: **`reaper`** — domain value `RetentionWindow` (a positive-day window with a `cutoff(now)`); alogic `ReaperService.reap()` deletes processed pings older than the cutoff.
@@ -87,17 +87,17 @@ One process type, `prune`, named after the **job** rather than the role, per `ci
 
 ### Composition Roots and Entrypoints
 
-One `root.py` per **codebase** — not per process type. The root **constructs**: it instantiates `RepoPingsPostgres`, the alogic service, and the driving adapter, and returns them. It **does not activate**: it opens no socket, starts no server, and runs no loop.
+One `root.py` per **codebase** — not per core service. The root **constructs**: it instantiates `RepoPingsPostgres`, the alogic service, and the driving adapter, and returns them. It **does not activate**: it opens no socket, starts no server, and runs no loop.
 
-Activation lives in `src/entrypoints/`, one module per process type, and each process type's `command` invokes exactly one of them:
+Activation lives in `src/entrypoints/`, one module per core service, and each core service's `command` invokes exactly one of them:
 
-| Process type | `command` | Entrypoint owns |
+| Core service | `command` | Entrypoint owns |
 | ------------ | --------- | --------------- |
 | `api.web` | `entrypoints/web.py` | uvicorn |
 | `api.worker` | `entrypoints/worker.py` | poll loop, SIGTERM handling, liveness tick + health server |
 | `reaper.prune` | `entrypoints/prune.py` | one pass, then `sys.exit` |
 
-The Dockerfile `CMD` is deliberately irrelevant for core services: `command` is required on every process type and supersedes it.
+The Dockerfile `CMD` is deliberately irrelevant for core services: `command` is required on every core service and supersedes it.
 
 ## Flows
 

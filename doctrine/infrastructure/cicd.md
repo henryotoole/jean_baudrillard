@@ -14,7 +14,7 @@ The pipeline starts off at the end of development. By this point, the developer 
 
 The CI/CD pipeline moves this "finished" feature branch into production:
 1. **Check** - Creates an ephemeral worktree merging the feature and main branches and performs gate checks.
-	+ If checks, build, or tests fail, the worktree is discarded and the codebase returns to feature branch tip.
+	+ If checks, build, or tests fail, the worktree is discarded and the project returns to feature branch tip.
 2. **Review** (Optional) - PR is approved by manual review. This step requires real git hosting infra.
 3. **Merge** - Feature branch changes are merged into main
 	+ After this, any change resulting from a failed test requires a new version number.
@@ -53,11 +53,11 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	3. `project.yml` version was bumped.
 	4. `project.yml` version has not yet been released.
 	5. No merge conflicts
-3. Perform core service checks:
-	1. All core services contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
-	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s [consumes](./cicl.md#consumes-relationships) relationships. One contract per provider process type, at `${service}.${process}.${format}.yml`.
-	3. Every `web`-network process type's contract carries the mandatory [health check](./contracts.md#health-checks) endpoints: its own `GET /health`, and a `/health/<service>/<process>` for each process type it `consumes` that is not itself on `web`. The self-`/health` assertion applies to OpenAPI providers; a `worker`'s probeability is declared by its fields, not by its AsyncAPI contract.
-	4. Every core service whose image must answer a probe carries `curl`. The declaration is per process type — any one of a codebase's process types declaring `health_check_path` qualifies the codebase — but the subject is the codebase's single image, so the gate builds and probes once per core service.
+3. Perform codebase checks:
+	1. All codebases contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
+	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s [consumes](./cicl.md#consumes-relationships) relationships. One contract per provider core service, at `${codebase}.${service}.${format}.yml`.
+	3. Every `web`-network core service's contract carries the mandatory [health check](./contracts.md#health-checks) endpoints: its own `GET /health`, and a `/health/<codebase>/<service>` for each core service it `consumes` that is not itself on `web`. The self-`/health` assertion applies to OpenAPI providers; a `worker`'s probeability is declared by its fields, not by its AsyncAPI contract.
+	4. Every codebase whose image must answer a probe carries `curl`. The declaration is per core service — any one of a codebase's core services declaring `health_check_path` qualifies the codebase — but the subject is the codebase's single image, so the gate builds and probes once per codebase.
 	5. Every `consumes` target declares both `port` and `health_check_path`. Those two fields *are* its health declaration; see [contracts.md § Declared by fields](./contracts.md#declared-by-fields-not-by-the-contract).
 4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
 5. Ensure build doesn't fail.
@@ -90,18 +90,18 @@ This step simply merges the feature branch into the main branch (technically we 
 
 ### Build Step
 
-Every core service gets a `build.sh` script. This is responsible for turning `source` into a `build artifact`. *All* unique commands needed to build that service's code will go here. For a python backend, this script will just copy files over. For a Svelte SPA frontend it might invoke `esbuild`. If a build fails, `build.sh` should return a non-0 exit code.
+Every codebase gets a `build.sh` script. This is responsible for turning `source` into a `build artifact`. *All* unique commands needed to build that codebase's code will go here. For a python backend, this script will just copy files over. For a Svelte SPA frontend it might invoke `esbuild`. If a build fails, `build.sh` should return a non-0 exit code.
 
-`build.sh` is the **single canonical build entry point** for every core service. It is invoked in two contexts, but it is the same script in both:
+`build.sh` is the **single canonical build entry point** for every codebase. It is invoked in two contexts, but it is the same script in both:
 
 1. **Inside `docker build`** (canonical, authoritative). The Dockerfile's `build` stage `COPY`s `src/` and runs `./build.sh`, depositing artifacts at a known path inside that stage. The `prod` and `test` stages then `COPY --from=build` those artifacts into the final image. This is the path that produces images shipped to `stage` and `prod`.
 2. **Inside a one-off container of the codebase's exec service** (iteration convenience). That container runs the `dev` stage, which carries the same build tools, and has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` in it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
 
 Because the authoritative build runs *inside* `docker build`, the artifact is always produced on whatever platform the image is being built for — set explicitly by `docker buildx --platform` during [`./bin/docex containerize`](#containerize-step). A developer on an arm64 Mac thus produces correct amd64 production images: the build runs under emulation inside the buildx context, not on the host. There is no path by which a host-architecture artifact can be smuggled into a prod image, because the artifact in a prod image is always produced inside the same `docker build` invocation that produces the image.
 
-The `build artifact` must always be deposited in the service's `dist/` directory — inside the container during `docker build`, or at `$pr/core/${core_service_name}/dist` on the host during dev iteration (the host folder is the bind-mount of that same path inside the exec container). It is recommended that build-tool cache *not* end up in `dist/`, as `dist/` is cleared before every rebuild.
+The `build artifact` must always be deposited in the codebase's `dist/` directory — inside the container during `docker build`, or at `$pr/core/${codebase_name}/dist` on the host during dev iteration (the host folder is the bind-mount of that same path inside the exec container). It is recommended that build-tool cache *not* end up in `dist/`, as `dist/` is cleared before every rebuild.
 
-The developer must write and maintain `build.sh`. They must also write the Dockerfile such that its `build` stage invokes `build.sh` — see [Core Service Containers](./infrastructure.md#core-service-containers).
+The developer must write and maintain `build.sh`. They must also write the Dockerfile such that its `build` stage invokes `build.sh` — see [Codebase Containers](./infrastructure.md#codebase-containers).
 
 The build step is required for any environment to actually function. The developer rarely invokes it directly; `./bin/docex envinfra up <env>`, `./bin/docex test`, and `./bin/docex containerize` all cause Docker to build (or rebuild) images as needed, which in turn runs `build.sh` inside the `build` stage.
 
@@ -118,8 +118,8 @@ This is what runs inside the Dockerfile during `./bin/docex containerize`, `./bi
 
 This is what `./bin/docex build` performs for the `dev` environment, refreshing artifacts without a container rebuild.
 
-1. Remove all contents of `$pr/core/${core_service_name}/dist` on the development machine.
-2. Run `build.sh` in a one-off container of each core service's [exec service](./specifics/migrations.md#dev-and-test-mechanism) — `docker compose run --rm <project>-<env>-<core_service>-exec ./build.sh`. The exec service is the container that *is* the codebase; it is profile-gated, so no part of the dev stack needs to be running, and there is no per-process-type container to pick between.
+1. Remove all contents of `$pr/core/${codebase_name}/dist` on the development machine.
+2. Run `build.sh` in a one-off container of each codebase's [exec service](./specifics/migrations.md#dev-and-test-mechanism) — `docker compose run --rm <project>-<env>-<codebase>-exec ./build.sh`. The exec service is the container that *is* the codebase; it is profile-gated, so no part of the dev stack needs to be running, and there is no per-core-service container to pick between.
 	+ If any return a non-0 exit code, the build has failed.
 	+ If any `dist` folder is empty afterward, the build has failed.
 3. Updated artifacts appear in the host's `dist` folder via the container's bind-mount.
@@ -127,21 +127,21 @@ This is what `./bin/docex build` performs for the `dev` environment, refreshing 
 No image rebuild is triggered here. Dev iteration is the hot loop, so `./bin/docex build` deliberately runs against the codebase's existing image rather than rebuilding it; a stale image is refreshed by `./bin/docex envinfra up dev`.
 
 #### `docex`
-`./bin/docex build` to refresh all core services' `dist/` folders in the `dev` environment.
-`./bin/docex build <core_service_name>` to refresh a specific core service.
+`./bin/docex build` to refresh all codebases' `dist/` folders in the `dev` environment.
+`./bin/docex build <codebase_name>` to refresh a specific codebase.
 
 ### Build Test Step
 
 We test a build by running integration and unit tests against it. This is done formally in a fresh `test` environment.
 
-In order for tests to all be automatically run for a project, each core service will need a `test.sh` script. This script is simply a small shim which actually runs the tests (e.g. with `pytest` or whatever) and exits with exit code 0 if all tests pass. It gives these tests a standard form so that build testing can be triggered for a whole project the same way for every project.
+In order for tests to all be automatically run for a project, each codebase will need a `test.sh` script. This script is simply a small shim which actually runs the tests (e.g. with `pytest` or whatever) and exits with exit code 0 if all tests pass. It gives these tests a standard form so that build testing can be triggered for a whole project the same way for every project.
 
 #### Process
 1. Bring up the `test` environment with docker.
 	+ Build occurs implicitly as a byproduct.
 2. Run [Migrate Step](#migrate-step) against the `test` env.
-	+ If any service's `migrate.sh` returns a non-0 exit code, the build test fails.
-3. Run each service's `test.sh`.
+	+ If any codebase's `migrate.sh` returns a non-0 exit code, the build test fails.
+3. Run each codebase's `test.sh`.
 	+ If any return a non-0 exit code, the build test fails.
 4. Tear down the test environment.
 
@@ -150,15 +150,15 @@ In order for tests to all be automatically run for a project, each core service 
 
 ### Containerize Step
 
-This refers to "formal" containerizing - the process by which a service is made into a container which will be uploaded to the registry for release on `stage` and `prod`. "Informal" containerizing during development is simply achieved with `docker-compose up`.
+This refers to "formal" containerizing - the process by which a codebase is made into a container image which will be uploaded to the registry for release on `stage` and `prod`. "Informal" containerizing during development is simply achieved with `docker-compose up`.
 
-The formal build is performed *inside* `docker build`: the Dockerfile's `build` stage invokes the service's `build.sh`, and the `prod` stage copies the resulting artifact in. There is no separate pre-build step on the host; the artifact is produced by, and lives entirely within, the `docker build` invocation that produces the image. See [Build Step](#build-step) for the full relationship between `build.sh` and the Dockerfile.
+The formal build is performed *inside* `docker build`: the Dockerfile's `build` stage invokes the codebase's `build.sh`, and the `prod` stage copies the resulting artifact in. There is no separate pre-build step on the host; the artifact is produced by, and lives entirely within, the `docker build` invocation that produces the image. See [Build Step](#build-step) for the full relationship between `build.sh` and the Dockerfile.
 
 Cross-platform builds are handled by `docker buildx`. The target platform is set explicitly so that a developer on any host architecture (arm64 Mac, amd64 Linux) produces an image whose artifact matches the production runtime. The default target is `linux/amd64`; projects whose `host_machine` or Fargate variant differs may override.
 
 #### Process
-1. `docker buildx build --platform <target> --target prod` each core service. The `build` stage runs `build.sh` on the target platform; the `prod` stage receives the artifact via `COPY --from=build`. Resulting images are stored locally.
-2. Tag each image as `${container_registry}/${project_name}/${service_name}:${version}` — one image per core service, all sharing the project-wide version from `project.yml`. The registry host is part of the tag, so `docker push` routes correctly without a separate target argument.
+1. `docker buildx build --platform <target> --target prod` each codebase. The `build` stage runs `build.sh` on the target platform; the `prod` stage receives the artifact via `COPY --from=build`. Resulting images are stored locally.
+2. Tag each image as `${container_registry}/${project_name}/${codebase_name}:${version}` — one image per codebase, all sharing the project-wide version from `project.yml`. The registry host is part of the tag, so `docker push` routes correctly without a separate target argument.
 3. `docker login` against the project's `container_registry`. Containerize runs this on every invocation regardless of foundation — one uniform codepath. Only the credential source differs:
 	+ **Fixed:** static creds previously placed in the operator's `~/.docker/config.json` by a one-time setup login per the [registry-credentials convention](./credentials.md#fixed-container-registry).
 	+ **Elastic:** a fresh short-lived token generated via `aws ecr get-login-password`. The token expires after 12 hours, so the per-invocation refresh is necessary (and is what justifies the uniformity — the redundant fixed-side login is the cost of having one codepath instead of two).
@@ -170,17 +170,17 @@ Cross-platform builds are handled by `docker buildx`. The target platform is set
 
 ### Migrate Step
 
-Migration refers to the step where we need to run a database migration. These are always a little tricky because they hit a backing service which might actually be shared across multiple core services. The doctrine aims to standardize this by requiring every core service that "owns" a database provide a `migrate.sh` script.
+Migration refers to the step where we need to run a database migration. These are always a little tricky because they hit a backing service which might actually be shared across multiple codebases. The doctrine aims to standardize this by requiring every codebase that "owns" a database provide a `migrate.sh` script. Ownership is declared by the database backing service's [`schema_owned_by`](./cicl.md#service-fields) field, which names a **codebase**, never a core service — `migrate.sh` runs once per codebase however many core services it declares.
 
-This `migrate.sh` is a small shim that actually runs an idempotent migration. Nearly all of the time, this will just be a version of `dbmate up`, but choice of migration tool is ultimately up to the developer. This script should return a non-0 exit code on failure. The migrations themselves live in the `$pr/core/${service}/migrations` folder.
+This `migrate.sh` is a small shim that actually runs an idempotent migration. Nearly all of the time, this will just be a version of `dbmate up`, but choice of migration tool is ultimately up to the developer. This script should return a non-0 exit code on failure. The migrations themselves live in the `$pr/core/${codebase_name}/migrations` folder.
 
 Depending on the target environment, `migrate.sh` will be run a little differently.
-`dev` and `test` - `migrate.sh` is run inside the core service's `dev` or `test` container after the compose stack is up.
+`dev` and `test` - `migrate.sh` is run in a one-off container of the codebase's [exec service](./specifics/migrations.md#dev-and-test-mechanism) after the compose stack is up.
 `stage` and `prod` - Either as a step in the Ansible playbook (fixed) or in the release flow (elastic) *after* database resources exist and are reachable but *before* the new application code is rolled out.
 
 #### Process
-1. Run the `migrate.sh` script for every core service that has one. `migrate.sh` will:
-	1. Determine database connection from the same env vars the service uses at runtime.
+1. Run the `migrate.sh` script for every schema-owning codebase. `migrate.sh` will:
+	1. Determine database connection from the same env vars the codebase's core services use at runtime.
 	2. Fire the migration against the database.
 	3. Return non-0 if a problem occurs.
 
@@ -196,7 +196,7 @@ This process is different depending on whether the project has a `fixed` or `ela
 #### Process - Fixed-Foundation
 1. Use ansible to:
 	1. SSH into the production machine in the target environment's location.
-	2. `docker pull` all core service container images.
+	2. `docker pull` every codebase's container image.
 	3. Render relevant configurable vars (from tte/secret/config aggregate) and compose config file from `$pr/infra/output/${env}/docker-compose.yml` into the target environment's location.
 	4. Run [Migrate Step](#migrate-step) against the target env using one-off containers from the new images. If any migration fails, abort the release before starting the new stack.
 	5. Use docker to start up the production stack with the new images.
@@ -252,7 +252,7 @@ Rollback reuses the standard [release](#release-step) machinery; what differs is
 	2. `v<target_version>` git tag exists in the repo.
 	3. `<target_version>` is no more than one minor version behind `project.yml`'s current version (e.g. if current is `1.5.2`, target must satisfy `>= 1.4.0`).
 	4. `<target_version>`'s `infra.yml` declares a `cicl_version` this `docex` compiles. Rollback recompiles the target's `infra.yml` with the *current* compiler (step 3), so a target predating the v1 → v2 boundary cannot be rebuilt; the check reads the tag's `infra.yml` directly and aborts with a fix-forward message. See [cicl.md § CICL Version](./cicl.md#cicl-version).
-	5. Container images at `<target_version>` exist in the registry for every core service.
+	5. Container images at `<target_version>` exist in the registry for every codebase.
 2. Create an ephemeral worktree at the `v<target_version>` tag.
 3. Recompile `infra/output/<env>/` from the worktree's `infra.yml` using the current `docex`. The recompiled output lives only in the worktree.
 4. Apply the recompiled output to `<env>` using the standard [release process](#release-step) for the project's foundation, with migrations skipped:

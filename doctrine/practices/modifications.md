@@ -4,9 +4,9 @@ stratum: resident
 
 # Modifications
 
-This documents the standard modification process for designing and implementing changes into the codebase of a project.
+This documents the standard modification process for designing and implementing changes a project.
 
-A modification or 'mod' is the fundamental unit of change to a codebase; whether it be to add a feature or fix a bug. A fixed process (below) ensures that:
+A modification or 'mod' is the fundamental unit of change to a project; whether it be to add a feature or fix a bug. A fixed process (below) ensures that:
 1. A mod's changes can be easily reviewed
 2. Project documentation is kept up-to-date with code.
 
@@ -28,7 +28,7 @@ The process is performed by you (the agent) as follows:
 		1. *DO NOT* write instructions in the implementation to update core planning docs.
 		2. *DO* include instructions to update any core service [contracts](../infrastructure/infrastructure.md#contracts) that will need to change for the mod.
 	2. After finishing the file, make a simple git commit with the message `mod ${mod_number} design done, impl. steps written`. This makes it easy to see what has changed after the implementation execution.
-5. **Execution**: You kick off a separate, fresh-context sub-agent that executes the mod implementation in the codebase, re-runs tests, etc.
+5. **Execution**: You kick off a separate, fresh-context sub-agent that executes the mod implementation in the project, re-runs tests, etc.
 6. **Review**: You review the implementation:
 	1. Discover what has changed by checking what new non-committed changes exist. 
 	2. Assess whether those changes show drift from the original design intention.
@@ -37,7 +37,7 @@ The process is performed by you (the agent) as follows:
 7. **Manual Test**: By default you pause here for external testing; the initial prompt may explicitly waive this.
 	1. End the turn to let whoever assigned this mod cycle perform any manual testing they desire.
 8. **Documentation**:
-	1. You update the [core planning docs](./docs.md) to reflect the newly modified codebase. Core planning docs should **never** link to modification documents. Relevant design info from the modification docs should be copied over.
+	1. You update the [core planning docs](./docs.md) to reflect the newly modified project. Core planning docs should **never** link to modification documents. Relevant design info from the modification docs should be copied over.
 	2. Update [changelog](../infrastructure/version_control.md) with a quick description of changes.
 9. **Cleanup**:
 	1. Commit with the message `mod ${mod_number} complete; designed, implemented, and documented.`

@@ -57,8 +57,8 @@ def secret_manifest(
         src_meta = _DOCTRINE_INJECTED_SECRET_META.get(key, ("doctrine", ""))
         source, desc = src_meta
         add(key, desc, source)
-    for name in sorted(doc.core_services):
-        for k, desc in sorted((doc.core_services[name].secrets or {}).items()):
+    for name in sorted(doc.codebases):
+        for k, desc in sorted((doc.codebases[name].secrets or {}).items()):
             add(k, desc, name)
     for name in sorted(doc.backing_services):
         svc = doc.backing_services[name]
@@ -84,8 +84,8 @@ def config_manifest(
     either uniformly.)"""
     out: list[ManifestEntry] = []
     seen: set[str] = set()
-    for name in sorted(doc.core_services):
-        for k, desc in sorted((doc.core_services[name].config or {}).items()):
+    for name in sorted(doc.codebases):
+        for k, desc in sorted((doc.codebases[name].config or {}).items()):
             if k in seen:
                 continue
             seen.add(k)
@@ -159,7 +159,7 @@ def classify_source_keys(
                 # kind == "fixed": inlined, no store — skip.
 
     # Core service declarations.
-    for _name, svc in doc.core_services.items():
+    for _name, svc in doc.codebases.items():
         secret.update(svc.secrets or {})
         config.update(getattr(svc, "config", {}) or {})
 

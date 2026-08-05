@@ -69,7 +69,7 @@ By placing code in locations that have inherent meaning and **staying consistent
 A hexagonally-structured project will mostly follow the below structure:
 
 ```
-service_root
+codebase_root
 ├── Dockerfile
 ├── src
 │   ├── root.py
@@ -97,18 +97,18 @@ service_root
     └── util
 ```
 
-More folders and files may be added, especially at the service_root level. However, the folders and files listed above should usually exist. This is all downstream of a specific docker-compose service. 
+More folders and files may be added, especially at the codebase_root level. However, the folders and files listed above should usually exist. This is all downstream of a single [codebase](../infrastructure/cicl.md#core-services) — one source tree and the one image built from it, however many core services run that image. 
 
 Here's an overview of some of the folders in this structure and their purpose.
 
 | Folder or File Name | Purpose |
 | ------------------- | ------- |
-| `Dockerfile` | Contains infrastructure instructions to run this specific docker service in a VM. |
-| `src` | Will contain all non-test code in the service. |
+| `Dockerfile` | Contains infrastructure instructions for the container this codebase's core services all run in. |
+| `src` | Will contain all non-test code in the codebase. |
 | `tests` | Will contain test code |
 | `hex` | This folder contains hexagonal modules that have been built for this project. In the above example, it contains only `sample_module`; however in a real project it would likely contain several. |
 | `root.py` | The [composition root](#module-construction) for the project. |
-| `entrypoints` | One module per [process type](../infrastructure/cicl.md#process-types). Each takes the graph `root.py` built and binds the relevant driving adapters to a runtime host (an ASGI server, a consume loop, a CLI). See [internal_dependency_rules.md § Entrypoints](./internal_dependency_rules.md#entrypoints). |
+| `entrypoints` | One module per [core service](../infrastructure/cicl.md#core-services). Each takes the graph `root.py` built and binds the relevant driving adapters to a runtime host (an ASGI server, a consume loop, a CLI). See [internal_dependency_rules.md § Entrypoints](./internal_dependency_rules.md#entrypoints). |
 | `sample_module` | Is an example hexagonal module. In a real project, it would be named differently. See "hexagonal module structure" below for more information on module filestructure. |
 | `shared` | This folder is for shared clients. Client interfaces go in `interfaces` and their implementations go in `clients`. |
 | `util` | A discouraged escape hatch for genuinely-generic helpers that defy module placement. See "util" section. Use should be avoided. |
@@ -158,9 +158,9 @@ Every hexagonal module should have at least some test functions that automatical
 
 5. Service Integration / Flow Tests
 
-The "highest" form of integration test, performed against the entire core service. They test the behavior of all modules together against real driven adapters (real test database, real test cache, etc); however, like module integration tests, external-system gateways are still stubbed by necessity. Flow tests generally drive the service "from the outside" - for a REST-based API backend, this would be through the HTTP edge itself and appear as a series of POST requests and assessed responses.
+The "highest" form of integration test, performed against the entire codebase. They test the behavior of all modules together against real driven adapters (real test database, real test cache, etc); however, like module integration tests, external-system gateways are still stubbed by necessity. Flow tests generally drive the codebase "from the outside" - for a REST-based API backend, this would be through the HTTP edge itself and appear as a series of POST requests and assessed responses. The scope is the codebase, not one of its core services: they share a composition root, so one scenario may legitimately cross from a `web` edge into a `worker`'s handler.
 
-By testing the entire service, we can catch some unique sorts of bugs:
+By testing the entire codebase, we can catch some unique sorts of bugs:
 - Routing, auth, and serialization problems
 - Cross-module wiring problems
 - Emergent behavioral bugs - the situation where a composed, end-to-end behavior is wrong even though every module and all the wiring are individually correct.

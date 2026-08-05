@@ -17,7 +17,7 @@ byte-identical to a compile of the same project that declares no ``replicas``
 at all. If that test fails, the unroll has leaked into the N == 1 path.
 
 Rule 5's replica seeding (the validator half) is at the bottom, driven off a
-source string in ``test_process_nesting.py``'s style rather than off a project
+source string in ``test_service_nesting.py``'s style rather than off a project
 on disk.
 """
 
@@ -44,9 +44,9 @@ _ELASTIC = _FIXTURES / "sample_project_elastic"
 _WEB_REPLICAS = 2
 _WORKER_REPLICAS = 4
 
-# The three-process project from `test_process_expansion_emit.py`: one
-# codebase, one web process, one worker, one scheduler. The worker is
-# single-network (`internal`) and the web process is multi-network
+# The three-service project from `test_service_expansion_emit.py`: one
+# codebase, one web core service, one worker, one scheduler. The worker is
+# single-network (`internal`) and the web core service is multi-network
 # (`web` + `internal`) — which is what lets test 3 pin "the alias goes on
 # EVERY network" rather than on the only network there happens to be.
 _WORKER = {
@@ -78,7 +78,7 @@ def _project(fixture: Path, tmp_path: Path, *, replicas: bool) -> Path:
 
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    procs = doc["core_services"]["api"]["processes"]
+    procs = doc["codebases"]["api"]["core_services"]
     procs["worker"] = dict(_WORKER)
     procs["nightly_cleanup"] = dict(_NIGHTLY)
     if replicas:
@@ -178,10 +178,10 @@ def test_2_container_name_matches_the_compose_key(fixed_root: Path):
 def test_3_every_network_carries_the_shared_alias(
     fixed_root: Path, keys: list[str], unqualified: str, nets: set[str],
 ):
-    """`provides.host` still resolves to "the process type" after the unroll,
+    """`provides.host` still resolves to "the core service" after the unroll,
     because the unqualified name is a Docker DNS alias on all N replicas.
 
-    The alias is on EVERY network the process type joins — a consumer resolves
+    The alias is on EVERY network the core service joins — a consumer resolves
     the target over whichever network the two share, so restricting it to
     non-`web` networks would break a web→web reference for no gain.
     """
@@ -265,7 +265,7 @@ def test_7_prod_top_level_sections_unchanged(
 
 
 def test_8_no_host_ports_on_any_replica(fixed_root: Path):
-    """The property that makes the unroll viable at all: no core process type
+    """The property that makes the unroll viable at all: no core service
     publishes a host port, so N copies cannot collide on one."""
     services = _compose(fixed_root, "prod")["services"]
     for key in _WORKER_KEYS + _WEB_KEYS:
@@ -378,16 +378,16 @@ def _issues(src: str) -> list:
 
 
 def _collision_doc(replicas: int) -> str:
-    """`api` with process types `web` (replicas: N) and `web-1`.
+    """`api` with core service `web` (replicas: N) and `web-1`.
 
     Replica 1 of `web` renders `api-web-1`, byte-identical to the `web-1`
-    process type's own compiled identity — one compose key in prod-fixed, one
+    core service's own compiled identity — one compose key in prod-fixed, one
     container silently clobbering the other.
     """
     return _HEAD + f"""
-core_services:
+codebases:
   api:
-    processes:
+    core_services:
       web:
         role: worker
         replicas: {replicas}

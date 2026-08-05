@@ -47,7 +47,7 @@ resource "aws_iam_role_policy" "task_execution" {
         Action   = "ecr:GetAuthorizationToken"
         Resource = "*"
       },
-      # Per-service ECR image pulls
+      # Per-codebase ECR image pulls
       {
         Effect = "Allow"
         Action = [
@@ -56,9 +56,9 @@ resource "aws_iam_role_policy" "task_execution" {
           "ecr:GetDownloadUrlForLayer",
         ]
         Resource = [
-          # one entry per core service
-          aws_ecr_repository.<svc1>.arn,
-          aws_ecr_repository.<svc2>.arn,
+          # one entry per codebase
+          aws_ecr_repository.<cb1>.arn,
+          aws_ecr_repository.<cb2>.arn,
           ...
         ]
       },
@@ -111,12 +111,12 @@ The role ARN flows through `data "terraform_remote_state" "project"` into both `
 
 ## Lifecycle
 
-The role comes up with `./bin/docex projinfra up production` and is updated on every projinfra-apply that changes the project's ECR repositories or core-service set (the inline policy lists ECR repo ARNs explicitly). Adding a new core service to `infra.yml` and running `projinfra up production` causes:
+The role comes up with `./bin/docex projinfra up production` and is updated on every projinfra-apply that changes the project's ECR repositories, i.e. its **codebase** set (the inline policy lists ECR repo ARNs explicitly, and repos are codebase-keyed). Adding a new codebase to `infra.yml` and running `projinfra up production` causes:
 
-1. The new `aws_ecr_repository.<newsvc>` to be created.
+1. The new `aws_ecr_repository.<newcb>` to be created.
 2. The role's inline policy to be updated to add the new repo's ARN to the resource list.
 
-Removing a service is the inverse, plus the operator must manually empty the repo first per [`elastic_ecr.md`](./elastic_ecr.md).
+Removing a codebase is the inverse, plus the operator must manually empty the repo first per [`elastic_ecr.md`](./elastic_ecr.md). Adding or removing a core service within an existing codebase does not touch this role.
 
 `./bin/docex projinfra down production` destroys the role along with everything else. ECS will fail to launch any task without it, so down-ing project-tier infra while env-tier services still exist would orphan them — projinfra refuses that case.
 

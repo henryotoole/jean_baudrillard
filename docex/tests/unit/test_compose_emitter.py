@@ -120,7 +120,7 @@ def test_web_service_publishes_no_host_ports(tmp_path: Path):
 
 
 def test_default_web_service_traefik_dual_host(tmp_path: Path):
-    """The domain_default_process (api) routes at BOTH the bare env subdomain
+    """The domain_default_service (api) routes at BOTH the bare env subdomain
     and its per-service host, per the canonical
     <service>.<env>.<project>.<apex_domain> form (mod 031)."""
     root = _copy_fixture(tmp_path)
@@ -134,7 +134,7 @@ def test_default_web_service_traefik_dual_host(tmp_path: Path):
 
 
 def test_prod_default_web_service_traefik_triple_host(tmp_path: Path):
-    """Mod 031: in prod, the domain_default_process additionally answers
+    """Mod 031: in prod, the domain_default_service additionally answers
     at the bare-project host (<project>.<apex_domain>), replacing the old
     `www.<apex>` convention."""
     root = _copy_fixture(tmp_path)
@@ -223,7 +223,7 @@ def test_non_web_only_service_is_not_egress_isolated(tmp_path: Path):
     only attachment is that network. Two concrete breakages that caused
     (mod 110):
 
-    1. A ``worker``/``scheduler`` process type's paired OTel sidecar shares
+    1. A ``worker``/``scheduler`` core service's paired OTel sidecar shares
        its partner's netns via ``network_mode: service:<container>``, so a
        ``[internal]``-only partner stranded the sidecar with no route to
        ``OBSERVABILITY_BACKEND_URL`` — Class-1 telemetry silently dead in

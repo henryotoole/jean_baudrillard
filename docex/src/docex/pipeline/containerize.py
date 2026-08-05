@@ -31,7 +31,7 @@ from docex.errors import (
     WorkingTreeDirty,
 )
 from docex.git.client import GitClient
-from docex.orchestrate._common import core_services
+from docex.orchestrate._common import codebases
 
 
 _DEFAULT_PLATFORM = "linux/amd64"
@@ -123,7 +123,7 @@ def run_containerize(
             return 1
 
     # 3. Per-service buildx + push --------------------------------------
-    services = core_services(ctx)
+    services = codebases(ctx)
     if not services:
         print("containerize: no core services declared; nothing to do.")
         return 0

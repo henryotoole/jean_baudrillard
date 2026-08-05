@@ -1,7 +1,7 @@
 """Mod 099 — the per-codebase exec service (compose emission).
 
 ``migrate``, ``test`` and ``build`` are per-**codebase** operations that must
-land in a container. Process expansion left them picking one process type's
+land in a container. Process expansion left them picking one core service's
 container to ``compose exec`` into. The compiler now emits a container that
 *is* the codebase — one ``<codebase>-exec`` block per codebase, in every fixed
 env — and the three operations run one-off inside it.
@@ -26,7 +26,7 @@ _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _FIXED = _FIXTURES / "sample_project"
 _SCHEDULER_FIXED = _FIXTURES / "sample_project_scheduler_fixed"
 
-# Planted on ONE process type. The whole point of the exec service is that
+# Planted on ONE core service. The whole point of the exec service is that
 # this key cannot reach `migrate.sh` / `test.sh` / `build.sh`.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 # Declared at the SERVICE level in the fixture — codebase-scoped, so it must
@@ -48,7 +48,7 @@ def _multi_process_project(fixture: Path, dest: Path) -> Path:
     shutil.rmtree(root / "infra" / "output", ignore_errors=True)
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    procs = doc["core_services"]["api"]["processes"]
+    procs = doc["codebases"]["api"]["core_services"]
     procs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
     procs["worker"] = dict(_WORKER)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
@@ -83,7 +83,7 @@ def _services(root: Path, env: str) -> dict:
 
 
 def test_1_one_exec_service_per_codebase(fixed_root: Path):
-    """Two process types, one codebase, exactly one exec service — keyed on
+    """Two core service, one codebase, exactly one exec service — keyed on
     the codebase, never on a compiled identity."""
     for env in ("dev", "test", "stage", "prod"):
         services = _services(fixed_root, env)
@@ -116,7 +116,7 @@ def test_2_exec_service_is_profile_gated_and_nothing_depends_on_it(
 
 def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
     """The rule with teeth. `migrate.sh`, `test.sh` and `build.sh` may depend
-    only on codebase-scoped env — so a process-level `env:` key is not merely
+    only on codebase-scoped env — so a service-level `env:` key is not merely
     discouraged in the exec container, it is *absent*.
 
     Guarded against a vacuous pass at both ends: the planted key must be
@@ -140,9 +140,9 @@ def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
 
 def test_3b_exec_telemetry_identity_is_codebase_scoped(fixed_root: Path):
     """Mod 102. The exec container is a per-CODEBASE artifact, so it reports
-    `service.name=api` — not the compiled identity of whichever process type
-    sorted first. `docex.process_type` is absent, and that absence is the
-    signal that this is not a declared process type.
+    `service.name=api` — not the compiled identity of whichever core service
+    sorted first. `docex.service` is absent, and that absence is the
+    signal that this is not a declared core service.
 
     Anti-vacuity guard in the same test: the sibling app containers DO carry
     the two-segment name and the process attribute. Without it, a change that
@@ -153,15 +153,15 @@ def test_3b_exec_telemetry_identity_is_codebase_scoped(fixed_root: Path):
         exec_env = services[f"sample-{env}-api-exec"]["environment"]
         assert exec_env["OTEL_SERVICE_NAME"] == "api", env
         attrs = exec_env["OTEL_RESOURCE_ATTRIBUTES"]
-        assert "docex.core_service=api" in attrs, env
-        assert "docex.process_type" not in attrs, (env, attrs)
-        # The app containers beside it are process types, and say so.
+        assert "docex.codebase=api" in attrs, env
+        assert "docex.service" not in attrs, (env, attrs)
+        # The app containers beside it are core service, and say so.
         for proc in ("web", "worker"):
             app_env = services[f"sample-{env}-api-{proc}"]["environment"]
             assert app_env["OTEL_SERVICE_NAME"] == f"api-{proc}", (env, proc)
             app_attrs = app_env["OTEL_RESOURCE_ATTRIBUTES"]
-            assert "docex.core_service=api" in app_attrs, (env, proc)
-            assert f"docex.process_type={proc}" in app_attrs, (env, proc)
+            assert "docex.codebase=api" in app_attrs, (env, proc)
+            assert f"docex.service={proc}" in app_attrs, (env, proc)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ def test_4_build_block_in_dev_and_test_only(fixed_root: Path):
 
 def test_4b_image_matches_the_app_services_in_every_env(fixed_root: Path):
     """One tag, one build. The image ref is codebase-keyed, so it is
-    identical across every process type and the exec service alike."""
+    identical across every core service and the exec service alike."""
     for env in ("dev", "test", "stage", "prod"):
         services = _services(fixed_root, env)
         refs = {

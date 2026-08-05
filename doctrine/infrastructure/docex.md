@@ -27,7 +27,7 @@ Both writes are idempotent. Re-running the script is also the supported way to u
 The shim is **version-independent** — one shim serves every `docex` version, and the `docex_version` pin in `project.yml` is what selects which `docex` image it runs. Changes to the shim are kept **additive and backward-compatible** (an image of any version tolerates a newer shim), so it is not pinned per version; a project adopts an updated shim simply by re-running `docex_install.sh`. After installation, verify with `./bin/docex --version`; this requires the pinned image to already exist in the host's Docker image store.
 
 ## Usage
-Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. Docex does so by providing a "command" for each task; `./bin/docex build` builds all core services, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
+Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. Docex does so by providing a "command" for each task; `./bin/docex build` builds all codebases, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
 
 ## Provided Tools
 
@@ -41,12 +41,12 @@ Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perfo
 | `preinfra <side>` | Checks that the necessary prerequisite infrastructure resources exist for this project to launch on the indicated infrastructure side |
 | `projinfra <direction> <side>` | Idempotently controls project-tier infrastructure for a given side. |
 | `envinfra <direction> <env>` | Bring up or tear down a fixed-foundation environment locally. |
-| `build <core_service>` | Run `build.sh` for one or all core services. |
+| `build <codebase>` | Run `build.sh` for one or all codebases. |
 | `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. |
-| `migrate <env>` | Apply database migrations for each schema-owning core service in `<env>`. |
+| `migrate <env>` | Apply database migrations for each schema-owning codebase in `<env>`. |
 | `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. |
 | `merge` | Rebase the feature branch onto main, tag the release commit, and push. |
-| `containerize` | Build and push core service prod images to the container registry. |
+| `containerize` | Build and push codebase prod images to the container registry. |
 | `release <env>` | Deploy the containerized build to `<env>` (`stage` or `prod`). |
 | `stagetest` | Run staging tests against the deployed staging environment. |
 | `rollback <env> <target_version>` | Roll a deployed environment back to a prior version. |
@@ -77,7 +77,7 @@ Lists every service role the transfer tables define, each with a short descripti
 
 ### `role`
 `./bin/docex role <name> [--format text|llm]`
-Describes one role: its engines (and foundations), the **provided parts** that magic refs target (`${backing_services.<svc>.<part>}` for a backing role, `${core_services.<svc>.<proc>.<part>}` for a core one), which parts are secrets, the required `infra/secrets/<env>.env` variables, and the role-specific fields settable in `infra.yml`. This is the canonical way to discover what a magic ref can reference, since the parts live in the transfer tables rather than the doctrine prose. The `llm` format emits JSON.
+Describes one role: its engines (and foundations), the **provided parts** that magic refs target (`${backing_services.<svc>.<part>}` for a backing role, `${codebases.<cb>.core_services.<svc>.<part>}` for a core one), which parts are secrets, the required `infra/secrets/<env>.env` variables, and the role-specific fields settable in `infra.yml`. This is the canonical way to discover what a magic ref can reference, since the parts live in the transfer tables rather than the doctrine prose. The `llm` format emits JSON.
 
 ### `preinfra`
 `./bin/docex preinfra <side>`
@@ -85,7 +85,7 @@ Checks that the necessary prerequisite infrastructure resources exist for this p
 
 For example, one preinfra resource needed for the `development` side is the [`docex-ingress` bridge](./preinfra/fixed_master_network.md#the-docex-ingress-network) on the development machine, whether `fixed` or `elastic`. Production-adjacent environments have their own requirements, like the master VPC for `elastic` or the "observability backend" for both.
 
-The `development` side additionally verifies that every `dev` `web`-network hostname resolves in public DNS — one per `web` [process type](./cicl.md#process-types), plus any `web`-network backing service, plus the bare-env host when `domain_default_process` is set. Bringing `dev` up issues per-host Let's Encrypt certs via HTTP-01; if the hostnames don't resolve, every challenge fails and trips LE's failed-authorization rate limit (which then blocks legitimate issuance). Failing the check here — before `envinfra up dev` — surfaces missing dev DNS as an actionable preinfra gap instead of a rate-limit lockout. The operator routes `dev` DNS per [inception.md PART III](../practices/inception.md); `test` is excluded since it is not accessed over TLS.
+The `development` side additionally verifies that every `dev` `web`-network hostname resolves in public DNS — one per `web` [core service](./cicl.md#core-services), plus any `web`-network backing service, plus the bare-env host when `domain_default_service` is set. Bringing `dev` up issues per-host Let's Encrypt certs via HTTP-01; if the hostnames don't resolve, every challenge fails and trips LE's failed-authorization rate limit (which then blocks legitimate issuance). Failing the check here — before `envinfra up dev` — surfaces missing dev DNS as an actionable preinfra gap instead of a rate-limit lockout. The operator routes `dev` DNS per [inception.md PART III](../practices/inception.md); `test` is excluded since it is not accessed over TLS.
 
 Command does not fix or create preinfra. It only checks status.
 
@@ -121,7 +121,7 @@ Command refuses to run with `direction="up"` if `./bin/docex preinfra <side>` fa
 Manages the per-environment secrets file `$pr/infra/secrets/<env>.env` without ever exposing secret **values** to the caller — the tooling that lets an LLM agent drive secret handling while remaining structurally unable to read a value. The full model (the three configurable-value categories, the standard file form, aggregation) lives in [config_and_secrets.md](./specifics/config_and_secrets.md); this is the command surface.
 
 - **`scaffold`** reconciles the file's key set against the deterministic set derived from `infra.yml` + doctrine (core `secrets:` blocks, backing engines' `kind: secret` env vars, doctrine-injected keys): it adds every required key (empty), removes stale ones, and preserves existing values. Idempotent.
-- **`status`** is a redacted read — per key it reports `SET`/`UNSET`, the declaring service, and the description, **never the value**. `--format json` yields a machine-readable shape for detecting "required but never set." There is deliberately **no** value-printing command; a value leaves the file only at [materialization](./specifics/config_and_secrets.md#materialization-at-release).
+- **`status`** is a redacted read — per key it reports `SET`/`UNSET`, the declaring codebase, and the description, **never the value**. `--format json` yields a machine-readable shape for detecting "required but never set." There is deliberately **no** value-printing command; a value leaves the file only at [materialization](./specifics/config_and_secrets.md#materialization-at-release).
 - **`set`** writes one key. Its value channel is a **no-echo tty prompt** or `--from-file <path>`, **never a positional argument** — so the agent invokes the command while the human supplies the value, which never transits the agent's context.
 - **`copy`** copies one key's value between environments **without surfacing it** (no value channel at all). Secrets and config only — **never TTE** (minted per env). A same-side copy (`dev`↔`test`, `stage`↔`prod`) is the intended use; a cross-side copy warns; an unset source errors; the target is overwritten.
 
@@ -136,23 +136,23 @@ All four operate on the local `<env>.env` — secrets are `<env>.env`-canonical 
 
 Manages the per-environment config file `$pr/infra/config/<env>.env` — declared, **non-secret**, per-env values (e.g. a URL that differs by environment). Same command shape as [`secrets`](#secrets), but with the permission asymmetry inverted, because config values are not secret: this asymmetry *is* the secret/config category boundary made operational. The full model lives in [config_and_secrets.md](./specifics/config_and_secrets.md); this is the command surface.
 
-- **`scaffold`** reconciles the file's key set against the keys declared in each core service's `config:` block (adds missing empty, removes stale, preserves values). Idempotent.
+- **`scaffold`** reconciles the file's key set against the keys declared in each codebase's `config:` block (adds missing empty, removes stale, preserves values). Idempotent.
 - **`status`** shows each key's `SET`/`UNSET` state, source, description, **and — unlike `secrets` — its value** (`--format json` includes the value too). Config is not secret, so surfacing it is fine.
 - **`set`** writes one key. It accepts the value as a **positional argument** (as well as `--from-file` / a prompt) — an agent may write config from its own context, since the value isn't secret.
 - **`get`** prints one key's value to stdout. There is deliberately no `secrets get`; `config get` exists precisely because config is readable.
 - **`copy`** is identical to [`secrets copy`](#secrets) — value-blind env→env copy, secrets/config only (**never TTE**), same-side blessed / cross-side warns / unset-source errors / target overwritten — just lower-stakes for non-secret values.
 
 ### `build`
-`./bin/docex build` to refresh `dist/` for all core services in the `dev` environment.
-`./bin/docex build <core_service_name>` to refresh a specific core service.
+`./bin/docex build` to refresh `dist/` for all codebases in the `dev` environment.
+`./bin/docex build <codebase_name>` to refresh a specific codebase.
 
-Runs each core service's `build.sh` in a one-off container of that codebase's exec service (`docker compose run --rm … ./build.sh`), depositing artifacts in `$pr/core/<service>/dist/` via bind-mount. One exec service per codebase, so there is no per-process-type container to choose between, and the dev stack need not be running. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
+Runs each codebase's `build.sh` in a one-off container of that codebase's exec service (`docker compose run --rm … ./build.sh`), depositing artifacts in `$pr/core/<codebase>/dist/` via bind-mount. One exec service per codebase, so there is no per-core-service container to choose between, and the dev stack need not be running. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
 
 **This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex envinfra up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source without paying for a container rebuild; because the exec service is profile-gated, it does not require the dev stack to be up. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
 
 ### `test`
 `./bin/docex test`
-Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each core service's `test.sh` inside its test-stage container, then tears the environment down. Covers unit, integration, and contract tests across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every service's tests pass; non-zero on the first failure.
+Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each codebase's `test.sh` inside its test-stage container, then tears the environment down. Covers unit, integration, and contract tests across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every codebase's tests pass; non-zero on the first failure.
 
 ### `check`
 `./bin/docex check`
@@ -164,11 +164,11 @@ Rebases the current feature branch onto the latest main, fast-forwards main, tag
 
 ### `containerize`
 `./bin/docex containerize`
-Formally containerizes the build for release: `docker buildx build --platform <target> --target prod` for each core service, tag each resulting image as `<container_registry>/<project_name>/<service_name>:<version>` (with `<container_registry>` from `infra.yml` and `<version>` from `project.yml`), and push to the registry. When an elastic project omits `container_registry`, the registry host is the project's default ECR (`<account>.dkr.ecr.us-east-1.amazonaws.com`); `containerize` resolves the account ID, authenticates to ECR, and ensures each service's repository exists before pushing. The `build` Dockerfile stage runs `build.sh` on the target platform as part of `docker build`, so the artifact embedded in each prod image always matches the production runtime regardless of host architecture. One image per core service; all share the project-wide version. Requires a clean working tree on `main` to ensure the resulting images correspond to a real, tagged commit. Image tags are 1:1 with `project.yml` versions — no floating tags. See [cicd.md](./cicd.md#containerize-step).
+Formally containerizes the build for release: `docker buildx build --platform <target> --target prod` for each codebase, tag each resulting image as `<container_registry>/<project_name>/<codebase_name>:<version>` (with `<container_registry>` from `infra.yml` and `<version>` from `project.yml`), and push to the registry. When an elastic project omits `container_registry`, the registry host is the project's default ECR (`<account>.dkr.ecr.us-east-1.amazonaws.com`); `containerize` resolves the account ID, authenticates to ECR, and ensures each codebase's repository exists before pushing. The `build` Dockerfile stage runs `build.sh` on the target platform as part of `docker build`, so the artifact embedded in each prod image always matches the production runtime regardless of host architecture. One image per codebase; all share the project-wide version. Requires a clean working tree on `main` to ensure the resulting images correspond to a real, tagged commit. Image tags are 1:1 with `project.yml` versions — no floating tags. See [cicd.md](./cicd.md#containerize-step).
 
 ### `migrate`
 `./bin/docex migrate <env>`
-Applies database migrations for each schema-owning core service in `<env>`. For `dev` and `test`, runs `migrate.sh` as a one-off container of each schema-owning codebase's exec service via `docker compose run --rm`. For `stage` and `prod` on fixed-foundation projects, runs the emitted Ansible playbook with `--tags migrate`, which spawns a one-off migrate container per schema owner on the target host using the current build image. For `stage` and `prod` on elastic-foundation projects, dispatches an ECS `RunTask` per schema owner against the migration task definition emitted by `compile`, polling each task to completion and aborting on the first non-zero container exit. Schema ownership comes from each backing service's `schema_owned_by` field; the command is a no-op when the project has no schema owners. Most of the time `migrate` runs implicitly — `envinfra up dev`, `test`, and `release` all invoke it at the appropriate point — but the command is available standalone for re-running a failed migration or for hand-driven flows. See [migrations.md](./specifics/migrations.md).
+Applies database migrations for each schema-owning codebase in `<env>`. For `dev` and `test`, runs `migrate.sh` as a one-off container of each schema-owning codebase's exec service via `docker compose run --rm`. For `stage` and `prod` on fixed-foundation projects, runs the emitted Ansible playbook with `--tags migrate`, which spawns a one-off migrate container per schema owner on the target host using the current build image. For `stage` and `prod` on elastic-foundation projects, dispatches an ECS `RunTask` per schema owner against the migration task definition emitted by `compile`, polling each task to completion and aborting on the first non-zero container exit. Schema ownership comes from each backing service's `schema_owned_by` field; the command is a no-op when the project has no schema owners. Most of the time `migrate` runs implicitly — `envinfra up dev`, `test`, and `release` all invoke it at the appropriate point — but the command is available standalone for re-running a failed migration or for hand-driven flows. See [migrations.md](./specifics/migrations.md).
 
 ### `release`
 `./bin/docex release <env>`

@@ -12,7 +12,7 @@ plain ASCII so it greps and copies cleanly out of a terminal.
 from __future__ import annotations
 
 from docex.cicl.compile import CompiledEnv, CompiledService
-from docex.cicl.model import ProcessRef
+from docex.cicl.model import ServiceRef
 
 
 _PREREQ_FIXED = [
@@ -48,15 +48,15 @@ _PROJECT_ELASTIC = [
 def node_id(svc: CompiledService) -> str:
     """The display id of one compiled service — a ``describe`` node id.
 
-    Dotted for a core process type (``api.web``), bare for a backing service
+    Dotted for a core service (``api.web``), bare for a backing service
     (``appdb``), per cicl.md § Dots for reference, hyphens for emission, which
     names ``describe`` node ids in its dotted list. The compiled key is
     hyphenated (``api-web``) and does not decompose, since both segments may
     themselves contain ``-``; a view whose whole purpose is human understanding
     uses the reference form and shows the emitted name beside it.
     """
-    if svc.core_service is not None and svc.process is not None:
-        return ProcessRef(svc.core_service, svc.process).dotted
+    if svc.codebase is not None and svc.service is not None:
+        return ServiceRef(svc.codebase, svc.service).dotted
     return svc.name
 
 

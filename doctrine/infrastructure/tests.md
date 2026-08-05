@@ -8,11 +8,11 @@ This document describes the different kinds of automated tests which ship with a
 
 ## Service Tests
 
-Service tests describe all unit tests and integration tests which cover a single core service container. When we perform tests in the `test` environment, we are running all service tests for all service containers.
+Service tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its `test.sh` inside its test-stage container. The scope is the codebase and not one of its core services because the test suite, like the artifact, is a property of the source tree: one `test.sh` per codebase covers every core service that codebase declares. The tier keeps the name "service tests" to distinguish it from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's service tests.
 
-These tests test the code itself - that functions behave correctly, modules within a service can communicate, etc. They *don't* test inter-core service communication. They can, however, interact with a backing service for the purpose of testing a single core service (required for some integration tests).
+These tests test the code itself - that functions behave correctly, modules within a codebase can communicate, etc. They *don't* test inter-core-service communication. They can, however, interact with a backing service for the purpose of testing a single codebase (required for some integration tests).
 
-Service tests are written in whatever language, and with whatever tooling, is appropriate for the service. A `web` core service written in python would have tests also written in python and perhaps run with `pytest`.
+Service tests are written in whatever language, and with whatever tooling, is appropriate for the codebase. A codebase written in python would have tests also written in python and perhaps run with `pytest`.
 
 Unit, integration, and contract tests should all be run by the [standard service test script](./cicd.md#build-test-step)
 
@@ -28,7 +28,7 @@ These tests verify that multiple pieces work *together*. Tests might fire agains
 Module-level integration tests verify that a single module behaves as expected.
 
 #### Service-Level
-Service-level integration tests (e.g. "flow" tests) verify that the entire core service behaves as expected, often from the "outside" (e.g. by applying requests against an actual backend's api). It tests all modules, often in an end-to-end form. We call these "flow" tests because they test the flow of information across the entire service as a hand-authored scenario plays out.
+Service-level integration tests (e.g. "flow" tests) verify that the entire core service behaves as expected, often from the "outside" (e.g. by applying requests against an actual backend's api). It tests all modules, often in an end-to-end form. We call these "flow" tests because they test the flow of information across the entire service's codebase as a hand-authored scenario plays out.
 
 Flow tests are similar to contract tests. Both test the whole service as a unit. The distinction is in *purpose*. A contract test ensures the service's external shape is consistent with the contract (e.g. that a JSON POST response has code 200 and `some_field`). A flow test ensures the service's *behavior* is correct (e.g. that the JSON POST response has the actual correct value for `some_field`) and that the expected effects occur as a result (e.g. the correct record is persisted as a result of the POST). A schema-valid response can still be the wrong answer; that gap is what flow tests cover.
 
@@ -44,33 +44,33 @@ The tricky thing about contract tests is that they can run on both sides of the 
 This doctrine requires provider-side contract tests for core services with defined contracts, and encourages consumer-side contract tests for larger projects with many different core services.
 
 #### Provider Side
-- Runs inside the provider service's test Dockerfile stage container.
+- Runs inside the provider codebase's test Dockerfile stage container.
 - Test starts the provider's HTTP server inside the container.
 - A schema-validation tool (e.g., schemathesis for OpenAPI) hits the real running endpoints.
 - Verifies that actual responses conform to what contract.*.yml declares.
 - Invoked by provider's test.sh.
 
 #### Consumer Side
-- Runs inside the consumer service's test Dockerfile stage container.
+- Runs inside the consumer codebase's test Dockerfile stage container.
 - A mock server is generated from the provider's contract - either via a separate container (Prism, AsyncAPI mock) or as an in-process mock library (e.g., httpx_mock for Python clients).
 - consumer's tests hit the mock instead of the real backend.
 - Verifies consumer can work against any contract-conformant provider.
 - Invoked by consumer's test.sh.
 
-The consumer side is *especially* tricky because it can require spinning up a separate container. If this is done, it should be done as a subcontainer *within* the core service container. That way it does not become an infrastructural concern.
+The consumer side is *especially* tricky because it can require spinning up a separate container. If this is done, it should be done as a subcontainer *within* the codebase's test container. That way it does not become an infrastructural concern.
 
 ## Staging Tests
 
-Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that service tests can not because service tests run isolated within a singular service. 
+Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that service tests can not because service tests run isolated within a singular codebase. 
 
 Staging tests should at least perform the following:
-+ Liveness Checks - Each `web`-network process type responds to its own `GET /health` at its own hostname. Process types that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<service>/<process>` [fan-out](./contracts.md#fan-out) on the `web` process type that `consumes` them. `scheduler` process types are exempt — they have no long-running container to probe.
++ Liveness Checks - Each `web`-network core service responds to its own `GET /health` at its own hostname. Core services that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<codebase>/<service>` [fan-out](./contracts.md#fan-out) on the `web` core service that `consumes` them. `scheduler` core services are exempt — they have no long-running container to probe.
 + TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)?
 + Critical-path smoke-tests - one or two end-to-end smoke tests that span the system. These should be sufficient to ensure:
 	1. Secrets and environmental variables are wired up properly.
 	2. Services can actually reach each other over the network.
 
-Staging tests are run per-project, not per-service. They are run *by* the project-wide `$pr/infra/stage/stage_test.sh` [stage test shim](./cicd.md#staging-tests) and are run *in* a special "test environment" image that is launched by the `./bin/docex stagetest` command and described by `$pr/infra/stage/Dockerfile`. The tests themselves are written by the developer and go in the `$pr/infra/stage/tests` folder.
+Staging tests are run per-project, not per-codebase. They are run *by* the project-wide `$pr/infra/stage/stage_test.sh` [stage test shim](./cicd.md#staging-tests) and are run *in* a special "test environment" image that is launched by the `./bin/docex stagetest` command and described by `$pr/infra/stage/Dockerfile`. The tests themselves are written by the developer and go in the `$pr/infra/stage/tests` folder.
 
 While the `doctrine` describes these files, it is the project developer's responsibility to write and maintain them. The developer writes the tests, ensures they are called by `stage_test.sh`, and ensures that if any of them fail, `stage_test.sh` will return a non-0 exit code. 
 

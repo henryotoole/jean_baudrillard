@@ -94,8 +94,8 @@ def test_migrate_stage_elastic_first_failure_aborts(
 def test_migrate_dev_runs_one_off_in_the_exec_service(sample_ctx, fake_docker):
     """Mod 099 test 11: dev migrate is a one-off ``compose run --rm`` against
     the codebase's exec service, and issues **zero** ``compose exec`` calls —
-    the migration no longer borrows a process type's running container (and
-    with it that process type's ``env:`` overlay)."""
+    the migration no longer borrows a core service's running container (and
+    with it that core service's ``env:`` overlay)."""
     rc = run_migrate(sample_ctx, fake_docker, env="dev")
     assert rc == 0
     run_calls = [c for c in fake_docker.calls if c[0] == "compose_run_one_off"]

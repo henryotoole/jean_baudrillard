@@ -1,7 +1,7 @@
-# reaper — Python scheduler core service, multi-stage build per doctrine.
-# One codebase, one process type: `reaper.prune`, a run-to-completion job
+# reaper — Python scheduler codebase, multi-stage build per doctrine.
+# One codebase, one core service: `reaper.prune`, a run-to-completion job
 # (prune expired processed pings), not a server. No HTTP surface, no
-# /health (scheduler process types are exempt from the health model), no
+# /health (scheduler core services are exempt from the health model), no
 # migrate.sh (the `api` codebase owns the appdb schema).
 #
 # Every stage must carry its own /service/dist. The trigger — Ofelia on
@@ -38,8 +38,8 @@ COPY src/ /service/src/
 COPY tests/ /service/tests/
 RUN chmod +x /service/*.sh && /service/build.sh
 ENV PYTHONPATH=/service/dist
-# WHY: never what runs. `command` is required on every process type and
-# supersedes the Dockerfile CMD (cicl.md § Process Types); for a scheduler
+# WHY: never what runs. `command` is required on every core service and
+# supersedes the Dockerfile CMD (cicl.md § Core Services); for a scheduler
 # it is the trigger's `command =` that launches the job. Kept as a sane
 # default for `docker run` by hand.
 CMD ["python", "/service/dist/entrypoints/prune.py"]
@@ -50,7 +50,7 @@ CMD ["python", "/service/dist/entrypoints/prune.py"]
 FROM base AS prod
 COPY --from=build /service/dist /service/dist
 ENV PYTHONPATH=/service/dist
-# See the WHY on the dev stage: overridden by the process type's `command`.
+# See the WHY on the dev stage: overridden by the core service's `command`.
 CMD ["python", "/service/dist/entrypoints/prune.py"]
 
 # ----------------------------------------------------------------------

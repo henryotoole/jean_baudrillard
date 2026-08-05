@@ -1,11 +1,11 @@
 """Stage smoke tests for docex_smoke_fixed.
 
 Doctrine (tests.md § Staging Tests) requires three things here:
-  - Liveness checks (each long-running process type's /health endpoint).
+  - Liveness checks (each long-running core service's /health endpoint).
   - TLS/DNS reachability (the request landing on the reverse proxy).
   - At least one critical-path smoke test (secrets + cross-service wiring).
 
-`api.web` is the only externally-reachable process type. `api.worker` sits
+`api.web` is the only externally-reachable core service. `api.worker` sits
 on `[internal]` alone, so its liveness is observed through the
 doctrine-required fan-out endpoint /health/api/worker — which is the only
 place these tests can see the worker's monotonic loop tick end to end. Its
@@ -49,7 +49,7 @@ def test_health_fanout_reports_worker_liveness() -> None:
 
     A 200 here means three separate things worked: the four-segment magic
     refs resolved to a reachable address, `api.web` could reach a non-`web`
-    sibling process type over the internal network, and the worker's poll
+    sibling core service over the internal network, and the worker's poll
     loop has bumped its monotonic tick within the 30s staleness window. A
     wedged loop returns 503 even though its container is up and its
     process alive — which is the whole point.

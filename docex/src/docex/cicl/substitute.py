@@ -20,7 +20,7 @@ The output of a substitution is a ``RenderedValue`` carrying:
 Emitters use these to translate to compose's ``${...}`` form or to
 ECS's ``secrets[]`` block, and to know whether to quote an HCL value.
 
-Magic refs (``${core_services.X.P.Y}`` and ``${backing_services.X.Y}``)
+Magic refs (``${codebases.X.core_services.P.Y}`` and ``${backing_services.X.Y}``)
 live in ``magic_refs.py`` and are resolved *before* this module is
 called, by inlining the referenced ``provides:`` template into the
 substitution context.

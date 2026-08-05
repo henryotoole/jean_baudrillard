@@ -23,7 +23,7 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
     # WHY the playbook migrates in the EXEC service (Mod 099): fixed
     # stage/prod migration is already a one-off `compose run --rm` container,
     # but it used to target an *app* service — so production migration read
-    # that process type's `env:` overlay. That is the exact trap the exec
+    # that core service's `env:` overlay. That is the exact trap the exec
     # service exists to close, and leaving it open here would have left
     # justification #2 ("`migrate.sh` may depend only on codebase-scoped
     # env") true in dev/test and false in prod. Routing through the exec
@@ -31,7 +31,7 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
     # dev/test.
     #
     # WHY grouped by codebase rather than filtered by service: migration is
-    # per codebase. `schema_owned_by_db` is now true of every process type of
+    # per codebase. `schema_owned_by_db` is now true of every core service of
     # a schema-owning codebase (the Mod 096 "carrier" is gone), so a filter
     # over compiled services would emit one duplicate migrate task per process
     # type. Grouping first makes "one per codebase" structural.

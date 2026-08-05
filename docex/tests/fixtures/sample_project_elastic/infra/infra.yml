@@ -2,9 +2,9 @@ cicl_version: "2"
 foundation: elastic
 apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
-domain_default_process: api.web
+domain_default_service: api.web
 
-core_services:
+codebases:
   api:
     env:
       # api composes its own connection string from these parts at startup;
@@ -14,7 +14,7 @@ core_services:
       DATABASE_NAME: ${backing_services.appdb.db}
       DATABASE_USER: ${backing_services.appdb.user}
       DATABASE_PASSWORD: ${backing_services.appdb.password}
-    processes:
+    core_services:
       web:
         role: web
         command: ["python", "/service/dist/app.py"]

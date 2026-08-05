@@ -23,7 +23,7 @@ from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.orchestrate._common import (
     compose_file_for,
-    core_services,
+    codebases,
     ensure_compiled,
     env_compose_project,
     exec_service_key,
@@ -122,7 +122,7 @@ def run_test(
         # pins the emission this depends on.)
         #
         # WHY build=True: see step 2 above — same `test`-env freshness rule.
-        for svc in core_services(ctx):
+        for svc in codebases(ctx):
             key = exec_service_key(ctx, _TEST_ENV, svc)
             rc = docker.compose_run_one_off(
                 compose_file, key, ["./test.sh"], build=True,

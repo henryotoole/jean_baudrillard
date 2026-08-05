@@ -21,7 +21,7 @@ This cohere skill is primarily concerned with architecture / design, and module 
 
 The trickiest thing about cohere is that a discrepancy (whether between two sections of docs or a doc section and corresponding code) implies two different possible sources of truth. Choosing which source of truth is the "correct" one is genuinely a judgement call.
 
-The higher the "level" of doc, the more it can be considered a source of truth. `masterplan.md`, as the highest form of architecture doc, should never be changed without asking the operator to make a judgement call on the discrepancy. Lower levels of architecture doc (often direct children in the `$pr/plans/core/${service_name}` folder) carry more weight than module docs. Module docs are often in a `$pr/plans/core/${service_name}/hex` folder.
+The higher the "level" of doc, the more it can be considered a source of truth. `masterplan.md`, as the highest form of architecture doc, should never be changed without asking the operator to make a judgement call on the discrepancy. Lower levels of architecture doc (often direct children in the `$pr/plans/core/${codebase_name}` folder) carry more weight than module docs. Module docs are often in a `$pr/plans/core/${codebase_name}/hex` folder.
 
 For lower forms of architecture doc and module docs, what's present in the actual code can indicate that the docs themselves need to change. If there's a discrepancy between two different sections of documentation, the one that matches the code as-written is often the right one.
 
@@ -31,7 +31,7 @@ Operate out of whatever branch is currently active (it's the operator's responsi
 
 ## Classes of Problems
 
-There are four classes of problems which can exist in a codebase which this skill aims to fix. They are noted below, alongside some instructions to help when identifying and fixing them.
+There are four classes of problems which can exist in a project's codebases which this skill aims to fix. They are noted below, alongside some instructions to help when identifying and fixing them.
 
 ### 1. Documentation is Inconsistent
 
@@ -60,7 +60,7 @@ In this case, please *mark the relevant documentation as unimplemented* rather t
 In this class, some amount of code is entirely undocumented. It's tricky because, by definition, documentation is a *summary* of the code's behavior, not a perfect 1-to-1 description.
 
 Examples of things that *should be documented*; if found they are probably undocumented code:
-+ A core service - deserves dedicated folder and architecture docs.
++ A codebase - deserves dedicated folder and architecture docs.
 + A hex module - this should have its own dedicated document.
 + A first-class hexagonal component like a domain object, port, adapter, or application logic class - these belong in the hex module docs.
 + A database table
@@ -72,7 +72,7 @@ Examples of things that *should not be documented*; if found they are details wh
 + Full enumeration of an enum's types
 + What libraries are used for a class
 
-For this skill, lean conservatively with attempting to document truly undocumented code. Furthermore, *always* ask the operator when adding new documentation. The cohere skill will be run many times for a project's codebase. If it added a little bit more detail every time it ran, soon the docs would become bogged down with unnecessary detail.
+For this skill, lean conservatively with attempting to document truly undocumented code. Furthermore, *always* ask the operator when adding new documentation. The cohere skill will be run many times for a project. If it added a little bit more detail every time it ran, soon the docs would become bogged down with unnecessary detail.
 
 ## Process
 
@@ -98,7 +98,7 @@ You should also certainly read the project's core planning docs - they will help
 
 ### Enumerate Chunks
 
-In order to perform a proper cohering sweep of the codebase, most of the codebase must be loaded into context. For large codebases, this can *certainly* exceed the context of a single agent. Therefore, for the next step in the process, we split the codebase out into different "chunks" on the basis of size. A chunk might contain the entire codebase source, one or more whole core services packed together, or a subset of a single service's hex modules — never mixing modules across services — depending on the size of the various project pieces.
+In order to perform a proper cohering sweep of the project's codebases, most of the source code must be loaded into context. For large projects, this can *certainly* exceed the context of a single agent. Therefore, for the next step in the process, we split the project's code out into different "chunks" on the basis of size. A chunk might contain the entire project source, one or more whole codebases packed together, or a subset of a single codebase's hex modules — never mixing modules across codebases — depending on the size of the various project pieces.
 
 Fortunately, setting the chunks can be done deterministically with executor code, because the doctrine's filestructure is known. Run the chunker (same skill-relative path and `--root` behavior as the word-count executor):
 
@@ -130,7 +130,7 @@ Give each chunk from the previous step its own dedicated sub-agent. Each sub-age
 # documentation-coherence
 
 You are a documentation-coherence sweep agent for ONE chunk of a larger project.
-Operate ONLY on the code and docs listed below — do NOT read the rest of the codebase.
+Operate ONLY on the code and docs listed below — do NOT read the rest of the project's source code.
 
 ## Your code chunk (read ALL of it):
 {code_paths}
@@ -185,7 +185,7 @@ When a fix will require you to make a change to `masterplan.md`, **always** let 
 
 ### Consistency Pass
 
-Now that the entire codebase has been assessed and broadly corrected, do one final documentation consistency pass to catch [Class 1](#1-documentation-is-inconsistent) issues. This pass will be a little different - instead of reading the docs again yourself, use a subagent to scan for inconsistencies / contradictions within the documentation. Then you can iterate across results the subagent found, and choose for yourself how to apply solutions. Remember to keep [source of truth](#source-of-truth) weights in mind for different levels of documentation and to always let the human operator make the ultimate decision on whether to change `masterplan.md`.
+Now that the entire project has been assessed and broadly corrected, do one final documentation consistency pass to catch [Class 1](#1-documentation-is-inconsistent) issues. This pass will be a little different - instead of reading the docs again yourself, use a subagent to scan for inconsistencies / contradictions within the documentation. Then you can iterate across results the subagent found, and choose for yourself how to apply solutions. Remember to keep [source of truth](#source-of-truth) weights in mind for different levels of documentation and to always let the human operator make the ultimate decision on whether to change `masterplan.md`.
 
 ### Final Summary
 

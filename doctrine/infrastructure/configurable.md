@@ -59,7 +59,7 @@ The `./bin/docex secrets ...` command gives the agent tooling to work with secre
 | Op | What it does | Who runs it | 
 | -- | ------------ | ----------- |
 | `docex secrets scaffold <env>` | reconcile key set into `<env>.env`, preserve values | agent freely |
-| `docex secrets status <env> [--format json]` | **redacted read** — per key: `SET`/`UNSET`, source service, description; **never the value** | agent freely |
+| `docex secrets status <env> [--format json]` | **redacted read** — per key: `SET`/`UNSET`, declaring codebase, description; **never the value** | agent freely |
 | `docex secrets set <env> <KEY>` | **write-only set** — set one key, read/emit nothing else | agent *invokes*, human *supplies* |
 | `docex secrets copy <src_env> <tgt_env> <KEY>` | **value-blind copy** — set `tgt.KEY` = `src.KEY` without exposing the value | agent freely |
 

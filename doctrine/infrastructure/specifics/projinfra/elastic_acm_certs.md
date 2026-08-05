@@ -18,7 +18,7 @@ Two ACM certificates per ALB-using elastic project, both in the project's elasti
 2. **Prod cert** — covers:
    - `*.prod.<project>.<apex_domain>` — the prod-env wildcard.
    - `prod.<project>.<apex_domain>` — the prod ergonomic domain.
-   - `<project>.<apex_domain>` — the bare-project host, routing to prod's `domain_default_process`.
+   - `<project>.<apex_domain>` — the bare-project host, routing to prod's `domain_default_service`.
 
 Both certs are attached to the project's ALB as SNI certs by [`elastic_alb.md`](./elastic_alb.md) at projinfra-apply time. The ALB selects the right cert at TLS handshake based on the SNI host of the incoming request.
 

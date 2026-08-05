@@ -7,7 +7,7 @@ graph and hands the driving adapters back — nothing more.
 **The root constructs; it does not activate.** It builds no server, opens
 no socket, and runs no loop. Binding a constructed adapter to something
 that actually runs belongs to the entrypoints under `src/entrypoints/`,
-one module per process type (`web`, `worker`).
+one module per core service (`web`, `worker`).
 
 There is exactly ONE composition root per codebase, not one per process
 type: two copies of the driven wiring drift, which is precisely the bug
@@ -45,8 +45,8 @@ SIDECAR_PORT = os.environ.get("SIDECAR_PORT")
 CLICKHOUSE_HOST = os.environ.get("CLICKHOUSE_HOST")
 CLICKHOUSE_PORT = os.environ.get("CLICKHOUSE_PORT")
 
-# Four-segment core magic refs — ${core_services.api.worker.{host,port}}.
-# Declared on the `api.web` process type's env only, which is exactly what
+# Five-segment core magic refs — ${codebases.api.core_services.worker.{host,port}}.
+# Declared on the `api.web` core service's env only, which is exactly what
 # obliges its `consumes: [api.worker]` entry (cicl.md validation rule 7).
 WORKER_HOST = os.environ.get("WORKER_HOST")
 WORKER_PORT = os.environ.get("WORKER_PORT")
@@ -70,7 +70,7 @@ def _dsn_from_env() -> str:
 
 
 def build_app() -> FastAPI:
-    """Construct the `api.web` process type's graph and return its app.
+    """Construct the `api.web` core service's graph and return its app.
 
     The app is returned un-served; `entrypoints/web.py` hands it to uvicorn.
     """
@@ -86,7 +86,7 @@ def build_app() -> FastAPI:
     cont_pings = ContPingsHttp(service=ping_service)
     app.include_router(cont_pings.router)
 
-    # Health check — doctrine-mandated for every long-running process type.
+    # Health check — doctrine-mandated for every long-running core service.
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"version": VERSION}
@@ -122,7 +122,7 @@ def build_app() -> FastAPI:
 
     # Health fan-out. Unlike the two probes above, this one IS
     # doctrine-mandated: contracts.md § Fan-out requires every
-    # `web`-network process type to expose the health of each `consumes`
+    # `web`-network core service to expose the health of each `consumes`
     # target that is not itself on the `web` network. `api.worker` sits on
     # `[internal]` alone, so nothing outside can reach its own /health —
     # `api.web` proxies it at /health/<service>/<process>.
@@ -150,7 +150,7 @@ def build_app() -> FastAPI:
 
 
 def build_processor() -> ContProcessorCli:
-    """Construct the `api.worker` process type's graph.
+    """Construct the `api.worker` core service's graph.
 
     Returns the driving adapter un-run: `entrypoints/worker.py` owns the
     poll loop, the signal handling, and the liveness surface.

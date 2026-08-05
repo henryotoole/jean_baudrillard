@@ -31,40 +31,40 @@ CURRENT_CICL_VERSION = "2"
 
 
 @dataclass(frozen=True)
-class ProcessRef:
-    """A reference to one process type of one core service.
+class ServiceRef:
+    """A reference to one core service of one codebase.
 
     Dots for reference, hyphens for emission (cicl.md § Dots for reference,
     hyphens for emission). Authoring and reference forms — ``consumes:``
-    targets, ``domain_default_process``, magic refs, ``describe`` node ids —
+    targets, ``domain_default_service``, magic refs, ``describe`` node ids —
     are dotted; emitted data-plane names are hyphenated. This type is the one
     place that rule is expressed.
     """
 
+    codebase: str
     service: str
-    process: str
 
     @classmethod
-    def parse(cls, raw: str) -> "ProcessRef":
+    def parse(cls, raw: str) -> "ServiceRef":
         """Parse ``"api.web"``. A bare name is an error, not shorthand."""
         parts = raw.split(".")
         if len(parts) != 2 or not all(p.strip() for p in parts):
             raise ValueError(
-                f"{raw!r} is not a valid process reference. The form is "
-                f"'<service>.<process>' (e.g. 'api.web'). A bare core service "
+                f"{raw!r} is not a valid core service reference. The form is "
+                f"'<codebase>.<service>' (e.g. 'api.web'). A bare codebase "
                 f"name is illegal, not shorthand: a codebase has no single "
                 f"boundary. See cicl.md § Magic Refs."
             )
-        return cls(service=parts[0], process=parts[1])
+        return cls(codebase=parts[0], service=parts[1])
 
     @property
     def dotted(self) -> str:
-        return f"{self.service}.{self.process}"
+        return f"{self.codebase}.{self.service}"
 
     @property
     def compiled(self) -> str:
         """The two-segment compiled identity — ``CompiledService.name``."""
-        return f"{self.service}-{self.process}"
+        return f"{self.codebase}-{self.service}"
 
 
 class ProjectManifest(BaseModel):
@@ -106,33 +106,33 @@ class Resources(BaseModel):
         return self
 
 
-class ProcessType(BaseModel):
-    """One named way of invoking a core service's build artifact.
+class CoreService(BaseModel):
+    """One named way of invoking a codebase's build artifact.
 
     Its own role, command, resources, networks and port. One codebase, one
-    image, N process types. See cicl.md § Process Types.
+    image, N core services. See cicl.md § Core Services.
     """
 
     # Role-specific fields (health_check_path, schedule, ...) land in
     # model_extra, exactly as they do on _ServiceBase today. Role-specific
     # fields follow `role`, which is invocation-determined, so they are
-    # process-scoped by derivation (cicl.md § Field scoping).
+    # service-scoped by derivation (cicl.md § Field scoping).
     model_config = ConfigDict(extra="allow")
 
     role: str
-    # Rule 23. Required on EVERY process type including `web`: with several
-    # process types sharing one image, at most one could inherit the
+    # Rule 23. Required on EVERY core service including `web`: with several
+    # core services sharing one image, at most one could inherit the
     # Dockerfile CMD and "which one" is an ambiguity worth deleting.
     command: str | list[str]
     networks: list[str] = Field(min_length=1)
     resources: Resources
     port: int | None = None
-    # Rule 24: backing services only. A core process type here is an error.
+    # Rule 24: backing services only. A core service here is an error.
     depends_on: list[str] = Field(default_factory=list)
-    # Rule 25: core process types only, dotted and fully qualified
+    # Rule 25: core service only, dotted and fully qualified
     # ("api.worker"). The interface half of the split `depends_on` used to
     # conflate — `depends_on` is a readiness gate over backing services,
-    # `consumes` is an interface edge between core process types. CI-only:
+    # `consumes` is an interface edge between core service. CI-only:
     # contracts, the health fan-out, and rule 7 read it; nothing is emitted
     # from it. See cicl.md § Consumes Relationships.
     consumes: list[str] = Field(default_factory=list)
@@ -140,12 +140,12 @@ class ProcessType(BaseModel):
     # (compile.py) applies the prod-only clamp. Read by the fixed compose
     # unroll and the elastic ECS `desired_count` (Mod 100).
     replicas: int = Field(default=1, ge=1)
-    # The only field valid at both levels. A process type's effective env is
+    # The only field valid at both levels. A core service's effective env is
     # the service-level block merged under its own (cicl.md § Field scoping).
     env: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def _validate_command_nonempty(self) -> "ProcessType":
+    def _validate_command_nonempty(self) -> "CoreService":
         if isinstance(self.command, str):
             if not self.command.strip():
                 raise ValueError("command must not be empty")
@@ -154,7 +154,7 @@ class ProcessType(BaseModel):
         return self
 
     def consumes_refs(self) -> set[str]:
-        """This process type's ``consumes:`` targets, normalized to dotted form.
+        """This core service's ``consumes:`` targets, normalized to dotted form.
 
         Entries that do not parse are dropped rather than passed through: rule 25
         reports each one once, and a malformed entry must not ALSO surface
@@ -166,7 +166,7 @@ class ProcessType(BaseModel):
         out: set[str] = set()
         for raw in (self.consumes or []):
             try:
-                out.add(ProcessRef.parse(raw).dotted)
+                out.add(ServiceRef.parse(raw).dotted)
             except ValueError:
                 continue
         return out
@@ -185,7 +185,7 @@ class _ServiceBase(BaseModel):
     port: int | None = None
 
 
-# Fields that moved from the core service to the process type in CICL v2.
+# Fields that moved from the core service to the core service in CICL v2.
 # Used only to produce a targeted migration error — see below.
 _MOVED_TO_PROCESS = (
     "role", "command", "networks", "resources", "port",
@@ -193,17 +193,17 @@ _MOVED_TO_PROCESS = (
 )
 
 
-class CoreService(BaseModel):
+class Codebase(BaseModel):
     """A core service in ``infra.yml``: one codebase, one build artifact.
 
-    The service level accepts only ``{processes, secrets, config, env}``
-    (rule 22). Everything invocation-determined lives on a ProcessType.
+    The service level accepts only ``{core_services, secrets, config, env}``
+    (rule 22). Everything invocation-determined lives on a CoreService.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     # Rule 22: required and non-empty.
-    processes: dict[str, ProcessType] = Field(min_length=1)
+    core_services: dict[str, CoreService] = Field(min_length=1)
     env: dict[str, Any] = Field(default_factory=dict)
     # Operator-supplied secret env vars with no in-project source (API keys,
     # tokens). KEY -> human description. Surfaced via `docex secrets scaffold`
@@ -227,18 +227,18 @@ class CoreService(BaseModel):
         stray = sorted(k for k in _MOVED_TO_PROCESS if k in data)
         if stray:
             raise ValueError(
-                f"{stray} moved from the core service to the process type in "
-                f"CICL v2. Nest them under a named entry in a `processes:` "
-                f"block. Only {{processes, secrets, config, env}} are valid "
+                f"{stray} moved from the core service to the core service in "
+                f"CICL v2. Nest them under a named entry in a `core_services:` "
+                f"block. Only {{core_services, secrets, config, env}} are valid "
                 f"at the service level (cicl.md § Field scoping, rule 22). "
                 f"See upgrades/upgrade_1.6.0.md."
             )
         return data
 
 
-# Mod 099 deleted the "pick one process type to stand in for the codebase"
+# Mod 099 deleted the "pick one core service to stand in for the codebase"
 # bridge that Mod 096 planted here. Both of its consumers are gone: migration
-# sizing is now the per-dimension max across the codebase's process types, and
+# sizing is now the per-dimension max across the codebase's core service, and
 # "which container represents this codebase" is answered by the emitted
 # per-codebase exec service (`orchestrate/_common.py::exec_service_key`).
 # Do not reintroduce it.
@@ -279,33 +279,33 @@ class CICLDocument(BaseModel):
     # docex doesn't act on this. Accepted so a project that follows the
     # cicl.md § "Git Repo URL" prose still compiles. See cicl.md.
     repo_url: str | None = None
-    # The web *process type* mapped to the bare
+    # The web *core service* mapped to the bare
     # ``<env>.<project>.<apex_domain>`` subdomain, named as a dotted
-    # reference (e.g. ``api.web``). Other web process types live at
+    # reference (e.g. ``api.web``). Other web core service live at
     # ``<service>-<process>.<env>.<project>.<apex_domain>`` — the canonical
     # host form. Optional; if unset, nothing occupies the bare subdomain.
     # See cicl.md § Domain.
-    domain_default_process: str | None = None
+    domain_default_service: str | None = None
     # The HTTPS URL of the project's observability backend (HyperDX).
     # Sidecars in stage/prod export OTLP signals here. Required on every
     # project — dev/test sidecars don't consume the URL but the field is
     # validated up-front so misconfigurations surface before stage release.
     # See doctrine/infrastructure/cicl.md § Observability Backend.
     observability_backend_url: str
-    core_services: dict[str, CoreService] = Field(default_factory=dict)
+    codebases: dict[str, Codebase] = Field(default_factory=dict)
     backing_services: dict[str, BackingService] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
     def _validate_cicl_version(cls, data: Any) -> Any:
         # Rule 21. Rejected, not shimmed: a compatibility parser accepting
-        # both forms would reintroduce the flat pre-`processes:` shape as a
+        # both forms would reintroduce the flat pre-`core_services:` shape as a
         # permanent second code path, to serve a migration every project
         # performs exactly once. See cicl.md § CICL Version.
         #
         # WHY mode="before": a `mode="after"` validator runs only once every
         # nested field has validated, and a real v1 `infra.yml` fails inside
-        # `CoreService` first — so the operator saw a wall of per-service
+        # `Codebase` first — so the operator saw a wall of per-service
         # field-scoping errors and never this message, on the single error every
         # downstream project hits exactly once, while upgrading. Reading the raw
         # mapping fires before the nested models are built.
@@ -320,7 +320,7 @@ class CICLDocument(BaseModel):
         if version == "1":
             raise ValueError(
                 "cicl_version '1' is no longer supported. CICL v2 makes the "
-                "`processes:` block mandatory on every core service and adds "
+                "`core_services:` block mandatory on every core service and adds "
                 "the `consumes` relation and four-segment core magic refs. "
                 "Follow upgrades/upgrade_1.6.0.md to migrate this infra.yml, "
                 "then set cicl_version: \"2\"."
@@ -334,7 +334,7 @@ class CICLDocument(BaseModel):
     def _validate_service_names(self) -> "CICLDocument":
         # Rule 5: names unique across services.
         names: set[str] = set()
-        for name in list(self.core_services) + list(self.backing_services):
+        for name in list(self.codebases) + list(self.backing_services):
             if not _SERVICE_NAME_RE.match(name):
                 raise ValueError(
                     f"service name {name!r} must start with a letter and "
@@ -346,19 +346,19 @@ class CICLDocument(BaseModel):
         # A process name is emitted as the second segment of a compiled
         # identity, so it is bound by exactly the same character rule as a
         # service name.
-        for svc_name, svc in self.core_services.items():
-            for proc_name in svc.processes:
-                if not _SERVICE_NAME_RE.match(proc_name):
+        for svc_name, svc in self.codebases.items():
+            for service_name in svc.core_services:
+                if not _SERVICE_NAME_RE.match(service_name):
                     raise ValueError(
-                        f"process name {proc_name!r} (on core service "
+                        f"process name {service_name!r} (on core service "
                         f"{svc_name!r}) must start with a letter and "
                         "contain only letters, digits, '_' or '-'"
                     )
         # Names unique across core+backing too.
-        overlap = set(self.core_services) & set(self.backing_services)
+        overlap = set(self.codebases) & set(self.backing_services)
         if overlap:
             raise ValueError(
-                f"service name(s) appear in both core_services and "
+                f"service name(s) appear in both codebases and "
                 f"backing_services: {sorted(overlap)}"
             )
         return self
@@ -389,31 +389,36 @@ class CICLDocument(BaseModel):
 
     # Convenience accessors -------------------------------------------------
 
-    def all_services(self) -> dict[str, Any]:
-        """Merged dict of all services keyed by name. Iteration order is
-        core-first, then backing — useful for emit order, though callers
-        that want full determinism should sort explicitly.
+    def all_authored(self) -> dict[str, Any]:
+        """Merged dict of every top-level authored entry, keyed by name.
 
-        This is the *authoring* view: authoring models keyed by authoring
-        name. Core entries are :class:`CoreService` (which no longer shares
-        a base with :class:`BackingService`), so a caller that needs
-        ``role`` / ``networks`` / ``port`` wants :meth:`all_processes`.
+        Iteration order is codebases-first, then backing services — useful for
+        emit order, though callers wanting full determinism should sort.
+
+        NOT named ``all_core_services``: it merges :class:`Codebase` entries with
+        :class:`BackingService` entries, and a codebase is not a service. The
+        two things it merges are exactly the two top-level maps an author
+        writes, which is what the name states. A caller that wants the
+        service-level view — ``role`` / ``networks`` / ``port`` / ``command`` —
+        wants :meth:`all_core_services`.
         """
         merged: dict[str, Any] = {}
-        merged.update(self.core_services)
+        merged.update(self.codebases)
         merged.update(self.backing_services)
         return merged
 
-    def all_processes(self) -> list[tuple[str, str, CoreService, ProcessType]]:
-        """Every ``(service_name, process_name, service, process)``, sorted.
+    def all_core_services(
+        self,
+    ) -> list[tuple[str, str, Codebase, CoreService]]:
+        """Every ``(codebase_name, service_name, codebase, core_service)``, sorted.
 
-        The process-level companion to :meth:`all_services`, which stays the
+        The service-level companion to :meth:`all_authored`, which stays the
         *authoring* view (authoring models keyed by authoring name) because
         every validator depends on that.
         """
         out = []
-        for svc_name in sorted(self.core_services):
-            svc = self.core_services[svc_name]
-            for proc_name in sorted(svc.processes):
-                out.append((svc_name, proc_name, svc, svc.processes[proc_name]))
+        for svc_name in sorted(self.codebases):
+            svc = self.codebases[svc_name]
+            for service_name in sorted(svc.core_services):
+                out.append((svc_name, service_name, svc, svc.core_services[service_name]))
         return out
