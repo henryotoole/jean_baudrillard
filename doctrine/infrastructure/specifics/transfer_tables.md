@@ -848,7 +848,7 @@ This is the **envinfra** tag block. It is one of three tag blocks (preinfra, pro
 The `service` tag is present only on resources belonging to a core service. For a
 backing service — and for the per-codebase migration resources — the key is
 **omitted entirely** rather than emitted empty, so a reader can tell a
-codebase-scoped resource from a service-scoped one by the key's presence rather
+codebase-scoped resource from a core-service-scoped one by the key's presence rather
 than by inspecting its value; `Name` then falls back to
 `${project}_${env}_${codebase}`. Note the joiner here is `_`, not `-`: this is a
 tag value, not a data-plane name.

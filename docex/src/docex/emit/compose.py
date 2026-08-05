@@ -30,7 +30,7 @@ Two properties carry the design:
   (``CompiledService.codebase_env``), never a core service's overlay. That is
   what turns *``migrate.sh``, ``test.sh`` and ``build.sh`` may depend only on
   codebase-scoped env* from a convention into an enforceable rule: a
-  service-level key is not merely discouraged there, it is absent.
+  core-service-level key is not merely discouraged there, it is absent.
 """
 
 from __future__ import annotations

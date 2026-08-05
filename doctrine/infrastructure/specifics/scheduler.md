@@ -157,7 +157,7 @@ the task definition):
   resolves at compile time and that is *not* a secret — magic-ref parts that
   resolve to literals (`DATABASE_HOST` → `<project>-<env>-appdb`), the
   doctrine-injected `OTEL_*` / `PROJECT_VERSION` block, plain literals from the
-  core service's effective `env:` (codebase-scoped merged under service-scoped) —
+  core service's effective `env:` (codebase-scoped merged under core-service-scoped) —
   is rendered inline as one bare `environment = KEY=value`
   line per var in the `job-run` section (Ofelia's gcfg list form, not a JSON
   array). These are safe to inline because none are secret. Ofelia passes them

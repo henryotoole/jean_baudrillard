@@ -128,7 +128,7 @@ Only when none of these fit is util appropriate, and even then the entry should 
 
 There are five natural test types in hexagonal architecture. The first four each target a distinct layer: domain, alogic, adapter, and module tests; the fifth (service/flow tests) exercises the whole service at once. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
 
-All the below categories of tests are [service tests](../infrastructure/tests.md#service-tests) from an infrastructure perspective.
+All the below categories of tests are [codebase tests](../infrastructure/tests.md#codebase-tests) from an infrastructure perspective.
 
 1. Domain Tests
 
@@ -156,7 +156,7 @@ Keep these few. The unit and adapter tests already cover detailed behavior; modu
 
 Every hexagonal module should have at least some test functions that automatically test it.
 
-5. Service Integration / Flow Tests
+5. Codebase Integration / Flow Tests
 
 The "highest" form of integration test, performed against the entire codebase. They test the behavior of all modules together against real driven adapters (real test database, real test cache, etc); however, like module integration tests, external-system gateways are still stubbed by necessity. Flow tests generally drive the codebase "from the outside" - for a REST-based API backend, this would be through the HTTP edge itself and appear as a series of POST requests and assessed responses. The scope is the codebase, not one of its core services: they share a composition root, so one scenario may legitimately cross from a `web` edge into a `worker`'s handler.
 

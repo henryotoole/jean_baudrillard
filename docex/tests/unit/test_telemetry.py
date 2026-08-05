@@ -480,7 +480,7 @@ def test_service_instance_id_set_nowhere():
 
     Asserted on BOTH compiled env surfaces of every service on both
     foundations, so the claim cannot rot in the codebase-scoped surface while
-    holding in the service-scoped one.
+    holding in the core-service-scoped one.
     """
     for doc, env in (
         (_multi_core_fixed_doc(), "dev"),

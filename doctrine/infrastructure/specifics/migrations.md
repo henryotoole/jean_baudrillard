@@ -48,7 +48,7 @@ docker compose -f infra/output/<env>/docker-compose.yml \
 The exec service is the compiled block that *is* the codebase: one per codebase, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `depends_on` rewritten to `condition: service_healthy`. Two properties matter here:
 
 - **Nothing needs to be running.** The exec service is gated behind `profiles: [exec]` so `compose up` never starts it, while `compose run` implicitly enables the profile of the service it names. And because it gates on its backing services' healthchecks, the one-off waits for the database instead of assuming the stack is already up.
-- **It carries codebase-level `env:` only** — never a core service's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a service-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
+- **It carries codebase-level `env:` only** — never a core service's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a core-service-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
 
 This also removes a question that has no good answer. A codebase with several [core services](../cicl.md#core-services) offers no principled way to pick one of their containers to `exec` into, and any rule for choosing a representative moves the migration's environment when an unrelated core service is renamed.
 

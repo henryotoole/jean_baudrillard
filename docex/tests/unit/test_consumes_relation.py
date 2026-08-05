@@ -365,9 +365,9 @@ def test_10_cross_codebase_omits_the_same_codebase_clause():
     assert "same-codebase is not exempt" not in hits[0].message
 
 
-def test_11_service_level_env_ref_obliges_every_core_service():
+def test_11_codebase_level_env_ref_obliges_every_core_service():
     """Free from Mod 096's structure: the scan runs once per core service
-    over its EFFECTIVE env, so a service-level ref is seen on every pass.
+    over its EFFECTIVE env, so a codebase-level ref is seen on every pass.
     The assertion that matters is the COUNT — one ref, two core services,
     one edge declared, therefore exactly one issue, naming the other.
 

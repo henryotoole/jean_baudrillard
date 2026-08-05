@@ -116,7 +116,7 @@ class CoreService(BaseModel):
     # Role-specific fields (health_check_path, schedule, ...) land in
     # model_extra, exactly as they do on _ServiceBase today. Role-specific
     # fields follow `role`, which is invocation-determined, so they are
-    # service-scoped by derivation (cicl.md § Field scoping).
+    # core-service-scoped by derivation (cicl.md § Field scoping).
     model_config = ConfigDict(extra="allow")
 
     role: str
@@ -141,7 +141,7 @@ class CoreService(BaseModel):
     # unroll and the elastic ECS `desired_count` (Mod 100).
     replicas: int = Field(default=1, ge=1)
     # The only field valid at both levels. A core service's effective env is
-    # the service-level block merged under its own (cicl.md § Field scoping).
+    # the codebase-level block merged under its own (cicl.md § Field scoping).
     env: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -401,7 +401,7 @@ class CICLDocument(BaseModel):
         :class:`BackingService` entries, and a codebase is not a service. The
         two things it merges are exactly the two top-level maps an author
         writes, which is what the name states. A caller that wants the
-        service-level view — ``role`` / ``networks`` / ``port`` / ``command`` —
+        core-service-level view — ``role`` / ``networks`` / ``port`` / ``command`` —
         wants :meth:`all_core_services`.
         """
         merged: dict[str, Any] = {}
@@ -414,7 +414,7 @@ class CICLDocument(BaseModel):
     ) -> list[tuple[str, str, Codebase, CoreService]]:
         """Every ``(codebase_name, service_name, codebase, core_service)``, sorted.
 
-        The service-level companion to :meth:`all_authored`, which stays the
+        The core-service-level companion to :meth:`all_authored`, which stays the
         *authoring* view (authoring models keyed by authoring name) because
         every validator depends on that.
         """

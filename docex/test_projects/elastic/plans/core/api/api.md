@@ -60,7 +60,7 @@ Two, because the codebase has two boundaries and the contract path is keyed on t
 
 This codebase owns the schema (`schema_owned_by: api`). See [`db_schema.md`](./db_schema.md). Migrations live at `core/api/migrations/` and are driven by `core/api/migrate.sh` (dbmate), which runs **once per codebase**, not once per core service. On `stage`/`prod`, the doctrine emits **one** migration ECS task-definition family per codebase (same image, command `migrate.sh`); `docex release <env>` dispatches it via `RunTask` per `release_flow.md`.
 
-Because it runs per codebase, `migrate.sh` may read **service-level `env:` only**. The six `DATABASE_*` parts are declared at the `api` service level for exactly that reason; a service-scoped var such as `WORKER_HOST` would simply be absent, silently.
+Because it runs per codebase, `migrate.sh` may read **codebase-level `env:` only**. The six `DATABASE_*` parts are declared at the `api` codebase level for exactly that reason; a core-service-scoped var such as `WORKER_HOST` would simply be absent, silently.
 
 ## Hard boundaries
 

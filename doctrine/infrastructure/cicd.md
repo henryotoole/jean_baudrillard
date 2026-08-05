@@ -213,7 +213,7 @@ This process is different depending on whether the project has a `fixed` or `ela
 
 ### Staging Tests
 
-Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that service tests can not because service tests run isolated within a singular service. 
+Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that codebase tests can not because codebase tests run isolated within a singular codebase. 
 
 Stage tests run at a project-wide level against the staging environment *from* a "stage tester" image. The stage tester image is defined by a developer-maintained dockerfile at `$pr/infra/stage/Dockerfile`. This image simply runs on the development machine. It will build with the libraries needed to run the developer-defined stage tests.
 

@@ -27,7 +27,7 @@ codebases:
   # a table, and six identical DATABASE_* refs.
   api:
     # Codebase-scoped: both core services run the same artifact and both
-    # need a database, so these live once at the service level and merge
+    # need a database, so these live once at the codebase level and merge
     # into every core service. (cicl.md § Field scoping.)
     env:
       # Built from appdb's provided parts at startup (parts-only model).
@@ -58,10 +58,10 @@ codebases:
         # declaration. (cicl.md § Consumes Relationships.)
         consumes: [api.worker]
         env:
-          # Service-scoped: only the web edge exposes /health/{probe,events},
+          # Core-service-scoped: only the web edge exposes /health/{probe,events},
           # so only it declares these refs — which is what keeps `probe` and
           # `events` out of the worker's depends_on. Per rule 7 a
-          # SERVICE-level ref would oblige EVERY core service to declare the
+          # CODEBASE-level ref would oblige EVERY core service to declare the
           # edge, forcing the worker to depend on backings it never touches.
           #
           # Project-local container backings: nginx sidecar + ClickHouse

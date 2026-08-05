@@ -510,7 +510,7 @@ def test_16_web_network_on_web_role_clean():
 def test_17_health_check_path_without_port_on_service_rejected():
     """Regression for the silent pass Mod 095's corporal flagged: reading
     `health_check_path` off the Codebase sees permanently empty extras
-    once the field is service-scoped."""
+    once the field is core-service-scoped."""
     src = _HEAD + """
 codebases:
   consumer:
@@ -603,7 +603,7 @@ def test_20_service_env_key_colliding_with_codebase_secrets_rejected():
 @pytest.mark.parametrize("reserved_key", sorted(_RESERVED_CORE_ENV_KEYS))
 def test_21_service_env_cannot_shadow_a_reserved_key(reserved_key: str):
     """Every doctrine-reserved key, not just `OTEL_SERVICE_NAME`. Parametrized
-    off the validator's own frozenset so a key added there without service-level
+    off the validator's own frozenset so a key added there without core-service-level
     coverage fails here rather than passing silently."""
     src = _with_service_env(_BASE, f'          {reserved_key}: "mine"\n')
     issues = validate_document(_doc(src), _tables())
@@ -613,8 +613,8 @@ def test_21_service_env_cannot_shadow_a_reserved_key(reserved_key: str):
     assert "core_services.web.env" in hits[0].where
 
 
-def test_21_service_level_reserved_key_reported_once_not_per_process():
-    """A service-level `env:` key is a codebase-level fact — reporting it
+def test_21_codebase_level_reserved_key_reported_once_not_per_process():
+    """A codebase-level `env:` key is one fact, not N — reporting it
     once per core service would multiply one mistake into N diagnostics."""
     src = _WITH_WORKER.replace(
         "    core_services:\n", '    env:\n      OTEL_SERVICE_NAME: "mine"\n    core_services:\n'

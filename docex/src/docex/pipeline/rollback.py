@@ -248,7 +248,7 @@ def _target_cicl_version(
     WHY a single-key read rather than ``CICLDocument`` validation: a
     pre-v2 ``infra.yml`` fails full validation for several unrelated
     reasons at once (no ``core_services:``, ``domain_default_service``,
-    service-level ``resources:`` under ``extra="forbid"``), and which
+    core-service-level ``resources:`` under ``extra="forbid"``), and which
     one pydantic reports first decides what the operator sees. "You are
     across the v1 boundary" is the only fact that matters here, and it
     is the one a single-key read cannot get wrong. It also has to work

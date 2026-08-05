@@ -31,13 +31,13 @@ _FIXED = _FIXTURES / "sample_project"
 _ELASTIC = _FIXTURES / "sample_project_elastic"
 
 
-# A service-level `env:` key on the schema carrier (`web`, the lowest-sorted
+# A core-service-level `env:` key on the schema carrier (`web`, the lowest-sorted
 # non-scheduler core service). It must appear in the app container's env and NOT
 # in the migrate task definition's — that is the codebase-scoped-env rule.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 
 # `depends_on: [appdb]` on EVERY core service: the fixture declares its
-# DATABASE_* magic refs at the SERVICE level, and a service-level ref obliges
+# DATABASE_* magic refs at the CODEBASE level, and a codebase-level ref obliges
 # every core service of that codebase to carry the readiness edge (rule 7,
 # cicl.md § Consumes Relationships § Three clarifications).
 # `consumes: [api.web]` (paired with `web`'s `consumes: [api.worker]` below)

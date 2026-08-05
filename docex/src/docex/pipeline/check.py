@@ -602,7 +602,7 @@ def _gate_healthcheck_tooling(
         # filter on web membership (mod 059).
         #
         # Mod 096: read the CORE SERVICE. A `getattr(svc, ...)` against the
-        # Codebase goes permanently None once the field is service-scoped,
+        # Codebase goes permanently None once the field is core-service-scoped,
         # so the gate would pass while checking nothing and Mod 051's curl
         # protection would be silently defeated. One image per codebase, so
         # one qualifying entry per codebase — any core service declaring the

@@ -459,7 +459,7 @@ def _validate_magic_refs(
                     ))
 
     # Core: one scan per core service, over its EFFECTIVE env (codebase-level
-    # merged under service-level). A codebase-level `env:` ref therefore
+    # merged under core-service-level). A codebase-level `env:` ref therefore
     # obliges EVERY core service of that codebase to carry the edge ITS KIND
     # CALLS FOR — `depends_on` for a backing target, `consumes` for a core
     # one — cicl.md § Consumes Relationships § Three clarifications.
@@ -1559,7 +1559,7 @@ def _validate_health_check_path_port(doc: CICLDocument) -> list[ValidationIssue]
     stay that way rather than being special-cased per role.
     """
     issues: list[ValidationIssue] = []
-    # Both the field and the port are service-scoped in CICL v2 — reading
+    # Both the field and the port are core-service-scoped in CICL v2 — reading
     # them off the Codebase would see permanently empty extras and pass
     # while checking nothing.
     for cb_name, svc_name, _cb, svc in doc.all_core_services():

@@ -135,7 +135,7 @@ policy as `global_name`), `codebase_env`, and `replicas`.
 block resolved, plus `secrets` / `config` / doctrine-injected keys, and
 **excluding** any core service's `env:` overlay. The migrate task definition
 consumes it rather than the app container's env, because `migrate.sh` may
-depend only on codebase-scoped env — a service-level `DATABASE_*` would
+depend only on codebase-scoped env — a core-service-level `DATABASE_*` would
 otherwise make a migration silently dependent on which core service it happened
 to inherit from.
 
@@ -156,7 +156,7 @@ and the migrate task definition the compiled identity of whichever core service
 `group_by_codebase` sorted first — a migration reporting the name of a cron job,
 and an identity that moved when an unrelated core service was renamed. Note the
 shape: this and the migration's *resources* (below) were the same defect — a
-per-codebase artifact reading a service-scoped value — and both are fixed
+per-codebase artifact reading a core-service-scoped value — and both are fixed
 structurally, by removing the choice rather than by choosing better.
 
 The two `docex.*` attributes are appended to `OTEL_RESOURCE_ATTRIBUTES` after the
@@ -252,7 +252,7 @@ service's container happened to be chosen. Two properties carry it:
 - Its `environment:` is `codebase_env` — the codebase-level surface only, never a
   core service's overlay. That is what makes *`migrate.sh`, `test.sh` and
   `build.sh` may depend only on codebase-scoped env* an enforceable rule rather
-  than a convention: a service-level key is not discouraged there, it is absent.
+  than a convention: a core-service-level key is not discouraged there, it is absent.
 
 It carries the codebase's image ref (identical across the codebase's core
 services, so one tag and one build), the `build:` block in `dev`/`test`, the dev
@@ -311,7 +311,7 @@ emits is a **trigger**, one per core service, keyed on the two-segment identity:
 **No sidecar for a `scheduler` core service.** Per-service is strictly better
 than the codebase-level phrasing it replaces: a codebase with `web` +
 `nightly_cleanup` gets one sidecar for the web service and none for the job,
-which a service-level rule could not express — it needed the scheduler to be its
+which a codebase-level rule could not express — it needed the scheduler to be its
 own service to say anything at all.
 
 **In `dev`, the codebase tag is the Dockerfile `dev` stage — for every core
@@ -479,10 +479,10 @@ Validation lives at two layers:
 - Every engine is permitted on the target foundation.
 - Every `naming:` value references a defined policy (mod 005).
 - Every backing-service name avoids the engine's `reserved_names` (mod 006 extended postgres's list).
-- Every magic ref is matched by the edge **its kind calls for** (rule 7, kind-aware since mod 098): a ref to a **backing service** by a `depends_on` entry, a ref to a **core service** by a `consumes` entry. Three properties follow from *where* the check sits rather than from extra conditionals, which is why each is pinned by its own test: it is **one-directional** (the walk is over refs, so an edge never obliges a ref — `api.web` consumes `api.worker` for the contract and health fan-out while holding no ref to it); **same-codebase is not exempt** (the comparison is between dotted targets and never between codebases); and a **service-level `env:` ref obliges every core service**, since the scan runs once per core service over its *effective* env. A **backing** service holding a core ref is the one referencer rule 7 does not reach — it has no `consumes:` and, per rule 24, may not `depends_on` a core service. That is the rule correctly not applying rather than a gap: embedding a core hostname in your own config (an `object_store` CORS origin) is not a call, so it implies no readiness coupling and crosses no interface boundary. The skip is deliberate and pinned.
+- Every magic ref is matched by the edge **its kind calls for** (rule 7, kind-aware since mod 098): a ref to a **backing service** by a `depends_on` entry, a ref to a **core service** by a `consumes` entry. Three properties follow from *where* the check sits rather than from extra conditionals, which is why each is pinned by its own test: it is **one-directional** (the walk is over refs, so an edge never obliges a ref — `api.web` consumes `api.worker` for the contract and health fan-out while holding no ref to it); **same-codebase is not exempt** (the comparison is between dotted targets and never between codebases); and a **codebase-level `env:` ref obliges every core service**, since the scan runs once per core service over its *effective* env. A **backing** service holding a core ref is the one referencer rule 7 does not reach — it has no `consumes:` and, per rule 24, may not `depends_on` a core service. That is the rule correctly not applying rather than a gap: embedding a core hostname in your own config (an `object_store` CORS origin) is not a call, so it implies no readiness coupling and crosses no interface boundary. The skip is deliberate and pinned.
 - A minted var's `policy:` names a defined `generation_policies` entry (rule 13, load-time — mod 076).
 - `kind: fixed` ⇒ a `value` and no `policy`; `kind: minted` ⇒ a `policy` and no `value` (rule 14, mod 076).
-- Per core service, the *effective* `env` (service-level merged under service-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
+- Per core service, the *effective* `env` (codebase-level merged under core-service-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
 - Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
 - `cicl_version` is `"2"`; `"1"` is rejected with a message naming the upgrade guide, not shimmed (rule 21, mod 096).
 - Rendered data-plane identities are unique after naming-policy normalization, across core services, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core service rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per core service, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a core service named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. Mod 100 added a fifth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the core service declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.

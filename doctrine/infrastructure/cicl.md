@@ -542,7 +542,7 @@ The following rules apply to whether or not an `infra.yml` file is valid.
 13. `apex_domain` must be a bare apex domain without subdomains.
 14. Neither codebase names nor core service names can be one of the following: [`dev`, `test`, `stage`, `prod`, `www`], because it makes domain parsing challenging and because a core service named `prod` renders `api-prod.dev.myproject.example.com`, which reads as a production host in a dev environment.
 15. Every `web`-network **core service** declares a `port`.
-16. A core service's *effective* `env:` (codebase-level merged under service-level) does not declare a key that also appears in the codebase's `secrets:` or `config:`.
+16. A core service's *effective* `env:` (codebase-level merged under core-service-level) does not declare a key that also appears in the codebase's `secrets:` or `config:`.
 17. Every engine's `naming:` value in a transfer table is the name of a policy declared in `naming_policies:` (see [transfer_tables.md § Naming Policies](./specifics/transfer_tables.md#naming-policies)).
 18. `reverse_proxy` can only appear on `foundation: elastic` projects.
 19. Every key a core service consumes from `config:` is declared in its codebase's `config:` block; config values live in the non-tracked `infra/config/<env>.env`. See [config_and_secrets.md](./specifics/config_and_secrets.md).

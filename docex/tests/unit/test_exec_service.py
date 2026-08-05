@@ -29,9 +29,9 @@ _SCHEDULER_FIXED = _FIXTURES / "sample_project_scheduler_fixed"
 # Planted on ONE core service. The whole point of the exec service is that
 # this key cannot reach `migrate.sh` / `test.sh` / `build.sh`.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
-# Declared at the SERVICE level in the fixture — codebase-scoped, so it must
+# Declared at the CODEBASE level in the fixture — codebase-scoped, so it must
 # reach the exec container.
-_SERVICE_LEVEL_KEY = "DATABASE_HOST"
+_CODEBASE_LEVEL_KEY = "DATABASE_HOST"
 
 _WORKER = {
     "role": "worker",
@@ -110,7 +110,7 @@ def test_2_exec_service_is_profile_gated_and_nothing_depends_on_it(
 
 
 # ---------------------------------------------------------------------------
-# 3 — the headline: service-level env only.
+# 3 — the headline: codebase-level env only.
 # ---------------------------------------------------------------------------
 
 
@@ -127,7 +127,7 @@ def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
         services = _services(fixed_root, env)
         exec_env = services[f"sample-{env}-api-exec"]["environment"]
         assert _WEB_ONLY_KEY not in exec_env, env
-        assert _SERVICE_LEVEL_KEY in exec_env, env
+        assert _CODEBASE_LEVEL_KEY in exec_env, env
         assert exec_env["PROJECT_VERSION"] == "0.1.0"
         # The core service that declared it does see it.
         assert _WEB_ONLY_KEY in services[f"sample-{env}-api-web"]["environment"]

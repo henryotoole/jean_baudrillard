@@ -6,17 +6,17 @@ stratum: conditional
 
 This document describes the different kinds of automated tests which ship with a project, where they belong, and when they are supposed to be run.
 
-## Service Tests
+## Codebase Tests
 
-Service tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its `test.sh` inside its test-stage container. The scope is the codebase and not one of its core services because the test suite, like the artifact, is a property of the source tree: one `test.sh` per codebase covers every core service that codebase declares. The tier keeps the name "service tests" to distinguish it from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's service tests.
+Codebase tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its `test.sh` inside its test-stage container. The tier is named for its scope, which is the codebase and not one of its core services: the test suite, like the artifact, is a property of the source tree, so one `test.sh` per codebase covers every core service that codebase declares. That scope is what distinguishes this tier from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's tests.
 
 These tests test the code itself - that functions behave correctly, modules within a codebase can communicate, etc. They *don't* test inter-core-service communication. They can, however, interact with a backing service for the purpose of testing a single codebase (required for some integration tests).
 
-Service tests are written in whatever language, and with whatever tooling, is appropriate for the codebase. A codebase written in python would have tests also written in python and perhaps run with `pytest`.
+Codebase tests are written in whatever language, and with whatever tooling, is appropriate for the codebase. A codebase written in python would have tests also written in python and perhaps run with `pytest`.
 
-Unit, integration, and contract tests should all be run by the [standard service test script](./cicd.md#build-test-step)
+Unit, integration, and contract tests should all be run by the [standard test script](./cicd.md#build-test-step)
 
-The folder structure of service tests (and more details on how to write them) is described here: [hex_overview.md](../hexagonal_architecture/hex_overview.md#tests)
+The folder structure of codebase tests (and more details on how to write them) is described here: [hex_overview.md](../hexagonal_architecture/hex_overview.md#tests)
 
 ### Unit Tests
 These are very fast tests which test a piece of code in isolation. Dependencies are mocked. The purpose is to determine if the unit's internal logic is correct.
@@ -27,41 +27,54 @@ These tests verify that multiple pieces work *together*. Tests might fire agains
 #### Module-Level
 Module-level integration tests verify that a single module behaves as expected.
 
-#### Service-Level
-Service-level integration tests (e.g. "flow" tests) verify that the entire core service behaves as expected, often from the "outside" (e.g. by applying requests against an actual backend's api). It tests all modules, often in an end-to-end form. We call these "flow" tests because they test the flow of information across the entire service's codebase as a hand-authored scenario plays out.
+#### Codebase-Level
+Codebase-level integration tests (e.g. "flow" tests) verify that the entire codebase behaves as expected across all modules. These are often done "from outside", for example by applying real requests against codebase `api`'s core service `web`. The resulting test ensures that the "flow" of information across the codebase's modules and even core services behaves correctly as a hand-authored scenario plays out.
 
-Flow tests are similar to contract tests. Both test the whole service as a unit. The distinction is in *purpose*. A contract test ensures the service's external shape is consistent with the contract (e.g. that a JSON POST response has code 200 and `some_field`). A flow test ensures the service's *behavior* is correct (e.g. that the JSON POST response has the actual correct value for `some_field`) and that the expected effects occur as a result (e.g. the correct record is persisted as a result of the POST). A schema-valid response can still be the wrong answer; that gap is what flow tests cover.
+A flow test *enters* through one core service's driving adapter, but what it can *reach* is the whole codebase: every core service of a codebase is assembled by the same [composition root](../hexagonal_architecture/internal_dependency_rules.md#composition-root), so a scenario driven at the `web` edge may legitimately land in the handler that `worker` would normally host. It does so **in-process** — the queue hop between the two is elided. A flow test therefore proves the codebase's composed *behavior* while proving nothing about the transport between core services. Code reachability crosses core services; the wire between them does not, which is what reconciles this tier with "these tests don't test inter-core-service communication" above. That remaining gap is covered by contract tests below and by [staging tests](#staging-tests).
+
+Flow tests can look similar to contract tests. A key distinction is in *purpose*. A contract test ensures the core service's external shape is consistent with the contract (e.g. that a JSON POST response has code 200 and `some_field`). A flow test ensures the codebase's *behavior* is correct (e.g. that the JSON POST response has the actual correct value for `some_field`) and that the expected effects occur as a result (e.g. the correct record is persisted as a result of the POST or the correct worker job ran). A schema-valid response can still be the wrong answer; that gap is what flow tests cover.
 
 ### Contract Tests
 [On contracts](./infrastructure.md#contracts).
 
 Contract tests ensure core service modularity. They check that the boundary of a core service is well-defined, and ensure that consumers of that core service can expect the interior machinery to behave as defined by the contract. They don't literally test communications between multiple core services, but they do ensure that core services *will communicate correctly* in production.
 
-Good contract tests spare the developer from needing to write and maintain a bunch of complex and brittle end-to-end staging tests. Staging tests ideally test only *infrastructure* and shouldn't be burdened by concern over the application logic within a service.
+Two axes are easy to conflate here, because the codebase / core service split falls between them:
+
+| Question | Answer |
+| -------- | ------ |
+| What a contract test *asserts about* | one **core service's** boundary — its own contract file. |
+| Where a contract test *runs* | the **codebase's** [exec service](./specifics/migrations.md#dev-and-test-mechanism) — the one-off container `test.sh` is invoked in. |
+
+A codebase declaring two providers therefore has two contract files but one test suite, one `test.sh`, and one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`; neither the running `api-web` nor the running `api-worker` container is the one doing the testing.
+
+Good contract tests spare the developer from needing to write and maintain a bunch of complex and brittle end-to-end staging tests. Staging tests ideally test only *infrastructure* and shouldn't be burdened by concern over the application logic within a codebase.
 
 The tricky thing about contract tests is that they can run on both sides of the contract. The provider side ensures that the provider reacts correctly to simulated contract-appropriate requests from "outside" the service. The consumer side ensures that the consumer acts and reacts correctly when working with a provider that is mocked in accordance with the contract.
 
 This doctrine requires provider-side contract tests for core services with defined contracts, and encourages consumer-side contract tests for larger projects with many different core services.
 
 #### Provider Side
-- Runs inside the provider codebase's test Dockerfile stage container.
-- Test starts the provider's HTTP server inside the container.
+- Runs in a one-off container of the provider's **codebase** exec service, built from that codebase's `test` Dockerfile stage — the same container every other test in that codebase's suite runs in.
+- Test starts the provider's server *inside* that container. It does not call the core service's own long-running container in the `test` stack: schema-fuzzing tools generate large volumes of traffic, and aiming that at a shared container makes the suite order-dependent and pollutes state other tests rely on.
 - A schema-validation tool (e.g., schemathesis for OpenAPI) hits the real running endpoints.
 - Verifies that actual responses conform to what contract.*.yml declares.
-- Invoked by provider's test.sh.
+- Invoked by the codebase's test.sh.
 
 #### Consumer Side
-- Runs inside the consumer codebase's test Dockerfile stage container.
+- Runs in a one-off container of the consumer's **codebase** exec service, as above.
 - A mock server is generated from the provider's contract - either via a separate container (Prism, AsyncAPI mock) or as an in-process mock library (e.g., httpx_mock for Python clients).
 - consumer's tests hit the mock instead of the real backend.
 - Verifies consumer can work against any contract-conformant provider.
-- Invoked by consumer's test.sh.
+- Invoked by the codebase's test.sh.
 
-The consumer side is *especially* tricky because it can require spinning up a separate container. If this is done, it should be done as a subcontainer *within* the codebase's test container. That way it does not become an infrastructural concern.
+The consumer side is codebase-scoped in a second sense as well. It exercises a driven gateway adapter, and that adapter is shared by every core service the codebase declares — so two core services consuming the same provider want *one* consumer-side test, not two, even though [`consumes`](./cicl.md#consumes-relationships) is declared per core service.
+
+The consumer side is *especially* tricky because it can require spinning up a separate container. If this is done, it should be done as a subcontainer *within* the codebase's exec container. That way it does not become an infrastructural concern.
 
 ## Staging Tests
 
-Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that service tests can not because service tests run isolated within a singular codebase. 
+Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that codebase tests can not because codebase tests run isolated within a singular codebase. 
 
 Staging tests should at least perform the following:
 + Liveness Checks - Each `web`-network core service responds to its own `GET /health` at its own hostname. Core services that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<codebase>/<service>` [fan-out](./contracts.md#fan-out) on the `web` core service that `consumes` them. `scheduler` core services are exempt — they have no long-running container to probe.
