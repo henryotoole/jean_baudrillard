@@ -185,7 +185,7 @@ Compose-level mechanics. Sidecar emitted as a paired compose service.
 
 For each **emitted** core service container, `docex compile` emits an additional compose service named `<container>-otelcol`. For a core service `<svc>` of codebase `<cb>` that is the container `<cb>-<svc>`, so the sidecar is `<cb>-<svc>-otelcol`; under a [replica unroll](../shape.md#fixed-foundation) each replica `<cb>-<svc>-<i>` gets its own `<cb>-<svc>-<i>-otelcol`. The pairing is therefore strictly 1:1, which is exactly why compose's `deploy.replicas` cannot be used — it has no replica-to-replica pairing semantics, so one sidecar could not serve N replicas.
 
-A `scheduler` core service gets **no** sidecar: there is no long-running container to pair with. So a codebase with a `web` core service and a nightly job emits one sidecar, for the `web` core service — something the older per-codebase phrasing could not express.
+Every core service gets a sidecar, and the pairing is per core service rather than per codebase: a codebase with a `web` core service and a `clock` emits two, one each — something the older per-codebase phrasing could not express.
 
 The sidecar shares its partner's network namespace via compose's `network_mode: "service:<container>"` — it does not declare its own `networks:` (mutually exclusive with `network_mode`).
 
@@ -242,7 +242,7 @@ The `${VAR:-}` syntax (with empty default) means the variables are optional from
 
 The sidecar runs otelcol's `health_check` extension on `127.0.0.1:13133`, but **no compose `healthcheck:` block is emitted** — the `otel/opentelemetry-collector` image is built `FROM scratch` and carries no probe tool (no wget, curl, or shell), so a container-level healthcheck could never succeed; emitting one would leave compose reporting the sidecar as `health: starting` forever while it actually works fine. The extension stays available for in-band diagnostics from inside the shared netns (e.g. curling `localhost:13133` from the core service's container).
 
-The core service does **not** declare a `depends_on` healthcheck on `<cb>-<svc>-otelcol`. With `network_mode: "service:<cb>-<svc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
+The core service declares no readiness gate on `<cb>-<svc>-otelcol`. With `network_mode: "service:<cb>-<svc>"`, compose enforces an implicit dependency in the *opposite* direction — the sidecar can't start until the core service's container exists (its netns has to be there to share). The core service therefore starts first; the sidecar attaches to its netns immediately after; both processes initialize concurrently.
 
 This means the core service does not have a guaranteed sidecar at `t=0`. The OTel SDK's default batch/retry behavior covers the brief startup window — sidecar readiness is typically 1–2 seconds, well within the SDK's queue tolerance (default queue size of 2048 spans, 5-second flush interval). Signals emitted during the startup window are buffered, not dropped.
 
@@ -258,7 +258,7 @@ Note: `dev` and `test` are always fixed per [shape.md § Shape and Environment](
 
 For each core service that also runs an ECS service, the task definition contains two containers: the application container and an `<cb>-<svc>-otelcol` container. They share the task netns. There is no separate ECS service for the sidecar, and N replicas give N sidecars automatically, because the collector is a container *inside* the task definition.
 
-Two task definitions carry no sidecar: a `scheduler` core service's (it emits no `ecs_service` — nothing runs continuously) and the per-codebase migration task definition.
+One task definition carries no sidecar: the per-codebase migration task definition.
 
 Emitted task-definition container fragment for the sidecar (illustrative):
 
@@ -347,11 +347,10 @@ The desired totals are not necessarily what the emitted task definition carries.
 with a `web` and a `worker` core service produces two task definitions and pays
 the 0.1 vCPU / 128 MB twice, each rounding to its own Fargate tier independently;
 sizing is declared per core service, so this is the intended shape rather than a
-surprise. A `scheduler` core service pays it **zero** times, since it emits no
-ECS service and therefore has no sidecar to allow for.
+surprise.
 
 On fixed there is no tier arithmetic, but the same count applies: the number of
-collectors in an env is the **sum**, over each non-`scheduler` core service, of
+collectors in an env is the **sum**, over each core service, of
 that core service's effective replica count. It is a sum and not a product,
 because `replicas` is declared per core service — a `web` with `replicas: 3`
 alongside a single `worker` yields four collectors, not six.

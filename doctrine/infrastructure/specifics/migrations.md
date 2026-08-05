@@ -45,7 +45,7 @@ docker compose -f infra/output/<env>/docker-compose.yml \
 
 (`./migrate.sh` is relative because the image's working directory is the fixed `/service` root — see [Codebase Containers](../infrastructure.md#codebase-containers). `--build` is added in `test` only; `dev` reuses the existing image.)
 
-The exec service is the compiled block that *is* the codebase: one per codebase, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `depends_on` rewritten to `condition: service_healthy`. Two properties matter here:
+The exec service is the compiled block that *is* the codebase: one per codebase, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `uses` edges whose target is a backing service, rewritten to `condition: service_healthy`. Two properties matter here:
 
 - **Nothing needs to be running.** The exec service is gated behind `profiles: [exec]` so `compose up` never starts it, while `compose run` implicitly enables the profile of the service it names. And because it gates on its backing services' healthchecks, the one-off waits for the database instead of assuming the stack is already up.
 - **It carries codebase-level `env:` only** — never a core service's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a core-service-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
@@ -68,7 +68,7 @@ For `stage`/`prod` on fixed projects, migration is a step in the Ansible playboo
   loop: "{{ codebases_with_schema }}"
 ```
 
-For each schema-owning codebase, `compose run` starts a one-off container of that codebase's exec service using the new image. Routing production migration through the *same* exec service `dev` and `test` use is what makes the codebase-scoped-env rule hold everywhere: a rule that lapsed in `stage`/`prod` would not be a rule. The container inherits the exec service's networks and `depends_on` gates, reads its env vars from the rendered `.env`, and exits with a status code. The old service containers are still running and serving traffic against the (about-to-be-migrated) database — see [Backward Compatibility](#backward-compatibility-requirement) below.
+For each schema-owning codebase, `compose run` starts a one-off container of that codebase's exec service using the new image. Routing production migration through the *same* exec service `dev` and `test` use is what makes the codebase-scoped-env rule hold everywhere: a rule that lapsed in `stage`/`prod` would not be a rule. The container inherits the exec service's networks and readiness gates, reads its env vars from the rendered `.env`, and exits with a status code. The old service containers are still running and serving traffic against the (about-to-be-migrated) database — see [Backward Compatibility](#backward-compatibility-requirement) below.
 
 Note the path is absolute here (`/service/migrate.sh`) while `dev`/`test` use the relative `./migrate.sh`. Both resolve to the same script; the absolute form is used where the command is rendered into a playbook rather than issued against a known working directory.
 

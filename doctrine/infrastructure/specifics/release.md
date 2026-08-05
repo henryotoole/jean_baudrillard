@@ -97,21 +97,21 @@ For a typical release where only the image tag has changed, this updates each co
 
 ECS Service Connect fixes a client task's set of resolvable endpoint names **at task start**. An endpoint registered after a client task started is unresolvable from that task for the rest of its life — not slow, not intermittently unreachable, but absent. See [`cicl.md § Resilience covers reachability, not resolvability`](../cicl.md#resilience-covers-reachability-not-resolvability) for why application-level retrying cannot recover from this.
 
-Because `tofu apply` creates every env-tier `aws_ecs_service` concurrently, a consumer and the [`consumes`](../cicl.md#consumes-relationships) target it depends on start racing. Whichever starts first may never see the other. So after the final apply, `release`:
+Because `tofu apply` creates every env-tier `aws_ecs_service` concurrently, a consumer and the [`uses`](../cicl.md#uses-relationships) target it depends on start racing. Whichever starts first may never see the other. So after the final apply, `release`:
 
 1. Diffs the env namespace's Service Connect endpoint names against a snapshot taken **before** any apply in this release.
-2. Redeploys (`forceNewDeployment`) every core service declaring a `consumes` target whose endpoint is **new in that diff**.
+2. Redeploys (`forceNewDeployment`) every core service declaring a `uses` target whose endpoint is **new in that diff**.
 3. Waits, bounded, for those services to reach steady state — so a release that exits 0 means the env actually works, and the following [`stagetest`](../tests.md#staging-tests) is not racing a rollout.
 
 Three properties are worth stating because they are what make this cheap and safe:
 
 - **It is a no-op unless the shape changed.** A release that adds no core service registers no endpoint, so the diff is empty and the cost is one extra API call. Ordinary image-tag releases pay nothing.
 - **The diff is per-target, not per-namespace.** A consumer whose own targets were already registered is left alone even when some unrelated endpoint appears.
-- **It handles cycles, which ordering cannot.** A `consumes` graph may legally contain cycles, and in a cycle some member must be created first — so no creation order exists. Acting *after* everything is registered is the only mechanism that works for `web ↔ worker`.
+- **It handles cycles, which ordering cannot.** The `uses` graph may legally contain cycles, and in a cycle some member must be created first — so no creation order exists. Acting *after* everything is registered is the only mechanism that works for `web ↔ worker`.
 
 A failed redeploy fails the release: the health fan-out is doctrine-mandated, and an env whose consumers cannot resolve their targets is not released. A redeploy that is accepted but slow to settle is a warning only — ECS will converge.
 
-**Fixed foundations need none of this.** Compose has real `depends_on` ordering, and docker network DNS resolves a sibling container whenever it exists, with no per-task snapshot.
+**Fixed foundations need none of this.** Docker network DNS resolves a sibling container whenever it exists, with no per-task snapshot.
 
 ### Credentials
 

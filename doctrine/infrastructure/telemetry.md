@@ -81,7 +81,7 @@ Application-origin telemetry signals flow like this:
 Application code runs in core service containers. Each container's code is given the OTel SDK for whatever language it is written in. The SDK should be configured for traces, metrics, and logs. It will likely be tied into key features of the language e.g. python's `logging` module. The SDK will emit signals over localhost to an OTel Collector (`otelcol` for short) sidecar.
 
 #### Collector Sidecar
-The telemetry signals hit the OTel Collector sidecar. This sidecar is a dedicated container running `otelcol`; there is one per *emitted* core service container — that is, one per replica. `scheduler` core services are the exception and get none: a cron job is short-lived and has no long-running container to pair with. The sidecar runs in a special subgroup with its parent container - in ECS this is a "task".
+The telemetry signals hit the OTel Collector sidecar. This sidecar is a dedicated container running `otelcol`; there is one per *emitted* core service container — that is, one per replica. The sidecar runs in a special subgroup with its parent container - in ECS this is a "task".
 
 #### Observability Backend
 Each collector forwards signals to the project-wide observability backend. This backend will always be [prerequisite infrastructure](./infrastructure.md#infrastructure-tiers), both on `fixed` and `elastic` foundations. It will be centrally configured for each project with the `observability_backend_url` field and all sidecars will forward application telemetry to that URL.

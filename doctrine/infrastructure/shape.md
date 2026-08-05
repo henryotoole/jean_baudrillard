@@ -48,7 +48,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | backing_service | environment | Docker container | A container running pre-packaged third-party software (postgres, redis, minio, etc.). |
 | environment_config | environment | docker-compose config files | The `compose.yml` files which allow docker to orchestrate containers. |
 | configurable_vars | environment | `.env` files | Sourced from TTE vars, secrets, and config `<env>.env` files; aggregated and injected by `docex`. |
-| telemetry_sidecar | environment | OTel Collector | Collector sidecar, one distinct compose container per *emitted* [core_service] container — i.e. per non-`scheduler` [core_service], and per replica. It is paired by network namespace (`network_mode: service:<container>`), not by shared network, so it always reaches its partner on loopback. Accepts telemetry signals from the [core_service] and forwards to [observability_backend] |
+| telemetry_sidecar | environment | OTel Collector | Collector sidecar, one distinct compose container per *emitted* [core_service] container — i.e. one per [core_service], and per replica. It is paired by network namespace (`network_mode: service:<container>`), not by shared network, so it always reaches its partner on loopback. Accepts telemetry signals from the [core_service] and forwards to [observability_backend] |
 
 ### Elastic-Foundation
 
@@ -78,7 +78,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 | backing_service | environment | AWS-native service (RDS, S3, ElastiCache, etc.) | A managed AWS service standing in for what would be a third-party container in `fixed`. The specific AWS resource depends on the service's role. |
 | environment_config | environment | OpenTofu HCL files | The `main.tf` per env which OpenTofu applies to provision env resources. |
 | configurable_vars | environment | AWS SSM Parameter Store entries | Sourced from TTE vars, secrets, and config `<env>.env` files; aggregated and pushed at release time to SSM `/${project}/${env}/${KEY}`. |
-| telemetry_sidecar | environment | OTel Collector | Collector sidecar, one container inside each task definition that also runs an ECS service — so one per non-`scheduler` [core_service], and one per running replica. Accepts telemetry signals from the [core_service] and forwards to [observability_backend] |
+| telemetry_sidecar | environment | OTel Collector | Collector sidecar, one container inside each task definition that also runs an ECS service — so one per [core_service], and one per running replica. Accepts telemetry signals from the [core_service] and forwards to [observability_backend] |
 
 ## Shape and Environment
 
@@ -118,7 +118,7 @@ codebases:
 				command: ["python", "-m", "entrypoints.http"]
 				port: 8080
 				networks: [web, internal]
-				depends_on: [database]
+				uses: [database]
 				resources:
 					cpu: 1.0
 					memory: 2GB

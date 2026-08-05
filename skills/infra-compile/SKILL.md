@@ -25,7 +25,7 @@ How the compiler turns CICL into provider-ready output. **Read on demand.**
 
 [`networks.md`](../../doctrine/infrastructure/specifics/networks.md) — how a core service's `networks:` list becomes docker attachment (fixed) or security-group membership (elastic). Shared with `network-design`.
 
-[`scheduler.md`](../../doctrine/infrastructure/specifics/scheduler.md) — the `scheduler` role: 5-field cron authoring, per-foundation translation (Ofelia on fixed, EventBridge Scheduler → ECS `RunTask` on elastic), and env/secret delivery to one-off jobs. Read when adding a cron-style scheduled core service.
+[`clock.md`](../../doctrine/infrastructure/specifics/clock.md) — the `clock` role: how the doctrine schedules recurring work. Bare 5-field UTC cron authoring in `schedules:`, the defer-don't-work rule, one clock per codebase, and how the compiled schedule table reaches the container on each foundation. Read when a project needs anything to run on a schedule.
 
 ## Thread
 

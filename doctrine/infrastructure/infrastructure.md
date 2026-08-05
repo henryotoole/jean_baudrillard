@@ -255,7 +255,7 @@ The idea is that all [core services](./cicl.md#core-services) are either provide
 + `api.web` a provider and a consumer
 + `api.worker` a provider only
 
-In practice, these relationships are declared by `infra.yml`'s [consumes](./cicl.md#consumes-relationships) field.
+In practice, these relationships are declared by `infra.yml`'s [uses](./cicl.md#uses-relationships) field.
 
 Provider core services have a contract which is stored at `$pr/infra/contracts/${codebase_name}.${service_name}.${contract_format}.yml`. The contract format follows from the provider's role — a request-based boundary is OpenAPI, a queue-based one is AsyncAPI. In the above example:
 + `frontend.web` has no contract, as it is only a consumer relative to other core services.

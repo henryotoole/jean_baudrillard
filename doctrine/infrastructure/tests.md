@@ -68,7 +68,7 @@ This doctrine requires provider-side contract tests for core services with defin
 - Verifies consumer can work against any contract-conformant provider.
 - Invoked by the codebase's test.sh.
 
-The consumer side is codebase-scoped in a second sense as well. It exercises a driven gateway adapter, and that adapter is shared by every core service the codebase declares — so two core services consuming the same provider want *one* consumer-side test, not two, even though [`consumes`](./cicl.md#consumes-relationships) is declared per core service.
+The consumer side is codebase-scoped in a second sense as well. It exercises a driven gateway adapter, and that adapter is shared by every core service the codebase declares — so two core services consuming the same provider want *one* consumer-side test, not two, even though [`uses`](./cicl.md#uses-relationships) is declared per core service.
 
 The consumer side is *especially* tricky because it can require spinning up a separate container. If this is done, it should be done as a subcontainer *within* the codebase's exec container. That way it does not become an infrastructural concern.
 
@@ -77,7 +77,7 @@ The consumer side is *especially* tricky because it can require spinning up a se
 Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that codebase tests can not because codebase tests run isolated within a singular codebase. 
 
 Staging tests should at least perform the following:
-+ Liveness Checks - Each `web`-network core service responds to its own `GET /health` at its own hostname. Core services that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<codebase>/<service>` [fan-out](./contracts.md#fan-out) on the `web` core service that `consumes` them. `scheduler` core services are exempt — they have no long-running container to probe.
++ Liveness Checks - Each `web`-network core service responds to its own `GET /health` at its own hostname. Core services that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<codebase>/<service>` [fan-out](./contracts.md#fan-out) on the `web` core service that `uses` them. A core service that nothing `uses` — a [clock](./specifics/clock.md), which is consumer-only by rule — appears in no fan-out at all. Its liveness is enforced by its container healthcheck rather than asserted here; the staging walk does not see it.
 + TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)?
 + Critical-path smoke-tests - one or two end-to-end smoke tests that span the system. These should be sufficient to ensure:
 	1. Secrets and environmental variables are wired up properly.

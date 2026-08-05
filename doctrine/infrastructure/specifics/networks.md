@@ -41,7 +41,7 @@ The same form applies whether the underlying resource is a Docker network (fixed
 
 ### `networks: [web]`
 
-A service on the `web` network is reachable from the public internet over HTTP/S, at the [domain](../cicl.md#domain) derived from its **two-segment identity** (`<codebase>-<service>`), env, and project. A `worker` or `scheduler` core service may not declare `web` at all (rule 27), so the carriers here are `web`-role core services and `web`-network backing services. Routing is **network-driven**: any service on `web`, regardless of role, is routed; the compiler generates the routing config from network membership, not from the service's role.
+A service on the `web` network is reachable from the public internet over HTTP/S, at the [domain](../cicl.md#domain) derived from its **two-segment identity** (`<codebase>-<service>`), env, and project. A `worker` or `clock` core service may not declare `web` at all (rule 27), so the carriers here are `web`-role core services and `web`-network backing services. Routing is **network-driven**: any service on `web`, regardless of role, is routed; the compiler generates the routing config from network membership, not from the service's role.
 
 `web`-network services **do not publish host ports**. The project's reverse proxy reaches them over the project network on their declared `port`, so there's nothing to bind on the host. (This is why a `web` service may use any port — including 80 — and why two web services never collide.)
 

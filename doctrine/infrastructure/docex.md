@@ -64,7 +64,7 @@ The output of this command is stored in `$pr/infra/output/${env}` on the basis o
 Describes the project infrastructure shape across all three [tiers](./infrastructure.md#infrastructure-tiers) of infrastructure for a certain environment. This is purely illustrative - the purpose of this command is to show the developer the shape of infrastructure without requiring them to read config files.
 
 The formats available are:
-`dag` - Describe the infrastructure shape with a directed graph. It renders both service relations with the edge kind distinguished: solid for [`depends_on`](./cicl.md#depends-on-relationships) (readiness), dashed for [`consumes`](./cicl.md#consumes-relationships) (interface). The graph is *directed*, not acyclic — `consumes` is a cyclic digraph by doctrine, so the rendered union may legally contain cycles; only the readiness relation on its own is acyclic. Node ids use the dotted reference form (`api.web`).
+`dag` - Describe the infrastructure shape with a directed graph. It renders the [`uses`](./cicl.md#uses-relationships) relation with the edge kind distinguished by **target kind**: solid to a backing service, dashed to a core service. The graph is *directed*, not acyclic — `uses` may legally contain cycles among core services, so the rendered graph may too; the backing-targeted edges alone are acyclic, since a backing service is a sink. Node ids use the dotted reference form (`api.web`).
 `llm` - Describe the infrastructure in JSON-form so that an LLM can easily parse it.
 
 ### `why`
@@ -156,7 +156,7 @@ Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `
 
 ### `check`
 `./bin/docex check`
-Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, `consumes`-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, `uses`-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
 
 ### `merge`
 `./bin/docex merge`

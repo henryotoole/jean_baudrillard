@@ -276,6 +276,7 @@ There will often be multiple controller implementations, each handling a differe
 | `Http` | Exposes the module over HTTP (e.g. a FastAPI router). | `ContBrokerHttp` |
 | `Queue` | Consumes messages from a queue or stream and drives the module with them. | `ContBrokerQueue` |
 | `Cli` | Exposes the module as commands on a command-line interface. | `ContBrokerCli` |
+| `Cron` | Fires the module's operations on a schedule, driven by a clock core service's job table. | `ContJobsCron` |
 | `Ws` | Exposes the module over a WebSocket connection. | `ContBrokerWs` |
 | `Grpc` | Exposes the module over gRPC. | `ContBrokerGrpc` |
 

@@ -17,6 +17,6 @@ What contracts are and what they must contain. **Read this now.**
 
 ## Thread
 
-- Provider/consumer relationships are declared via `consumes` in `infra.yml` — author that in `infra-compile`. `depends_on` is a separate relation (backing-service readiness) and does not define a contract edge.
-- Provider-side contract tests run in the test suite (`testing`); the check step enforces contract-to-`consumes` alignment (`cicd-pipeline`).
+- Provider/consumer relationships are declared via `uses` in `infra.yml` — author that in `infra-compile`. Only the **core-service** targets of a `uses` list define contract edges; a backing-service target does not.
+- Provider-side contract tests run in the test suite (`testing`); the check step enforces contract-to-`uses` alignment (`cicd-pipeline`).
 - A contract expresses a module's *boundary*; the internal architecture behind it is the Resident hexagonal doctrine, already in context.

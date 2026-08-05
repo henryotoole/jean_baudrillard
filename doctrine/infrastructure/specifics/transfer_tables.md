@@ -284,7 +284,7 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 
 - **`default_port`** (optional) — the port this engine listens on by default. When a service using the engine omits the `port:` field in `infra.yml`, the compiler uses this value for the `${port}` substitution variable (and hence the `port` provided-part). Omit it for engines with no canonical port; a magic ref to a port that is neither declared nor defaulted resolves to empty, which is a compile error.
 
-- **`emits`** (required) — per-foundation list of named destinations this engine's translations can land on. The first entry in each list is the *default target* — where `defaults:` lands and where any `fields.<f>.<foundation>` entry without an explicit `target:` lands. Subsequent entries are alternative destinations selectable via `target:`. Each destination name corresponds to a concrete emit site the compiler knows how to render (e.g., `compose_service` → the docker-compose service block; `rds_instance` → the `aws_db_instance` HCL resource; `target_group` → the `aws_lb_target_group` HCL resource; `scheduled_task` → the `aws_scheduler_schedule` + invocation role for a cron job, see [scheduler.md](./scheduler.md); `container_definition` → **not a resource at all but a merge target**: its renderer emits nothing, and a field routed to it is merged into the ECS *container* definition the `task_definition` destination already builds. This is how a `worker` gets a container-level `healthCheck`, since it has no target group to hang one on). Some destinations are conditional on other state — `target_group`, for instance, only exists when the service is on the `web` network — and routing to an inapplicable destination is a compile error. The set of destination names the compiler recognizes is closed and lives in doctrine knowledge inside docex; a transfer table cannot invent new ones. **The engine's `emits` list is the dispatcher key**: the compiler chooses the per-destination renderer by destination name, not by engine name and not by whether the service is core or backing.
+- **`emits`** (required) — per-foundation list of named destinations this engine's translations can land on. The first entry in each list is the *default target* — where `defaults:` lands and where any `fields.<f>.<foundation>` entry without an explicit `target:` lands. Subsequent entries are alternative destinations selectable via `target:`. Each destination name corresponds to a concrete emit site the compiler knows how to render (e.g., `compose_service` → the docker-compose service block; `rds_instance` → the `aws_db_instance` HCL resource; `target_group` → the `aws_lb_target_group` HCL resource; `container_definition` → **not a resource at all but a merge target**: its renderer emits nothing, and a field routed to it is merged into the ECS *container* definition the `task_definition` destination already builds. This is how a `worker` gets a container-level `healthCheck`, since it has no target group to hang one on). Some destinations are conditional on other state — `target_group`, for instance, only exists when the service is on the `web` network — and routing to an inapplicable destination is a compile error. The set of destination names the compiler recognizes is closed and lives in doctrine knowledge inside docex; a transfer table cannot invent new ones. **The engine's `emits` list is the dispatcher key**: the compiler chooses the per-destination renderer by destination name, not by engine name and not by whether the service is core or backing.
 
 - **`defaults`** (required) — per-foundation blocks of YAML that get merged into the default target's emitted resource for every service using this engine. For fixed this is typically the docker-compose service skeleton (volumes, healthcheck, environment); for elastic it is the engine's primary Tofu resource block (instance class, storage settings, etc.). `defaults:` cannot route to a non-default target — that's what `fields:` translations with `target:` are for.
 
@@ -317,7 +317,7 @@ roles:
 				elastic: [task_definition, ecs_service, target_group]
 			defaults:
 				fixed:
-					# Port, env, and depends_on come from the project's infra.yml.
+					# Port, env, and uses come from the project's infra.yml.
 					# Image is derived from `container_registry` + project + service + version
 					# (see cicl.md § Container Registry). cpu/memory limits and tmpfs sizing
 					# come from the service's `resources:` block (see § Resources Translation).
@@ -328,7 +328,7 @@ roles:
 					# to the project ALB (elastic), with per-service domains.
 					# See networks.md and cicl.md § Domain.
 				elastic:
-					# Port, env, and depends_on come from infra.yml. Image is derived (see fixed
+					# Port, env, and uses come from infra.yml. Image is derived (see fixed
 					# block above). cpu/memory/ephemeral_storage come from the service's
 					# `resources:` block (see § Resources Translation). Doctrine adds Fargate
 					# task settings; the ALB target group + listener rule are emitted alongside
@@ -435,7 +435,7 @@ The compiler emits, per such service:
 
 ## Authoring Project-Local Transfer Tables
 
-The doctrine ships canonical engines for the common roles — `relational_db/postgres`, `cache/redis`, `object_store/{minio,s3}`, `web/container`, `worker/container` (long-running non-HTTP core services — queue consumers, stream processors), `scheduler/container` (cron-triggered jobs — see [scheduler.md](./scheduler.md)). When a project needs a role or engine the doctrine doesn't bundle (ClickHouse, OpenTelemetry collector, RabbitMQ, etc.), it adds a project-local transfer table. The doctrine's machinery does the rest: schema validation, foundation translation, magic-ref resolution, ECS dispatch, EFS plumbing if stateful.
+The doctrine ships canonical engines for the common roles — `relational_db/postgres`, `cache/redis`, `object_store/{minio,s3}`, `web/container`, `worker/container` (long-running non-HTTP core services — queue consumers, stream processors), `clock/container` (the scheduled-work singleton — see [clock.md](./clock.md)). When a project needs a role or engine the doctrine doesn't bundle (ClickHouse, OpenTelemetry collector, RabbitMQ, etc.), it adds a project-local transfer table. The doctrine's machinery does the rest: schema validation, foundation translation, magic-ref resolution, ECS dispatch, EFS plumbing if stateful.
 
 This section is the authoring perspective. The schema and rules live earlier in this document — this section is "how to actually write one."
 
@@ -612,7 +612,7 @@ codebases:
         role: web
         port: 8080
         networks: [web, internal]
-        depends_on: [probe, appdb]
+        uses: [probe, appdb]
         env:
           SIDECAR_HOST: ${backing_services.probe.host}
           SIDECAR_PORT: ${backing_services.probe.port}
@@ -684,7 +684,7 @@ codebases:
         role: web
         port: 8080
         networks: [web, internal]
-        depends_on: [events, appdb]
+        uses: [events, appdb]
         env:
           CLICKHOUSE_HOST: ${backing_services.events.host}
           CLICKHOUSE_PORT: ${backing_services.events.port}
@@ -815,7 +815,7 @@ x-logging: &default-logging
 
 ### Depends-on emission (fixed)
 
-Compose `depends_on` is always emitted in long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or a `compose run` one-off from `./bin/docex envinfra up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
+Compose `depends_on` is emitted on **one block only** — the per-codebase exec service, whose gate is the union of the codebase's backing-targeted `uses` edges (see [migrations.md](./migrations.md#dev-and-test-mechanism)). No core-service block carries it. Where it is emitted it is always long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or a `compose run` one-off from `./bin/docex envinfra up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
 
 ```yml
 depends_on:
@@ -894,7 +894,7 @@ deploy:
 
 For each core service, the compiler computes the Fargate task definition's `cpu` and `memory` in two steps:
 
-1. **Compute the desired `(cpu, memory)`** by summing the service's `resources:` block and any doctrine-fixed sidecar overhead (currently the OTel sidecar's 0.1 vCPU / 128 MB allowance — see [telemetry_infra.md § Task-Level Resource Allocation](./telemetry_infra.md#task-level-resource-allocation)) — which applies only to core services that actually get a sidecar, so a `scheduler` (no `ecs_service`, no sidecar) pays none. The intermediate values are `cpu_desired = resources.cpu * 1024 + sidecar_cpu_units` and `memory_desired = resources.memory_mib + sidecar_memory_mib`.
+1. **Compute the desired `(cpu, memory)`** by summing the service's `resources:` block and any doctrine-fixed sidecar overhead (currently the OTel sidecar's 0.1 vCPU / 128 MB allowance — see [telemetry_infra.md § Task-Level Resource Allocation](./telemetry_infra.md#task-level-resource-allocation)). The intermediate values are `cpu_desired = resources.cpu * 1024 + sidecar_cpu_units` and `memory_desired = resources.memory_mib + sidecar_memory_mib`.
 
 2. **Round up to the smallest Fargate-supported tier** that meets or exceeds both dimensions. Fargate only supports a discrete table of `(vCPU, memory)` combinations (e.g., `0.25 vCPU` pairs with `0.5 / 1 / 2 GB`; `1 vCPU` pairs with `2 / 3 / 4 / 5 / 6 / 7 / 8 GB`; `2 vCPU` pairs with `4 / 5 / ... / 16 GB`; and so on). The compiler ships a hardcoded table of these combinations and looks up the next-up tier deterministically.
 

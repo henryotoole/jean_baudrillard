@@ -55,10 +55,10 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	5. No merge conflicts
 3. Perform codebase checks:
 	1. All codebases contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
-	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s [consumes](./cicl.md#consumes-relationships) relationships. One contract per provider core service, at `${codebase}.${service}.${format}.yml`.
-	3. Every `web`-network core service's contract carries the mandatory [health check](./contracts.md#health-checks) endpoints: its own `GET /health`, and a `/health/<codebase>/<service>` for each core service it `consumes` that is not itself on `web`. The self-`/health` assertion applies to OpenAPI providers; a `worker`'s probeability is declared by its fields, not by its AsyncAPI contract.
+	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s [uses](./cicl.md#uses-relationships) relationships. One contract per provider core service, at `${codebase}.${service}.${format}.yml`.
+	3. Every `web`-network core service's contract carries the mandatory [health check](./contracts.md#health-checks) endpoints: its own `GET /health`, and a `/health/<codebase>/<service>` for each core service it `uses` that is not itself on `web`. The self-`/health` assertion applies to OpenAPI providers; a `worker`'s probeability is declared by its fields, not by its AsyncAPI contract.
 	4. Every codebase whose image must answer a probe carries `curl`. The declaration is per core service — any one of a codebase's core services declaring `health_check_path` qualifies the codebase — but the subject is the codebase's single image, so the gate builds and probes once per codebase.
-	5. Every `consumes` target declares both `port` and `health_check_path`. Those two fields *are* its health declaration; see [contracts.md § Declared by fields](./contracts.md#declared-by-fields-not-by-the-contract).
+	5. Every core-service `uses` target declares both `port` and `health_check_path`. Those two fields *are* its health declaration; see [contracts.md § Declared by fields](./contracts.md#declared-by-fields-not-by-the-contract).
 4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
 5. Ensure build doesn't fail.
 6. Run build test
