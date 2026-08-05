@@ -6,8 +6,12 @@ step. The step itself is sound and stays; one of its two comparison operands is
 ephemeral and must become durable.
 
 > **Status.** **Design settled; the empirical claim is confirmed.** Small and
-> additive-in-spirit — no `cicl_version` implication, no `infra.yml` change, no
-> emitted-output change. Two doctrine files and one docex code path. ECS Service
+> additive-in-spirit — no `cicl_version` implication, no `infra.yml` change. One
+> emitted-output change: `wait_for_steady_state = true` on `aws_ecs_service`, per
+> [implementation detail 1](#three-implementation-details-that-matter), so the
+> step does not read the apply's own draining tasks. (This line originally
+> claimed *no* emitted-output change; Mod 114 falsified it.) Two doctrine files
+> and one docex code path. ECS Service
 > Connect's launch-time name freeze — which the entire subsection rests on — was
 > observed on a scratch Fargate stack and holds; see [Verified](#verified), which
 > also corrects two secondary claims made in passing below.
