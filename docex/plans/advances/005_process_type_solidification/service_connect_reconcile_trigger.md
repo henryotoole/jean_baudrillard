@@ -5,12 +5,12 @@ A design record for replacing the trigger of the elastic release's
 step. The step itself is sound and stays; one of its two comparison operands is
 ephemeral and must become durable.
 
-> **Status.** **Design settled; one empirical claim untested.** Small and
+> **Status.** **Design settled; the empirical claim is confirmed.** Small and
 > additive-in-spirit — no `cicl_version` implication, no `infra.yml` change, no
-> emitted-output change. Two doctrine files and one docex code path. The
-> untested claim is ECS Service Connect's launch-time name freeze (see
-> [Verify First](#verify-first)); the entire subsection rests on it, and it
-> should be confirmed on a scratch stack before this is implemented.
+> emitted-output change. Two doctrine files and one docex code path. ECS Service
+> Connect's launch-time name freeze — which the entire subsection rests on — was
+> observed on a scratch Fargate stack and holds; see [Verified](#verified), which
+> also corrects two secondary claims made in passing below.
 
 ## Background — the ECS constraint
 
@@ -52,10 +52,20 @@ Three vocabulary precisions that the fix depends on:
 
 1. **Registration is per-task; the name is per-service.** A provider's task
    registers as an *instance* under the service's `discoveryName`. The name is
-   created once, when the service first brings up a task, and persists as
-   instances churn beneath it. This is the durable fact
+   created **when the ECS service is created — before any task exists** — and
+   persists as instances churn beneath it. This is the durable fact
    [`cicl.md`](../../../../doctrine/infrastructure/cicl.md#resilience-covers-reachability-not-resolvability)
    already leans on, and it is correct.
+
+   > **Corrected by measurement.** This paragraph originally read "created once,
+   > when the service first brings up a task." [§ Verified](#verified) Q2 refutes
+   > that: a service created at `desiredCount: 0` produced a Cloud Map service
+   > with a `CreateDate` one second *before* the ECS service's own `createdAt`,
+   > with no instances and no task ever launched. The correction **strengthens
+   > the fix** — `CreateDate` sits earlier relative to any task than assumed, so
+   > `startedAt < CreateDate` is strictly more conservative and biases toward
+   > redeploying, which is the direction [implementation detail
+   > 2](#three-implementation-details-that-matter) demands.
 2. **The read is per-task-launch, not per-deployment.** `forceNewDeployment`
    fixes nothing by itself; it works because a rolling deployment replaces
    tasks and each replacement reads the namespace fresh. Same reason a task
@@ -162,7 +172,7 @@ is younger than its targets' endpoints" can be evaluated cold, at any time — a
 natural fit for [`check`](../../../../doctrine/infrastructure/cicd.md#check-step)
 or a `describe`-style read.
 
-### Two implementation details that matter
+### Three implementation details that matter
 
 1. **Wait for the apply's own rollouts before evaluating.** If step 3's rolling
    deploy is still draining old tasks when step 4 reads, it will see
@@ -174,6 +184,15 @@ or a `describe`-style read.
    and small skew is possible. Any grace margin must favour acting: a false
    positive costs one unnecessary rolling deploy; a false negative costs a
    permanently broken env that exits 0. Never round toward silence.
+3. **Filter the client bookkeeping entries out of `ListServices`.** Every
+   client-only participant gets an entry named
+   `aws-ecs-sc.client.<uuid>.<ecs-service-name>` in the namespace — observed in
+   [§ Verified](#verified) on a service with an empty `services[]`, which
+   registers no endpoint at all. These are not endpoints and no consumer can
+   `uses` them. Unfiltered, they enter the comparison as names with a
+   `CreateDate`, and any consumer task older than an unrelated client's
+   bookkeeping entry is redeployed for nothing. Match and drop the
+   `aws-ecs-sc.client.` prefix.
 
 ## Alternatives, and why they fail
 
@@ -232,9 +251,19 @@ operand is not the flaw — the **release-relative** operand is.
 
 **Ordering the creations** cannot work at all. A `consumes` graph may legally
 [contain cycles](../../../../doctrine/infrastructure/cicl.md#the-graph-may-contain-cycles),
-and in a cycle someone must go first. Nor does creating services at
-`desiredCount: 0` and scaling up afterward help — registration is per-task, so
-the scale-up cohort races too. The shape is inherently two-phase.
+and in a cycle someone must go first. That argument stands and is sufficient on
+its own.
+
+**A two-pass apply at `desiredCount: 0`, then scale up** — rejected on **cost**,
+not on impossibility. The original dismissal here ("registration is per-task, so
+the scale-up cohort races too") was **refuted by measurement**: names are created
+with the ECS service, so a first pass at zero would publish every name before any
+task launched and the scale-up cohort would not race. It is a genuinely
+convergent design. It is rejected because it makes every release a two-phase
+apply that churns every task — the same cost that rules out unconditional
+redeploy, paid on every service rather than only on consumers, and it forfeits
+the no-op property on a zero-change release. The proposed fix is strictly
+cheaper and needs no apply-shape change.
 
 **DNS-based Cloud Map service discovery** (the older `serviceRegistries`,
 generation 2) dissolves the problem entirely, since DNS is resolved per call and
@@ -279,20 +308,127 @@ needs no edit.
 One docex code path: the reconcile step. Cost is one `ListServices` plus
 `ListTasks`+`DescribeTasks` per consumer, and a comparison.
 
-## Verify first
+## Verified
 
-The entire subsection — current and proposed — rests on one untested empirical
-claim: that a running Service Connect client cannot resolve an endpoint
-registered after its task started. The mechanism explanation above is confident;
-the behaviour has not been observed on our own stack.
+**The premise holds.** Measured on a scratch Fargate stack in `us-east-1`
+(2026-08-05), torn down after. A client task launched into a namespace before a
+name existed never resolved that name for the rest of its life, and its
+replacement resolved it on the first probe cycle.
 
-Test before implementing: start a client task, create a *new* Service Connect
-service in the same namespace, then attempt to resolve its name from the
-already-running client. Worth also settling whether the client's name set is
-keyed on **task** registration or merely on the **ECS service**'s Service
-Connect config existing in the namespace — if the latter, cheaper arrangements
-may open up, though the doctrine should not rest on it.
+Setup: an HTTP Cloud Map namespace, a client-only service **A** (`services[]`
+empty) running a 15-second loop that prints `/etc/hosts`, `getent hosts`, and
+`curl` against two names, and a provider service **B** registering
+`sc-probe-target`.
 
-Notes held loosely, as they change nothing structural: the loopback mapping is
-believed to assign each alias its own address (likely in `127.255.0.0/16`) so
-that aliases sharing a port get distinct listeners.
+### Q1 — the launch-time freeze
+
+**Before registration.** A's task started 20:45:03 into an empty namespace. No
+Service Connect entries in `/etc/hosts`; the failure is `curl (6)`, resolution,
+not connection:
+
+```
+===== CYCLE 1 20:44:55Z =====
+--- /etc/hosts ---
+127.0.0.1 localhost
+10.20.2.162 ip-10-20-2-162.ec2.internal
+--- getent sc-probe-target ---
+GETENT_FAIL:sc-probe-target
+--- curl sc-probe-target ---
+CURL:sc-probe-target curl: (6) Could not resolve host: sc-probe-target
+```
+
+**After registration.** `sc-probe-target` was created in the namespace at
+20:46:37 and had a healthy provider instance (`10.20.2.157:8080`) by 20:48:08.
+A's task ran 27 cycles through 20:51:26 — five minutes after the name existed,
+three after it was backed by a healthy instance — with **byte-identical output**.
+`/etc/hosts` never changed:
+
+```
+===== CYCLE 27 20:51:26Z =====
+--- /etc/hosts ---
+127.0.0.1 localhost
+10.20.2.162 ip-10-20-2-162.ec2.internal
+--- getent sc-probe-target ---
+GETENT_FAIL:sc-probe-target
+--- curl sc-probe-target ---
+CURL:sc-probe-target curl: (6) Could not resolve host: sc-probe-target
+```
+
+Retrying never converges, exactly as argued: there is nothing to converge on.
+
+**After task replacement.** `forceNewDeployment` at 20:51:44; the replacement
+task's *first* cycle already had the entries and a 200:
+
+```
+===== CYCLE 1 20:52:29Z =====
+--- /etc/hosts ---
+127.0.0.1 localhost
+10.20.2.229 ip-10-20-2-229.ec2.internal
+127.255.0.1 sc-probe-target
+2600:f0f0:0:0:0:0:0:1 sc-probe-target
+127.255.0.2 sc-probe-zero
+2600:f0f0:0:0:0:0:0:2 sc-probe-zero
+--- getent sc-probe-target ---
+2600:f0f0::1    sc-probe-target
+--- curl sc-probe-target ---
+CURL:sc-probe-target CURL_OK:sc-probe-target http=200
+```
+
+Same service, same task definition, same namespace, same image — only the task
+is younger. The failure is the launch-time freeze and nothing else.
+
+The **reachability** half was confirmed in the same run: scaling a provider from
+0 to 1 task flipped an already-running client's result for that name from `503`
+to `200` with no task replacement. Both halves of the doctrine's split are now
+observed — instances under an existing name are dynamic; the set of names is not.
+
+### Q2 — the name set is keyed on the ECS service, not on any task
+
+**The Cloud Map service is created at ECS-service-creation time, before any task
+exists.** Service **C** was created with `desiredCount: 0` and a `services[]`
+entry for `sc-probe-zero`. The Cloud Map service appeared with `CreateDate`
+20:47:01 — one second *before* the ECS service's own `createdAt` of 20:47:02 —
+with `ListInstances` returning `[]` and no task ever launched.
+
+A client task launched afterward resolves that name: `sc-probe-zero` appears in
+the replacement task's `/etc/hosts` above, and `curl` returns **503** — an Envoy
+listener with no upstreams. This is precisely the case the fix already predicts:
+*a name with zero healthy instances still resolves, and the failure is
+reachability, recoverable.* Confirmed rather than assumed.
+
+Two consequences for the record above:
+
+1. **Vocabulary precision 1 is wrong on one point** and should be corrected: the
+   name is created when the **ECS service** is created, not "when the service
+   first brings up a task". This does not weaken the fix — it strengthens it.
+   `CreateDate` now sits *earlier* relative to any task, so the
+   `startedAt < CreateDate` comparison is strictly more conservative, biasing
+   toward redeploy, which is the direction
+   [the tie-break rule](#two-implementation-details-that-matter) demands.
+2. **The `desiredCount: 0` dismissal rests on a false premise.** "Nor does
+   creating services at `desiredCount: 0` and scaling up afterward help —
+   registration is per-task, so the scale-up cohort races too" is refuted: names
+   are established by service creation, so a first pass creating every service
+   at zero would publish every name before any task launched, and the scale-up
+   cohort would *not* race. The cycle argument against *ordering* creations still
+   stands; only this variant is resurrected, and it should be re-rejected on cost
+   (a two-pass apply that churns every task every release) rather than on
+   impossibility. The proposed fix remains the cheaper design.
+
+### The loopback mapping
+
+The guess was right, and can now be stated: each alias gets its **own sequential
+address in `127.255.0.0/16`** — `127.255.0.1`, `127.255.0.2` — so aliases sharing
+a port get distinct listeners. One detail was missed: ECS writes a **parallel
+IPv6 mapping** in `2600:f0f0::/32` (`2600:f0f0::1`, `2600:f0f0::2`), and glibc
+prefers it — `getent hosts` returned the v6 address, and that is the address a
+dual-stack client will actually dial.
+
+### One implementation detail for the reconcile step
+
+`ListServices` on the namespace does **not** return only endpoint names. Every
+client-only participant also gets a bookkeeping entry named
+`aws-ecs-sc.client.<uuid>.<ecs-service-name>`, created when its ECS service is
+created — service A produced one despite an empty `services[]`. The reconcile
+step must filter the `aws-ecs-sc.client.` prefix, or it will compare consumer
+task ages against names that are not endpoints.

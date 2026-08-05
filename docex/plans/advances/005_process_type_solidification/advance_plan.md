@@ -247,7 +247,22 @@ Ordering rule for the whole plan: **the suite is green at every mod boundary.**
 
 ---
 
-## Step 0 — Recon: the Service Connect name freeze
+## Step 0 — Recon: the Service Connect name freeze ✅ COMPLETE
+
+> **Result: the premise holds.** Measured us-east-1, 2026-08-05. A client task
+> ran 27 probe cycles over five minutes after the name existed and three after
+> it was backed by a healthy instance, with byte-identical `UNRESOLVED` output
+> and an unchanged `/etc/hosts`; the replacement task resolved it on its *first*
+> cycle. The reachability half was confirmed in the same run (scaling a provider
+> 0→1 flipped a running client from 503 to 200 with no task replacement), so
+> both halves of the doctrine's resolvability/reachability split are now
+> observed rather than asserted. Three corrections folded into the design
+> record: the name is created with the **ECS service**, not the first task
+> (which makes the fix strictly *more* conservative); the `desiredCount: 0`
+> alternative is refuted-but-still-rejected, now on cost rather than
+> impossibility; and `ListServices` returns client bookkeeping entries that
+> **must** be filtered. Full evidence in the record's § Verified.
+
 
 **One-shot `private` subagent, real AWS.** Runs first and in parallel with Mod
 112, because it gates Mod 114's design and nothing else.
@@ -381,6 +396,13 @@ not have returned yet.
 - **Break ties toward redeploying.** A false positive costs one rolling deploy;
   a false negative costs a permanently broken env that exits 0. Any grace
   margin favours acting.
+- **Filter `aws-ecs-sc.client.<uuid>.<service>` out of `ListServices`.** Found
+  by Step 0: every client-only participant gets a bookkeeping entry in the
+  namespace even with an empty `services[]`. These are not endpoints, nothing
+  can `uses` them, and unfiltered they make any consumer older than an
+  unrelated client's entry redeploy for nothing. **Write the test for this
+  before the code** — it is invisible to a fixture that only models real
+  endpoints, which is exactly how it would reach the elastic walk.
 - Emit `wait_for_steady_state = true` on `aws_ecs_service` so the read does not
   see draining tasks.
 - The aborted-release test is the one that fails against today's code and is
