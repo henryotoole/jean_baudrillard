@@ -550,6 +550,18 @@ Run `project-cohere` scoped to `docex` as a second, separate pass if the
 artifact sweep suggests the core planning docs drifted more than the sweep
 caught — sarge's call, weighed against context cost.
 
+### 2a. Logged drift — collected as the mods surface it
+
+Items found mid-mod that belong to a later step. Recorded here the moment they
+are found, because the mod that finds them is never the mod that owns them.
+
+| Item | Found by | Owner |
+| ---- | -------- | ----- |
+| `skill_iter/eval/outcome/infra-compile/evals.json` hard-codes *"adds `cache` to web's `depends_on`"* as expected output. **Invisible to both pytest suites** — it fails only at the skills release gate, or never. | Mod 113 | Close-out, before the trigger/outcome eval question is settled |
+| `transfer_tables.md` ~615/~687 still carry pre-`processes:` flat-form examples that `cicl_version: "3"` rejects. Field renamed only, per Mod 112's scope. | Mod 112 | Mod 118 |
+| `doctrine_excerpts/index.yml` still has **zero entries** for either relation field or the scheduler. Whether `uses` and `clock` earn entries is an explicit decision, not an omission. | Mod 112 | Mod 118 |
+| `test_projects/fixed` has no committed `infra/output/`, so "grep the compiled output" needs a fresh compile there rather than a grep of the tree. | Mod 113 | Both smoke walks |
+
 ### 3. Automated gates
 `pytest tests/unit` and `pytest -m integration`, both green, before either walk.
 Per `RELEASING.md § What Gates a Release`, the skills changed here
