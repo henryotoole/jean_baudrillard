@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -534,12 +535,12 @@ class FakeAWSClient:
     # detector and the projinfra-down env-live gate. Defaults True so the
     # steady-state / envs-live paths remain the default.
     cluster_has_services: bool = True
-    # Mod 109: scripted answers for the Service Connect endpoint probe, as a
-    # QUEUE popped per call. The reconcile is driven by the delta across the
-    # env apply, so a test must be able to say "empty before, populated
-    # after"; a single value cannot express that. A one-element list acts as
-    # a constant (used by the steady-state no-op test).
-    service_connect_endpoints: list[set[str]] = field(default_factory=list)
+    # Mod 114: the reconcile reads durable post-apply state, so there is no
+    # "before" to script any more — one mapping of endpoint name -> Cloud Map
+    # CreateDate, and per-service task start times. Defaults are the inert
+    # case: no endpoints registered, no tasks, hence no reconcile.
+    service_connect_endpoint_ages: dict[str, datetime] = field(default_factory=dict)
+    ecs_task_start_times: dict[str, list[datetime]] = field(default_factory=dict)
     ecs_services_stable: bool = True
     ecs_exit_codes: dict[str, int] = field(default_factory=dict)
     raise_on: dict[str, Exception] = field(default_factory=dict)
@@ -741,19 +742,24 @@ class FakeAWSClient:
         self._record("ecs_cluster_has_services", name)
         return self.cluster_has_services
 
-    # -- Mod 109: Service Connect consumer reconcile ------------------
+    # -- Mod 109 / 114: Service Connect consumer reconcile ------------
 
-    def service_connect_endpoint_names(self, namespace_name: str) -> set[str]:
-        self._record("service_connect_endpoint_names", namespace_name)
-        if not self.service_connect_endpoints:
-            return set()
-        # Pop successive scripted answers so a test can express "empty
-        # before the apply, one endpoint after" — the whole point of the
-        # reconcile is the DELTA across the apply, which a single fixed
-        # return value cannot express.
-        if len(self.service_connect_endpoints) == 1:
-            return set(self.service_connect_endpoints[0])
-        return set(self.service_connect_endpoints.pop(0))
+    # NOTE: the fake deliberately does NOT filter the `aws-ecs-sc.client.`
+    # prefix — that is the adapter's job, and the pipeline-level test must be
+    # able to drive the pipeline against an unfiltered namespace.
+    def service_connect_endpoints(
+        self, namespace_name: str,
+    ) -> dict[str, datetime]:
+        self._record("service_connect_endpoints", namespace_name)
+        return dict(self.service_connect_endpoint_ages)
+
+    def ecs_running_task_start_times(
+        self, cluster: str, service: str,
+    ) -> list[datetime]:
+        self._record(
+            "ecs_running_task_start_times", cluster=cluster, service=service,
+        )
+        return list(self.ecs_task_start_times.get(service, []))
 
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
         self._record("ecs_force_new_deployment", cluster=cluster, service=service)

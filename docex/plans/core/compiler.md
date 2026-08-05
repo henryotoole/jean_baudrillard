@@ -197,6 +197,14 @@ block is emitted, so ECS's defaults (`minimum_healthy_percent = 100`,
 give N collector sidecars automatically, because the collector is a container
 *inside* the task definition.
 
+`wait_for_steady_state = true` **is** emitted (mod 114), so `tofu apply` does not
+return while its own rolling deploy is still draining tasks. The release's
+Service Connect consumer reconcile reads task start times immediately after the
+apply; without it, the reconcile would compare against tasks already on their way
+out and redeploy for nothing. The second-order effect is deliberate too: a
+service that cannot converge now fails the apply rather than letting the release
+proceed toward a green exit over a broken env.
+
 **Fixed cannot set a count, so it unrolls.** `deploy.replicas` is unusable here
 for two independent reasons: the collector sidecar pairs via
 `network_mode: "service:<svc>"` to share the app container's netns and Compose

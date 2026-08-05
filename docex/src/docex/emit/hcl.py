@@ -713,6 +713,13 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     # for a static count. Sidecars need no thought: the collector is a
     # container INSIDE the task definition, so N tasks give N sidecars.
     out.append(f'  desired_count   = {effective_replicas(svc, ctx.env)}')
+    # WHY: the release's Service Connect consumer reconcile reads task start
+    # times right after this apply. Without this, the apply returns while its
+    # own rolling deploy is still draining pre-registration tasks, and the
+    # reconcile redeploys consumers on the strength of tasks already on their
+    # way out. Also means a service that cannot converge fails the apply rather
+    # than letting the release exit 0 over a broken env. Mod 114.
+    out.append("  wait_for_steady_state = true")
     out.append("  network_configuration {")
     # WHY: single-element subnet list pins ECS task placement to the primary
     # AZ per cicl.md § Simplifications. ALB+RDS+EFS still span both AZs to

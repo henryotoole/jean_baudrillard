@@ -15,6 +15,7 @@ begins.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from docex.aws.client import AWSClient
@@ -213,29 +214,62 @@ def _release_fixed(
 #: seconds.
 _RECONCILE_STABLE_TIMEOUT_S = 600
 
+#: Grace added to the registration timestamp before comparing it against a
+#: consumer task's start time. Ties are resolved toward redeploying by the
+#: ``<=`` in the comparison itself, so this is ZERO — deliberately.
+#:
+#: WHY zero, and why it must stay zero: the Cloud Map name is created with the
+#: ECS *service*, before any of its tasks exist. On a perfectly correct
+#: first-ever release the service is created at T0 and its first task starts at
+#: T0+30-90s (image pull, health checks). Any non-zero window therefore fires on
+#: essentially every consumer on every first release — in exactly the case where
+#: the ordering was fine and the task resolved the name on its first attempt.
+#: That is a false positive with a predictable trigger, not a safety margin, and
+#: it would silently convert this step's emergent no-op property into "always
+#: redeploys on a first release". The only real uncertainty is clock skew
+#: between two AWS services (ECS and Cloud Map), which is sub-second and is
+#: covered by the ``<=``. Advance 005's recon measured an exact relationship,
+#: not an approximate one: a task that starts after the name exists resolves it
+#: on its FIRST probe cycle.
+_RECONCILE_SKEW_MARGIN_S = 0
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Naive datetimes read as UTC.
+
+    boto3 returns aware datetimes, so this never fires in production. It exists
+    so that a naive value — from a test double, or a future SDK change — cannot
+    raise ``TypeError`` in the middle of a release.
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
 
 def _consumer_reconcile_set(
-    compiled: Any, *, new_endpoints: set[str],
+    compiled: Any,
+    *,
+    endpoint_created: dict[str, datetime],
+    task_started: Callable[[str], datetime | None],
 ) -> list[tuple[str, str]]:
     """Consumers that must be redeployed, as ``(consumer, triggering target)``.
 
-    A consumer qualifies when it declares a CORE ``uses`` target whose Service
-    Connect endpoint was **absent from the namespace before this apply**. Such a
-    consumer's tasks may have started before that endpoint existed, and a
-    Service Connect client fixes its resolvable endpoint set at task start — so
-    it can never resolve the target, for the whole life of the task, no matter
-    how long the application retries. See mod 109.
+    A consumer qualifies when one of its running tasks started **before** the
+    Cloud Map ``CreateDate`` of a name it ``uses``. A Service Connect client
+    fixes its resolvable endpoint set at task start, so such a task can never
+    resolve that target — for the whole life of the task, no matter how long
+    the application retries.
 
-    The diff is deliberately **per-target, not per-namespace**: a consumer whose
-    own targets were all already registered needs nothing, even when some
-    unrelated endpoint appeared in the same apply.
+    Both operands are durable AWS state read after the apply, which is what
+    makes this self-healing: it describes the world rather than this release.
+    An interrupted release, a hand-run ``tofu apply``, or a service created out
+    of band all leave a state the next release reads correctly. Mod 114
+    replaced a pre-apply namespace snapshot, which could not (mod 109).
 
-    No attempt is made to determine whether a given consumer task *actually*
-    started before its target registered. That is unknowable from outside the
-    task, and the conservative answer costs one rolling deploy on a
-    shape-changing release only.
+    ``task_started`` is called lazily — only for a consumer that has at least
+    one registered target — so a converged env pays one ``ListServices`` and
+    nothing else.
     """
     out: list[tuple[str, str]] = []
+    margin = timedelta(seconds=_RECONCILE_SKEW_MARGIN_S)
     for name in sorted(compiled.services):
         svc = compiled.services[name]
         if not svc.is_core or not svc.uses_core:
@@ -245,6 +279,8 @@ def _consumer_reconcile_set(
         # does not exist is an error, not a no-op.
         if "ecs_service" not in svc.emits.get("elastic", []):
             continue
+
+        targets: list[tuple[str, datetime]] = []
         for key in sorted(svc.uses_core):
             target = compiled.services.get(key)
             # An unresolvable target cannot survive validation, but the
@@ -255,8 +291,23 @@ def _consumer_reconcile_set(
             # registration, so only such a target can appear in the namespace.
             if "ecs_service" not in target.emits.get("elastic", []):
                 continue
-            if target.global_name in new_endpoints:
-                out.append((svc.global_name, target.global_name))
+            created = endpoint_created.get(target.global_name)
+            if created is None:
+                continue
+            targets.append((target.global_name, _as_utc(created)))
+        if not targets:
+            continue
+
+        started = task_started(svc.global_name)
+        # No running tasks: nothing can be stale, and whatever starts later
+        # reads a namespace that already holds every name above.
+        if started is None:
+            continue
+        started = _as_utc(started)
+
+        for global_name, created in targets:
+            if started <= created + margin:
+                out.append((svc.global_name, global_name))
                 break
     return out
 
@@ -267,30 +318,37 @@ def _reconcile_service_connect_consumers(
     env: str,
     aws: AWSClient,
     cluster_name: str,
-    endpoints_before: set[str],
 ) -> int:
-    """Redeploy consumers whose targets registered during this release.
+    """Redeploy consumers whose tasks predate a name they must resolve.
 
     Closes the start-order race described in
-    ``cicl.md § Depends-On Relationships``: ECS Service Connect fixes a client
+    ``cicl.md § Uses Relationships``: ECS Service Connect fixes a client
     task's resolvable endpoint set at task start, so a consumer created
     alongside its target may permanently fail to resolve it. Redeploying the
     consumer after everything is registered is the only fix — ordering cannot
     work, because a ``uses`` cycle (``web ↔ worker``, the most common
     topology there is) has no valid creation order.
 
-    Cheap by construction: on a steady-state release nothing new is registered,
-    the set is empty, and this costs one extra ``list_services`` call.
+    Mod 114: both operands are read from post-apply AWS state, so the step is
+    self-contained and self-healing — it describes the world rather than this
+    release, and every way an env can end up broken (an interrupted release, a
+    hand-run ``tofu apply``, a service created out of band, a rollback) leaves
+    a state the next release reads correctly and repairs. On a converged env
+    every consumer task postdates every name it ``uses``, the comparison finds
+    nothing, and no service is touched: the no-op is emergent rather than
+    special-cased.
     """
     from docex.cicl.compile import compile_env
 
-    endpoints_after = aws.service_connect_endpoint_names(cluster_name)
-    new_endpoints = endpoints_after - endpoints_before
-    if not new_endpoints:
-        return 0
-
     if ctx.infra is None:  # pragma: no cover — release already required it
         return 0
+
+    endpoint_created = aws.service_connect_endpoints(cluster_name)
+    if not endpoint_created:
+        # Nothing is registered, so there is no registration for any task to
+        # predate.
+        return 0
+
     compiled = compile_env(
         ctx.infra,
         ctx.transfer_tables,
@@ -298,15 +356,29 @@ def _reconcile_service_connect_consumers(
         project_name=ctx.project.name,
         project_version=ctx.project.version,
     )
-    pairs = _consumer_reconcile_set(compiled, new_endpoints=new_endpoints)
+
+    started_cache: dict[str, datetime | None] = {}
+
+    def task_started(service_name: str) -> datetime | None:
+        if service_name not in started_cache:
+            times = aws.ecs_running_task_start_times(cluster_name, service_name)
+            started_cache[service_name] = min(times) if times else None
+        return started_cache[service_name]
+
+    pairs = _consumer_reconcile_set(
+        compiled,
+        endpoint_created=endpoint_created,
+        task_started=task_started,
+    )
     if not pairs:
         return 0
 
     for consumer, target in pairs:
         print(
             f"release: reconciling Service Connect consumer {consumer!r} — "
-            f"its `uses` target {target!r} registered during this release, "
-            f"and a client cannot resolve an endpoint added after it started."
+            f"its oldest running task predates the registration of its `uses` "
+            f"target {target!r}, and a client cannot resolve an endpoint added "
+            f"after it started."
         )
         try:
             aws.ecs_force_new_deployment(cluster_name, consumer)
@@ -315,7 +387,8 @@ def _reconcile_service_connect_consumers(
             # whose consumers cannot reach their targets is not released.
             print(
                 f"error: could not force a new deployment of {consumer!r}: "
-                f"{exc}. Its `uses` target {target!r} is newly registered, "
+                f"{exc}. Its `uses` target {target!r} was registered after "
+                f"{consumer!r}'s tasks started, "
                 f"so {consumer!r} cannot resolve it until redeployed — the "
                 f"/health/<codebase>/<service> fan-out will return 503. Re-run "
                 f"`docex release {env}`, or redeploy it by hand.",
@@ -443,15 +516,11 @@ def _release_elastic(
 
     # Mod 109: the env's Service Connect namespace shares the ECS cluster's
     # name, so one expression serves both. Computed here — ahead of the
-    # `skip_migrations` return and the first-release detector that also uses it
-    # — so there is exactly one naming expression and no chance of the two
-    # drifting apart.
+    # `skip_migrations` return, because both the first-release detector and the
+    # consumer reconcile need it — so there is exactly one naming expression
+    # and no chance of the two drifting apart.
     ecs_policy = ctx.transfer_tables.naming_policies.get("ecs")
     cluster_name = apply_policy(f"{project_name}_{env}", ecs_policy)
-
-    # Snapshot before ANY apply: the reconcile is driven by which endpoints
-    # this release adds to the namespace.
-    endpoints_before = aws.service_connect_endpoint_names(cluster_name)
 
     if skip_migrations:
         # Rollback path: no first-release detection (rollback only
@@ -468,12 +537,13 @@ def _release_elastic(
             raise TofuApplyFailed(
                 f"'tofu apply' for env {env!r} exited {rc_apply}"
             )
-        # A rollback changes no shape, so this is two API calls and a no-op.
-        # Wired in anyway: one code path is easier to reason about than two,
-        # and a rollback that somehow *does* move the endpoint set is covered.
+        # Mod 114: the check describes the env rather than the release that
+        # produced it, so the rollback path simply runs it — no reasoning about
+        # whether a rollback moves the shape is needed. A rollback that
+        # deregisters a name and leaves consumer tasks predating a surviving
+        # one is repaired here rather than discovered by `stagetest`.
         rc_rec = _reconcile_service_connect_consumers(
             ctx, env=env, aws=aws, cluster_name=cluster_name,
-            endpoints_before=endpoints_before,
         )
         if rc_rec != 0:
             return rc_rec
@@ -491,7 +561,7 @@ def _release_elastic(
     # ``tofu apply`` is what creates them. On such a release the migrate
     # step must wait until after apply, or RunTask would find no infra.
     # (``cluster_name`` is computed above, before the ``skip_migrations``
-    # return, because mod 109's namespace snapshot needs it too.)
+    # return, because the rollback path's consumer reconcile needs it too.)
     first_release = not aws.ecs_cluster_has_services(cluster_name)
     if first_release:
         print(
@@ -577,7 +647,6 @@ def _release_elastic(
     # exactly the `upgrade_1.6.0` path for downstream projects.
     rc_rec = _reconcile_service_connect_consumers(
         ctx, env=env, aws=aws, cluster_name=cluster_name,
-        endpoints_before=endpoints_before,
     )
     if rc_rec != 0:
         return rc_rec

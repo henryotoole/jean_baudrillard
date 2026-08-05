@@ -393,7 +393,7 @@ Provider and consumer survive as **derived** vocabulary rather than as field nam
 2. It drives the health-check fan-out — see [contracts.md § Health Checks](./contracts.md#health-checks).
 3. It satisfies [validation rule 7](#validation-rules) for magic refs.
 4. Its **backing-targeted** edges are unioned per codebase into the readiness gate on that codebase's exec block — the compiler's one remaining ordering emission. See [Startup ordering is not a doctrine feature](#startup-ordering-is-not-a-doctrine-feature).
-5. On elastic, it identifies which consumers must be redeployed after a release that registers a new Service Connect endpoint — see [§ Resilience covers reachability, not resolvability](#resilience-covers-reachability-not-resolvability).
+5. On elastic, it names the endpoints each consumer must be able to resolve, so a release can find and redeploy any consumer whose tasks predate one — see [§ Resilience covers reachability, not resolvability](#resilience-covers-reachability-not-resolvability).
 
 Jobs 1–3 and 5 are validation, CI, and *release-time orchestration* reads; nothing derived from them reaches the compiled output. Job 4 is the sole emission, and it lands on a block no project authors.
 
@@ -417,7 +417,7 @@ ECS Service Connect fixes a client task's set of **resolvable endpoint names at 
 
 So a core service created alongside a [`uses`](#uses-relationships) target it has never seen registered can be permanently unable to reach it, with both sides healthy. The externally visible symptom is a `503` on the [health fan-out](./contracts.md#fan-out); the invisible one is that every real call across that edge fails too.
 
-**`docex` closes this at release time**, by redeploying any consumer whose `uses` target registered during that release. Note carefully that this is *not* the deploy-time ordering emulation rejected above, and the distinction is what makes it sound: an endpoint **registration is durable state**, owned by the service rather than by task liveness, and it survives every task replacement. Holding once is therefore permanently sufficient — after the first registration, every later task (scaling, AZ rebalance, failed health check, platform update) starts into a namespace that already contains the name. A readiness gate decays because liveness changes; a registration does not.
+**`docex` closes this at release time**, by redeploying, after the apply, any consumer with a running task older than the registration of a name it `uses`. Note carefully that this is *not* the deploy-time ordering emulation rejected above, and the distinction is what makes it sound: an endpoint **registration is durable state**, owned by the service rather than by task liveness, and it survives every task replacement. Holding once is therefore permanently sufficient — after the first registration, every later task (scaling, AZ rebalance, failed health check, platform update) starts into a namespace that already contains the name. A readiness gate decays because liveness changes; a registration does not. Because *both* halves of the comparison are durable — task age as much as registration age — the check describes the env rather than the release that produced it, and any broken env it can read it can also repair. See [release.md § Service Connect Consumer Reconcile](./specifics/release.md#service-connect-consumer-reconcile).
 
 Ordering could not have solved it in any case: the `uses` graph may legally [contain cycles](#the-graph-may-contain-cycles), and in a cycle some member must be created first.
 

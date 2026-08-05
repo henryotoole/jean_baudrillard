@@ -134,6 +134,40 @@ first post-`0.4.0` overhaul.
 
 ### Fixed
 
+- **An interrupted elastic release could leave a permanently broken env and exit
+  0** (mod 114). The Service Connect consumer reconcile diffed the post-apply
+  namespace against a snapshot taken *before* any apply in the same release. That
+  snapshot lived in one process's memory, so a release that registered a new
+  endpoint and was then interrupted — expired credentials, a dropped connection,
+  `Ctrl-C` — could never be repaired by re-running: the re-run's own snapshot
+  already contained the name, the diff came back empty, and the consumer's tasks,
+  which started before that name existed and can therefore *never* resolve it,
+  were never replaced. On `stage` the staging tests' `503` caught it. On `prod`
+  nothing did; both sides report healthy while every call across the edge fails.
+
+  The trigger's operands are now both durable AWS state read **after** the apply:
+  a core service is redeployed iff the oldest `startedAt` across its running
+  tasks precedes the Cloud Map `CreateDate` of a name it `uses`. The step
+  therefore describes the env rather than the release that produced it, and every
+  way an env can end up broken — an interrupted release, a hand-run `tofu apply`,
+  a service created out of band, a rollback — is repaired by the next release.
+  The "no-op unless the shape changed" property is not lost but **emergent**: in
+  a converged env every consumer task postdates every registration, so nothing
+  fires. Ties break toward redeploying; a false positive costs one rolling
+  deploy, a false negative costs a broken env that exits 0.
+
+  `aws_ecs_service` now emits `wait_for_steady_state = true`, so the apply does
+  not return while its own rollout is still draining tasks the reconcile would
+  otherwise misread. A knock-on effect worth knowing before you upgrade: a
+  service that cannot converge now fails `tofu apply` rather than letting the
+  release proceed, and elastic applies take correspondingly longer.
+
+  The premise underneath the whole mechanism — that a running Service Connect
+  client can never resolve a name registered after its task started — was
+  measured on a scratch Fargate stack rather than taken from the AWS docs. It
+  holds: 27 probe cycles over five minutes with byte-identical `UNRESOLVED`
+  output, and the replacement task resolving on its first cycle.
+
 - **Rename residue in `docex`** (mod 111). The sweep that performed the rename
   substituted the *word* without re-reading the *sentence*, leaving three classes
   of defect behind. A **doubled substitution** produced operator-facing text that

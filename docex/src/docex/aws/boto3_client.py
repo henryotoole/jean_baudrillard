@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import time
+from datetime import datetime
 from typing import Any
 
 import boto3  # noqa: S402 - chokepoint; see module docstring.
@@ -36,6 +37,11 @@ def _config() -> Config:
         region_name=ELASTIC_REGION,
         retries={"max_attempts": 5, "mode": "standard"},
     )
+
+
+#: ECS creates one of these per client-only Service Connect participant. It is
+#: bookkeeping, not an endpoint — see mod 114 and the advance-005 recon.
+_SC_CLIENT_ENTRY_PREFIX = "aws-ecs-sc.client."
 
 
 class Boto3AWSClient:
@@ -480,10 +486,10 @@ class Boto3AWSClient:
         return bool(resp.get("serviceArns"))
 
     # ------------------------------------------------------------------
-    # Mod 109: Service Connect consumer reconcile
+    # Mod 109 / 114: Service Connect consumer reconcile
     # ------------------------------------------------------------------
 
-    def service_connect_endpoint_names(self, namespace_name: str) -> set[str]:
+    def service_connect_endpoints(self, namespace_name: str) -> dict[str, datetime]:
         sd = self._client("servicediscovery")
         namespace_id: str | None = None
         paginator = sd.get_paginator("list_namespaces")
@@ -497,9 +503,9 @@ class Boto3AWSClient:
         if namespace_id is None:
             # First release: the env namespace is created by the same apply
             # that creates the services, so "absent" and "empty" coincide.
-            return set()
+            return {}
 
-        names: set[str] = set()
+        out: dict[str, datetime] = {}
         svc_paginator = sd.get_paginator("list_services")
         for page in svc_paginator.paginate(
             Filters=[{
@@ -510,9 +516,41 @@ class Boto3AWSClient:
         ):
             for svc in page.get("Services", []):
                 name = svc.get("Name")
-                if name:
-                    names.add(name)
-        return names
+                created = svc.get("CreateDate")
+                if not name or created is None:
+                    continue
+                if name.startswith(_SC_CLIENT_ENTRY_PREFIX):
+                    continue
+                out[name] = created
+        return out
+
+    def ecs_running_task_start_times(
+        self, cluster: str, service: str,
+    ) -> list[datetime]:
+        ecs = self._client("ecs")
+        arns: list[str] = []
+        paginator = ecs.get_paginator("list_tasks")
+        try:
+            for page in paginator.paginate(
+                cluster=cluster, serviceName=service, desiredStatus="RUNNING",
+            ):
+                arns.extend(page.get("taskArns", []))
+        except (
+            ecs.exceptions.ServiceNotFoundException,
+            ecs.exceptions.ClusterNotFoundException,
+        ):
+            return []
+        out: list[datetime] = []
+        # DescribeTasks accepts at most 100 ARNs per call.
+        for i in range(0, len(arns), 100):
+            resp = ecs.describe_tasks(cluster=cluster, tasks=arns[i:i + 100])
+            for task in resp.get("tasks", []):
+                if task.get("lastStatus") != "RUNNING":
+                    continue
+                started = task.get("startedAt")
+                if started is not None:
+                    out.append(started)
+        return out
 
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
         ecs = self._client("ecs")

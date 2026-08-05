@@ -1118,3 +1118,30 @@ def test_mod108_migrate_task_definition_command_unchanged(
     block = _block(multi_service_elastic_tf,
                    'resource "aws_ecs_task_definition" "api_migrate"')
     assert _container_command(block, "api") == ["/service/migrate.sh"]
+
+
+def test_mod114_every_ecs_service_waits_for_steady_state(
+    multi_service_elastic_tf: str,
+):
+    """Mod 114. `wait_for_steady_state = true` is not cosmetic: the release's
+    Service Connect consumer reconcile reads task start times immediately after
+    this apply, and without it the apply returns while its own rolling deploy is
+    still draining pre-registration tasks — so the reconcile would compare
+    against tasks already on their way out and redeploy consumers for nothing.
+
+    It also means a service that cannot converge fails the *apply*, rather than
+    letting the release exit 0 over an env that never came up. Asserted across
+    EVERY emitted service, since one omission is one service the reconcile
+    misjudges.
+    """
+    headers = re.findall(
+        r'^resource "aws_ecs_service" "([^"]+)" \{', multi_service_elastic_tf,
+        flags=re.MULTILINE,
+    )
+    assert headers, "fixture emitted no aws_ecs_service at all"
+    for name in headers:
+        blk = _block(multi_service_elastic_tf,
+                     f'resource "aws_ecs_service" "{name}"')
+        assert "wait_for_steady_state = true" in blk, (
+            f"aws_ecs_service {name!r} does not wait for steady state"
+        )

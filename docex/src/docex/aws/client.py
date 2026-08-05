@@ -18,6 +18,7 @@ them into ``DocexError`` subclasses.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 
@@ -297,20 +298,47 @@ class AWSClient(Protocol):
         ...
 
     # ------------------------------------------------------------------
-    # Mod 109: Service Connect consumer reconcile.
+    # Mod 109 / 114: Service Connect consumer reconcile.
     # ------------------------------------------------------------------
 
-    def service_connect_endpoint_names(self, namespace_name: str) -> set[str]:
-        """The Service Connect endpoint names registered in a namespace.
+    def service_connect_endpoints(self, namespace_name: str) -> dict[str, datetime]:
+        """Service Connect endpoint names in a namespace, mapped to their
+        Cloud Map ``CreateDate``.
 
-        These are the Cloud Map service names inside the env's private-DNS
-        namespace — i.e. exactly the aliases a Service Connect *client* task
-        can resolve, and only if they were present when that task started.
+        These are the Cloud Map service names inside the env's namespace — the
+        aliases a Service Connect *client* task can resolve, and only if they
+        existed when that task started. ``CreateDate`` is the durable fact the
+        release's consumer reconcile compares task ages against: the name is
+        created when the ECS **service** is created, before any of its tasks
+        exist, and it survives every task replacement beneath it.
 
-        **A namespace that does not exist reads as the empty set**, which is
+        **A namespace that does not exist reads as the empty mapping**, which is
         the honest answer on a first release: nothing is registered yet.
-        Making the caller distinguish "absent" from "empty" would buy nothing,
-        since both mean "no consumer can resolve anything here".
+
+        Implementations MUST exclude the ``aws-ecs-sc.client.<uuid>.<service>``
+        bookkeeping entries that ECS creates for every client-only participant.
+        Those register no endpoint, nothing can ``uses`` them, and they are not
+        resolvable aliases — so returning them would make this method's contract
+        false.
+        """
+        ...
+
+    def ecs_running_task_start_times(
+        self, cluster: str, service: str,
+    ) -> list[datetime]:
+        """``startedAt`` for every RUNNING task of an ECS service.
+
+        The caller takes the minimum: one task older than a registration is
+        enough to make the service unable to resolve it.
+
+        Two omissions are deliberate and are part of the contract:
+
+        - **A task with no ``startedAt`` is omitted.** It has not yet read the
+          namespace, so it will read it *after* every name the caller is
+          comparing against already exists. A not-yet-started task cannot be
+          stale.
+        - **A service ECS reports as non-existent reads as ``[]``**, not an
+          error. A service with no tasks cannot hold a stale one.
         """
         ...
 
