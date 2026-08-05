@@ -13,6 +13,7 @@ build_image: build_image.md
 network: network.md
 network_web: network_web.md
 network_internal: network_internal.md
+codebase: codebase.md
 core_service: core_service.md
 backing_service: backing_service.md
 environment_config: environment_config.md

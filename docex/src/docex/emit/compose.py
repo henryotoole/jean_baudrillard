@@ -13,7 +13,7 @@ The emitter:
 
 Mod 099 — the exec service
 --------------------------
-Alongside the per-process app containers, the emitter writes exactly one
+Alongside the per-core-service app containers, the emitter writes exactly one
 ``<codebase>-exec`` block per codebase: the container that *is* the codebase,
 into which the three per-**codebase** operations (``migrate``, ``test``,
 ``build``) run one-off via ``docker compose run --rm``. It exists because
@@ -26,8 +26,8 @@ Two properties carry the design:
 - ``profiles: [exec]`` keeps ``compose up`` from ever starting it, while
   ``compose run`` implicitly enables the profile of the service it names. The
   block is inert until something runs in it.
-- Its ``environment:`` is the **service-level** ``env:`` surface only
-  (``CompiledService.service_env``), never a core service's overlay. That is
+- Its ``environment:`` is the **codebase-level** ``env:`` surface only
+  (``CompiledService.codebase_env``), never a core service's overlay. That is
   what turns *``migrate.sh``, ``test.sh`` and ``build.sh`` may depend only on
   codebase-scoped env* from a convention into an enforceable rule: a
   service-level key is not merely discouraged there, it is absent.
@@ -367,7 +367,7 @@ def _ofelia_ini(
 
     One section, whose name is the **two-segment compiled identity** of the
     core service — ``[job-run "api-nightly_cleanup"]``, i.e.
-    ``<codebase>-<process>``, not the codebase alone. It carries: the
+    ``<codebase>-<service>``, not the codebase alone. It carries: the
     translated 6-field ofelia schedule, the **codebase's** image ref, the
     job's docker network (its first non-``web`` network — a scheduler is
     never on ``web``), ``delete = true`` to auto-remove the one-off
@@ -548,7 +548,8 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # doctrinal defaults; see infrastructure.md § Core Service Containers.
         if compiled.env == "dev" and svc.is_core:
             # Mod 096: keyed on the CODEBASE, not the compiled identity —
-            # `core/<svc>/` is one source folder shared by every core service.
+            # `core/<codebase>/` is one source folder shared by every core
+            # service.
             bind_mounts = [
                 f"./core/{svc.codebase}/src:/service/src",
                 f"./core/{svc.codebase}/dist:/service/dist",
@@ -562,7 +563,7 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
 
         # Phase 2: dev and test envs build images locally from the
         # service's Dockerfile rather than pulling from the registry.
-        # The doctrine requires every core service to ship a Dockerfile
+        # The doctrine requires every codebase to ship a Dockerfile
         # with build/dev/prod/test stages; we tell compose which stage
         # to target so `docker compose up --build` produces the right
         # image. Stage/prod compose intentionally retains the registry
@@ -694,8 +695,8 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     # the exec block's short-form `depends_on` is rewritten to long-form
     # `condition: service_healthy` by the existing machinery rather than by a
     # duplicate of it.
-    for codebase, procs in group_by_codebase(compiled).items():
-        head = procs[0]
+    for codebase, svcs in group_by_codebase(compiled).items():
+        head = svcs[0]
         exec_block: dict[str, Any] = {
             # `up` never starts it; `run` implicitly enables the profile of
             # the service it names. The first `profiles:` key in the codebase.
@@ -713,16 +714,16 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
                 "dockerfile": "Dockerfile",
                 "target": compiled.env,
             }
-        # WHY `service_env` and not `env`: the codebase-scoped surface. It is
-        # identical across a codebase's core service by construction (the
-        # compiler builds it from the service-level `env:` block alone), so
-        # reading it off `procs[0]` picks nothing — there is nothing to pick.
+        # WHY `codebase_env` and not `env`: the codebase-scoped surface. It is
+        # identical across a codebase's core services by construction (the
+        # compiler builds it from the codebase-level `env:` block alone), so
+        # reading it off `svcs[0]` picks nothing — there is nothing to pick.
         # Mod 102 made that true of EVERY key: the telemetry identity on this
         # surface is codebase-scoped too (`OTEL_SERVICE_NAME={codebase}`, no
-        # `docex.service`), where it previously leaked `procs[0]`'s
-        # process segment.
-        if head.service_env:
-            exec_block["environment"] = _translate_tree(head.service_env)
+        # `docex.service`), where it previously leaked `svcs[0]`'s
+        # service segment.
+        if head.codebase_env:
+            exec_block["environment"] = _translate_tree(head.codebase_env)
         if compiled.env == "dev":
             # Mirrors the app-service rule exactly: `test` bakes artifacts
             # into the image, stage/prod ship them from the registry.
@@ -731,13 +732,13 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
                 f"./core/{codebase}/dist:/service/dist",
             ]
         exec_nets = sorted({
-            n for p in procs for n in p.networks if n != "web"
+            n for p in svcs for n in p.networks if n != "web"
         })
         if exec_nets:
             # Never `web`: the exec container is a one-off operations shell
             # and is never publicly routed.
             exec_block["networks"] = exec_nets
-        exec_deps = sorted({d for p in procs for d in p.depends_on})
+        exec_deps = sorted({d for p in svcs for d in p.depends_on})
         if exec_deps:
             exec_block["depends_on"] = exec_deps
         exec_block["labels"] = [

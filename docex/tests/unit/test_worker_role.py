@@ -11,7 +11,8 @@ Unit tests only — nothing here crosses docker, AWS, or git.
 The shared fixtures are NOT modified. Each compile test copies
 ``sample_project`` / ``sample_project_elastic`` into ``tmp_path`` and injects
 a ``worker`` **core service** onto the copy's ``api`` core service. Adding a
-permanent process to the shared fixtures would churn unrelated emitter tests.
+permanent core service to the shared fixtures would churn unrelated emitter
+tests.
 
 Mod 096: the injection moved from a flat sibling *service* to a second
 core service of the *same codebase*, which is the shape the worker role was

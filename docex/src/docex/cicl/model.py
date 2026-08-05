@@ -132,7 +132,7 @@ class CoreService(BaseModel):
     # Rule 25: core service only, dotted and fully qualified
     # ("api.worker"). The interface half of the split `depends_on` used to
     # conflate — `depends_on` is a readiness gate over backing services,
-    # `consumes` is an interface edge between core service. CI-only:
+    # `consumes` is an interface edge between core services. CI-only:
     # contracts, the health fan-out, and rule 7 read it; nothing is emitted
     # from it. See cicl.md § Consumes Relationships.
     consumes: list[str] = Field(default_factory=list)
@@ -185,18 +185,18 @@ class _ServiceBase(BaseModel):
     port: int | None = None
 
 
-# Fields that moved from the core service to the core service in CICL v2.
+# Fields that moved from the codebase to the core service in CICL v2.
 # Used only to produce a targeted migration error — see below.
-_MOVED_TO_PROCESS = (
+_MOVED_TO_SERVICE = (
     "role", "command", "networks", "resources", "port",
     "depends_on", "replicas",
 )
 
 
 class Codebase(BaseModel):
-    """A core service in ``infra.yml``: one codebase, one build artifact.
+    """A codebase in ``infra.yml``: one source tree, one build artifact.
 
-    The service level accepts only ``{core_services, secrets, config, env}``
+    The codebase level accepts only ``{core_services, secrets, config, env}``
     (rule 22). Everything invocation-determined lives on a CoreService.
     """
 
@@ -219,18 +219,18 @@ class Codebase(BaseModel):
     @classmethod
     def _reject_v1_shape(cls, data: Any) -> Any:
         # WHY: bare extra="forbid" says only "Extra inputs are not permitted",
-        # which does not hint at the nesting. A stray service-level `role:` /
+        # which does not hint at the nesting. A stray codebase-level `role:` /
         # `resources:` / `command:` is THE migration mistake from CICL v1, so
         # it gets a message that names the fix.
         if not isinstance(data, dict):
             return data
-        stray = sorted(k for k in _MOVED_TO_PROCESS if k in data)
+        stray = sorted(k for k in _MOVED_TO_SERVICE if k in data)
         if stray:
             raise ValueError(
-                f"{stray} moved from the core service to the core service in "
+                f"{stray} moved from the codebase to the core service in "
                 f"CICL v2. Nest them under a named entry in a `core_services:` "
                 f"block. Only {{core_services, secrets, config, env}} are valid "
-                f"at the service level (cicl.md § Field scoping, rule 22). "
+                f"at the codebase level (cicl.md § Field scoping, rule 22). "
                 f"See upgrades/upgrade_1.6.0.md."
             )
         return data
@@ -238,7 +238,7 @@ class Codebase(BaseModel):
 
 # Mod 099 deleted the "pick one core service to stand in for the codebase"
 # bridge that Mod 096 planted here. Both of its consumers are gone: migration
-# sizing is now the per-dimension max across the codebase's core service, and
+# sizing is now the per-dimension max across the codebase's core services, and
 # "which container represents this codebase" is answered by the emitted
 # per-codebase exec service (`orchestrate/_common.py::exec_service_key`).
 # Do not reintroduce it.
@@ -266,7 +266,8 @@ class CICLDocument(BaseModel):
     # The bare apex domain (e.g. ``example.com`` or ``example.co.uk``).
     # Must NOT include a project subdomain — the project segment is derived
     # automatically from ``name`` in project.yml. The canonical service host
-    # form is ``<service>.<env>.<project>.<apex_domain>``. See cicl.md § Domain.
+    # form is ``<codebase>-<service>.<env>.<project>.<apex_domain>``.
+    # See cicl.md § Domain.
     apex_domain: str
     # Elastic-only choice of reverse proxy. ``alb`` (default) provisions an
     # AWS ALB; ``ec2_traefik_eip`` / ``ec2_traefik_pip`` provision an EC2
@@ -281,8 +282,8 @@ class CICLDocument(BaseModel):
     repo_url: str | None = None
     # The web *core service* mapped to the bare
     # ``<env>.<project>.<apex_domain>`` subdomain, named as a dotted
-    # reference (e.g. ``api.web``). Other web core service live at
-    # ``<service>-<process>.<env>.<project>.<apex_domain>`` — the canonical
+    # reference (e.g. ``api.web``). Other web core services live at
+    # ``<codebase>-<service>.<env>.<project>.<apex_domain>`` — the canonical
     # host form. Optional; if unset, nothing occupies the bare subdomain.
     # See cicl.md § Domain.
     domain_default_service: str | None = None
@@ -305,7 +306,7 @@ class CICLDocument(BaseModel):
         #
         # WHY mode="before": a `mode="after"` validator runs only once every
         # nested field has validated, and a real v1 `infra.yml` fails inside
-        # `Codebase` first — so the operator saw a wall of per-service
+        # `Codebase` first — so the operator saw a wall of per-codebase
         # field-scoping errors and never this message, on the single error every
         # downstream project hits exactly once, while upgrading. Reading the raw
         # mapping fires before the nested models are built.
@@ -319,11 +320,12 @@ class CICLDocument(BaseModel):
             return data
         if version == "1":
             raise ValueError(
-                "cicl_version '1' is no longer supported. CICL v2 makes the "
-                "`core_services:` block mandatory on every core service and adds "
-                "the `consumes` relation and four-segment core magic refs. "
-                "Follow upgrades/upgrade_1.6.0.md to migrate this infra.yml, "
-                "then set cicl_version: \"2\"."
+                "cicl_version '1' is no longer supported. The current generation "
+                "nests a `core_services:` block under each entry in `codebases:`, "
+                "and adds the `consumes` relation and five-segment core magic refs "
+                "(${codebases.<cb>.core_services.<svc>.<part>}). Follow "
+                "upgrades/upgrade_1.6.0.md then upgrades/upgrade_1.7.0.md to "
+                "migrate this infra.yml, then set cicl_version: \"2\"."
             )
         raise ValueError(
             f"unknown cicl_version {version!r}; the current "
@@ -343,15 +345,15 @@ class CICLDocument(BaseModel):
             if name in names:
                 raise ValueError(f"duplicate service name: {name!r}")
             names.add(name)
-        # A process name is emitted as the second segment of a compiled
+        # A core service name is emitted as the second segment of a compiled
         # identity, so it is bound by exactly the same character rule as a
-        # service name.
-        for svc_name, svc in self.codebases.items():
-            for service_name in svc.core_services:
+        # codebase name.
+        for cb_name, cb in self.codebases.items():
+            for service_name in cb.core_services:
                 if not _SERVICE_NAME_RE.match(service_name):
                     raise ValueError(
-                        f"process name {service_name!r} (on core service "
-                        f"{svc_name!r}) must start with a letter and "
+                        f"core service name {service_name!r} (on codebase "
+                        f"{cb_name!r}) must start with a letter and "
                         "contain only letters, digits, '_' or '-'"
                     )
         # Names unique across core+backing too.
@@ -417,8 +419,8 @@ class CICLDocument(BaseModel):
         every validator depends on that.
         """
         out = []
-        for svc_name in sorted(self.codebases):
-            svc = self.codebases[svc_name]
-            for service_name in sorted(svc.core_services):
-                out.append((svc_name, service_name, svc, svc.core_services[service_name]))
+        for cb_name in sorted(self.codebases):
+            cb = self.codebases[cb_name]
+            for service_name in sorted(cb.core_services):
+                out.append((cb_name, service_name, cb, cb.core_services[service_name]))
         return out

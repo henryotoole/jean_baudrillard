@@ -67,7 +67,7 @@ _NIGHTLY = {
 
 
 def _project(fixture: Path, tmp_path: Path, *, replicas: bool) -> Path:
-    """The three-process project, with or without the `replicas:` keys.
+    """The three-core-service project, with or without the `replicas:` keys.
 
     The two variants differ by exactly those two keys, which is what makes a
     byte-level diff of their non-`prod` output meaningful.
@@ -78,12 +78,12 @@ def _project(fixture: Path, tmp_path: Path, *, replicas: bool) -> Path:
 
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    procs = doc["codebases"]["api"]["core_services"]
-    procs["worker"] = dict(_WORKER)
-    procs["nightly_cleanup"] = dict(_NIGHTLY)
+    svcs = doc["codebases"]["api"]["core_services"]
+    svcs["worker"] = dict(_WORKER)
+    svcs["nightly_cleanup"] = dict(_NIGHTLY)
     if replicas:
-        procs["web"]["replicas"] = _WEB_REPLICAS
-        procs["worker"]["replicas"] = _WORKER_REPLICAS
+        svcs["web"]["replicas"] = _WEB_REPLICAS
+        svcs["worker"]["replicas"] = _WORKER_REPLICAS
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
     return root
 
@@ -302,7 +302,7 @@ def test_11_prod_desired_count_is_the_declared_replicas(elastic_root: Path):
     assert f"  desired_count   = {_WEB_REPLICAS}" in _slice(
         hcl, "aws_ecs_service", "api-web"
     )
-    # No unroll on elastic: one service and one task definition per process
+    # No unroll on elastic: one service and one task definition per core service
     # type, exactly as before the mod.
     assert sorted(_resources(hcl, "aws_ecs_service")) == ["api-web", "api-worker"]
     assert sorted(

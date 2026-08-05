@@ -54,7 +54,7 @@ In `src/docex/cicl/`:
 - **`GenerationPolicy` / `generate`** (`cicl/generate.py`, a sibling to `naming.py`) — a minted var's value is drawn by the CSPRNG `generate` from a named policy (`{length, alphabet}`, alphabets `url_safe`/`alnum`); policies load from `tables/generation_policies.yml`. Minting itself runs during aggregation at bring-up/release, never in `compile` — see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md).
 - **`SourceKeyCategories` / `classify_source_keys`** (`cicl/categories.py`, mod 078) — a pure partition of a service's source-key namespace into TTE / secret / config. `secret_manifest` / `config_manifest` derive the per-category key sets (mods 083/084) and `minted_policies` derives the minted key→policy map. These back the three-category model in [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md); don't re-derive it here.
 - **`NamingPolicy` / `NamingPolicies`** — see [`transfer_tables.md § Naming Policies`](../../../doctrine/infrastructure/specifics/transfer_tables.md#naming-policies). Lifted from inline engine `naming` structs in mod 005 so structural emitters can share the table.
-- **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads. Since mod 096 it also carries the process-expansion fields — see [Process expansion](#process-expansion). Both relations are on it: `depends_on` (readiness) and, since mod 104, `consumes` (interface) — the latter as **compiled** identities (`api-worker`), so an edge of either relation resolves against `CompiledEnv.services` with one dict lookup. `consumes` is defaulted rather than sitting beside `depends_on` only because `depends_on` is in the dataclass's non-defaulted region; the placement is mechanical, not meaningful. See [The union view](#the-union-view).
+- **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads. Since mod 096 it also carries the service-expansion fields — see [Service expansion](#service-expansion). Both relations are on it: `depends_on` (readiness) and, since mod 104, `consumes` (interface) — the latter as **compiled** identities (`api-worker`), so an edge of either relation resolves against `CompiledEnv.services` with one dict lookup. `consumes` is defaulted rather than sitting beside `depends_on` only because `depends_on` is in the dataclass's non-defaulted region; the placement is mechanical, not meaningful. See [The union view](#the-union-view).
 - **`CoreService` / `ServiceRef`** (`cicl/model.py`, mod 096) — `CoreService` is one named way of invoking a codebase's build artifact (`role`, `command`, `networks`, `resources`, `port`, `depends_on`, `consumes`, `replicas`, `env`), per [`cicl.md § Core Services`](../../../doctrine/infrastructure/cicl.md#core-services). `ServiceRef` is the value type carrying the dots-for-reference / hyphens-for-emission rule: `.dotted` → `api.web`, `.compiled` → `api-web`, `.parse()` rejecting a bare name. It is the single place that rule is expressed, so read sites never re-derive it.
 
 In `src/docex/naming.py`:
@@ -68,7 +68,7 @@ In `src/docex/cicl/substitute.py`:
 
 In `src/docex/cicl/magic_refs.py`:
 
-- **`MagicRefResolver`** — resolves a magic ref against the named service's engine `provides:` block. State (compile contexts, engines, foundation) is held on the resolver instance. Refs to core services carry the process dimension; refs to backing services do not, because a backing service has no core services to qualify:
+- **`MagicRefResolver`** — resolves a magic ref against the named service's engine `provides:` block. State (compile contexts, engines, foundation) is held on the resolver instance. Refs to core services carry the service dimension; refs to backing services do not, because a backing service has no core services to qualify:
 
   ```
   ${codebases.<codebase>.core_services.<service>.<part>}   # five segments — api.web.host
@@ -93,16 +93,16 @@ A compile-time `${var}` embedded inside a `@<expr>` is resolved during emit; the
 
 **Engine-env `kind` short-circuits `$[VAR]` (mod 077).** When a `$[VAR]` names a `kind: fixed` engine env var, `magic_refs.py::_inline_fixed` substitutes the var's literal `value:` at compile time rather than emitting a runtime ref. `minted`/`secret` vars stay runtime pass-through. So `POSTGRES_USER` inlines to `appuser` everywhere and the fixed var's backing-body / `provides` `$[VAR]` never reaches emit — no emitter change was needed. The elastic SSM data-source / `secrets[]` therefore fire only for the non-fixed vars (e.g. `POSTGRES_PASSWORD`).
 
-## Process expansion
+## Service expansion
 
-Mod 096. One core service key in `infra.yml` maps to **N** `CompiledService`
+Mod 096. One codebase key in `infra.yml` maps to **N** `CompiledService`
 objects, one per [core service](../../../doctrine/infrastructure/cicl.md#core-services) —
 a codebase invoked several ways from one image.
 
 ```
-CoreService(api) × {web, worker, nightly_cleanup}
-    -> CompiledService(name="api-web",    core_service="api", process="web")
-    -> CompiledService(name="api-worker", core_service="api", process="worker")
+Codebase(api) × {web, worker, nightly_cleanup}
+    -> CompiledService(name="api-web",    codebase="api", service="web")
+    -> CompiledService(name="api-worker", codebase="api", service="worker")
     -> CompiledService(name="api-nightly_cleanup", …)
 ```
 
@@ -121,19 +121,19 @@ point of the expansion, which is one build artifact per codebase:
 
 | Identity | Field to read |
 | -------- | ------------- |
-| image ref + the `ecr_repository_<svc>_url` remote-state output | `core_service` |
-| the project-tier ECR repo set (`emit_hcl_project`) | `list(infra.core_services)` |
-| `schema_owned_by` / which codebase owns migrations | `core_service` |
-| the `core/<svc>/` source folder — compose bind mounts and build context | `core_service` |
-| the migrate task-def family and address | `codebase_global_name` / `core_service` |
+| image ref + the `ecr_repository_<cb>_url` remote-state output | `codebase` |
+| the project-tier ECR repo set (`emit_hcl_project`) | `list(infra.codebases)` |
+| `schema_owned_by` / which codebase owns migrations | `codebase` |
+| the `core/<codebase>/` source folder — compose bind mounts and build context | `codebase` |
+| the migrate task-def family and address | `codebase_global_name` / `codebase` |
 
-`CompiledService` therefore carries `core_service`, `process`,
+`CompiledService` therefore carries `codebase`, `service`,
 `codebase_global_name` (`{project}-{env}-{codebase}` under the same naming
-policy as `global_name`), `service_env`, and `replicas`.
+policy as `global_name`), `codebase_env`, and `replicas`.
 
-**`service_env`** is the codebase-scoped env surface: the service-level `env:`
+**`codebase_env`** is the codebase-scoped env surface: the codebase-level `env:`
 block resolved, plus `secrets` / `config` / doctrine-injected keys, and
-**excluding** any service-level `env:` overlay. The migrate task definition
+**excluding** any core service's `env:` overlay. The migrate task definition
 consumes it rather than the app container's env, because `migrate.sh` may
 depend only on codebase-scoped env — a service-level `DATABASE_*` would
 otherwise make a migration silently dependent on which core service it happened
@@ -143,7 +143,7 @@ That extends to the **telemetry identity**, which is the one key the surface
 originally leaked (Mod 102). Both surfaces are built by the same helper
 (`_build_env_surface`), which takes the identity as a parameter:
 
-| Key | core-service surface (`env`) | codebase surface (`service_env`) |
+| Key | core-service surface (`env`) | codebase surface (`codebase_env`) |
 | --- | --- | --- |
 | `OTEL_SERVICE_NAME` | `api-web` — the compiled identity | `api` — the authoring codebase name |
 | `docex.codebase` | `api` | `api` |
@@ -163,7 +163,7 @@ The two `docex.*` attributes are appended to `OTEL_RESOURCE_ATTRIBUTES` after th
 unchanged `service.namespace` / `service.version` / `deployment.environment.name`
 triple. They exist even though `service.name` already fuses both segments because
 both axes must be independently **queryable**: a hyphenated `service.name` does
-not decompose, since a service name and a process name may each contain `-`.
+not decompose, since a codebase name and a core service name may each contain `-`.
 `service.version` stays the project version — that is what makes a persistent
 web/worker divergence read as a stuck rollout rather than a config difference —
 and `service.instance.id` is deliberately never set, because the correct values
@@ -232,8 +232,8 @@ mod 096 stopped non-`web` core services from publishing host ports and
 
 ### Per-codebase artifacts
 
-Three things are emitted once per **codebase** rather than once per process
-type. All three iterate `group_by_codebase(compiled)` (`cicl/compile.py`), which
+Three things are emitted once per **codebase** rather than once per core
+service. All three iterate `group_by_codebase(compiled)` (`cicl/compile.py`), which
 is the single expression of the grouping rule — there is deliberately no rule
 for *picking a representative* core service, because every such rule is
 unstable under renames of core services that have nothing to do with the
@@ -242,20 +242,20 @@ artifact.
 **The exec service** (`emit/compose.py`) — one `{project}-{env}-{codebase}-exec`
 block per codebase, in every fixed env. It is the container that *is* the
 codebase: `migrate`, `test` and `build` run one-off inside it via
-`docker compose run --rm`, rather than `compose exec`-ing into whichever process
-type's container happened to be chosen. Two properties carry it:
+`docker compose run --rm`, rather than `compose exec`-ing into whichever core
+service's container happened to be chosen. Two properties carry it:
 
 - `profiles: [exec]` keeps `compose up` from ever starting it, while
   `compose run` implicitly enables the profile of the service it names. The
   block is inert until something runs in it. (It is the only `profiles:` key
   the compiler emits.)
-- Its `environment:` is `service_env` — the service-level surface only, never a
+- Its `environment:` is `codebase_env` — the codebase-level surface only, never a
   core service's overlay. That is what makes *`migrate.sh`, `test.sh` and
   `build.sh` may depend only on codebase-scoped env* an enforceable rule rather
   than a convention: a service-level key is not discouraged there, it is absent.
 
-It carries the codebase's image ref (identical across the codebase's process
-types, so one tag and one build), the `build:` block in `dev`/`test`, the dev
+It carries the codebase's image ref (identical across the codebase's core
+services, so one tag and one build), the `build:` block in `dev`/`test`, the dev
 bind mounts in `dev`, the union of the codebase's non-`web` networks, and the
 union of its `depends_on` — which the emitter's existing second pass rewrites to
 `condition: service_healthy`, so a one-off gates on the database being ready
@@ -270,12 +270,12 @@ address. `schema_owned_by_db` is an honest codebase property (true of every
 core service of a schema-owning codebase); the "exactly one" invariant comes
 from the grouping, not from a flag on a chosen carrier.
 
-Its **resources are the per-dimension maximum** across the codebase's process
-types, over the already-Fargate-tiered values. Max because it is commutative —
+Its **resources are the per-dimension maximum** across the codebase's core
+services, over the already-Fargate-tiered values. Max because it is commutative —
 the migration's size cannot move because an unrelated core service was renamed
 or added — and because it never under-provisions, which removes the need for
-any carve-out. A single-process codebase's max is that process's value, so the
-common case is byte-identical to a per-service emission. Fargate's allowed
+any carve-out. A single-core-service codebase's max is that service's value, so
+the common case is byte-identical to a per-service emission. Fargate's allowed
 memory range is monotone non-decreasing in cpu, which makes `(max_cpu, max_mem)`
 provably a valid tier; the `fargate_pair_from_units` round-trip afterwards is
 what turns that proof into an enforced guarantee.
@@ -298,9 +298,9 @@ core service's policy and requires agreement rather than reading one.
 A `scheduler` core service has no long-running container in any env. What it
 emits is a **trigger**, one per core service, keyed on the two-segment identity:
 
-- **fixed** — one Ofelia container `{project}-{env}-{svc}-{proc}-scheduler` plus
+- **fixed** — one Ofelia container `{project}-{env}-{cb}-{svc}-scheduler` plus
   its rendered INI, delivered through compose's top-level `configs:` block. The
-  INI's single `[job-run "<svc>-<proc>"]` section carries the two-segment
+  INI's single `[job-run "<codebase>-<service>"]` section carries the two-segment
   identity, and its `image =` is the **codebase's** image ref — the same tag
   every sibling core service runs. `test` drops the trigger entirely (mod 073),
   so in `test` a scheduler core service contributes nothing at all and its
@@ -309,13 +309,13 @@ emits is a **trigger**, one per core service, keyed on the two-segment identity:
   IAM role. No `ecs_service`, no target group, no sidecar.
 
 **No sidecar for a `scheduler` core service.** Per-service is strictly better
-than the service-level phrasing it replaces: a codebase with `web` +
-`nightly_cleanup` gets one sidecar for the web process and none for the job,
+than the codebase-level phrasing it replaces: a codebase with `web` +
+`nightly_cleanup` gets one sidecar for the web service and none for the job,
 which a service-level rule could not express — it needed the scheduler to be its
 own service to say anything at all.
 
-**In `dev`, the codebase tag is the Dockerfile `dev` stage — for every process
-type, including a cron job** (mod 103). Mod 074 built a separate, self-contained
+**In `dev`, the codebase tag is the Dockerfile `dev` stage — for every core
+service, including a cron job** (mod 103). Mod 074 built a separate, self-contained
 `prod`-stage image for a scheduler, on the correct observation that Ofelia spawns
 the job through the Docker API with **no bind mounts**. That stopped being viable
 once the image became codebase-keyed (mod 096) and the exec service began
@@ -371,7 +371,7 @@ per core service, so `replicas: 4` renders one `api.worker`. See
 
 ## Naming flow
 
-The compiler always joins parts with `_` internally; the policy decides what reaches the artifact. For the `web` core service of core service `api` in env `stage` of project `docex_smoke_elastic`:
+The compiler always joins parts with `_` internally; the policy decides what reaches the artifact. For the `web` core service of codebase `api` in env `stage` of project `docex_smoke_elastic`:
 
 1. Internal form: `docex_smoke_elastic_stage_api_web` — four segments for a core service, three (`{project}_{env}_{service}`) for a backing service.
 2. Engine `container` (role `web`) declares `naming: ecs`.
@@ -485,12 +485,12 @@ Validation lives at two layers:
 - Per core service, the *effective* `env` (service-level merged under service-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
 - Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
 - `cicl_version` is `"2"`; `"1"` is rejected with a message naming the upgrade guide, not shimmed (rule 21, mod 096).
-- Rendered data-plane identities are unique after naming-policy normalization, across core services, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core process rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per core service, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a core service named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. Mod 100 added a fifth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the core service declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
+- Rendered data-plane identities are unique after naming-policy normalization, across core services, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core service rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per core service, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a core service named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. Mod 100 added a fifth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the core service declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
 - `depends_on` names backing services only; a core service in a `depends_on` list is an error pointing at `consumes:` (rule 24, mod 096). Because core services are therefore leaves, cycle detection (rule 6) runs over the backing-service graph alone. **Do not "complete" that walk over `consumes` edges.** `consumes` is a cyclic digraph by doctrine — `web ↔ worker` is the most common topology there is and is legal — so there is one DAG (`depends_on`, cycles fatal) and one cyclic digraph (`consumes`, cycles fine). The legality is asserted rather than merely unchecked (mod 098).
-- `consumes` names only core services, fully qualified as `<codebase>.<service>`; a bare name is an error, not shorthand, and a core service may not consume itself (rule 25, mod 098). A **`scheduler` core service may not be a target** (mod 101): cron invokes a scheduler and nobody else does, so it exposes no boundary to consume, and it is exempt from both the health fan-out and the contract requirement that `consumes` drives. That clause was added by the mod that had to work *around* its absence — `check.py` exempts schedulers itself, and a gate whose justification is "the validator does not enforce this yet" is worse than five lines of validator. The two now agree, so the gate's exemption is belt-and-braces rather than load-bearing. `ProcessRef.parse` is the parser, so the bare-name rule lives in one place — but a bare entry naming a *backing* service is dispatched on the namespace first and answered with `depends_on:`, because that is the mistake the field invites. Every reporting branch of the rule-25 loop `continue`s, so one malformed entry never yields two issues; a test pins it. `consumes` drives CI (contracts, health fan-out, rule 7) and one *view* (`describe`, since mod 104 — see [The union view](#the-union-view)); no emitted artifact reads it. That it *cannot* be read by one is structural rather than incidental: it is a declared pydantic field on the authoring model and a declared dataclass field on `CompiledService`, so it never appears in `model_extra` and cannot reach field translation. A test asserts the absence in compiled output, because "is not read" and "cannot be read" look identical until someone adds a read site — and mod 104 *is* that read site, which is what promoted that test from precaution to load-bearing.
-- The `consumes` **parse lives on the model**, as `ProcessType.consumes_refs()` (mod 101). It normalizes to dotted form and drops entries that do not parse — rule 25 reports each malformed entry once, and a malformed entry must not *also* surface downstream as a mystifying rule-7 miss or as a missing contract for a target the author plainly named. Rule 7 and `check.py`'s contract / health gates both read through it, which is the point: mod 098's rule-25 validator already argued that "a second parser would be a second place for that rule to drift", and mod 101 — adding the second reader — moved the parse onto the model rather than write one. Mod 104 is the **third** reader (the compiler, populating `CompiledService.consumes`) and added no parsing: it re-parses each dotted result through `ProcessRef` to reach the compiled form, which is the price of not owning a second parser. A dropped entry therefore cannot reappear as a phantom node in `describe`, which matters more than it looks — `compile_env` does not validate, so the renderer sees whatever the compiler kept.
+- `consumes` names only core services, fully qualified as `<codebase>.<service>`; a bare name is an error, not shorthand, and a core service may not consume itself (rule 25, mod 098). A **`scheduler` core service may not be a target** (mod 101): cron invokes a scheduler and nobody else does, so it exposes no boundary to consume, and it is exempt from both the health fan-out and the contract requirement that `consumes` drives. That clause was added by the mod that had to work *around* its absence — `check.py` exempts schedulers itself, and a gate whose justification is "the validator does not enforce this yet" is worse than five lines of validator. The two now agree, so the gate's exemption is belt-and-braces rather than load-bearing. `ServiceRef.parse` is the parser, so the bare-name rule lives in one place — but a bare entry naming a *backing* service is dispatched on the namespace first and answered with `depends_on:`, because that is the mistake the field invites. Every reporting branch of the rule-25 loop `continue`s, so one malformed entry never yields two issues; a test pins it. `consumes` drives CI (contracts, health fan-out, rule 7) and one *view* (`describe`, since mod 104 — see [The union view](#the-union-view)); no emitted artifact reads it. That it *cannot* be read by one is structural rather than incidental: it is a declared pydantic field on the authoring model and a declared dataclass field on `CompiledService`, so it never appears in `model_extra` and cannot reach field translation. A test asserts the absence in compiled output, because "is not read" and "cannot be read" look identical until someone adds a read site — and mod 104 *is* that read site, which is what promoted that test from precaution to load-bearing.
+- The `consumes` **parse lives on the model**, as `CoreService.consumes_refs()` (mod 101). It normalizes to dotted form and drops entries that do not parse — rule 25 reports each malformed entry once, and a malformed entry must not *also* surface downstream as a mystifying rule-7 miss or as a missing contract for a target the author plainly named. Rule 7 and `check.py`'s contract / health gates both read through it, which is the point: mod 098's rule-25 validator already argued that "a second parser would be a second place for that rule to drift", and mod 101 — adding the second reader — moved the parse onto the model rather than write one. Mod 104 is the **third** reader (the compiler, populating `CompiledService.consumes`) and added no parsing: it re-parses each dotted result through `ServiceRef` to reach the compiled form, which is the price of not owning a second parser. A dropped entry therefore cannot reappear as a phantom node in `describe`, which matters more than it looks — `compile_env` does not validate, so the renderer sees whatever the compiler kept.
 - `replicas` is not declared on a `scheduler`, and `worker` / `scheduler` core services do not declare `web` in `networks` (rules 26 + 27, mod 096) — the latter replaces a prose-only, unenforced note.
-- Per-service re-scoping of rules 10, 11, 12, 14, 15 and 28 (mod 096): resources, GPU-on-elastic, `domain_default_service`, the reserved-name blacklist (now covering process names), the web-network port requirement, and `health_check_path`-obliges-`port`.
+- Per-service re-scoping of rules 10, 11, 12, 14, 15 and 28 (mod 096): resources, GPU-on-elastic, `domain_default_service`, the reserved-name blacklist (now covering core service names), the web-network port requirement, and `health_check_path`-obliges-`port`.
 
 A compile-time error is always preferable to a tofu/AWS-side error. A load-time error is preferable to a compile-time error. When in doubt, add validation at the earliest layer where the problem is detectable.
 
@@ -500,9 +500,9 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | ------------ | -------- |
 | What a role/engine emits per foundation | `tables/roles/<role>.yml` (data) |
 | How a name is formatted | `tables/naming_policies.yml` (data) + the engine's `naming: <policy>` ref |
-| How the compiler walks services | `src/docex/cicl/compile.py` — the work list in `compile_env` pairs each backing service with each `(service, process)` from `CICLDocument.all_processes()` |
-| Whether a new identity is per-service or per-codebase | [Process expansion](#process-expansion). The default is per-service, because `CompiledService.name` already is; the codebase-keyed set is small and listed there |
-| What a core service may declare, and at which level | `src/docex/cicl/model.py` (`CoreService` is `extra="forbid"` over `{processes, secrets, config, env}`; `ProcessType` is `extra="allow"` so role-specific fields land in `model_extra`) |
+| How the compiler walks services | `src/docex/cicl/compile.py` — the work list in `compile_env` pairs each backing service with each `(codebase, service)` from `CICLDocument.all_core_services()` |
+| Whether a new identity is per-service or per-codebase | [Service expansion](#service-expansion). The default is per-service, because `CompiledService.name` already is; the codebase-keyed set is small and listed there |
+| What a core service may declare, and at which level | `src/docex/cicl/model.py` (`Codebase` is `extra="forbid"` over `{core_services, secrets, config, env}`; `CoreService` is `extra="allow"` so role-specific fields land in `model_extra`) |
 | How magic refs are resolved | `src/docex/cicl/magic_refs.py` + `cicl/substitute.py` |
 | How doctrine env vars are injected on core services | `src/docex/cicl/compile.py::_build_env_surface` — the `out[...]` assignments after the resolved-magic-ref loop. Called twice per core service, once per env surface; the telemetry identity is a parameter because the two surfaces differ in it |
 | What compose YAML looks like | `src/docex/emit/compose.py` |
@@ -519,7 +519,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | An engine env var's `kind` / a fixed literal / a minted policy | `tables/roles/<role>.yml` `env:` + `tables/generation_policies.yml`; loader in `cicl/transfer.py` |
 | How a minted value is generated | `src/docex/cicl/generate.py` |
 | How `$[VAR]` resolves per kind (fixed inline vs runtime ref) | `src/docex/cicl/magic_refs.py::_inline_fixed` |
-| The declared config block | `src/docex/cicl/model.py` (`CoreService.config`) + the config loop in `src/docex/cicl/compile.py` |
+| The declared config block | `src/docex/cicl/model.py` (`Codebase.config`) + the config loop in `src/docex/cicl/compile.py` |
 | Which category a source key falls in | `src/docex/cicl/categories.py` (`classify_source_keys`, `secret_manifest`, `config_manifest`) |
 | The container-facing env file (dev/test aggregate) | `src/docex/orchestrate/aggregate.py` + `src/docex/envfile.py` |
 

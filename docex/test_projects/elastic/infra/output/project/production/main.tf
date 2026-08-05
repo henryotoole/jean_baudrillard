@@ -335,7 +335,7 @@ resource "aws_ecs_cluster" "prod" {
 }
 
 # ---------------------------------------------------------------------------
-# ECR repositories — one per core service. The image refs in each env's
+# ECR repositories — one per codebase. The image refs in each env's
 # main.tf resolve to `<repo_url>:<version>`.
 # ---------------------------------------------------------------------------
 

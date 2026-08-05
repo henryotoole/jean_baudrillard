@@ -77,7 +77,7 @@ def test_up_dev_does_not_rebuild_a_long_running_codebases_image(
     scheduler_ctx, fake_docker
 ):
     """Mod 103 scoped the build loop from ``scheduler_services`` to
-    ``scheduler_only_services``. ``api`` declares a ``web`` process, so
+    ``scheduler_only_services``. ``api`` declares a ``web`` core service, so
     ``compose up --build`` builds its tag at the same ``dev`` target — docex
     building it again would be a redundant cache-hit build.
 

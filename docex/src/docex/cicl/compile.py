@@ -156,8 +156,8 @@ def _resources_to_elastic(
     bare-core request alone would have.
 
     Mod 096: ``where`` is the caller-built CICL path the error messages
-    point at (``codebases.<svc>.core_services.<proc>.resources`` for a core
-    core service, ``backing_services.<svc>.resources`` for a backing
+    point at (``codebases.<cb>.core_services.<svc>.resources`` for a core
+    service, ``backing_services.<svc>.resources`` for a backing
     service). ``service_name`` stays the human-readable display name used in
     the rounding notice — the compiled two-segment identity for core.
 
@@ -187,7 +187,7 @@ def _resources_to_elastic(
     req_mem_mib = _memory_to_mib(res.memory) + sidecar_mem_mib
 
     cpu_units, memory_mib = fargate_pair_from_units(
-        req_cpu_units, req_mem_mib, service_name=service_name, where=where,
+        req_cpu_units, req_mem_mib, where=where,
     )
 
     # Surface a one-line notice whenever Fargate-tier rounding occurs.
@@ -200,7 +200,7 @@ def _resources_to_elastic(
         bare_cpu_units = max(1, int(round(res.cpu * 1024)))
         bare_mem_mib = _memory_to_mib(res.memory)
         bare_cpu_tier, bare_mem_tier = fargate_pair_from_units(
-            bare_cpu_units, bare_mem_mib, service_name=service_name, where=where,
+            bare_cpu_units, bare_mem_mib, where=where,
         )
         # No observable rounding: the sidecar-inclusive request landed
         # exactly on a Fargate tier on both dimensions. Stay silent.
@@ -259,8 +259,7 @@ def _resources_to_elastic(
                     f"Either bump the disk: field to >= {_FARGATE_DISK_MIN_GIB} GiB "
                     f"or omit it to inherit Fargate's default."
                 ),
-                where=(f"{where}.disk" if where else
-                       f"codebases.{service_name}.resources.disk"),
+                where=f"{where}.disk" if where else None,
             )])
         if disk_gib > _FARGATE_DISK_MAX_GIB:
             raise ValidationError([ValidationIssue(
@@ -269,8 +268,7 @@ def _resources_to_elastic(
                     f"Fargate ephemeral_storage maximum is {_FARGATE_DISK_MAX_GIB} GiB; "
                     f"requested disk={res.disk!r} resolves to {disk_gib} GiB."
                 ),
-                where=(f"{where}.disk" if where else
-                       f"codebases.{service_name}.resources.disk"),
+                where=f"{where}.disk" if where else None,
             )])
         out["ephemeral_storage"] = {"size_in_gib": disk_gib}
     # GPU rejected at validation time; not handled here.
@@ -334,7 +332,7 @@ def _image_ref(
 
     The ref depends on the environment:
 
-    - **dev/test** build the image locally from the service's Dockerfile
+    - **dev/test** build the image locally from the codebase's Dockerfile
       (the compose file carries a ``build:`` block), so they never pull
       from a registry. We emit a registry-less local tag
       ``<project>/<service>:<version>`` regardless of whether
@@ -344,7 +342,7 @@ def _image_ref(
       registry. With an explicit ``container_registry`` we use it. On
       elastic with no ``container_registry`` (the ECR default), the ECR
       repo URL is read from the project-tier remote state — the project
-      HCL provisions one ECR repo per core service and outputs the URL.
+      HCL provisions one ECR repo per codebase and outputs the URL.
       This branch is only reachable on elastic — fixed always has a
       registry (validation rule 9).
     """
@@ -380,20 +378,21 @@ def _bare_project_subdomain(apex_domain: str, project: str) -> str:
 
 def _web_hosts(
     name: str, networks: list[str], subdomain: str,
-    default_process_compiled: str | None,
+    default_service_compiled: str | None,
     *, env: str, bare_project: str, policy: NamingPolicy,
 ) -> list[str]:
     """The public host(s) a web-network service is reachable at.
 
     ``name`` is the *compiled* identity — two-segment (``api-web``) for a
     core service, the bare name for a backing service — and
-    ``default_process_compiled`` is the compiled identity of
+    ``default_service_compiled`` is the compiled identity of
     ``domain_default_service``.
 
     Every web-network service gets ``<label>.<env_subdomain>``. The default
-    process additionally answers at the bare ``<env_subdomain>``; in ``prod``
-    it ALSO answers at the bare-project host (``<project>.<apex_domain>``)
-    per cicl.md § Domain (bare project routes to prod's default process).
+    core service additionally answers at the bare ``<env_subdomain>``; in
+    ``prod`` it ALSO answers at the bare-project host
+    (``<project>.<apex_domain>``) per cicl.md § Domain (bare project routes
+    to prod's default core service).
     Non-web services get no hosts.
 
     The service label goes through the ``http_host`` naming policy rather
@@ -409,7 +408,7 @@ def _web_hosts(
     if "web" not in networks:
         return []
     per_service = f"{apply_policy(name, policy)}.{subdomain}"
-    if default_process_compiled is not None and name == default_process_compiled:
+    if default_service_compiled is not None and name == default_service_compiled:
         hosts = [per_service, subdomain]
         if env == "prod":
             hosts.append(bare_project)
@@ -436,8 +435,8 @@ def web_hostnames_for_env(
     )
     hosts: list[str] = []
     entries: list[tuple[str, list[str]]] = [
-        (ServiceRef(svc_name, service_name).compiled, list(proc.networks))
-        for svc_name, service_name, _svc, proc in doc.all_core_services()
+        (ServiceRef(cb_name, svc_name).compiled, list(svc.networks))
+        for cb_name, svc_name, _cb, svc in doc.all_core_services()
     ]
     entries.extend(
         (name, list(svc.networks))
@@ -501,11 +500,11 @@ class CompiledService:
     # than routed through a transfer-table translation body. The fixed
     # (ofelia) and elastic (scheduled_task) emitters translate it.
     schedule: str | None = None
-    # --- Process expansion (Mod 096) -------------------------------------
+    # --- Service expansion (Mod 096) -------------------------------------
     # The codebase this compiled service belongs to. None for backing
     # services. `name` is the two-segment compiled identity (`api-web`);
     # `codebase` is what stays keyed on the codebase — the image ref, the
-    # ECR repo, `schema_owned_by`, and the `core/<svc>/` source folder.
+    # ECR repo, `schema_owned_by`, and the `core/<codebase>/` source folder.
     codebase: str | None = None
     service: str | None = None
     # `{project}-{env}-{codebase}` under the same naming policy as
@@ -513,11 +512,11 @@ class CompiledService:
     # NOT from `global_name`, so one codebase yields one migrate family.
     # orchestrate/migrate.py reconstructs the identical string.
     codebase_global_name: str | None = None
-    # The codebase-scoped env surface: the service-level `env:` block
+    # The codebase-scoped env surface: the CODEBASE-level `env:` block
     # resolved, plus secrets / config / doctrine-injected keys, EXCLUDING any
-    # service-level `env:` overlay. Consumed by the migrate task definition
+    # core service's `env:` overlay. Consumed by the migrate task definition
     # (and by Mod 099's exec service). See overview.md § Migration carrier.
-    service_env: dict[str, Any] = field(default_factory=dict)
+    codebase_env: dict[str, Any] = field(default_factory=dict)
     # Declared parallelism. The DECLARED value — `effective_replicas` applies
     # the prod-only clamp on top of it. Consumed by the fixed compose unroll
     # and by the elastic ECS `desired_count` (Mod 100).
@@ -640,23 +639,23 @@ def compile_env(
     project_dns_label = _dns_label(project_name)
 
     # The unit of work is one EMITTED service: a backing service, or one
-    # core service of one core service. `key` is the compiled identity — the
+    # core service of one codebase. `key` is the compiled identity — the
     # key `engines_by_service`, `contexts` and `compiled_services` are all
-    # keyed on, because `role` (and therefore the engine) is per-process now.
-    # (key, model, core_service_name | None, service_name | None)
+    # keyed on, because `role` (and therefore the engine) is per-service now.
+    # (key, model, codebase_name | None, service_name | None)
     work: list[tuple[str, Any, str | None, str | None]] = []
     for name in sorted(doc.backing_services):
         work.append((name, doc.backing_services[name], None, None))
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        work.append((ServiceRef(svc_name, service_name).compiled, proc, svc_name, service_name))
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        work.append((ServiceRef(cb_name, svc_name).compiled, svc, cb_name, svc_name))
 
     # Resolve engines per emitted service first; magic refs need them.
     engines_by_service: dict[str, EngineEntry] = {}
-    for key, svc, svc_name, service_name in work:
+    for key, svc, cb_name, svc_name in work:
         if isinstance(svc, BackingService):
             entry = tables.engine_for(svc.role, svc.engine, foundation)
         else:
-            # Core core services have a single engine per role; pick the
+            # Core services have a single engine per role; pick the
             # first supporting the foundation.
             engines = tables.role(svc.role)
             entry = None
@@ -671,22 +670,22 @@ def compile_env(
                     rule="rule_4_engine_foundation_mismatch",
                     message=(
                         f"core service "
-                        f"{ServiceRef(svc_name, service_name).dotted!r} role "
+                        f"{ServiceRef(cb_name, svc_name).dotted!r} role "
                         f"{svc.role!r}: no engine supports foundation "
                         f"{foundation!r}"
                     ),
-                    where=f"codebases.{svc_name}.core_services.{service_name}",
+                    where=f"codebases.{cb_name}.core_services.{svc_name}",
                 )])
         engines_by_service[key] = entry
 
     # Build substitution contexts per emitted service.
     contexts: dict[str, dict[str, Any]] = {}
-    for key, svc, svc_name, service_name in work:
+    for key, svc, cb_name, svc_name in work:
         engine = engines_by_service[key]
         policy = tables.naming_policies.get(engine.naming)
         gname = _global_service_name(
-            project_name, env, svc_name if service_name is not None else key,
-            policy, service=service_name,
+            project_name, env, cb_name if svc_name is not None else key,
+            policy, service=svc_name,
         )
         contexts[key] = {
             "name": key,
@@ -701,13 +700,13 @@ def compile_env(
             "apex_domain": doc.apex_domain,
             "bare_project_subdomain": bare_project,
             # Mod 096: None for a backing service — `standard_tags` omits the
-            # `process` tag entirely in that case, keeping backing tag blocks
-            # byte-identical to what they were before process expansion.
-            "service": service_name,
-            # The codebase, for the elastic `service` tag: the tag block
-            # splits the two dimensions (`service = api`, `service = web`)
+            # `service` tag entirely in that case, keeping backing tag blocks
+            # byte-identical to what they were before service expansion.
+            "service": svc_name,
+            # The codebase, for the elastic `codebase` tag: the tag block
+            # splits the two dimensions (`codebase = api`, `service = web`)
             # rather than carrying the fused compiled identity.
-            "codebase_name": svc_name if service_name is not None else key,
+            "codebase_name": cb_name if svc_name is not None else key,
         }
 
     # The magic-ref resolver shares state across all services in this env.
@@ -719,7 +718,7 @@ def compile_env(
     compiled_services: dict[str, CompiledService] = {}
     networks_seen: set[str] = set()
 
-    # Which core services own a backing-service schema. Reverse-index
+    # Which codebases own a backing-service schema. Reverse-index
     # the backing services' ``schema_owned_by`` declarations.
     core_owning_schema: set[str] = {
         bsvc.schema_owned_by
@@ -729,19 +728,19 @@ def compile_env(
 
     # The compiled identity of `domain_default_service`, compared against
     # each emitted service's `name`.
-    default_process_compiled = (
+    default_service_compiled = (
         ServiceRef.parse(doc.domain_default_service).compiled
         if doc.domain_default_service is not None else None
     )
     http_host_policy = tables.naming_policies.get("http_host")
 
-    for name, svc, svc_name, service_name in work:
-        # `svc` is a BackingService, or the CoreService when `svc_name` /
-        # `service_name` are set. `codebase` is the owning Codebase, which
+    for name, svc, cb_name, svc_name in work:
+        # `svc` is a BackingService, or the CoreService when `cb_name` /
+        # `svc_name` are set. `codebase` is the owning Codebase, which
         # holds the codebase-scoped fields (env / secrets / config).
-        is_core = svc_name is not None
+        is_core = cb_name is not None
         codebase: Codebase | None = (
-            doc.codebases[svc_name] if is_core else None
+            doc.codebases[cb_name] if is_core else None
         )
         engine = engines_by_service[name]
         ctx = contexts[name]
@@ -804,7 +803,7 @@ def compile_env(
 
         # The CICL path errors about this emitted service point at.
         where_path = (
-            f"codebases.{svc_name}.core_services.{service_name}" if is_core
+            f"codebases.{cb_name}.core_services.{svc_name}" if is_core
             else f"backing_services.{name}"
         )
 
@@ -812,21 +811,21 @@ def compile_env(
         if foundation == "fixed":
             body = _apply_fixed_invariants(body, svc, ctx)
             if is_core:
-                # WHY `svc_name`, not `name`: the image is built from the
+                # WHY `cb_name`, not `name`: the image is built from the
                 # CODEBASE, once, and every core service of that codebase
                 # runs it. Passing the two-segment compiled identity here
                 # would make the deploy pull `<proj>/api-web:<ver>` while
                 # containerize.py pushed `<proj>/api:<ver>`. Mod 096.
                 body["image"] = _image_ref(
-                    doc.container_registry, project_name, svc_name,
+                    doc.container_registry, project_name, cb_name,
                     project_version, env=env, foundation=foundation,
                 )
                 body = _deep_merge(body, _resources_to_fixed(svc.resources))
                 body["command"] = svc.command
-                # Core core service never publish a host port. A `web`
-                # process is reached through the reverse proxy over the docker
-                # network; a non-web process's port (e.g. a worker's health
-                # port) is probed from inside the netns by the container
+                # Core services never publish a host port. A `web` core
+                # service is reached through the reverse proxy over the docker
+                # network; a non-web core service's port (e.g. a worker's
+                # health port) is probed from inside the netns by the container
                 # healthcheck and reached by a sibling over the internal
                 # network. Neither path needs a host publish, elastic never
                 # published one, and publishing would collide across the
@@ -843,7 +842,7 @@ def compile_env(
                 # See the fixed branch — keyed on the codebase, never the
                 # compiled identity.
                 body["image"] = _image_ref(
-                    doc.container_registry, project_name, svc_name,
+                    doc.container_registry, project_name, cb_name,
                     project_version, env=env, foundation=foundation,
                 )
                 # Mod 055: only long-running services (those that emit an
@@ -864,10 +863,10 @@ def compile_env(
         # 4. Resolve `env:` block on core services (magic refs live here).
         #
         # Two surfaces are built from the same tail so they cannot drift:
-        #   env_block    — the core service's EFFECTIVE env (service-level
-        #                  `env:` with the service-level block merged over
-        #                  it). What the container runs with.
-        #   service_env  — the CODEBASE-scoped surface: the service-level
+        #   env_block    — the core service's EFFECTIVE env (the codebase-
+        #                  level `env:` with the core service's own block
+        #                  merged over it). What the container runs with.
+        #   codebase_env — the CODEBASE-scoped surface: the codebase-level
         #                  `env:` only. What per-codebase operations (the
         #                  elastic migrate task definition; Mod 099's exec
         #                  service) run with, because `migrate.sh` may depend
@@ -909,14 +908,14 @@ def compile_env(
                     )
                 else:
                     out[ekey] = val
-            # Core-service `secrets:` are operator-supplied secret env vars with
+            # Codebase `secrets:` are operator-supplied secret env vars with
             # no in-project source (API keys, tokens). Wire each as a self-
             # referential runtime ref so the existing secret path delivers it —
             # compose ${KEY} (fixed) / ECS secrets[] (elastic). Validation
             # forbids a key in both env and secrets.
             for ekey in sorted(codebase.secrets):
                 out[ekey] = f"$[{ekey}]"
-            # Core-service `config:` are declared, non-secret, per-env values.
+            # Codebase `config:` are declared, non-secret, per-env values.
             # Wired exactly like secrets — a self-referential runtime ref that
             # the existing secret path delivers (compose ${KEY} / ECS secrets[]).
             # The value is non-secret (String on elastic); the compiled shape is
@@ -961,7 +960,7 @@ def compile_env(
                 f"service.namespace={project_name}",
                 f"service.version={project_version}",
                 f"deployment.environment.name={env}",
-                f"docex.codebase={svc_name}",
+                f"docex.codebase={cb_name}",
             ]
             if otel_service is not None:
                 # `docex.service` is present IFF the emitter is a declared
@@ -973,37 +972,39 @@ def compile_env(
             return out
 
         env_block: dict[str, Any] = {}
-        service_env: dict[str, Any] = {}
+        codebase_env: dict[str, Any] = {}
         if is_core:
             effective_env = {**(codebase.env or {}), **(svc.env or {})}
             env_block = _build_env_surface(
                 effective_env,
                 otel_service_name=name,
-                otel_service=service_name,
+                otel_service=svc_name,
             )
             # Mod 102: built through the helper UNCONDITIONALLY. There used to
-            # be a `dict(env_block)` shortcut here, taken whenever the process
-            # declared no `env:` overlay, because the two surfaces were then
-            # identical. DO NOT restore it: this mod falsified that premise.
+            # be a `dict(env_block)` shortcut here, taken whenever the core
+            # service declared no `env:` overlay, because the two surfaces were
+            # then identical. DO NOT restore it: this mod falsified that
+            # premise.
             # The surfaces now differ in `OTEL_SERVICE_NAME` and
             # `OTEL_RESOURCE_ATTRIBUTES` even with no overlay, because the
             # codebase-scoped surface de-qualifies its telemetry identity.
             #
             # WHY de-qualify: this surface feeds PER-CODEBASE artifacts (the
             # fixed exec service, emit/compose.py:696; the elastic migrate task
-            # definition, emit/hcl.py:562), which read it off `procs[0]` —
-            # sorted by compiled name. Carrying a process segment there means a
+            # definition, emit/hcl.py:562), which read it off `svcs[0]` —
+            # sorted by compiled name. Carrying a service segment there means a
             # migration reports the name of, say, a cron job, and renaming a
             # core service silently changes the identity a migration reports.
             # De-qualifying removes the choice rather than making it better.
             #
-            # Resolving the service-level block a second time is not a new code
-            # path — it already happened whenever a process declared an overlay.
+            # Resolving the codebase-level block a second time is not a new code
+            # path — it already happened whenever a core service declared an
+            # overlay.
             # `MagicRefResolver.deps` is append-only with no consumer and the
             # cycle guard is discarded in a `finally`.
-            service_env = _build_env_surface(
+            codebase_env = _build_env_surface(
                 dict(codebase.env or {}),
-                otel_service_name=svc_name,
+                otel_service_name=cb_name,
                 otel_service=None,
             )
 
@@ -1033,7 +1034,7 @@ def compile_env(
             ),
             env=env_block,
             web_hosts=_web_hosts(
-                name, svc.networks, subdomain, default_process_compiled,
+                name, svc.networks, subdomain, default_service_compiled,
                 env=env, bare_project=bare_project, policy=http_host_policy,
             ),
             schema_owned_by=getattr(svc, "schema_owned_by", None),
@@ -1049,7 +1050,7 @@ def compile_env(
             # "pick one core service" read of this flag — if you need the one
             # container that stands in for a codebase, the answer is the exec
             # service, not a core service.
-            schema_owned_by_db=(is_core and svc_name in core_owning_schema),
+            schema_owned_by_db=(is_core and cb_name in core_owning_schema),
             target_extras=target_extras,
             emits={fnd: list(dests) for fnd, dests in (engine.emits or {}).items()},
             persistent_storage=(
@@ -1062,15 +1063,15 @@ def compile_env(
                 if (sched := (svc.model_extra or {}).get("schedule")) is not None
                 else None
             ),
-            codebase=svc_name,
-            service=service_name,
+            codebase=cb_name,
+            service=svc_name,
             codebase_global_name=(
                 _global_service_name(
-                    project_name, env, svc_name,
+                    project_name, env, cb_name,
                     tables.naming_policies.get(engine.naming),
                 ) if is_core else None
             ),
-            service_env=service_env,
+            codebase_env=codebase_env,
             replicas=(svc.replicas if is_core else 1),
             # `consumes_refs()` (Mod 101) is the ONE parse of rule 25's field —
             # it normalizes to the dotted reference form and drops entries that
@@ -1195,7 +1196,7 @@ def _apply_elastic_invariants(
         env=ctx["env_name"],
         codebase=ctx.get("codebase_name", ctx["name"]),
         role=ctx["role_name"],
-        # Mod 096: None for a backing service, which has no process
+        # Mod 096: None for a backing service, which has no service
         # dimension — standard_tags then omits the key entirely, so backing
         # tag blocks are byte-identical to their pre-expansion form.
         service=ctx.get("service"),
@@ -1317,7 +1318,7 @@ def run_compile(ctx: Any) -> int:
             project=ctx.project.name,
             project_version=ctx.project.version,
             apex_domain=ctx.infra.apex_domain,
-            core_service_names=list(ctx.infra.codebases.keys()),
+            codebase_names=list(ctx.infra.codebases.keys()),
             naming_policies=ctx.transfer_tables.naming_policies,
             out_path=prod_project_dir / "main.tf",
             reverse_proxy=ctx.infra.reverse_proxy,

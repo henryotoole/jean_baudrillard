@@ -185,11 +185,11 @@ def test_llm_nodes_carry_both_axes_and_consumes():
     nodes = {r["short"]: r for r in doc["tiers"]["environment"]}
     web = nodes["api.web"]
     assert web["short"] == "api.web"
-    assert web["core_service"] == "api"
+    assert web["codebase"] == "api"
     assert web["service"] == "web"
     assert web["consumes"] == ["api.worker"]
     db = nodes["appdb"]
-    assert db["core_service"] is None
+    assert db["codebase"] is None
     assert db["service"] is None
 
 

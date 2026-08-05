@@ -32,7 +32,7 @@ _ELASTIC = _FIXTURES / "sample_project_elastic"
 
 
 # A service-level `env:` key on the schema carrier (`web`, the lowest-sorted
-# non-scheduler process). It must appear in the app container's env and NOT
+# non-scheduler core service). It must appear in the app container's env and NOT
 # in the migrate task definition's — that is the codebase-scoped-env rule.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 
@@ -61,32 +61,32 @@ _NIGHTLY = {
 }
 
 
-def _three_process_project(fixture: Path, tmp_path: Path) -> Path:
+def _three_service_project(fixture: Path, tmp_path: Path) -> Path:
     root = tmp_path / "project"
     shutil.copytree(fixture, root, dirs_exist_ok=False)
     shutil.rmtree(root / "infra" / "output", ignore_errors=True)
 
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    procs = doc["codebases"]["api"]["core_services"]
-    procs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
-    procs["web"]["consumes"] = ["api.worker"]
-    procs["worker"] = dict(_WORKER)
-    procs["nightly_cleanup"] = dict(_NIGHTLY)
+    svcs = doc["codebases"]["api"]["core_services"]
+    svcs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
+    svcs["web"]["consumes"] = ["api.worker"]
+    svcs["worker"] = dict(_WORKER)
+    svcs["nightly_cleanup"] = dict(_NIGHTLY)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
     return root
 
 
 @pytest.fixture(scope="module")
 def fixed_root(tmp_path_factory) -> Path:
-    root = _three_process_project(_FIXED, tmp_path_factory.mktemp("fixed"))
+    root = _three_service_project(_FIXED, tmp_path_factory.mktemp("fixed"))
     assert run_compile(load_project_context(root)) == 0
     return root
 
 
 @pytest.fixture(scope="module")
 def elastic_root(tmp_path_factory) -> Path:
-    root = _three_process_project(_ELASTIC, tmp_path_factory.mktemp("elastic"))
+    root = _three_service_project(_ELASTIC, tmp_path_factory.mktemp("elastic"))
     assert run_compile(load_project_context(root)) == 0
     return root
 
@@ -133,7 +133,7 @@ def test_27_fixed_emits_one_sidecar_per_long_running_process(fixed_root: Path):
     assert sidecars == ["sample-dev-api-web-otelcol", "sample-dev-api-worker-otelcol"]
 
 
-def test_28_fixed_all_processes_share_one_image(fixed_root: Path):
+def test_28_fixed_all_services_share_one_image(fixed_root: Path):
     services = _compose(fixed_root, "dev")["services"]
     core = [services[k] for k in ("sample-dev-api-web", "sample-dev-api-worker")]
     assert {b["image"] for b in core} == {"sample/api:0.1.0"}
@@ -199,7 +199,7 @@ def test_33_elastic_exactly_one_migrate_task_definition(elastic_root: Path):
     migrates = [n for n in _resources(hcl, "aws_ecs_task_definition") if "migrate" in n]
     assert migrates == ["api_migrate"]
     body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
-    # Codebase-keyed: no process segment.
+    # Codebase-keyed: no service segment.
     assert 'family                   = "sample-stage-api-migrate"' in body
 
 
@@ -210,7 +210,7 @@ def test_33b_elastic_migrate_resources_are_the_per_dimension_max(
     codebase's core service, taken over the already-Fargate-tiered values.
 
     `max` is commutative, so — unlike the Mod 096 bridge, which picked the
-    lowest-sorted non-scheduler process — the migration's size cannot move
+    lowest-sorted non-scheduler core service — the migration's size cannot move
     because a sibling core service was renamed or added. It also never
     under-provisions, which is what lets the rule drop the scheduler
     carve-out and have no exceptions at all.
@@ -244,22 +244,22 @@ def test_33c_elastic_migrate_log_group_is_per_codebase(elastic_root: Path):
     assert 'resource "aws_cloudwatch_log_group" "api" {' in hcl
     body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
     assert "awslogs-group = aws_cloudwatch_log_group.api.name" in body
-    # The container is named for the codebase too — a process segment in a
-    # per-codebase artifact names a process the migration has nothing to do
-    # with.
+    # The container is named for the codebase too — a service segment in a
+    # per-codebase artifact names a core service the migration has nothing to
+    # do with.
     assert 'name = "api"' in body
 
 
 def test_34_elastic_migrate_env_is_codebase_scoped(elastic_root: Path):
     """`migrate.sh` may depend only on codebase-scoped env, so the migrate
-    task definition consumes `service_env` — the service-level `env:` block —
+    task definition consumes `codebase_env` — the codebase-level `env:` block —
     and never a core service's overlay."""
     hcl = _hcl(elastic_root, "stage")
     body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
     names = set(re.findall(r'name = "([A-Z_]+)"', body))
-    assert "DATABASE_HOST" in names       # service-level env
+    assert "DATABASE_HOST" in names       # codebase-level env
     assert "PROJECT_VERSION" in names     # doctrine-injected
-    assert _WEB_ONLY_KEY not in names     # service-level overlay — excluded
+    assert _WEB_ONLY_KEY not in names     # core-service overlay — excluded
     # Guard against a vacuous pass: the carrier's own container DOES have it.
     app = _slice(hcl, "aws_ecs_task_definition", "api-web")
     assert _WEB_ONLY_KEY in app
@@ -399,7 +399,7 @@ def test_25_iam_overflow_fails_compile_with_the_policys_message(tmp_path: Path):
     is `apply_policy(f"{global_name}_scheduler", iam)`. With a fourth
     segment that can now hard-fail at compile — the doctrine's stated
     preference over silent truncation."""
-    root = _three_process_project(_ELASTIC, tmp_path)
+    root = _three_service_project(_ELASTIC, tmp_path)
     project_yml = root / "project.yml"
     project_yml.write_text(
         project_yml.read_text().replace(

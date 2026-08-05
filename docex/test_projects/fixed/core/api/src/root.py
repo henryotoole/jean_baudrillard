@@ -9,7 +9,7 @@ no socket, and runs no loop. Binding a constructed adapter to something
 that actually runs belongs to the entrypoints under `src/entrypoints/`,
 one module per core service (`web`, `worker`).
 
-There is exactly ONE composition root per codebase, not one per process
+There is exactly ONE composition root per codebase, not one per core service
 type: two copies of the driven wiring drift, which is precisely the bug
 class module integration tests exist to catch
 (internal_dependency_rules.md § Entrypoints, rule 3).
@@ -125,7 +125,7 @@ def build_app() -> FastAPI:
     # `web`-network core service to expose the health of each `consumes`
     # target that is not itself on the `web` network. `api.worker` sits on
     # `[internal]` alone, so nothing outside can reach its own /health —
-    # `api.web` proxies it at /health/<service>/<process>.
+    # `api.web` proxies it at /health/<codebase>/<service>.
     @app.get("/health/api/worker")
     def health_api_worker() -> dict[str, str]:
         if not WORKER_HOST or not WORKER_PORT:

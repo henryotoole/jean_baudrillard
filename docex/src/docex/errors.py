@@ -124,7 +124,7 @@ class VersionAlreadyReleased(DocexError):
 
 
 class ContractMissing(DocexError):
-    """A required ``infra/contracts/<svc>.<proc>.<fmt>.yml`` is absent."""
+    """A required ``infra/contracts/<codebase>.<service>.<fmt>.yml`` is absent."""
 
 
 class ContractInvalid(DocexError):
@@ -132,7 +132,7 @@ class ContractInvalid(DocexError):
 
 
 class BuildxFailed(DocexError):
-    """``docker buildx build`` for a core service exited non-zero."""
+    """``docker buildx build`` for a codebase exited non-zero."""
 
 
 class RegistryPushFailed(DocexError):

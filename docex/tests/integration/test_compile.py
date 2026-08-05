@@ -654,7 +654,7 @@ def test_project_tier_task_execution_policy_is_project_scoped(tmp_path: Path):
     auth_idx = project_tf.index('"ecr:GetAuthorizationToken"')
     assert 'Resource = "*"' in project_tf[auth_idx : auth_idx + 200]
 
-    # --- Statement 2: per-repo ECR pull, gated on core_service_names ---
+    # --- Statement 2: per-repo ECR pull, gated on codebase_names ---
     assert '"ecr:BatchCheckLayerAvailability"' in project_tf
     assert '"ecr:BatchGetImage"' in project_tf
     assert '"ecr:GetDownloadUrlForLayer"' in project_tf
@@ -709,7 +709,7 @@ def test_project_tier_task_execution_policy_empty_core_services(tmp_path: Path):
         project="empty_proj",
         project_version="0.0.1",
         apex_domain="example.com",
-        core_service_names=[],
+        codebase_names=[],
         naming_policies=ctx.transfer_tables.naming_policies,
         out_path=out,
     )
@@ -809,7 +809,7 @@ def test_env_tier_sg_name_uses_hyphen_form(tmp_path: Path):
         # Both env-tier SGs (web, internal) carry the hyphenated name.
         # NOTE: this is the `web` NETWORK's security group, not the
         # `web.http` service — SG names are per network and gained no
-        # process segment in Mod 096.
+        # service segment in Mod 096.
         assert f'name        = "docex-smoke-elastic-{env}-web"' in tf
         assert f'name        = "docex-smoke-elastic-{env}-internal"' in tf
         # Old literal-underscore form must not leak through the resource

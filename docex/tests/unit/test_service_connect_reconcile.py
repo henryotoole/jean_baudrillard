@@ -74,9 +74,9 @@ def _project(tmp_path: Path, mutate) -> object:
 def web_consumes_worker(tmp_path: Path):
     """`api.web` consumes `api.worker` — the walk's topology."""
     def mutate(doc):
-        procs = doc["codebases"]["api"]["core_services"]
-        procs["worker"] = dict(_WORKER)
-        procs["web"]["consumes"] = ["api.worker"]
+        svcs = doc["codebases"]["api"]["core_services"]
+        svcs["worker"] = dict(_WORKER)
+        svcs["web"]["consumes"] = ["api.worker"]
     return _project(tmp_path, mutate)
 
 
@@ -150,10 +150,10 @@ def test_reconcile_handles_consumes_cycle(
     someone must be created first. Both members must be redeployed, and the
     reconcile must not recurse or error on the cycle."""
     def mutate(doc):
-        procs = doc["codebases"]["api"]["core_services"]
-        procs["worker"] = dict(_WORKER)
-        procs["worker"]["consumes"] = ["api.web"]
-        procs["web"]["consumes"] = ["api.worker"]
+        svcs = doc["codebases"]["api"]["core_services"]
+        svcs["worker"] = dict(_WORKER)
+        svcs["worker"]["consumes"] = ["api.web"]
+        svcs["web"]["consumes"] = ["api.worker"]
     ctx = _project(tmp_path, mutate)
 
     fake_aws.service_connect_endpoints = [
@@ -189,10 +189,10 @@ def test_scheduler_consumer_is_never_redeployed(
     and `update_service` against a non-existent service is an error, not a
     no-op. Even holding a `consumes` edge, it must be skipped."""
     def mutate(doc):
-        procs = doc["codebases"]["api"]["core_services"]
-        procs["worker"] = dict(_WORKER)
-        procs["nightly"] = dict(_SCHEDULER)
-        procs["nightly"]["consumes"] = ["api.worker"]
+        svcs = doc["codebases"]["api"]["core_services"]
+        svcs["worker"] = dict(_WORKER)
+        svcs["nightly"] = dict(_SCHEDULER)
+        svcs["nightly"]["consumes"] = ["api.worker"]
     ctx = _project(tmp_path, mutate)
 
     fake_aws.service_connect_endpoints = [

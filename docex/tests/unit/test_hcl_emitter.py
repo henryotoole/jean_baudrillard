@@ -44,14 +44,14 @@ _FIXTURE_ELASTIC = (
 
 def test_fargate_pair_maps_1vcpu_2gb_to_valid_combo():
     """1.0 vCPU + 2GB must map to the valid Fargate pair (1024, 2048)."""
-    cpu_units, memory_mib = fargate_pair(1.0, "2GB", service_name="api")
+    cpu_units, memory_mib = fargate_pair(1.0, "2GB", where=None)
     assert cpu_units == 1024
     assert memory_mib == 2048
 
 
 def test_fargate_pair_rounds_memory_up_to_valid_value():
     """1.5 GB is not a valid Fargate memory; must round up to 2048 MiB."""
-    _cpu, memory_mib = fargate_pair(1.0, "1.5GB", service_name="api")
+    _cpu, memory_mib = fargate_pair(1.0, "1.5GB", where=None)
     assert memory_mib >= 2048
     # And it must be a valid Fargate memory value for 1024 cpu.
     from docex.cicl.fargate import _allowed_memory_mib
@@ -63,7 +63,7 @@ def test_fargate_pair_rounds_cpu_up_to_fit_memory():
     validator rounds CPU up rather than failing, since the user's intent
     (give me ~16 GB) is honored. Memory is in MiB; 16 decimal GB is
     ~15259 MiB, which is below 16384 MiB."""
-    cpu_units, memory_mib = fargate_pair(0.25, "16GB", service_name="bigapi")
+    cpu_units, memory_mib = fargate_pair(0.25, "16GB", where=None)
     # 16 GB (decimal) ≈ 15259 MiB; Fargate rounds up to the next valid bucket.
     assert memory_mib >= 15259, "memory must satisfy at least the requested 16 GB"
     assert cpu_units >= 1024, "CPU must have been bumped up to fit the memory"
@@ -72,7 +72,7 @@ def test_fargate_pair_rounds_cpu_up_to_fit_memory():
 def test_fargate_pair_rejects_memory_above_max():
     """250 GB exceeds Fargate's 120 GiB ceiling — must raise."""
     with pytest.raises(ValidationError):
-        fargate_pair(1.0, "250GB", service_name="bigapi")
+        fargate_pair(1.0, "250GB", where=None)
 
 
 # ---------------------------------------------------------------------------
@@ -541,13 +541,13 @@ def test_envinfra_tags_log_group_and_task_def(compiled_elastic_project: Path):
     assert 'descriptor = "migrate-task-def"' in mig
 
 
-def test_migrate_resources_unchanged_for_a_single_process_codebase(
+def test_migrate_resources_unchanged_for_a_single_service_codebase(
     compiled_elastic_project: Path,
 ):
     """Mod 099 sizes the migration at the per-dimension max across the
-    codebase's core service. A single-process codebase's max is that
-    process's value, so its emitted resources are byte-identical to the
-    pre-mod emission — only a multi-process schema-owning codebase moves."""
+    codebase's core services. A single-core-service codebase's max is that
+    core service's value, so its emitted resources are byte-identical to the
+    pre-mod emission — only a multi-core-service schema-owning codebase moves."""
     tf = (compiled_elastic_project / "infra" / "output" / "prod" / "main.tf").read_text()
     app = _block(tf, 'resource "aws_ecs_task_definition" "api-web"')
     mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
@@ -574,7 +574,7 @@ _MIGRATE_WORKER = {
 
 
 @pytest.fixture
-def multi_process_elastic_tf(tmp_path: Path) -> str:
+def multi_service_elastic_tf(tmp_path: Path) -> str:
     """The elastic fixture with a second core service planted on `api`, so the
     codebase genuinely has two and de-qualification is observable rather than
     merely pinned. Returns the compiled prod `main.tf`."""
@@ -601,7 +601,7 @@ def _container_env_value(block: str, key: str) -> str:
 
 
 def test_migrate_task_def_telemetry_identity_is_codebase_scoped(
-    multi_process_elastic_tf: str,
+    multi_service_elastic_tf: str,
 ):
     """Mod 102. The migration is a per-CODEBASE artifact, so it reports
     `service.name=api` — not `api-web`, the compiled identity of whichever
@@ -609,10 +609,10 @@ def test_migrate_task_def_telemetry_identity_is_codebase_scoped(
     is absent, which is the signal that this is not a declared core service.
 
     Anti-vacuity guard in the same test: the sibling `api-web` app task
-    definition still reports the two-segment name and does carry the process
+    definition still reports the two-segment name and does carry the core service
     attribute.
     """
-    tf = multi_process_elastic_tf
+    tf = multi_service_elastic_tf
     mig = _block(tf, 'resource "aws_ecs_task_definition" "api_migrate"')
     assert _container_env_value(mig, "OTEL_SERVICE_NAME") == "api"
     mig_attrs = _container_env_value(mig, "OTEL_RESOURCE_ATTRIBUTES")
@@ -790,7 +790,7 @@ def test_target_group_carries_standard_name_tag(tmp_path: Path):
     block = _tg_block(tf, "api-web")
     assert "tags = {" in block
     # Mod 096: the Name tag carries both dimensions of the compiled
-    # identity — `<project>_<env>_<service>_<process>`.
+    # identity — `<project>_<env>_<codebase>_<service>`.
     assert 'Name = "sample_prod_api_web"' in block
     assert 'descriptor = "ALB-TG"' in block
     assert 'infra_tier = "environment"' in block
@@ -979,7 +979,7 @@ def test_mod038_project_tier_alb_outputs_present(compiled_elastic_project: Path)
 # The fixed side was always correct because `compose.py::_service_block` gets
 # the body by whole-body pass-through.
 #
-# Anti-vacuity note: a single-process codebase cannot detect this — its one
+# Anti-vacuity note: a single-core-service codebase cannot detect this — its one
 # `CMD` is trivially "right". Every assertion below therefore runs against a
 # codebase with TWO core service, which is the only shape where no single
 # Dockerfile `CMD` can be correct.
@@ -1034,7 +1034,7 @@ def _container_command(block: str, container_name: str) -> list[str]:
 
 
 def test_mod108_each_core_service_emits_its_own_command(
-    multi_process_elastic_tf: str,
+    multi_service_elastic_tf: str,
 ):
     """Two core service on ONE codebase (one image) must emit two DIFFERENT
     commands. This is the assertion whose absence let the defect ship: with a
@@ -1042,12 +1042,12 @@ def test_mod108_each_core_service_emits_its_own_command(
     `api-worker`, and infrastructure.md § Core Service Containers says the
     Dockerfile `CMD` is not used."""
     web = _container_command(
-        _block(multi_process_elastic_tf,
+        _block(multi_service_elastic_tf,
                'resource "aws_ecs_task_definition" "api-web"'),
         "api-web",
     )
     worker = _container_command(
-        _block(multi_process_elastic_tf,
+        _block(multi_service_elastic_tf,
                'resource "aws_ecs_task_definition" "api-worker"'),
         "api-worker",
     )
@@ -1110,11 +1110,11 @@ def test_mod108_string_command_normalizes_to_list(tmp_path: Path):
 
 
 def test_mod108_migrate_task_definition_command_unchanged(
-    multi_process_elastic_tf: str,
+    multi_service_elastic_tf: str,
 ):
     """The per-codebase migrate task definition supplies its own command and
     must not pick up any core service's. Guards the fix against bleeding into
     `render_migration_task_definitions`."""
-    block = _block(multi_process_elastic_tf,
+    block = _block(multi_service_elastic_tf,
                    'resource "aws_ecs_task_definition" "api_migrate"')
     assert _container_command(block, "api") == ["/service/migrate.sh"]

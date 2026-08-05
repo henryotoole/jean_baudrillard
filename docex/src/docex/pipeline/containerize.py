@@ -1,11 +1,11 @@
-"""``docex containerize`` — build + push core service prod images.
+"""``docex containerize`` — build + push per-codebase prod images.
 
 Per [cicd.md § Containerize Step] and [docex.md § containerize]:
 
   1. Validate preconditions (clean tree, on main, ``v<version>`` tag
      exists on HEAD).
   2. Resolve the registry from ``infra.yml``.
-  3. For each core service: ``docker buildx build --target prod`` then
+  3. For each codebase: ``docker buildx build --target prod`` then
      ``docker push <full_tag>``.
   4. Print one ``containerize: pushed <tag> (sha256:...)`` line per
      successful push.
@@ -37,15 +37,15 @@ from docex.orchestrate._common import codebases
 _DEFAULT_PLATFORM = "linux/amd64"
 
 
-def _image_tag(registry: str, project_name: str, service: str, version: str) -> str:
-    """Return ``<registry>/<project>/<service>:<version>``.
+def _image_tag(registry: str, project_name: str, codebase: str, version: str) -> str:
+    """Return ``<registry>/<project>/<codebase>:<version>``.
 
     Phase 1 already produces the same string for the prod compose
     ``image:`` field; this helper centralizes the formula so the
     registry destination matches what the deployed compose file
     expects to pull.
     """
-    return f"{registry.rstrip('/')}/{project_name}/{service}:{version}"
+    return f"{registry.rstrip('/')}/{project_name}/{codebase}:{version}"
 
 
 def run_containerize(
@@ -56,7 +56,7 @@ def run_containerize(
     platform: str = _DEFAULT_PLATFORM,
     aws: AWSClient | None = None,
 ) -> int:
-    """Build + push prod images for every core service. Returns exit code.
+    """Build + push prod images for every codebase. Returns exit code.
 
     ``aws`` is required only on the elastic ECR-default path (an elastic
     project with no explicit ``container_registry``); the dispatcher
@@ -122,10 +122,10 @@ def run_containerize(
             )
             return 1
 
-    # 3. Per-service buildx + push --------------------------------------
-    services = codebases(ctx)
-    if not services:
-        print("containerize: no core services declared; nothing to do.")
+    # 3. Per-codebase buildx + push -------------------------------------
+    all_codebases = codebases(ctx)
+    if not all_codebases:
+        print("containerize: no codebases declared; nothing to do.")
         return 0
 
     project_name = project.name
@@ -141,18 +141,18 @@ def run_containerize(
                 f"authenticate to the project ECR."
             )
 
-    for svc in services:
-        context = project_root / "core" / svc
+    for cb in all_codebases:
+        context = project_root / "core" / cb
         dockerfile = context / "Dockerfile"
         if not dockerfile.is_file():
             print(
-                f"error: {dockerfile} missing — core service {svc!r} "
+                f"error: {dockerfile} missing — codebase {cb!r} "
                 "must ship a Dockerfile.",
                 file=sys.stderr,
             )
             return 1
 
-        full_tag = _image_tag(registry, project_name, svc, version)
+        full_tag = _image_tag(registry, project_name, cb, version)
 
         # ECR repositories are provisioned by `docex bootstrap` as part
         # of the project-tier tofu apply. We don't ensure them here.
@@ -167,7 +167,7 @@ def run_containerize(
         )
         if rc != 0:
             raise BuildxFailed(
-                f"'docker buildx build' for service {svc!r} exited {rc}."
+                f"'docker buildx build' for codebase {cb!r} exited {rc}."
             )
 
         # Push.

@@ -52,7 +52,7 @@ def test_build_clears_dist_before_running_build_sh(sample_ctx, fake_docker, monk
     # Replace the bound method on the fake.
     fake_docker.compose_run_one_off = _run_side_effect  # type: ignore[method-assign]
 
-    rc = run_build(sample_ctx, fake_docker, service="api")
+    rc = run_build(sample_ctx, fake_docker, codebase="api")
     assert rc == 0
 
     # It ran in the exec service, not in a core service's app container.
@@ -67,13 +67,13 @@ def test_build_fails_if_dist_empty_after_build_sh(sample_ctx, fake_docker):
     _seed_dist(sample_ctx, "api", {"stale.txt": "old"})
     # Default exec returns 0 but writes nothing.
     with pytest.raises(BuildFailed):
-        run_build(sample_ctx, fake_docker, service="api")
+        run_build(sample_ctx, fake_docker, codebase="api")
 
 
 def test_build_rejects_unknown_service(sample_ctx, fake_docker):
     fake_docker.ps_services = ["sample-dev-api-web"]
     with pytest.raises(EnvNotSupported):
-        run_build(sample_ctx, fake_docker, service="bogus")
+        run_build(sample_ctx, fake_docker, codebase="bogus")
 
 
 def test_build_returns_failure_exit_code_from_build_sh(sample_ctx, fake_docker):
@@ -83,7 +83,7 @@ def test_build_returns_failure_exit_code_from_build_sh(sample_ctx, fake_docker):
     fake_docker.exit_codes[
         ("exit", "compose_run_one_off", "sample-dev-api-exec", ("./build.sh",))
     ] = 3
-    rc = run_build(sample_ctx, fake_docker, service="api")
+    rc = run_build(sample_ctx, fake_docker, codebase="api")
     assert rc == 3
 
 
@@ -118,7 +118,7 @@ def test_build_proceeds_when_the_app_container_is_restarting(
 
     fake_docker.compose_run_one_off = _run_side_effect  # type: ignore[method-assign]
 
-    assert run_build(sample_ctx, fake_docker, service="api") == 0
+    assert run_build(sample_ctx, fake_docker, codebase="api") == 0
 
 
 def test_build_still_requires_the_stack_to_be_up(sample_ctx, fake_docker):
@@ -127,5 +127,5 @@ def test_build_still_requires_the_stack_to_be_up(sample_ctx, fake_docker):
     per-service container gate was retired."""
     fake_docker.ps_services = []
     with pytest.raises(EnvNotRunning) as excinfo:
-        run_build(sample_ctx, fake_docker, service="api")
+        run_build(sample_ctx, fake_docker, codebase="api")
     assert "run 'docex up dev' first" in str(excinfo.value)

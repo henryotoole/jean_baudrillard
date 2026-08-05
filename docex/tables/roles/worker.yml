@@ -10,8 +10,9 @@
 #   - elastic: task_definition + ecs_service. NO target_group — a worker is
 #              not an ingress target.
 #
-# `image:`, `cpu:`, `memory:`, `tmpfs:` are derived per-core-service by the
-# compiler, exactly as for `web`.
+# `cpu:`, `memory:`, `tmpfs:` are derived per-core-service by the
+# compiler, exactly as for `web`; `image:` is derived per codebase, so
+# every core service of a codebase runs one tag.
 
 roles:
   worker:

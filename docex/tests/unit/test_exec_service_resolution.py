@@ -23,7 +23,7 @@ from docex.orchestrate._common import exec_service_key
 _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _FIXED = _FIXTURES / "sample_project"
 
-# A second codebase whose *name* collides with the first codebase's process
+# A second codebase whose *name* collides with the first codebase's core service
 # type. This is the shape the deleted suffix scan got wrong.
 _WEB_CODEBASE = {
     "core_services": {
@@ -40,8 +40,8 @@ _WEB_CODEBASE = {
 
 @pytest.fixture(scope="module")
 def colliding_root(tmp_path_factory) -> Path:
-    """``sample`` with codebases ``api`` (process ``web``) and ``web``
-    (process ``web``) side by side."""
+    """``sample`` with codebases ``api`` (core service ``web``) and ``web``
+    (core service ``web``) side by side."""
     root = tmp_path_factory.mktemp("exec_collide") / "project"
     shutil.copytree(_FIXED, root, dirs_exist_ok=False)
     shutil.rmtree(root / "infra" / "output", ignore_errors=True)
@@ -69,7 +69,7 @@ def test_9_codebase_named_web_resolves_to_its_own_exec_service(
     colliding_root: Path,
 ):
     """**The live bug this mod retires.** The deleted resolver scanned the
-    emitted compose file for a key ending in ``-<codebase>-<primary process>``.
+    emitted compose file for a key ending in ``-<codebase>-<primary core service>``.
     For a codebase literally named ``web`` that suffix is ``web-web``, but the
     scan also accepted a key merely *ending* in the codebase name — so
     ``sample-dev-api-web``, a **different codebase's** container, matched
@@ -196,7 +196,7 @@ _DELETED_103 = [
 def test_mod_074_and_the_scheduler_test_carveout_are_gone(
     module_name: str, attr: str
 ):
-    """The two functions Mod 103 deleted, once ``scheduler`` became a process
+    """The two functions Mod 103 deleted, once ``scheduler`` became a core service
     type rather than its own species of service.
 
     1. ``orchestrate/test.py::_run_scheduler_tests`` — the ``docex test``

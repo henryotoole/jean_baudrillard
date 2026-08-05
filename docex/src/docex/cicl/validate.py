@@ -16,7 +16,7 @@ infra.yml plus the transfer tables and the foundation context:
              re-checked here as defense-in-depth).
     Rule 11: resources.gpu not declared under elastic foundation.
     Rule 25: `consumes` names core service, fully qualified as
-             `<service>.<process>`, and never itself.
+             `<codebase>.<service>`, and never itself.
 
 Field validation (rule 4 in transfer_tables.md: every role-specific
 field on a service is declared in the engine's ``fields:`` block) is
@@ -48,14 +48,14 @@ from docex.cicl.transfer import TransferTables
 from docex.errors import ValidationIssue
 
 
-# Standard CICL service fields (not subject to "must be declared in
+# Standard CICL field sets (not subject to the "must be declared in
 # engine.fields" check).
-# Service level is model-enforced (Codebase.extra="forbid"); listed for
+# Codebase level is model-enforced (Codebase.extra="forbid"); listed for
 # documentation only.
-_STANDARD_SERVICE_FIELDS = {"core_services", "secrets", "config", "env"}
-# Process level: everything CoreService declares as a real field. Anything
-# else must be declared in the engine's `fields:` block (tt rule 4).
-_STANDARD_PROCESS_FIELDS = {
+_STANDARD_CODEBASE_FIELDS = {"core_services", "secrets", "config", "env"}
+# Core-service level: everything CoreService declares as a real field.
+# Anything else must be declared in the engine's `fields:` block (tt rule 4).
+_STANDARD_SERVICE_FIELDS = {
     "role", "command", "networks", "depends_on", "consumes", "port", "env",
     "resources", "replicas",
 }
@@ -65,17 +65,17 @@ _STANDARD_BACKING_FIELDS = {
 }
 
 
-def _service_where(svc_name: str, service_name: str) -> str:
+def _service_where(cb_name: str, svc_name: str) -> str:
     """The canonical ``where=`` path of one core service."""
-    return f"codebases.{svc_name}.core_services.{service_name}"
+    return f"codebases.{cb_name}.core_services.{svc_name}"
 
 
-def _effective_env(svc: Codebase, proc: CoreService) -> dict[str, Any]:
-    """A core service's effective env: the codebase-scoped service-level
-    ``env:`` block with the service-level ``env:`` merged over it
+def _effective_env(cb: Codebase, svc: CoreService) -> dict[str, Any]:
+    """A core service's effective env: the codebase-level ``env:`` block
+    with the core service's own ``env:`` merged over it
     (cicl.md § Field scoping)."""
-    out: dict[str, Any] = dict(svc.env or {})
-    out.update(proc.env or {})
+    out: dict[str, Any] = dict(cb.env or {})
+    out.update(svc.env or {})
     return out
 
 # Doctrine-injected env vars on every core service. A project may not
@@ -112,7 +112,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_rendered_identity(doc))
     issues.extend(_validate_domain_default_service(doc))
     issues.extend(_validate_web_service_ports(doc))
-    issues.extend(_validate_process_role_rules(doc))
+    issues.extend(_validate_service_role_rules(doc))
     issues.extend(_validate_env_secrets_config_overlap(doc))
     issues.extend(_validate_reserved_engine_names(doc, tables))
     issues.extend(_validate_emits(doc, tables))
@@ -137,27 +137,27 @@ def _validate_roles_and_engines(
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     # `role` is per-core service in CICL v2, so role/engine resolution is too.
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        where = _service_where(svc_name, service_name)
-        label = ServiceRef(svc_name, service_name).dotted
-        if proc.role not in tables.by_role:
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        where = _service_where(cb_name, svc_name)
+        label = ServiceRef(cb_name, svc_name).dotted
+        if svc.role not in tables.by_role:
             issues.append(ValidationIssue(
                 rule="rule_2_unknown_role",
                 message=(
                     f"core service {label!r} uses unknown role "
-                    f"{proc.role!r}"
+                    f"{svc.role!r}"
                 ),
                 where=where,
             ))
             continue
         # Core services don't declare an engine in infra.yml; transfer-table
         # layer must contain at least one engine for the role.
-        engines = tables.role(proc.role)
+        engines = tables.role(svc.role)
         if not engines:
             issues.append(ValidationIssue(
                 rule="rule_2_role_has_no_engines",
                 message=(
-                    f"core service {label!r} role {proc.role!r} has no "
+                    f"core service {label!r} role {svc.role!r} has no "
                     f"engines defined"
                 ),
                 where=where,
@@ -225,7 +225,7 @@ def _validate_role_specific_fields(
         if isinstance(svc, BackingService):
             engines = svc.engine if isinstance(svc.engine, list) else [svc.engine]
         else:
-            # Core core services have a single canonical engine per role. We
+            # Core services have a single canonical engine per role. We
             # just check the union of fields across all engines of the role.
             engines = list(tables.role(role).keys())
 
@@ -253,12 +253,12 @@ def _validate_role_specific_fields(
                     where=f"{where_base}.{fname}",
                 ))
 
-    # The service level needs no walk — Codebase forbids extras outright,
-    # so a stray service-level field is a parse error, not an issue here.
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
+    # The codebase level needs no walk — Codebase forbids extras outright,
+    # so a stray codebase-level field is a parse error, not an issue here.
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
         check(
-            ServiceRef(svc_name, service_name).dotted, proc, "codebases",
-            _STANDARD_PROCESS_FIELDS, _service_where(svc_name, service_name),
+            ServiceRef(cb_name, svc_name).dotted, svc, "codebases",
+            _STANDARD_SERVICE_FIELDS, _service_where(cb_name, svc_name),
         )
     for name, svc in sorted(doc.backing_services.items()):
         check(
@@ -318,13 +318,13 @@ def _validate_magic_refs(
                             rule="rule_3_unresolved_magic_ref",
                             message=(
                                 f"magic ref {ref.text} in {label!r} references "
-                                f"unknown core service {ref.target!r}"
+                                f"unknown codebase {ref.target!r}"
                             ),
                             where=where_label,
                         ))
                         continue
-                    target_proc = target_core.core_services.get(ref.service)
-                    if target_proc is None:
+                    target_svc = target_core.core_services.get(ref.service)
+                    if target_svc is None:
                         issues.append(ValidationIssue(
                             rule="rule_3_unresolved_magic_ref",
                             message=(
@@ -336,13 +336,13 @@ def _validate_magic_refs(
                             where=where_label,
                         ))
                         continue
-                    # The part must be exposed by an engine of the target
-                    # process's role. Collected across foundations, exactly as
+                    # The part must be exposed by an engine of the target core
+                    # service's role. Collected across foundations, exactly as
                     # the backing branch does — validate_document has no
                     # foundation.
                     core_exposed: set[str] = set()
                     try:
-                        role_engines = tables.role(target_proc.role)
+                        role_engines = tables.role(target_svc.role)
                     except Exception:
                         role_engines = {}
                     for entry in role_engines.values():
@@ -353,7 +353,7 @@ def _validate_magic_refs(
                             rule="rule_3_unresolved_magic_ref",
                             message=(
                                 f"magic ref {ref.text} in {label!r}: role "
-                                f"{target_proc.role!r} does not expose part "
+                                f"{target_svc.role!r} does not expose part "
                                 f"{ref.part!r}; known: {sorted(core_exposed)}"
                             ),
                             where=where_label,
@@ -458,32 +458,32 @@ def _validate_magic_refs(
                         where=where_label,
                     ))
 
-    # Core: one scan per core service, over its EFFECTIVE env (service-level
-    # merged under service-level). A service-level `env:` ref therefore
+    # Core: one scan per core service, over its EFFECTIVE env (codebase-level
+    # merged under service-level). A codebase-level `env:` ref therefore
     # obliges EVERY core service of that codebase to carry the edge ITS KIND
     # CALLS FOR — `depends_on` for a backing target, `consumes` for a core
     # one — cicl.md § Consumes Relationships § Three clarifications.
-    for svc_name, service_name, svc, proc in doc.all_core_services():
+    for cb_name, svc_name, cb, svc in doc.all_core_services():
         templates: list[str] = []
-        for v in _effective_env(svc, proc).values():
+        for v in _effective_env(cb, svc).values():
             if isinstance(v, str):
                 templates.append(v)
-        cmd = proc.command
+        cmd = svc.command
         if isinstance(cmd, str):
             templates.append(cmd)
         elif isinstance(cmd, list):
             for c in cmd:
                 if isinstance(c, str):
                     templates.append(c)
-        for v in (proc.model_extra or {}).values():
+        for v in (svc.model_extra or {}).values():
             templates.extend(walk_strings(v))
         scan(
-            ServiceRef(svc_name, service_name).dotted,
-            _service_where(svc_name, service_name),
-            (svc_name, service_name),
+            ServiceRef(cb_name, svc_name).dotted,
+            _service_where(cb_name, svc_name),
+            (cb_name, svc_name),
             templates,
-            list(proc.depends_on or []),
-            proc.consumes_refs(),
+            list(svc.depends_on or []),
+            svc.consumes_refs(),
         )
 
     for name, svc in sorted(doc.backing_services.items()):
@@ -534,19 +534,19 @@ def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
                     message=(
                         f"{label!r} declares depends_on: [{dep!r}], "
                         f"which is a core service. `depends_on` is a readiness gate and "
-                        f"names backing services ONLY. Interface coupling between core "
-                        f"core service is a different relation with different rules and "
-                        f"lives in `consumes:`. "
+                        f"names backing services ONLY. Interface coupling "
+                        f"between core services is a different relation with "
+                        f"different rules and lives in `consumes:`. "
                         f"See cicl.md § Depends-On Relationships."
                     ),
                     where=f"{where}.depends_on",
                 ))
 
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
         check_edges(
-            f"core service {ServiceRef(svc_name, service_name).dotted}",
-            _service_where(svc_name, service_name),
-            list(proc.depends_on or []),
+            f"core service {ServiceRef(cb_name, svc_name).dotted}",
+            _service_where(cb_name, svc_name),
+            list(svc.depends_on or []),
         )
     for name, svc in sorted(doc.backing_services.items()):
         check_edges(name, name, list(svc.depends_on or []))
@@ -591,20 +591,20 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
     bare-name-is-illegal rule and its reasoning into it, and a second parser
     would be a second place for that rule to drift."""
     issues: list[ValidationIssue] = []
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        label = ServiceRef(svc_name, service_name).dotted
-        where = f"{_service_where(svc_name, service_name)}.consumes"
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        label = ServiceRef(cb_name, svc_name).dotted
+        where = f"{_service_where(cb_name, svc_name)}.consumes"
 
         def backing_message(entry: str, label: str = label) -> str:
             return (
                 f"core service {label!r} lists {entry!r} in `consumes:`, which "
                 f"names the backing service {entry.split('.')[0]!r}. `consumes` "
-                f"is an interface edge between core service; readiness "
+                f"is an interface edge between core services; readiness "
                 f"coupling to a backing service lives in `depends_on:`. "
                 f"See cicl.md § Depends-On Relationships."
             )
 
-        for raw in (proc.consumes or []):
+        for raw in (svc.consumes or []):
             # WHY the namespace is consulted before the parser: `consumes:
             # [appdb]` is the mistake this field invites — an author reaching
             # for the relation they know — and "a codebase has no single
@@ -630,7 +630,7 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                 continue
             # Before the existence check: an author who consumes themselves
             # should get the self message, not a redundant pair.
-            if (ref.codebase, ref.service) == (svc_name, service_name):
+            if (ref.codebase, ref.service) == (cb_name, svc_name):
                 issues.append(ValidationIssue(
                     rule="rule_25_self_consumes",
                     message=self_consumes_message(ref), where=where,
@@ -656,8 +656,8 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                     rule="rule_25_unresolved_consumes",
                     message=(
                         f"core service {label!r} lists {raw!r} in `consumes:`, "
-                        f"but codebase {ref.codebase!r} declares no core service "
-                        f"type {ref.service!r}; known: "
+                        f"but codebase {ref.codebase!r} declares no core "
+                        f"service {ref.service!r}; known: "
                         f"{sorted(target.core_services)}"
                     ),
                     where=where,
@@ -704,7 +704,7 @@ def _validate_schema_owned_by(doc: CICLDocument) -> list[ValidationIssue]:
                 rule="rule_8_schema_owned_by_unknown",
                 message=(
                     f"relational_db {name!r} schema_owned_by {owner!r} is not "
-                    f"a core service"
+                    f"a codebase"
                 ),
                 where=f"backing_services.{name}",
             ))
@@ -735,11 +735,11 @@ def _validate_container_registry(doc: CICLDocument) -> list[ValidationIssue]:
 
 def _validate_resources(doc: CICLDocument) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        where = _service_where(svc_name, service_name)
-        label = ServiceRef(svc_name, service_name).dotted
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        where = _service_where(cb_name, svc_name)
+        label = ServiceRef(cb_name, svc_name).dotted
         # Rule 10 (defense in depth): resources required.
-        if proc.resources is None:  # pragma: no cover - pydantic enforces this
+        if svc.resources is None:  # pragma: no cover - pydantic enforces this
             issues.append(ValidationIssue(
                 rule="rule_10_resources_required",
                 message=f"core service {label!r} must declare resources",
@@ -747,7 +747,7 @@ def _validate_resources(doc: CICLDocument) -> list[ValidationIssue]:
             ))
             continue
         # Rule 11: no GPU on elastic.
-        if doc.foundation == "elastic" and proc.resources.gpu is not None:
+        if doc.foundation == "elastic" and svc.resources.gpu is not None:
             issues.append(ValidationIssue(
                 rule="rule_11_no_gpu_on_elastic",
                 message=(
@@ -780,7 +780,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
 
     Extends (does not replace) ``model.py::_validate_service_names``, whose
     exact-duplicate and core/backing-overlap checks are structural and
-    per-document. This one catches the collisions process expansion makes
+    per-document. This one catches the collisions service expansion makes
     possible: ``api`` + ``web-v2`` vs ``api-web`` + ``v2``; core ``api`` +
     ``db`` vs a backing service named ``api-db``; ``my_api`` + ``web`` vs
     ``my`` + ``api_web``.
@@ -801,15 +801,15 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     declares ``replicas > 1``. See the comment at its seeding site.
     """
     buckets: dict[str, list[str]] = {}
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        ref = ServiceRef(svc_name, service_name)
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        ref = ServiceRef(cb_name, svc_name)
         buckets.setdefault(_normalized_identity(ref.compiled), []).append(
             f"core service {ref.dotted!r}"
         )
         # Compiler-emitted, per core service. A scheduler has no long-running
         # container to pair a collector with; it gets an Ofelia trigger
         # instead. Exactly one of the two suffixes exists per core service.
-        if proc.role == "scheduler":
+        if svc.role == "scheduler":
             buckets.setdefault(
                 _normalized_identity(f"{ref.compiled}-scheduler"), []
             ).append(f"the scheduler trigger for core service {ref.dotted!r}")
@@ -836,8 +836,8 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
         # collision needs `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`,
         # which is exactly the container-level collision seeded here. Do not
         # "complete" this by also seeding `{compiled}-{i}-otelcol`.
-        if proc.replicas > 1:
-            for i in range(1, proc.replicas + 1):
+        if svc.replicas > 1:
+            for i in range(1, svc.replicas + 1):
                 buckets.setdefault(
                     _normalized_identity(f"{ref.compiled}-{i}"), []
                 ).append(
@@ -870,7 +870,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
                 f"{' and '.join(sorted(members))} both render into the same "
                 f"data-plane identity {rendered!r}. Every emitted service "
                 f"shares the {{project}}_{{env}} prefix, so the suffix must be "
-                f"unique across core service, backing services, and the "
+                f"unique across core services, backing services, and the "
                 f"derivatives the compiler appends to them (-otelcol, "
                 f"-scheduler, -exec, -migrate, and the -1..-N replica index) "
                 f"after naming-policy normalization (hyphenate + lowercase). "
@@ -882,13 +882,13 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 # ---------------------------------------------------------------------------
-# Domain default process + web-process ports.
+# Domain default service + web core-service ports.
 # ---------------------------------------------------------------------------
 
 
 def _validate_domain_default_service(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 12: ``domain_default_service`` names a web-network *process
-    type*, dotted (``api.web``)."""
+    """Rule 12: ``domain_default_service`` names a web-network *core
+    service*, dotted (``api.web``)."""
     ddp = doc.domain_default_service
     if ddp is None:
         return []
@@ -900,8 +900,8 @@ def _validate_domain_default_service(doc: CICLDocument) -> list[ValidationIssue]
             message=f"domain_default_service {ddp!r}: {exc}",
             where="domain_default_service",
         )]
-    svc = doc.codebases.get(ref.codebase)
-    if svc is None:
+    cb = doc.codebases.get(ref.codebase)
+    if cb is None:
         return [ValidationIssue(
             rule="rule_domain_default_unknown",
             message=(
@@ -910,18 +910,18 @@ def _validate_domain_default_service(doc: CICLDocument) -> list[ValidationIssue]
             ),
             where="domain_default_service",
         )]
-    proc = svc.core_services.get(ref.service)
-    if proc is None:
+    svc = cb.core_services.get(ref.service)
+    if svc is None:
         return [ValidationIssue(
             rule="rule_domain_default_unknown",
             message=(
                 f"domain_default_service {ddp!r}: codebase "
                 f"{ref.codebase!r} declares no core service {ref.service!r} "
-                f"(known: {sorted(svc.core_services)})"
+                f"(known: {sorted(cb.core_services)})"
             ),
             where="domain_default_service",
         )]
-    if "web" not in proc.networks:
+    if "web" not in svc.networks:
         return [ValidationIssue(
             rule="rule_domain_default_not_web",
             message=(
@@ -938,17 +938,17 @@ def _validate_web_service_ports(doc: CICLDocument) -> list[ValidationIssue]:
     a port — the reverse proxy (Traefik / ALB) needs the container port to
     route to."""
     issues: list[ValidationIssue] = []
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        if "web" in proc.networks and proc.port is None:
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        if "web" in svc.networks and svc.port is None:
             issues.append(ValidationIssue(
                 rule="rule_web_service_needs_port",
                 message=(
                     f"core service "
-                    f"{ServiceRef(svc_name, service_name).dotted!r} is on the "
+                    f"{ServiceRef(cb_name, svc_name).dotted!r} is on the "
                     f"'web' network and must declare a port (the reverse "
                     f"proxy routes to it)"
                 ),
-                where=_service_where(svc_name, service_name),
+                where=_service_where(cb_name, svc_name),
             ))
     for name, svc in sorted(doc.backing_services.items()):
         if "web" in svc.networks and svc.port is None:
@@ -964,16 +964,16 @@ def _validate_web_service_ports(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 def _validate_env_secrets_config_overlap(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 16: a core service's effective `env:` (service ∪ process),
+    """Rule 16: a core service's effective `env:` (codebase ∪ service),
     `secrets:`, and `config:` must not share a key. Each has distinct
     provenance/wiring (`env:` is compiler-resolved, `secrets:` is
     operator-supplied secret, `config:` is operator-supplied per-env config),
     so a shared key is ambiguous."""
     issues: list[ValidationIssue] = []
-    # `secrets:` and `config:` are both service-level, so their overlap is a
-    # service-level fact — reported once, not once per core service.
-    for name, svc in sorted(doc.codebases.items()):
-        for key in sorted(set(svc.secrets or {}) & set(svc.config or {})):
+    # `secrets:` and `config:` are both codebase-level, so their overlap is a
+    # codebase-level fact — reported once, not once per core service.
+    for name, cb in sorted(doc.codebases.items()):
+        for key in sorted(set(cb.secrets or {}) & set(cb.config or {})):
             issues.append(ValidationIssue(
                 rule="rule_env_secrets_config_overlap",
                 message=(
@@ -982,19 +982,19 @@ def _validate_env_secrets_config_overlap(doc: CICLDocument) -> list[ValidationIs
                 ),
                 where=f"codebases.{name}",
             ))
-    for svc_name, service_name, svc, proc in doc.all_core_services():
-        env_keys = set(_effective_env(svc, proc))
+    for cb_name, svc_name, cb, svc in doc.all_core_services():
+        env_keys = set(_effective_env(cb, svc))
         for other in ("secrets", "config"):
-            for key in sorted(env_keys & set(getattr(svc, other) or {})):
+            for key in sorted(env_keys & set(getattr(cb, other) or {})):
                 issues.append(ValidationIssue(
                     rule="rule_env_secrets_config_overlap",
                     message=(
                         f"core service "
-                        f"{ServiceRef(svc_name, service_name).dotted!r}: key "
+                        f"{ServiceRef(cb_name, svc_name).dotted!r}: key "
                         f"{key!r} appears in both `env:` and `{other}:` — "
                         f"declare it in exactly one"
                     ),
-                    where=_service_where(svc_name, service_name),
+                    where=_service_where(cb_name, svc_name),
                 ))
     return issues
 
@@ -1062,18 +1062,18 @@ def _validate_emits(
     if doc.foundation == "elastic":
         project_foundations.append("elastic")
 
-    # (label, where, model) over backing services plus core service —
-    # `role`, and therefore the engine, is per-process in CICL v2.
+    # (label, where, model) over backing services plus core services —
+    # `role`, and therefore the engine, is per-service in CICL v2.
     targets: list[tuple[str, str, Any]] = [
         (name, name, svc) for name, svc in doc.backing_services.items()
     ]
     targets.extend(
         (
-            ServiceRef(svc_name, service_name).dotted,
-            _service_where(svc_name, service_name),
-            proc,
+            ServiceRef(cb_name, svc_name).dotted,
+            _service_where(cb_name, svc_name),
+            svc,
         )
-        for svc_name, service_name, _svc, proc in doc.all_core_services()
+        for cb_name, svc_name, _cb, svc in doc.all_core_services()
     )
 
     seen_engines: set[tuple[str, str]] = set()
@@ -1232,29 +1232,29 @@ def _validate_reserved_env_keys(
     from docex.cicl.categories import DOCTRINE_INJECTED_SECRETS
 
     issues: list[ValidationIssue] = []
-    for svc_name, svc in sorted(doc.codebases.items()):
-        # (source label, where suffix, key set). The service-level blocks are
+    for cb_name, cb in sorted(doc.codebases.items()):
+        # (source label, where suffix, key set). The codebase-level blocks are
         # reported once for the codebase; each core service's own `env:` is
         # reported against that core service. Deduped by construction: a
         # codebase-level key is never re-reported per core service.
         sources: list[tuple[str, str, set[str]]] = [
-            ("env", f"codebases.{svc_name}.env", set(svc.env or {})),
-            ("secrets", f"codebases.{svc_name}.secrets", set(svc.secrets or {})),
-            ("config", f"codebases.{svc_name}.config", set(svc.config or {})),
+            ("env", f"codebases.{cb_name}.env", set(cb.env or {})),
+            ("secrets", f"codebases.{cb_name}.secrets", set(cb.secrets or {})),
+            ("config", f"codebases.{cb_name}.config", set(cb.config or {})),
         ]
-        for service_name in sorted(svc.core_services):
-            proc = svc.core_services[service_name]
+        for svc_name in sorted(cb.core_services):
+            svc = cb.core_services[svc_name]
             sources.append((
                 "env",
-                f"{_service_where(svc_name, service_name)}.env",
-                set(proc.env or {}),
+                f"{_service_where(cb_name, svc_name)}.env",
+                set(svc.env or {}),
             ))
         for source, where, block_keys in sources:
             for key in sorted(block_keys & _RESERVED_CORE_ENV_KEYS):
                 issues.append(ValidationIssue(
                     rule="rule_reserved_env_key",
                     message=(
-                        f"codebase {svc_name!r} declares "
+                        f"codebase {cb_name!r} declares "
                         f"{key!r} under `{source}:`. This name is "
                         f"doctrine-reserved: docex auto-injects it "
                         f"on every core service. Remove the "
@@ -1271,7 +1271,7 @@ def _validate_reserved_env_keys(
                 issues.append(ValidationIssue(
                     rule="rule_doctrine_injected_key_reserved",
                     message=(
-                        f"core service {svc_name!r} declares {key!r} under "
+                        f"codebase {cb_name!r} declares {key!r} under "
                         f"`{source}:`. This is a doctrine-injected secret "
                         f"managed by docex — it is surfaced by `docex secrets "
                         f"scaffold`/`status` and "
@@ -1379,7 +1379,7 @@ def _validate_apex_domain_bare(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 def _validate_service_name_blacklist(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 14: service *and process* names cannot be ``dev``, ``test``,
+    """Rule 14: codebase *and core service* names cannot be ``dev``, ``test``,
     ``stage``, ``prod``, or ``www`` — they collide with the canonical domain
     anatomy."""
     issues: list[ValidationIssue] = []
@@ -1396,26 +1396,26 @@ def _validate_service_name_blacklist(doc: CICLDocument) -> list[ValidationIssue]
                 ),
                 where=name,
             ))
-    # A process name is the second segment of the emitted host label, so it
-    # is bound by the same blacklist: `api` + a process named `prod` renders
-    # `api-prod.dev.<project>.<apex>`, which reads as a production host
+    # A core service name is the second segment of the emitted host label, so
+    # it is bound by the same blacklist: `api` + a core service named `prod`
+    # renders `api-prod.dev.<project>.<apex>`, which reads as a production host
     # inside a dev environment.
-    for svc_name, service_name, _svc, _proc in doc.all_core_services():
-        if service_name in _RESERVED_SERVICE_NAMES:
+    for cb_name, svc_name, _cb, _svc in doc.all_core_services():
+        if svc_name in _RESERVED_SERVICE_NAMES:
             issues.append(ValidationIssue(
                 rule="rule_14_service_name_blacklist",
                 message=(
-                    f"process name {service_name!r} (on core service "
-                    f"{svc_name!r}) is reserved (one of "
+                    f"core service name {svc_name!r} (on codebase "
+                    f"{cb_name!r}) is reserved (one of "
                     f"{sorted(_RESERVED_SERVICE_NAMES)}). Per cicl.md § "
                     f"Validation Rules rule 14, these collide with the "
                     f"canonical domain anatomy "
-                    f"<service>-<process>.<env>.<project>.<apex_domain>: a "
-                    f"process named {service_name!r} renders "
-                    f"{svc_name}-{service_name}.dev.<project>.<apex_domain>, "
+                    f"<codebase>-<service>.<env>.<project>.<apex_domain>: a "
+                    f"core service named {svc_name!r} renders "
+                    f"{cb_name}-{svc_name}.dev.<project>.<apex_domain>, "
                     f"which reads as a production host in a dev environment."
                 ),
-                where=_service_where(svc_name, service_name),
+                where=_service_where(cb_name, svc_name),
             ))
     return issues
 
@@ -1461,17 +1461,17 @@ def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
     from docex.cicl.cron import cron_validation_issue
 
     issues: list[ValidationIssue] = []
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        if proc.role != "scheduler":
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        if svc.role != "scheduler":
             continue
-        where = f"{_service_where(svc_name, service_name)}.schedule"
-        schedule = (proc.model_extra or {}).get("schedule")
+        where = f"{_service_where(cb_name, svc_name)}.schedule"
+        schedule = (svc.model_extra or {}).get("schedule")
         if not isinstance(schedule, str) or not schedule.strip():
             issues.append(ValidationIssue(
                 rule="rule_scheduler_schedule_required",
                 message=(
                     f"scheduler core service "
-                    f"{ServiceRef(svc_name, service_name).dotted!r} must declare "
+                    f"{ServiceRef(cb_name, svc_name).dotted!r} must declare "
                     f"a non-empty `schedule` (a 5-field cron expression)"
                 ),
                 where=where,
@@ -1493,7 +1493,7 @@ def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
 _NON_WEB_ROLES = frozenset({"worker", "scheduler"})
 
 
-def _validate_process_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
+def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
     """Rules 26 + 27 — fields and networks that a role forbids.
 
     Rule 26: `replicas` on a scheduler is a compile error. Ofelia fires one
@@ -1507,28 +1507,28 @@ def _validate_process_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
     note this file carried for scheduler.
     """
     issues: list[ValidationIssue] = []
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        where = _service_where(svc_name, service_name)
-        label = ServiceRef(svc_name, service_name).dotted
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        where = _service_where(cb_name, svc_name)
+        label = ServiceRef(cb_name, svc_name).dotted
         # Rule 26. `replicas` defaults to 1, so "declared" is the only
         # meaningful test — model_fields_set distinguishes it from the default.
-        if proc.role == "scheduler" and "replicas" in proc.model_fields_set:
+        if svc.role == "scheduler" and "replicas" in svc.model_fields_set:
             issues.append(ValidationIssue(
                 rule="rule_26_replicas_on_scheduler",
                 message=(
                     f"scheduler core service {label!r} declares `replicas: "
-                    f"{proc.replicas}`. A scheduler fires one job per tick, so "
+                    f"{svc.replicas}`. A scheduler fires one job per tick, so "
                     f"a replica count is inert — remove it. See cicl.md § "
                     f"Validation Rules rule 26."
                 ),
                 where=f"{where}.replicas",
             ))
         # Rule 27.
-        if proc.role in _NON_WEB_ROLES and "web" in (proc.networks or []):
+        if svc.role in _NON_WEB_ROLES and "web" in (svc.networks or []):
             issues.append(ValidationIssue(
                 rule="rule_27_web_network_on_non_web_role",
                 message=(
-                    f"{proc.role} core service {label!r} declares 'web' in "
+                    f"{svc.role} core service {label!r} declares 'web' in "
                     f"`networks:`. The web network carries public ingress "
                     f"through the reverse proxy; a core service that wants it "
                     f"*is* a web core service and should declare `role: web`. "
@@ -1562,21 +1562,21 @@ def _validate_health_check_path_port(doc: CICLDocument) -> list[ValidationIssue]
     # Both the field and the port are service-scoped in CICL v2 — reading
     # them off the Codebase would see permanently empty extras and pass
     # while checking nothing.
-    for svc_name, service_name, _svc, proc in doc.all_core_services():
-        if (proc.model_extra or {}).get("health_check_path") is None:
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        if (svc.model_extra or {}).get("health_check_path") is None:
             continue
-        if proc.port is None:
+        if svc.port is None:
             issues.append(ValidationIssue(
                 rule="rule_28_health_check_path_needs_port",
                 message=(
                     f"core service "
-                    f"{ServiceRef(svc_name, service_name).dotted!r} declares "
+                    f"{ServiceRef(cb_name, svc_name).dotted!r} declares "
                     f"`health_check_path` but no `port`. The health probe is "
                     f"issued at http://localhost:<port><path>, so the path is "
                     f"meaningless without one, and no role supplies a default "
                     f"health port. See cicl.md § Validation Rules rule 28."
                 ),
-                where=f"{_service_where(svc_name, service_name)}.port",
+                where=f"{_service_where(cb_name, svc_name)}.port",
             ))
     return issues
 
@@ -1592,11 +1592,11 @@ def _validate_reverse_proxy_role_removed(
     targets: list[tuple[str, str, str, Any]] = [
         (
             "codebases",
-            ServiceRef(svc_name, service_name).dotted,
-            _service_where(svc_name, service_name),
-            proc,
+            ServiceRef(cb_name, svc_name).dotted,
+            _service_where(cb_name, svc_name),
+            svc,
         )
-        for svc_name, service_name, _svc, proc in doc.all_core_services()
+        for cb_name, svc_name, _cb, svc in doc.all_core_services()
     ]
     targets.extend(
         ("backing_services", name, f"backing_services.{name}", svc)

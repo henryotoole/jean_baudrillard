@@ -80,8 +80,8 @@ def _proc(
     return "\n".join(lines) + "\n"
 
 
-def _codebase(name: str, *procs: str) -> str:
-    return f"  {name}:\n    core_services:\n" + "".join(procs)
+def _codebase(name: str, *svcs: str) -> str:
+    return f"  {name}:\n    core_services:\n" + "".join(svcs)
 
 
 def _project(
@@ -202,7 +202,7 @@ def test_worker_provider_gets_asyncapi(tmp_path):
 
 
 def test_two_web_processes_each_get_a_contract(tmp_path):
-    """The contract path is process-keyed unconditionally: a public `web` and an
+    """The contract path is service-keyed unconditionally: a public `web` and an
     internal `admin` on one codebase are two genuine boundaries."""
     src = _codebase(
         "api",
@@ -420,7 +420,7 @@ def test_openapi_provider_requires_self_health(tmp_path):
 def test_internal_openapi_provider_requires_self_health(tmp_path):
     """Q5's widening: self-`/health` follows the OpenAPI contract, not `web`
     membership. § Self health has no web-network qualifier — an internal-only
-    `web`-role process reached via `consumes` is exactly what must be probeable
+    `web`-role core service reached via `consumes` is exactly what must be probeable
     one hop away."""
     src = _codebase(
         "api",

@@ -33,15 +33,15 @@ def emit_ansible(compiled: CompiledEnv, out_dir: Path) -> None:
     # WHY grouped by codebase rather than filtered by service: migration is
     # per codebase. `schema_owned_by_db` is now true of every core service of
     # a schema-owning codebase (the Mod 096 "carrier" is gone), so a filter
-    # over compiled services would emit one duplicate migrate task per process
-    # type. Grouping first makes "one per codebase" structural.
+    # over compiled services would emit one duplicate migrate task per core
+    # service. Grouping first makes "one per codebase" structural.
     migrations = [
         {
             "codebase": codebase,
-            "exec_service": f"{procs[0].codebase_global_name}-exec",
+            "exec_service": f"{svcs[0].codebase_global_name}-exec",
         }
-        for codebase, procs in group_by_codebase(compiled).items()
-        if any(p.schema_owned_by_db for p in procs)
+        for codebase, svcs in group_by_codebase(compiled).items()
+        if any(p.schema_owned_by_db for p in svcs)
     ]
 
     playbook_tpl = env.get_template("playbook.yml.j2")

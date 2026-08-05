@@ -414,7 +414,7 @@ def test_otel_resource_attributes_format():
 # ---------------------------------------------------------------------------
 
 
-_MULTI_PROCESS_FIXED = """
+_MULTI_SERVICE_FIXED = """
 cicl_version: "2"
 foundation: fixed
 apex_domain: example.com
@@ -451,7 +451,7 @@ def test_docex_attributes_decompose_the_fused_identity():
     needs a prefix/suffix match on the hyphenated `service.name`.
     """
     compiled = compile_env(
-        _doc(_MULTI_PROCESS_FIXED), _tables(),
+        _doc(_MULTI_SERVICE_FIXED), _tables(),
         env="dev",
         project_name="myproj",
         project_version="1.2.3",
@@ -465,7 +465,7 @@ def test_docex_attributes_decompose_the_fused_identity():
     # Same codebase axis...
     assert "docex.codebase=api" in web["OTEL_RESOURCE_ATTRIBUTES"]
     assert "docex.codebase=api" in worker["OTEL_RESOURCE_ATTRIBUTES"]
-    # ...different process axis.
+    # ...different service axis.
     assert "docex.service=web" in web["OTEL_RESOURCE_ATTRIBUTES"]
     assert "docex.service=worker" in worker["OTEL_RESOURCE_ATTRIBUTES"]
     assert "docex.service=worker" not in web["OTEL_RESOURCE_ATTRIBUTES"]
@@ -494,7 +494,7 @@ def test_service_instance_id_set_nowhere():
         )
         for name, svc in compiled.services.items():
             for surface, block in (
-                ("env", svc.env), ("service_env", svc.service_env),
+                ("env", svc.env), ("codebase_env", svc.codebase_env),
             ):
                 assert "service.instance.id" not in str(block), (
                     env, name, surface,

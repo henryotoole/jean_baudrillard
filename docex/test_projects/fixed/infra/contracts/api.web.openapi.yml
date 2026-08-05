@@ -1,6 +1,6 @@
 # OpenAPI contract for the `api.web` core service.
 #
-# The path is keyed on the core service — <svc>.<proc>.<format>.yml — not
+# The path is keyed on the core service — <codebase>.<service>.<format>.yml — not
 # on the codebase: one codebase may run two HTTP boundaries and both
 # deserve their own contract (contracts.md).
 #
@@ -9,7 +9,7 @@
 #
 # Health-endpoint rules (doctrine/infrastructure/contracts.md § Health Checks):
 #   - GET /health is mandatory for every long-running core service.
-#   - GET /health/<codebase>/<service> is mandatory on every `web`-network process
+#   - GET /health/<codebase>/<service> is mandatory on every `web`-network core service
 #     type, one per `consumes` target that is not itself on the `web`
 #     network. Sourced from `consumes`, never from `depends_on`.
 #

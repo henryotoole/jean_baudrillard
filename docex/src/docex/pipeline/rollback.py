@@ -7,7 +7,7 @@ The shape is:
 
   1. Aggressively check preconditions before touching any env state
      (branch + clean tree + tag existence + one-minor-back + the
-     target's CICL generation + every core service's image present in
+     target's CICL generation + every codebase's image present in
      the registry).
   2. Create an ephemeral worktree at ``v<target_version>``.
   3. Recompile the worktree's ``infra.yml`` with the *current* ``docex``
@@ -325,9 +325,9 @@ def _missing_images(
     aws: AWSClient,
     target_version: str,
 ) -> list[str]:
-    """Probe every core service's image at ``target_version``.
+    """Probe every codebase's image at ``target_version``.
 
-    Returns the list of missing ``<registry>/<project>/<svc>:<version>``
+    Returns the list of missing ``<registry>/<project>/<codebase>:<version>``
     refs, or an empty list if all are present. Foundation determines
     the probe mechanism: fixed → ``docker manifest inspect``; elastic →
     ECR ``describe_images``.
@@ -348,10 +348,10 @@ def _missing_images(
             return ["<no container_registry configured>"]
 
     missing: list[str] = []
-    for svc in codebases(ctx):
-        ref = f"{registry.rstrip('/')}/{project}/{svc}:{target_version}"
+    for cb in codebases(ctx):
+        ref = f"{registry.rstrip('/')}/{project}/{cb}:{target_version}"
         if infra.foundation == "elastic":
-            present = aws.ecr_image_exists(f"{project}/{svc}", target_version)
+            present = aws.ecr_image_exists(f"{project}/{cb}", target_version)
         else:
             present = docker.manifest_inspect(ref)
         if not present:

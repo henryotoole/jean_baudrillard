@@ -248,11 +248,19 @@ A green suite is necessary but not sufficient — the suite would stay green if 
 identifier and its every reader moved together but moved wrongly. Four checks:
 
 1. **Unit suite green.** The load-bearing gate for the identifier pass.
-2. **Compiled output byte-identical.** Compile both test projects before and
-   after; the only permitted difference anywhere is the `describe --format llm`
-   `core_service` → `codebase` key, which is not compiled output at all — so the
-   compile diff must be **empty**. Any change to a container name, tag value,
-   domain label, image ref, or contract path is a defect.
+2. **Compiled output changes only in emitted comment text.** Compile both test
+   projects before and after. Exactly **one** line may differ — the
+   `# ECR repositories — one per core service.` header in
+   `emit/templates/project.tf.j2`, which renders verbatim into project-tier
+   HCL and is therefore wrong in the *artifact* as well as in the source.
+   An HCL comment is inert to OpenTofu: `tofu plan` is unchanged and no
+   resource is touched, so fixing it costs nothing and leaving it would
+   preserve the defect in the one place an operator actually reads the output.
+   Any change to a container name, tag key **or value**, domain label, image
+   ref, ECR repo name, or contract path is a defect.
+
+   The `describe --format llm` key change (Step 4) is not compiled output, so
+   it does not appear in this diff at all.
 3. **Protected-token counts unchanged** against `git stash`/`HEAD`:
    `subprocess*`, `processor*`, `processed`/`processing`, `docex_process`, and
    the `"process exit code"` docstrings.

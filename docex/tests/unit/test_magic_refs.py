@@ -403,7 +403,7 @@ def test_cycle_through_two_processes_of_one_codebase():
     assert "cyclic magic-ref chain" in str(exc.value)
 
 
-def test_scheduler_process_ref_rejected():
+def test_scheduler_service_ref_rejected():
     """Free behavior, pinned deliberately: `scheduler` engines declare
     `provides: {}`, so a scheduler core service publishes no discovery
     surface and cannot be a magic-ref target. This test exists so that a

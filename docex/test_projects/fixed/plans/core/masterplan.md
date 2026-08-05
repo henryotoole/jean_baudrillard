@@ -18,7 +18,7 @@ The companion project at `docex/test_projects/elastic/` exercises the `elastic`-
 | ---- | ------- |
 | Ping | A small unit of work created by the `api.web` core service and consumed (processed) by the `api.worker` core service. Postgres-mediated; no real queue. |
 | Codebase | A core service: one source tree, one build artifact, one image. `api` and `reaper` are the two codebases here. |
-| Core service | One named way of invoking a codebase's artifact — its own role, command, port, networks, and resources. Emitted as `<codebase>-<process>`. |
+| Core service | One named way of invoking a codebase's artifact — its own role, command, port, networks, and resources. Emitted as `<codebase>-<service>`. |
 | Smoke test | The operator-driven manual walk through `PRE_CUT_CHECKLIST.md` against this project before a `docex` cut. |
 
 ## Architecture
@@ -29,7 +29,7 @@ The companion project at `docex/test_projects/elastic/` exercises the `elastic`-
 
 ### Domain
 
-`apex_domain: luxrnd.tech` — the bare apex domain (`infra.yml` rule 13). The project segment is derived from `project.yml`'s `name` field DNS-labeled, yielding `docex-smoke-fixed.luxrnd.tech` as the project subdomain. Per-env hosts compile to the doctrine's canonical form `<service>-<process>.<env>.docex-smoke-fixed.luxrnd.tech` — two segments in one DNS label, hyphen-joined, e.g. `api-web.prod.docex-smoke-fixed.luxrnd.tech` — plus the bare-env (`<env>.docex-smoke-fixed.luxrnd.tech`) and bare-project (`docex-smoke-fixed.luxrnd.tech`) forms, both of which route to `domain_default_service: api.web`.
+`apex_domain: luxrnd.tech` — the bare apex domain (`infra.yml` rule 13). The project segment is derived from `project.yml`'s `name` field DNS-labeled, yielding `docex-smoke-fixed.luxrnd.tech` as the project subdomain. Per-env hosts compile to the doctrine's canonical form `<codebase>-<service>.<env>.docex-smoke-fixed.luxrnd.tech` — two segments in one DNS label, hyphen-joined, e.g. `api-web.prod.docex-smoke-fixed.luxrnd.tech` — plus the bare-env (`<env>.docex-smoke-fixed.luxrnd.tech`) and bare-project (`docex-smoke-fixed.luxrnd.tech`) forms, both of which route to `domain_default_service: api.web`.
 
 TLS certs are issued by the per-project Traefik via Let's Encrypt's DNS-01 challenge against the parent `luxrnd.tech` zone in Route53 (HTTP-01 won't work for wildcards). Traefik's Route53 credentials and ACME email are supplied at runtime as `TRAEFIK_DNS_PROVIDER`/`TRAEFIK_ACME_EMAIL` env vars on the project Traefik container (operator-side setup).
 

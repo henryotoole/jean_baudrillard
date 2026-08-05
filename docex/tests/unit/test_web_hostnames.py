@@ -24,7 +24,7 @@ def _policies():
 
 # Two web core service (`api.web` is the domain_default_service,
 # `admin.web` is not) plus a purely-internal backing service that must never
-# be routed. Mod 096: `api` also carries a non-web `worker` process, which
+# be routed. Mod 096: `api` also carries a non-web `worker` core service, which
 # must get no host at all.
 _DOC = _doc("""
 cicl_version: "2"
@@ -81,7 +81,7 @@ def test_dev_default_service_gets_per_service_and_bare_env():
     assert "admin-web.dev.sample.example.com" in hosts
 
 
-def test_non_web_process_gets_no_host():
+def test_non_web_service_gets_no_host():
     """Mod 096: hosts are per CORE SERVICE, and a non-web one gets none —
     even though its codebase has a web sibling."""
     hosts = web_hostnames_for_env(_DOC, "sample", "dev", _policies())

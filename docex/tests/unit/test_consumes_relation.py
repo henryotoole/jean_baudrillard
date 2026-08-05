@@ -88,12 +88,12 @@ def _proc(
     return "\n".join(lines) + "\n"
 
 
-def _codebase(name: str, *procs: str, env: dict[str, str] | None = None) -> str:
+def _codebase(name: str, *svcs: str, env: dict[str, str] | None = None) -> str:
     out = f"  {name}:\n"
     if env:
         out += "    env:\n"
         out += "".join(f"      {k}: {json.dumps(v)}\n" for k, v in env.items())
-    return out + "    core_services:\n" + "".join(procs)
+    return out + "    core_services:\n" + "".join(svcs)
 
 
 def _src(*codebases: str, backing: str = "") -> str:
@@ -113,7 +113,7 @@ backing_services:
 
 
 def _api(web: str = "", worker: str = "", **kw) -> str:
-    """The two-process base codebase: `api.web` + `api.worker`."""
+    """The two-core-service base codebase: `api.web` + `api.worker`."""
     return _codebase(
         "api",
         web or _proc("web", "web"),
@@ -180,7 +180,7 @@ def test_4_unknown_codebase_rejected():
     assert "'ghost'" in hits[0].message
 
 
-def test_4_unknown_process_of_known_codebase_lists_the_known_ones():
+def test_4_unknown_service_of_known_codebase_lists_the_known_ones():
     src = _src(_api(web=_proc("web", "web", consumes=["api.ghost"])))
     hits = _hits(src, "rule_25_")
     assert [i.rule for i in hits] == ["rule_25_unresolved_consumes"]
@@ -236,7 +236,7 @@ def test_legal_consumes_entry_is_clean():
 
 
 # ---------------------------------------------------------------------------
-# Rule 7 — kind-aware. A backing target wants `depends_on`, a core process
+# Rule 7 — kind-aware. A backing target wants `depends_on`, a core service
 # type wants `consumes`, and neither branch can reach the other's field.
 # ---------------------------------------------------------------------------
 
@@ -387,7 +387,7 @@ def test_11_service_level_env_ref_obliges_every_core_service():
     assert hits[0].where == "codebases.api.core_services.worker"
 
 
-def test_11_service_level_env_ref_clean_when_every_process_declares_it():
+def test_11_codebase_level_env_ref_clean_when_every_service_declares_it():
     src = _src(
         _api(
             web=_proc("web", "web", consumes=["other.web"]),
@@ -399,9 +399,9 @@ def test_11_service_level_env_ref_clean_when_every_process_declares_it():
     assert _issues(src) == []
 
 
-def test_11_service_level_ref_to_own_process_reports_as_self_reference():
+def test_11_codebase_level_ref_to_own_service_reports_as_self_reference():
     """No code makes this happen and none should: rule 3's self-ref check
-    fires on that process's own pass and `continue`s before rule 7 is
+    fires on that core service's own pass and `continue`s before rule 7 is
     reached. That is the better message for it."""
     src = _src(
         _api(

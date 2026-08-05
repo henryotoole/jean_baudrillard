@@ -147,7 +147,7 @@ def test_migration_taskdef_is_a_separate_per_codebase_pass():
     """Mod 099: ``render_task_definition`` renders exactly one task
     definition. The ``_migrate`` variant moved to
     ``render_migration_task_definitions``, a per-codebase pass — migration is
-    a per-codebase operation, so a per-process renderer is the wrong place
+    a per-codebase operation, so a per-core-service renderer is the wrong place
     for it."""
     svc = _svc(
         name="web-app",

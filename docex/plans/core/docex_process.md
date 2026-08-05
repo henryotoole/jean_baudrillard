@@ -36,7 +36,7 @@ The interiors of `modifications` and `references` are also the same. `core`, how
 
 ### Additional Artifacts
 
-Unfortunately, the unique nature of `docex` means that it has five successive layers of artifacts which **must** be kept aligned across updates. Drift between them is an extreme hazard.
+Unfortunately, the unique nature of `docex` means that it has six successive layers of artifacts which **must** be kept aligned across updates. Drift between them is an extreme hazard.
 
 | Artifact | Role |
 | -------- | ---- |
@@ -45,6 +45,9 @@ Unfortunately, the unique nature of `docex` means that it has five successive la
 | `tables/roles/*.yml` | Transfer tables — how a role/engine compiles per foundation. |
 | `src/docex/**` | Compiler / orchestration code that executes the rule. |
 | `tests/**` | Proof the executor matches the rule. |
+| `doctrine_excerpts/*.md` + `index.yml` | The prose `docex why <resource>` serves. A *restatement* of the doctrine, so it drifts silently — nothing compiles or tests it. |
+
+The sixth is the one most easily forgotten, precisely because nothing fails when it goes stale: it is the only artifact in the list with no automated consumer. When a doctrine change introduces, retires, or renames a **resource**, `index.yml` needs the corresponding entry added, removed, or moved in the same mod. Mod 110 drifted here; mod 111 added the missing `codebase` entry and wrote this row.
 
 Keep them aligned. Fixing the code while leaving the rule stale (or vice versa) is the failure mode this process guards against.
 

@@ -44,7 +44,7 @@ observability_backend_url: "https://obs.example.com"
 container_registry: registry.example.com
 """
 
-_WEB_PROCESS = """\
+_WEB_SERVICE = """\
       web:
         role: web
         command: ["python", "/service/dist/root.py"]
@@ -55,7 +55,7 @@ _WEB_PROCESS = """\
           memory: 2GB
 """
 
-_BASE = _HEAD + "codebases:\n  api:\n    core_services:\n" + _WEB_PROCESS
+_BASE = _HEAD + "codebases:\n  api:\n    core_services:\n" + _WEB_SERVICE
 
 
 def test_base_document_is_clean():
@@ -64,11 +64,12 @@ def test_base_document_is_clean():
 
 
 # ---------------------------------------------------------------------------
-# 1-4, 22 — rule 22: the service level is `{processes, secrets, config, env}`.
+# 1-4, 22 — rule 22: the codebase level is `{core_services, secrets, config,
+# env}`.
 # ---------------------------------------------------------------------------
 
 
-def test_1_processes_absent_rejected():
+def test_1_core_services_absent_rejected():
     src = _HEAD + """
 codebases:
   api:
@@ -80,15 +81,15 @@ codebases:
     assert "core_services" in str(exc.value)
 
 
-def test_2_processes_empty_rejected():
+def test_2_core_services_empty_rejected():
     src = _HEAD + "codebases:\n  api:\n    core_services: {}\n"
     with pytest.raises(PydanticValidationError) as exc:
         _doc(src)
     assert "core_services" in str(exc.value)
 
 
-def test_3_service_level_resources_names_processes_block():
-    """A stray service-level `resources:` gets the targeted migration
+def test_3_codebase_level_resources_names_core_services_block():
+    """A stray codebase-level `resources:` gets the targeted migration
     message, not bare pydantic 'Extra inputs are not permitted'."""
     src = _BASE + "    resources:\n      cpu: 1.0\n      memory: 2GB\n"
     with pytest.raises(PydanticValidationError) as exc:
@@ -107,7 +108,7 @@ def test_3_service_level_resources_names_processes_block():
         ('    command: ["python", "-m", "x"]\n', "command"),
     ],
 )
-def test_4_service_level_role_or_command_names_processes_block(block, field):
+def test_4_codebase_level_role_or_command_names_core_services_block(block, field):
     with pytest.raises(PydanticValidationError) as exc:
         _doc(_BASE + block)
     msg = str(exc.value)
@@ -120,7 +121,7 @@ def test_4_service_level_role_or_command_names_processes_block(block, field):
 # ---------------------------------------------------------------------------
 
 
-def test_5_process_without_command_rejected():
+def test_5_service_without_command_rejected():
     src = _BASE.replace('        command: ["python", "/service/dist/root.py"]\n', "")
     with pytest.raises(PydanticValidationError) as exc:
         _doc(src)
@@ -168,7 +169,7 @@ def test_8b_real_v1_document_surfaces_the_version_message_not_field_errors():
     swapped, which nested validation accepts, so they would still pass with the
     gate in a ``mode="after"`` validator. This one would not: an ``after``
     validator never runs, because ``Codebase`` fails first and the operator
-    gets a wall of per-service field-scoping errors plus ``extra_forbidden`` on
+    gets a wall of per-codebase field-scoping errors plus ``extra_forbidden`` on
     ``domain_default_service`` instead. That is the single most-read error the
     1.6.0 release produces — every downstream project hits it exactly once,
     while upgrading — so the gate must fire ``mode="before"``, on the raw
@@ -198,7 +199,7 @@ codebases:
     assert "upgrade_1.6.0.md" in msg
     # Exactly one error, and none of the noise the `after` placement produced.
     assert "1 validation error" in msg
-    assert "moved from the core service to the core service" not in msg
+    assert "moved from the codebase to the core service" not in msg
     assert "domain_default_service" not in msg
 
 
@@ -207,21 +208,21 @@ codebases:
 # ---------------------------------------------------------------------------
 
 
-def _two_process_doc(svc_a, proc_a, svc_b, proc_b) -> str:
-    def blk(svc, proc):
+def _two_service_doc(cb_a, svc_a, cb_b, svc_b) -> str:
+    def blk(cb, svc):
         return (
-            f"  {svc}:\n    core_services:\n      {proc}:\n"
+            f"  {cb}:\n    core_services:\n      {svc}:\n"
             f"        role: worker\n"
             f'        command: ["python", "-m", "x"]\n'
             f"        networks: [internal]\n"
             f"        resources:\n          cpu: 0.5\n          memory: 512MB\n"
         )
-    return _HEAD + "codebases:\n" + blk(svc_a, proc_a) + blk(svc_b, proc_b)
+    return _HEAD + "codebases:\n" + blk(cb_a, svc_a) + blk(cb_b, svc_b)
 
 
-def test_9_rule_5_collision_form_a_two_process_pairs():
+def test_9_rule_5_collision_form_a_two_service_pairs():
     """`api` + `web-v2` renders the same as `api-web` + `v2`."""
-    src = _two_process_doc("api", "web-v2", "api-web", "v2")
+    src = _two_service_doc("api", "web-v2", "api-web", "v2")
     assert "rule_5_rendered_identity_collision" in _issues(src)
 
 
@@ -250,15 +251,15 @@ backing_services:
 
 def test_11_rule_5_collision_form_c_underscore_normalization():
     """`my_api`+`web` and `my`+`api_web` both render `my-api-web`."""
-    src = _two_process_doc("my_api", "web", "my", "api_web")
+    src = _two_service_doc("my_api", "web", "my", "api_web")
     assert "rule_5_rendered_identity_collision" in _issues(src)
 
 
 def test_rule_5_distinct_identities_clean():
-    src = _two_process_doc("api", "web", "api", "worker")
+    src = _two_service_doc("api", "web", "api", "worker")
     # Two entries for the same service key collapse in YAML, so build the
     # non-colliding case explicitly instead.
-    src = _two_process_doc("api", "web", "billing", "worker")
+    src = _two_service_doc("api", "web", "billing", "worker")
     assert "rule_5_rendered_identity_collision" not in _issues(src)
 
 
@@ -279,11 +280,11 @@ def test_rule_5_distinct_identities_clean():
         ("migrate", "the migration task definition"),
     ],
 )
-def test_rule_5_rejects_process_colliding_with_own_codebase_derivative(
+def test_rule_5_rejects_service_colliding_with_own_codebase_derivative(
     service: str, derivative: str
 ):
     """A core service whose compiled identity is byte-identical to one of the
-    compiler's *codebase*-keyed derivatives. `api` + process `exec` renders
+    compiler's *codebase*-keyed derivatives. `api` + core service `exec` renders
     `api-exec`, the same compose key as `api`'s exec container: one would
     silently clobber the other."""
     src = _HEAD + f"""
@@ -315,12 +316,12 @@ codebases:
 
 
 def test_rule_5_rejects_collision_with_a_siblings_collector_sidecar():
-    """`-otelcol` is a *per-process* derivative, so its collision form is
-    cross-codebase: codebase `api` process `web` gets the sidecar
-    `api-web-otelcol`, and a sibling codebase `api-web` with a process named
+    """`-otelcol` is a *per-core-service* derivative, so its collision form is
+    cross-codebase: codebase `api` core service `web` gets the sidecar
+    `api-web-otelcol`, and a sibling codebase `api-web` with a core service named
     `otelcol` renders exactly that. A pre-existing, unguarded hole on both
     foundations — Mod 099 is the occasion, not the cause."""
-    src = _two_process_doc("api", "web", "api-web", "otelcol")
+    src = _two_service_doc("api", "web", "api-web", "otelcol")
     issues = validate_document(_doc(src), _tables())
     rule5 = [i for i in issues if i.rule == "rule_5_rendered_identity_collision"]
     assert rule5, [i.rule for i in issues]
@@ -330,8 +331,8 @@ def test_rule_5_rejects_collision_with_a_siblings_collector_sidecar():
 def test_rule_5_rejects_collision_with_a_siblings_scheduler_trigger():
     """The same shape for the Ofelia trigger: a `scheduler`-role core service
     gets `-scheduler` instead of `-otelcol` (it has no long-running container
-    to pair a collector with), so codebase `api` process `job` yields
-    `api-job-scheduler` and a sibling codebase `api-job` with a process named
+    to pair a collector with), so codebase `api` core service `job` yields
+    `api-job-scheduler` and a sibling codebase `api-job` with a core service named
     `scheduler` collides with it."""
     src = _HEAD + """
 codebases:
@@ -362,11 +363,11 @@ codebases:
 
 
 def test_rule_5_derivatives_do_not_over_reject():
-    """Not over-eager: codebase `api-exec` with a process `x` renders
+    """Not over-eager: codebase `api-exec` with a core service `x` renders
     `api-exec-x`, which does not collide with codebase `api`'s `api-exec`.
     Rule 5 is keyed on collision, not on a reserved-name list — a name that
     collides with nothing stays legal."""
-    src = _two_process_doc("api", "web", "api-exec", "x")
+    src = _two_service_doc("api", "web", "api-exec", "x")
     assert "rule_5_rendered_identity_collision" not in _issues(src)
 
 
@@ -506,7 +507,7 @@ def test_16_web_network_on_web_role_clean():
 # ---------------------------------------------------------------------------
 
 
-def test_17_health_check_path_without_port_on_process_rejected():
+def test_17_health_check_path_without_port_on_service_rejected():
     """Regression for the silent pass Mod 095's corporal flagged: reading
     `health_check_path` off the Codebase sees permanently empty extras
     once the field is service-scoped."""
@@ -527,12 +528,12 @@ codebases:
 
 
 # ---------------------------------------------------------------------------
-# 18 — rule 14 covers process names too.
+# 18 — rule 14 covers core service names too.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("reserved", ["dev", "test", "stage", "prod", "www"])
-def test_18_reserved_process_name_rejected(reserved):
+def test_18_reserved_service_name_rejected(reserved):
     src = _BASE.replace("      web:\n", f"      {reserved}:\n")
     issues = validate_document(_doc(src), _tables())
     hits = [i for i in issues if i.rule == "rule_14_service_name_blacklist"]
@@ -541,7 +542,7 @@ def test_18_reserved_process_name_rejected(reserved):
 
 
 # ---------------------------------------------------------------------------
-# 19 — rule 12: domain_default_service is a dotted, web-network process.
+# 19 — rule 12: domain_default_service is a dotted, web-network core service.
 # ---------------------------------------------------------------------------
 
 
@@ -567,17 +568,17 @@ def test_19_bare_service_name_rejected():
     assert "rule_domain_default_malformed" in _issues(_with_default(_BASE, "api"))
 
 
-def test_19_unknown_process_rejected():
+def test_19_unknown_service_rejected():
     assert "rule_domain_default_unknown" in _issues(_with_default(_BASE, "api.nope"))
 
 
-def test_19_non_web_process_rejected():
+def test_19_non_web_service_rejected():
     assert "rule_domain_default_not_web" in _issues(
         _with_default(_WITH_WORKER, "api.worker")
     )
 
 
-def test_19_web_process_clean():
+def test_19_web_service_clean():
     assert _issues(_with_default(_BASE, "api.web")) == []
 
 
@@ -586,29 +587,29 @@ def test_19_web_process_clean():
 # ---------------------------------------------------------------------------
 
 
-def _with_process_env(src: str, body: str) -> str:
+def _with_service_env(src: str, body: str) -> str:
     return src.replace(
         "        port: 8080\n", f"        port: 8080\n        env:\n{body}"
     )
 
 
-def test_20_process_env_key_colliding_with_service_secrets_rejected():
-    src = _with_process_env(_BASE, "          SHARED: literal\n").replace(
+def test_20_service_env_key_colliding_with_codebase_secrets_rejected():
+    src = _with_service_env(_BASE, "          SHARED: literal\n").replace(
         "    core_services:\n", '    secrets:\n      SHARED: "desc"\n    core_services:\n'
     )
     assert "rule_env_secrets_config_overlap" in _issues(src)
 
 
 @pytest.mark.parametrize("reserved_key", sorted(_RESERVED_CORE_ENV_KEYS))
-def test_21_process_env_cannot_shadow_a_reserved_key(reserved_key: str):
+def test_21_service_env_cannot_shadow_a_reserved_key(reserved_key: str):
     """Every doctrine-reserved key, not just `OTEL_SERVICE_NAME`. Parametrized
     off the validator's own frozenset so a key added there without service-level
     coverage fails here rather than passing silently."""
-    src = _with_process_env(_BASE, f'          {reserved_key}: "mine"\n')
+    src = _with_service_env(_BASE, f'          {reserved_key}: "mine"\n')
     issues = validate_document(_doc(src), _tables())
     hits = [i for i in issues if i.rule == "rule_reserved_env_key"]
     assert hits, reserved_key
-    # The diagnostic points at the process, not the codebase.
+    # The diagnostic points at the core service, not the codebase.
     assert "core_services.web.env" in hits[0].where
 
 
@@ -634,7 +635,7 @@ def test_21_service_level_reserved_key_reported_once_not_per_process():
 
 
 def test_22_bare_core_magic_ref_rejected_with_arity_message():
-    src = _with_process_env(
+    src = _with_service_env(
         _BASE, "          UPSTREAM: ${codebases.api.host}\n"
     )
     issues = validate_document(_doc(src), _tables())
@@ -648,7 +649,7 @@ def test_22_bare_core_magic_ref_rejected_with_arity_message():
 # ---------------------------------------------------------------------------
 
 
-def test_23_process_ref_round_trips():
+def test_23_service_ref_round_trips():
     ref = ServiceRef.parse("api.web")
     assert (ref.codebase, ref.service) == ("api", "web")
     assert ref.dotted == "api.web"

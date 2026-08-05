@@ -42,9 +42,9 @@ Before the foundation branch, `run_release` calls `_require_secrets_present(ctx,
 docex release stage     (fixed)
 └─ ansible-playbook infra/output/stage/playbook.yml -i infra/output/stage/inventory.yml
    └─ SSH to host as `deploy` user using infra/deploy_creds/stage
-       ├─ docker pull <registry>/<project>/<svc>:<version>           (per core service)
+       ├─ docker pull <registry>/<project>/<cb>:<version>            (per codebase)
        ├─ render compose.yml + .env into /opt/<project>/<env>/
-       ├─ docker compose run --rm <svc>_migrate /service/migrate.sh  (per schema owner)
+       ├─ docker compose run --rm <cb>-exec /service/migrate.sh      (per schema owner)
        └─ docker compose -f /opt/<project>/<env>/docker-compose.yml up -d
 ```
 
@@ -52,7 +52,7 @@ There is no first-release vs steady-state distinction on fixed. The playbook's t
 
 Before the playbook runs, docex builds the aggregate (mod 081). `ensure_tte_fixed` SSH-reads the host-authoritative `/opt/<project>/<env>/tte.env` (`SSHClient.capture`), mints any absent minted keys, and stages the resulting superset; `aggregate_fixed_prod` merges secrets + config + TTE and writes `.docex/agg/<env>.env`. The playbook then renders both `tte.env` (the store) and `.env` (the aggregate) onto the host via `--extra-vars`. Note: `docex migrate stage/prod` reads the host `.env` a prior release already rendered — the untagged copy tasks are skipped under `--tags migrate`.
 
-Adapter: `src/docex/ansible/subprocess_runner.py` shells out to `ansible-playbook` from inside the docex container. The playbook template lives at `src/docex/emit/templates/playbook.yml.j2`; the per-service migrate task is gated by an `ansible-playbook --tags migrate` invocation when `docex migrate <env>` is called standalone (the per-task `tags:` declaration enables that).
+Adapter: `src/docex/ansible/subprocess_runner.py` shells out to `ansible-playbook` from inside the docex container. The playbook template lives at `src/docex/emit/templates/playbook.yml.j2`; the per-codebase migrate task is gated by an `ansible-playbook --tags migrate` invocation when `docex migrate <env>` is called standalone (the per-task `tags:` declaration enables that).
 
 ## Elastic-foundation flow
 
@@ -69,7 +69,7 @@ Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/a
 |  | Fixed (steady-state or first) | Elastic — first release | Elastic — steady state |
 | --- | ----- | ----------------------- | ---------------------- |
 | 1 | ansible-playbook (everything below happens inside it) | SSM push | SSM push |
-| 2 | docker pull (per core service) | tofu apply (full) | tofu apply (targeted: migration task-defs only) |
+| 2 | docker pull (per codebase) | tofu apply (full) | tofu apply (targeted: migration task-defs only) |
 | 3 | render compose.yml + .env | run_migrate (`RunTask` per schema owner) | run_migrate (`RunTask` per schema owner) |
 | 4 | docker compose run migrate (per schema owner) | — | tofu apply (full) |
 | 5 | docker compose up -d | — | — |
@@ -83,10 +83,10 @@ Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/a
 
 `src/docex/orchestrate/migrate.py:run_migrate` is the entry point. `dev` / `test` envs run migrations inline against the local stack; `stage` / `prod` dispatch by foundation:
 
-- **Fixed** (`stage` / `prod`): re-runs the emitted ansible playbook with `--tags migrate`. The playbook's per-service migrate task does `docker compose run --rm <svc>_migrate /service/migrate.sh` against the deployed stack on the target host. Container reuses the live env vars from the rendered `.env`.
-- **Elastic** (`stage` / `prod`): `_migrate_elastic` calls `aws.ecs_run_task` against the per-service migration task-def family — `apply_policy(f"{project}_{env}_{svc}_migrate", ecs)`. The task definition is doctrine-emitted alongside the main task def — same image, different command (`/service/migrate.sh` instead of the app entrypoint). After RunTask, poll `describe_tasks` until `lastStatus == STOPPED`, then read `containers[0].exitCode`. Non-zero exit aborts the release.
+- **Fixed** (`stage` / `prod`): re-runs the emitted ansible playbook with `--tags migrate`. The playbook's per-codebase migrate task does `docker compose run --rm <cb>-exec /service/migrate.sh` against the deployed stack on the target host. Container reuses the live env vars from the rendered `.env`.
+- **Elastic** (`stage` / `prod`): `_migrate_elastic` calls `aws.ecs_run_task` against the per-codebase migration task-def family — `apply_policy(f"{project}_{env}_{cb}_migrate", ecs)`. The task definition is doctrine-emitted alongside the main task def — same image, different command (`/service/migrate.sh` instead of the app entrypoint). After RunTask, poll `describe_tasks` until `lastStatus == STOPPED`, then read `containers[0].exitCode`. Non-zero exit aborts the release.
 
-`services_with_schema(ctx)` in `src/docex/orchestrate/_common.py` returns the list of core services that own a database schema, derived from each backing service's `schema_owned_by` field. The doctrine forbids two services owning the same schema (a compile-time check), so this list is a clean set.
+`codebases_with_schema(ctx)` in `src/docex/orchestrate/_common.py` returns the list of codebases that own a database schema, derived from each backing service's `schema_owned_by` field. The doctrine forbids two codebases owning the same schema (a compile-time check), so this list is a clean set.
 
 `migrate.sh` itself is **project code**, not docex code. The doctrine only mandates the exit-code contract (0 success, non-zero abort) and that the env vars match what the service uses at runtime (per the [parts-only model](../../../doctrine/infrastructure/cicl.md#provided-fields)). The project picks its tool — dbmate in the smoke projects.
 
@@ -134,7 +134,7 @@ For ECS-container-level diagnostics: every container in a task definition emits 
 | A single SSM parameter read | `src/docex/aws/boto3_client.py:ssm_get_parameter` |
 | The fixed aggregate/store render onto the host | the playbook `agg_env_file` / `tte_store_file` `--extra-vars` (`templates/playbook.yml.j2`) |
 | First-release vs steady-state detection | `src/docex/pipeline/release.py:_release_elastic` (`ecs_cluster_has_services` probe — mod 071; the project-tier cluster always exists, so an empty cluster signals first release) |
-| Schema-owner discovery | `src/docex/orchestrate/_common.py:services_with_schema` |
+| Schema-owner discovery | `src/docex/orchestrate/_common.py:codebases_with_schema` |
 | Migration task-def family name | `src/docex/orchestrate/migrate.py:_migration_task_family` |
 
 For a new doctrine-prescribed step in the release flow (e.g. a pre-migrate validation, a post-migrate verification), the entry point is `_release_elastic` or `_release_fixed`. Mirror the existing helper pattern (`_do_apply`, `_do_migrate`, and the aggregation call into `orchestrate/aggregate.py:aggregate_elastic`) — small, single-responsibility functions that the foundation branch composes.
@@ -153,7 +153,7 @@ Rollback is intentionally a thin shell on top of release machinery rather than a
 
 - The current `ProjectContext` (on `main`, clean tree).
 - `env` — `stage` or `prod`; other values raise `EnvNotSupported`.
-- `target_version` — a SemVer string. Must resolve to a `v<target_version>` git tag, declare a `cicl_version` the current compiler accepts, and have core-service images present in the registry. Validated by preconditions before any state is touched.
+- `target_version` — a SemVer string. Must resolve to a `v<target_version>` git tag, declare a `cicl_version` the current compiler accepts, and have per-codebase images present in the registry. Validated by preconditions before any state is touched.
 - The same injected runners as `release` (ansible, tofu_init, tofu_apply), plus a `tofu_plan` runner for dry-run, plus `DockerClient` / `GitClient` / `AWSClient`.
 - `dry_run: bool` — the only flag on the CLI surface.
 
@@ -177,7 +177,7 @@ docex rollback <env> <target_version>
     6. cleanup_worktree(...) in a finally block
 ```
 
-The mirror step (4) exists because the release functions read those paths via `worktree_ctx.project_root`, but `git worktree add` does not carry gitignored files. All three are gitignored by doctrine bootstrap defaults. The mirror step is the complete fix; all other release inputs (compiled output, contracts, transfer tables, core service files) are tracked and follow the worktree normally.
+The mirror step (4) exists because the release functions read those paths via `worktree_ctx.project_root`, but `git worktree add` does not carry gitignored files. All three are gitignored by doctrine bootstrap defaults. The mirror step is the complete fix; all other release inputs (compiled output, contracts, transfer tables, codebase files) are tracked and follow the worktree normally.
 
 `_release_fixed` and `_release_elastic` were extended (mod 029) with `skip_migrations` and `dry_run` kwargs — defaults `False`, so `release`'s call sites are unchanged.
 
@@ -194,15 +194,15 @@ Order matters: cheap fail-fast first, fail-aggregated registry probe last.
 | 5 | `v<target_version>` tag exists locally | `RollbackPreconditionFailed` |
 | 6 | `validate_one_minor_back(current, target)` passes | `RollbackPreconditionFailed` |
 | 7 | Target tag's `infra.yml` declares a compilable `cicl_version` | `RollbackPreconditionFailed` |
-| 8 | All core-service images at `<target_version>` present in registry | `RollbackPreconditionFailed` (full list) |
+| 8 | All per-codebase images at `<target_version>` present in registry | `RollbackPreconditionFailed` (full list) |
 
-Step 8 is the only fail-aggregated check. `_missing_images` probes every core service, accumulates misses, and the caller raises with the complete list — under emergency pressure the operator benefits from one diagnostic showing the full gap, not a fail-fast first-match.
+Step 8 is the only fail-aggregated check. `_missing_images` probes every codebase, accumulates misses, and the caller raises with the complete list — under emergency pressure the operator benefits from one diagnostic showing the full gap, not a fail-fast first-match.
 
 ### The CICL-generation precondition (step 7)
 
 Step 3 of the process recompiles the target's `infra.yml` with the **current** `docex`. So a target written in a CICL generation the current compiler rejects cannot be rolled back to at all — the recompile inside the worktree would fail. `cicl.md § CICL Version` states the consequence: rollback across the v1 → v2 boundary aborts at pre-flight, before anything is applied, with a fix-forward message.
 
-`_target_cicl_version` reads `infra/infra.yml` out of the target tag via `GitClient.show` (no worktree, no checkout), `yaml.safe_load`s it, and returns the one top-level `cicl_version` key. Deliberately **not** a `CICLDocument` validation: a pre-v2 `infra.yml` fails full validation for several unrelated reasons at once (no `core_services:`, a bare rather than dotted `domain_default_service`, service-level `resources:` under `extra="forbid"`), and which one pydantic reports first would decide what the operator sees. "You are across the v1 boundary" is the only fact that matters, and it is the one a single-key read cannot get wrong — it also has to work on a file that is not a valid CICL document at all.
+`_target_cicl_version` reads `infra/infra.yml` out of the target tag via `GitClient.show` (no worktree, no checkout), `yaml.safe_load`s it, and returns the one top-level `cicl_version` key. Deliberately **not** a `CICLDocument` validation: a pre-v2 `infra.yml` fails full validation for several unrelated reasons at once (no `core_services:`, a bare rather than dotted `domain_default_service`, codebase-level `resources:` under `extra="forbid"`), and which one pydantic reports first would decide what the operator sees. "You are across the v1 boundary" is the only fact that matters, and it is the one a single-key read cannot get wrong — it also has to work on a file that is not a valid CICL document at all.
 
 Five outcomes, all raising `RollbackPreconditionFailed` so no branch can surface as a traceback: `"2"` proceeds; `"1"` and *absent* both get the v1 → v2 boundary message (a document predating the field is by definition pre-v2, and is reported as such rather than as declaring `"1"`); any other value gets a distinct unrecognized-generation message; and an `infra.yml` that is unreadable, unparseable, or not a mapping aborts naming the tag and the path.
 

@@ -45,14 +45,14 @@ backing_services:
     schema_owned_by: api
 """
 
-# Anchors for injecting extra YAML into _BASE_FIXED. Service-level blocks
+# Anchors for injecting extra YAML into _BASE_FIXED. Codebase-level blocks
 # (`env:` / `secrets:` / `config:`) sit under `  api:` at 4 spaces; anything
 # invocation-determined sits inside `      web:` at 8.
-_SVC_ANCHOR = "    core_services:\n"
-_PROC_ANCHOR = "          memory: 2GB\n"
+_CB_ANCHOR = "    core_services:\n"
+_SVC_ANCHOR = "          memory: 2GB\n"
 
 # A second, non-web core service on the same codebase.
-_WORKER_PROCESS = """\
+_WORKER_SERVICE = """\
       worker:
         role: worker
         command: ["python", "-m", "worker"]
@@ -63,14 +63,14 @@ _WORKER_PROCESS = """\
 """
 
 
+def _with_codebase_block(src: str, block: str) -> str:
+    """Attach a codebase-level block (4-space indented) to ``api``."""
+    return src.replace(_CB_ANCHOR, block + _CB_ANCHOR, 1)
+
+
 def _with_service_block(src: str, block: str) -> str:
-    """Attach a service-level block (4-space indented) to ``api``."""
-    return src.replace(_SVC_ANCHOR, block + _SVC_ANCHOR, 1)
-
-
-def _with_process_block(src: str, block: str) -> str:
-    """Attach a service-level block (8-space indented) to ``api.web``."""
-    return src.replace(_PROC_ANCHOR, _PROC_ANCHOR + block, 1)
+    """Attach a core-service-level block (8-space indented) to ``api.web``."""
+    return src.replace(_SVC_ANCHOR, _SVC_ANCHOR + block, 1)
 
 
 def _tables():
@@ -101,19 +101,19 @@ def test_repo_url_accepted():
 def test_rule_domain_default_must_be_web():
     # A core service off the `web` network cannot be the domain default.
     # (`appdb` no longer works as the negative case — a bare backing-service
-    # name is malformed as a *process* reference, which rule 12 reports
+    # name is malformed as a *core service* reference, which rule 12 reports
     # separately.)
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
         "domain_default_service: api.worker",
-    ).replace(_SVC_ANCHOR, _SVC_ANCHOR + _WORKER_PROCESS, 1)
+    ).replace(_CB_ANCHOR, _CB_ANCHOR + _WORKER_SERVICE, 1)
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_domain_default_not_web" for i in issues)
 
 
 def test_rule_domain_default_malformed():
-    """A bare core-service name is not shorthand for a process — rule 12."""
+    """A bare codebase name is not shorthand for a core service — rule 12."""
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\ndomain_default_service: api",
@@ -132,7 +132,7 @@ def test_rule_domain_default_unknown():
     assert any(i.rule == "rule_domain_default_unknown" for i in issues)
 
 
-def test_rule_domain_default_unknown_process():
+def test_rule_domain_default_unknown_service():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
@@ -142,7 +142,7 @@ def test_rule_domain_default_unknown_process():
     assert any(i.rule == "rule_domain_default_unknown" for i in issues)
 
 
-def test_rule_domain_default_web_process_clean():
+def test_rule_domain_default_web_service_clean():
     src = _BASE_FIXED.replace(
         "container_registry: registry.example.com",
         "container_registry: registry.example.com\n"
@@ -161,7 +161,7 @@ def test_rule_web_service_needs_port():
 
 def test_rule_env_secrets_overlap():
     # Declare the same key in both api's env: and secrets:.
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED,
         '    env:\n      SHARED: literal\n    secrets:\n      SHARED: "desc"\n',
     )
@@ -171,7 +171,7 @@ def test_rule_env_secrets_overlap():
 
 def test_rule_env_config_overlap():
     # Same key in env: and config: — rule 16 three-way.
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED,
         '    env:\n      SHARED: literal\n    config:\n      SHARED: "desc"\n',
     )
@@ -181,7 +181,7 @@ def test_rule_env_config_overlap():
 
 def test_rule_secrets_config_overlap():
     # Same key in secrets: and config: — rule 16 three-way.
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED,
         '    secrets:\n      SHARED: "sdesc"\n    config:\n      SHARED: "cdesc"\n',
     )
@@ -189,19 +189,19 @@ def test_rule_secrets_config_overlap():
     assert any(i.rule == "rule_env_secrets_config_overlap" for i in issues)
 
 
-def test_rule_16_process_env_vs_service_secrets():
+def test_rule_16_service_env_vs_codebase_secrets():
     """Mod 096: the overlap is computed against the core service's
-    EFFECTIVE env, so a service-level `env:` key colliding with the
+    EFFECTIVE env, so a core service's `env:` key colliding with the
     codebase's `secrets:` is caught too."""
-    src = _with_service_block(_BASE_FIXED, '    secrets:\n      SHARED: "desc"\n')
-    src = _with_process_block(src, "        env:\n          SHARED: literal\n")
+    src = _with_codebase_block(_BASE_FIXED, '    secrets:\n      SHARED: "desc"\n')
+    src = _with_service_block(src, "        env:\n          SHARED: literal\n")
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_env_secrets_config_overlap" for i in issues)
 
 
 def test_rule_env_secrets_config_no_overlap_clean():
     # Distinct keys across all three blocks — no overlap issue.
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED,
         '    env:\n      E: literal\n'
         '    secrets:\n      S: "sdesc"\n    config:\n      C: "cdesc"\n',
@@ -225,7 +225,7 @@ def test_rule_3_unresolved_magic_ref_unknown_service():
     env:
       X: ${backing_services.missing.host}
 """
-    src = _with_process_block(
+    src = _with_service_block(
         src, "        env:\n          X: ${backing_services.missing.host}\n"
     )
     doc = _doc(src)
@@ -236,7 +236,7 @@ def test_rule_3_unresolved_magic_ref_unknown_service():
 
 def test_rule_3_unresolved_magic_ref_unknown_part():
     # Refer to a part the engine doesn't expose.
-    src = _with_process_block(
+    src = _with_service_block(
         _BASE_FIXED,
         "        env:\n          X: ${backing_services.appdb.no_such_part}\n",
     )
@@ -272,7 +272,7 @@ def test_rule_7_magic_ref_implies_depends_on():
         "        depends_on: [appdb]\n",
         "        depends_on: []\n",
     )
-    src = _with_process_block(
+    src = _with_service_block(
         src, "        env:\n          X: ${backing_services.appdb.host}\n"
     )
     doc = _doc(src)
@@ -563,7 +563,7 @@ codebases:
 def test_validate_rejects_project_version_in_env():
     """A core service declaring PROJECT_VERSION in its env: block fails
     validation — the name is doctrine-reserved. Mod 011."""
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    env:\n      PROJECT_VERSION: "1.2.3"\n'
     )
     doc = _doc(src)
@@ -575,7 +575,7 @@ def test_validate_rejects_project_version_in_env():
 def test_validate_rejects_project_version_in_secrets():
     """Same name in secrets: also reserved — doctrine owns the key in
     both places. Mod 011."""
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    secrets:\n      PROJECT_VERSION: "desc"\n'
     )
     doc = _doc(src)
@@ -586,7 +586,7 @@ def test_validate_rejects_project_version_in_secrets():
 
 def test_validate_rejects_project_version_in_config():
     """config: is now checked against the reserved core env keys too. Mod 079."""
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    config:\n      PROJECT_VERSION: "desc"\n'
     )
     doc = _doc(src)
@@ -603,7 +603,7 @@ def test_validate_rejects_project_version_in_config():
 def test_rule_source_key_category_conflict_config_vs_tte():
     """A core config: key that collides with a backing engine's minted TTE key
     (POSTGRES_PASSWORD from the postgres appdb) is a rule-20 conflict."""
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    config:\n      POSTGRES_PASSWORD: "desc"\n'
     )
     issues = validate_document(_doc(src), _tables())
@@ -619,7 +619,7 @@ def test_rule_source_key_category_conflict_config_vs_tte():
 def test_rule_source_key_category_conflict_clean_mixed():
     """A clean project with distinct TTE / secret / config keys has no
     disjointness conflict."""
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED,
         '    secrets:\n      API_KEY: "desc"\n    config:\n      SOME_URL: "desc"\n',
     )
@@ -633,7 +633,7 @@ def test_doctrine_injected_key_reserved_in_secrets():
     """Declaring TELEMETRY_API_KEY (doctrine-injected) in secrets: fails with
     exactly one reserved diagnostic — and NOT a disjointness conflict (the
     ownership split delegates the injected key to the reserved check)."""
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    secrets:\n      TELEMETRY_API_KEY: "desc"\n'
     )
     issues = validate_document(_doc(src), _tables())
@@ -651,7 +651,7 @@ def test_doctrine_injected_key_reserved_in_secrets():
 
 
 def test_doctrine_injected_key_reserved_in_config():
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    config:\n      TELEMETRY_API_KEY: "desc"\n'
     )
     issues = validate_document(_doc(src), _tables())
@@ -668,7 +668,7 @@ def test_doctrine_injected_key_reserved_in_config():
 
 
 def test_doctrine_injected_key_reserved_in_env():
-    src = _with_service_block(
+    src = _with_codebase_block(
         _BASE_FIXED, '    env:\n      TELEMETRY_API_KEY: "literal"\n'
     )
     issues = validate_document(_doc(src), _tables())

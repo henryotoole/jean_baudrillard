@@ -33,7 +33,7 @@ from docex.orchestrate._common import (
     ensure_compiled,
     env_compose_project,
     exec_service_key,
-    services_with_schema,
+    codebases_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
 
@@ -97,7 +97,7 @@ def run_migrate(
     # the stack was.
     env_file = aggregate(ctx, env=env)
     project_name = env_compose_project(ctx, env)
-    schema_owners = services_with_schema(ctx)
+    schema_owners = codebases_with_schema(ctx)
     if not schema_owners:
         print(
             f"no schema-owning services declared; "
@@ -213,7 +213,7 @@ def _migrate_elastic(
       1. Look up the env's ECS cluster + the project VPC's private subnets
          + the internal SG. These were emitted with deterministic names
          by the compiler.
-      2. For each ``services_with_schema(ctx)`` core service:
+      2. For each ``codebases_with_schema(ctx)`` codebase:
          a. Compose the migration task definition family name
             (``${project}_${env}_${svc}_migrate``, with hyphenation per
             the engine's naming rules).
@@ -227,7 +227,7 @@ def _migrate_elastic(
       up. Standalone ``docex migrate`` invocations assume the latest
       revision is already current — re-apply tofu first if not.
     """
-    schema_owners = services_with_schema(ctx)
+    schema_owners = codebases_with_schema(ctx)
     if not schema_owners:
         print(
             f"no schema-owning services declared; "
@@ -349,9 +349,9 @@ def _migration_task_family(
     are literally the same function, not two copies that can drift.
 
     ``svc`` is a CODEBASE key: migration is a per-codebase operation, so one
-    codebase yields exactly one migrate family regardless of how many process
-    types it declares. Mod 099: the naming policy is therefore a *codebase*
-    property, resolved across all of the codebase's core service with an
+    codebase yields exactly one migrate family regardless of how many core
+    services it declares. Mod 099: the naming policy is therefore a *codebase*
+    property, resolved across all of the codebase's core services with an
     agreement check (``_codebase_naming_policy``) — the same derivation
     ``exec_service_key`` uses, which is why both call it. Through Mod 096 it
     was read off a single carrier core service; that carrier is gone.

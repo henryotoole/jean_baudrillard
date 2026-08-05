@@ -24,7 +24,7 @@ def test_build_refreshes_dist_after_src_edit(fresh_project, docker_client):
         marker = src / "phase2_marker.py"
         marker.write_text("MARKER = 'phase2-real-build'\n")
 
-        rc = run_build(ctx, docker_client, service="api")
+        rc = run_build(ctx, docker_client, codebase="api")
         assert rc == 0
 
         # Confirm the marker landed in dist/ via the build.sh shell script.

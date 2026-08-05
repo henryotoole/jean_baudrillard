@@ -33,12 +33,12 @@ _HELP_TEXT: dict[str, str] = {
     "preinfra": "Check prerequisite infrastructure for a side (development | production).",
     "projinfra": "Bring up or tear down project-tier infrastructure for a side.",
     "envinfra": "Bring up or tear down a local dev or test environment.",
-    "build": "Refresh dist/ for one or all core services.",
+    "build": "Refresh dist/ for one or all codebases.",
     "test": "Run build-time tests in a fresh test env.",
     "migrate": "Apply database migrations against an env.",
     "check": "Run CI gate checks in an ephemeral worktree.",
     "merge": "Rebase + fast-forward + tag + push.",
-    "containerize": "Build and push core service prod images.",
+    "containerize": "Build and push per-codebase prod images.",
     "release": "Deploy the containerized build to stage or prod.",
     "stagetest": "Run staging tests against the deployed stage env.",
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
@@ -385,8 +385,8 @@ def _cmd_projinfra(args: list[str]) -> int:
 
 def _cmd_build(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex build", add_help=True)
-    parser.add_argument("service", nargs="?", default=None,
-                        help="core service to build (omit to build all)")
+    parser.add_argument("codebase", nargs="?", default=None,
+                        help="codebase to build (omit to build all)")
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
@@ -394,7 +394,7 @@ def _cmd_build(args: list[str]) -> int:
 
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
-    return run_build(ctx, docker, service=ns.service)
+    return run_build(ctx, docker, codebase=ns.codebase)
 
 
 def _cmd_test(args: list[str]) -> int:

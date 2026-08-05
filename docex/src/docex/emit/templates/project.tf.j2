@@ -588,16 +588,16 @@ resource "aws_ecs_cluster" "prod" {
 }
 
 # ---------------------------------------------------------------------------
-# ECR repositories — one per core service. The image refs in each env's
+# ECR repositories — one per codebase. The image refs in each env's
 # main.tf resolve to `<repo_url>:<version>`.
 # ---------------------------------------------------------------------------
-{% for svc in core_service_names %}
-resource "aws_ecr_repository" "{{ svc.hcl_id }}" {
-  name                 = "{{ ecr_repo_names[svc.name] }}"
+{% for cb in codebase_names %}
+resource "aws_ecr_repository" "{{ cb.hcl_id }}" {
+  name                 = "{{ ecr_repo_names[cb.name] }}"
   image_tag_mutability = "MUTABLE"
-{# Mod 060: per-service differentiation rides in descriptor (the service
+{# Mod 060: per-codebase differentiation rides in descriptor (the codebase
    name) + Name; the projinfra block has no `service` tag. -#}
-{{ tagblock(standard_tags("project", shape_name="container_registry", descriptor=svc.name, project=project)) }}
+{{ tagblock(standard_tags("project", shape_name="container_registry", descriptor=cb.name, project=project)) }}
 }
 {% endfor %}
 
@@ -646,7 +646,7 @@ resource "aws_iam_role_policy" "task_execution" {
         Action   = "ecr:GetAuthorizationToken"
         Resource = "*"
       },
-      {%- if core_service_names %}
+      {%- if codebase_names %}
       {
         Effect = "Allow"
         Action = [
@@ -655,8 +655,8 @@ resource "aws_iam_role_policy" "task_execution" {
           "ecr:GetDownloadUrlForLayer",
         ]
         Resource = [
-          {%- for svc in core_service_names %}
-          aws_ecr_repository.{{ svc.hcl_id }}.arn,
+          {%- for cb in codebase_names %}
+          aws_ecr_repository.{{ cb.hcl_id }}.arn,
           {%- endfor %}
         ]
       },
@@ -773,8 +773,8 @@ output "alb_security_group_id" {
   value = aws_security_group.project_alb.id
 }
 {% endif %}
-{% for svc in core_service_names %}
-output "ecr_repository_{{ svc.hcl_id }}_url" {
-  value = aws_ecr_repository.{{ svc.hcl_id }}.repository_url
+{% for cb in codebase_names %}
+output "ecr_repository_{{ cb.hcl_id }}_url" {
+  value = aws_ecr_repository.{{ cb.hcl_id }}.repository_url
 }
 {% endfor %}

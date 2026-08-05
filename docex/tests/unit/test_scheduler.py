@@ -26,17 +26,17 @@ _ELASTIC = _FIXTURES / "sample_project_scheduler_elastic"
 
 # The MIXED-codebase fixtures (Mod 103). `_FIXED` / `_ELASTIC` above put the
 # scheduler in its OWN codebase (`nightly_cleanup.nightly_cleanup`), where the
-# codebase and process names coincide — so "the identity is two-segment" is
-# unfalsifiable there and "exactly one sidecar per codebase" is unexpressible.
-# These add ONE scheduler core service to the existing `api` codebase, which is
-# the shape the per-process claims actually bite on.
+# codebase and core service names coincide — so "the identity is two-segment"
+# is unfalsifiable there and "exactly one sidecar per codebase" is
+# unexpressible. These add ONE scheduler core service to the existing `api`
+# codebase, which is the shape the per-service claims actually bite on.
 _MIXED_FIXED = _FIXTURES / "sample_project"
 _MIXED_ELASTIC = _FIXTURES / "sample_project_elastic"
 
 # `depends_on: [appdb]`: the fixtures declare their DATABASE_* magic refs at the
-# SERVICE level, and a service-level ref obliges every core service of that
+# CODEBASE level, and a codebase-level ref obliges every core service of that
 # codebase to carry the readiness edge (rule 7). `disk: 25GB` matches what the
-# elastic fixture's own core service use, so Fargate tiering accepts it.
+# elastic fixture's own core services use, so Fargate tiering accepts it.
 _JOB = {
     "role": "scheduler",
     "schedule": "0 3 * * *",
@@ -333,7 +333,7 @@ def test_elastic_scheduler_runtask_targets_project_tier_cluster(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Mod 103 — the per-PROCESS claims, on a mixed web+scheduler codebase
+# Mod 103 — the per-CORE-SERVICE claims, on a mixed web+scheduler codebase
 # ---------------------------------------------------------------------------
 
 
@@ -355,11 +355,11 @@ def test_mixed_codebase_job_image_is_the_siblings_image(web_plus_job_fixed: Path
 
 
 def test_mixed_codebase_job_identity_is_two_segment(web_plus_job_fixed: Path):
-    """The job's identity is `<codebase>-<process>` everywhere it appears.
+    """The job's identity is `<codebase>-<service>` everywhere it appears.
 
-    The scheduler-only fixtures cannot test this: there codebase and process are
-    both `nightly_cleanup`, so a one-segment emitter would produce identical
-    output. Here codebase (`api`) != process (`nightly_cleanup`).
+    The scheduler-only fixtures cannot test this: there codebase and core
+    service are both `nightly_cleanup`, so a one-segment emitter would produce
+    identical output. Here codebase (`api`) != core service (`nightly_cleanup`).
     """
     doc = _dev_compose(web_plus_job_fixed)
     ini = doc["configs"]["ofelia_api-nightly_cleanup"]["content"]
@@ -368,10 +368,10 @@ def test_mixed_codebase_job_identity_is_two_segment(web_plus_job_fixed: Path):
 
 
 def test_mixed_codebase_emits_exactly_one_sidecar(web_plus_job_fixed: Path):
-    """The per-PROCESS restatement of the sidecar rule: one codebase, a sidecar
-    for the `web` process, NONE for the job.
+    """The per-CORE-SERVICE restatement of the sidecar rule: one codebase, a
+    sidecar for the `web` core service, NONE for the job.
 
-    The old service-level phrasing ("a scheduler service gets no sidecar")
+    The old codebase-level phrasing ("a scheduler service gets no sidecar")
     could not express this, because it needed the scheduler to be its own
     service to say anything at all.
     """
@@ -386,7 +386,7 @@ def test_mixed_codebase_elastic_job_has_no_service_or_target_group(
     """Elastic counterpart, at ONE codebase rather than across two: the job
     core service gets a task definition and nothing else — no `aws_ecs_service`,
     no `aws_lb_target_group`, no sidecar container — while its sibling `web`
-    process in the same codebase keeps all of them."""
+    core service in the same codebase keeps all of them."""
     hcl = _stage_hcl(web_plus_job_elastic)
 
     job = _slice_td(hcl, "api-nightly_cleanup")

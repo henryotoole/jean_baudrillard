@@ -174,7 +174,7 @@ def test_migration_task_def_has_no_sidecar(tmp_path: Path):
     hcl = _stage_hcl(root)
     mig_td = _slice_task_def(hcl, "api_migrate")
     # The container_definitions has the core container only — no sidecar.
-    # Mod 099: the container is named for the CODEBASE. A process segment in
+    # Mod 099: the container is named for the CODEBASE. A service segment in
     # a per-codebase artifact names a core service the migration has nothing
     # to do with.
     assert 'name = "api"' in mig_td

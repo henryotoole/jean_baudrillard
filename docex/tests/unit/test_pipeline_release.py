@@ -364,12 +364,12 @@ def test_release_elastic_steady_state_skips_targeted_apply_when_no_schema(
 
     The fixture's infra.yml has a relational_db backing service that
     *requires* schema_owned_by to validate (rule 8), so we patch
-    services_with_schema at the call site to model a project with no
+    codebases_with_schema at the call site to model a project with no
     relational backings at all.
     """
     import docex.pipeline.release as release_mod
 
-    monkeypatch.setattr(release_mod, "services_with_schema", lambda _ctx: [])
+    monkeypatch.setattr(release_mod, "codebases_with_schema", lambda _ctx: [])
 
     rc = run_release(
         elastic_ctx,

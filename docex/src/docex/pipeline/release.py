@@ -26,7 +26,7 @@ from docex.errors import (
     TofuApplyFailed,
 )
 from docex.naming import apply_policy
-from docex.orchestrate._common import ensure_compiled, services_with_schema
+from docex.orchestrate._common import ensure_compiled, codebases_with_schema
 from docex.ssh.client import SSHClient
 
 
@@ -544,7 +544,7 @@ def _release_elastic(
         # set — the rolling deploy of the new application code happens
         # only after migrations succeed.
         # See release_mechanism.md § Elastic-foundation mechanism step 2.
-        schema_owners = services_with_schema(ctx)
+        schema_owners = codebases_with_schema(ctx)
         if schema_owners:
             rc_init = tofu_init(out_dir)
             if rc_init != 0:

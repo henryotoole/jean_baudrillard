@@ -156,8 +156,8 @@ class MagicRefMatch:
             )
         else:
             msg += (
-                " A backing service has no core service, so there is nothing "
-                "to qualify."
+                " A backing service has no core services, so there is "
+                "nothing to qualify."
             )
             if len(segs) == 3 and all(s.strip() for s in segs):
                 msg += (
@@ -182,8 +182,8 @@ def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
     clause). Both state ``_SELF_REF_RULE`` and then diverge on consequence.
     """
     return (
-        f"magic ref {ref.text} in {consumer_label!r} references the process "
-        f"type itself. {_SELF_REF_RULE}: "
+        f"magic ref {ref.text} in {consumer_label!r} references the core "
+        f"service itself. {_SELF_REF_RULE}: "
         f"`provides.{ref.part}` is the *internal* discovery name, so the one "
         f"plausible motive — building an absolute URL to oneself — would not "
         f"return what you expect. Use `localhost` with the core service's own "
@@ -238,7 +238,7 @@ class MagicRefResolver:
     deps: list[MagicRefDependency] = field(default_factory=list)
     runtime_refs: dict[str, set[str]] = field(default_factory=dict)
 
-    # Cycle guard, keyed on (kind, target, process, part).
+    # Cycle guard, keyed on (kind, target, service, part).
     _resolving: set[tuple[str, str, str | None, str]] = field(default_factory=set)
 
     def resolve_in_string(

@@ -15,6 +15,79 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [Unreleased]
+
+### Changed
+
+- **A codebase is a `codebase`; a process type is a `core service`.** The two
+  central nouns of the doctrine's service vocabulary trade places. What 1.6.0
+  called a *core service* — one source tree, one build artifact, one image — is
+  now a **codebase**; what it called a *process type* — one named,
+  independently-scaled deployment of that artifact — is now a **core service**.
+  Nothing structural moves: still one image per codebase, still N invocations of
+  it, each with its own role, `command`, port, networks, and resources.
+
+  1.6.0 introduced process types because `web` and `worker` needed to share a
+  build artifact. That was the right structural move but left the vocabulary a
+  notch out of alignment, load-bearingly so: the doctrine's "core service" had no
+  port, no command, no replica count, and nothing ever routed to it, so a reader
+  who knew what a service *is* had to unlearn it to read `infra.yml`. The
+  clearest symptom was already written down — `cicl.md § Magic Refs` had to
+  explain that "a **bare** core service name is illegal rather than shorthand",
+  which is the doctrine noticing its own noun was wrong. A service you cannot
+  address is not a service.
+
+  **Breaking — every `infra.yml` must be rewritten.** Top-level `core_services:`
+  → `codebases:`; nested `processes:` → `core_services:`;
+  `domain_default_process` → `domain_default_service`; core magic refs go from
+  four segments to five (`${codebases.<cb>.core_services.<svc>.<part>}`).
+  Backing refs, `consumes:`, and `schema_owned_by` are unchanged.
+  `cicl_version` stays `"2"` — the 2 → 3 bump ships with the `uses` relation
+  merge in the same cut.
+
+  On the emitted surface, **no name, label, or path changes** — the two elastic
+  env-tier tag *keys* move (`service` → `codebase`, `process` → `service`) while
+  their values stay put, so OpenTofu updates tags in place rather than recreating
+  resources. Two changes do reach consumers: the OTel resource attributes
+  `docex.core_service` / `docex.process_type` become `docex.codebase` /
+  `docex.service` (**this splits existing telemetry time series** — dashboards
+  and alerts need updating), and `docex describe --format llm` renames its
+  `core_service` JSON key to `codebase`.
+
+### Fixed
+
+- **Rename residue in `docex`** (mod 111). The sweep that performed the rename
+  substituted the *word* without re-reading the *sentence*, leaving three classes
+  of defect behind. A **doubled substitution** produced operator-facing text that
+  says nothing — `cicl/model.py`'s migration error read "moved from the core
+  service to the core service", the same noun on both sides of a sentence whose
+  only job is to distinguish two levels, on the single error every downstream
+  project hits exactly once while upgrading. **Terminal output named the wrong
+  kind of thing**: `docex build nonexistent` answered "is not a core service;
+  known core services: [...]" while listing codebases, and the exec-key failure
+  said "not a core service in infra.yml, declares no core service" for a codebase
+  declaring core services. And **one emitted key was missed outright** —
+  `describe --format llm` still labelled a codebase `core_service`.
+
+  Also corrected: the CICL v1 rejection message, which described 1.6.0's v2
+  (top-level `core_services:`, four-segment refs) while the parser enforces
+  1.7.0's v2, so an operator who followed it produced a document the compiler
+  rejects; it now describes the accepted shape and chains both upgrade guides.
+  `validate.py`'s two `_STANDARD_*` field sets were inverted against their own
+  contents and are swapped. `CompiledService.service_env` holds the
+  codebase-scoped surface and is renamed `codebase_env`. ~100 local identifiers
+  that named a codebase `svc` and a core service `proc` now read `cb` and `svc`.
+  Dead `service_name` parameters and three impossible `where=` error paths
+  (`codebases.<compiled-identity>.resources`, a path rule 22 forbids) are gone.
+
+### Added
+
+- **`docex why codebase`** (mod 111). The doctrine's now-primary noun had no
+  excerpt, so the one resource `docex why` could not explain was the unit of code
+  itself. `docex_process.md`'s artifact-alignment table gains a sixth row for
+  `doctrine_excerpts/` — the only aligned artifact with no automated consumer,
+  and therefore the one that drifts silently.
+
 ## [1.6.1] - 2026-08-03
 
 ### Fixed

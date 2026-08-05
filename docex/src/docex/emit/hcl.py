@@ -321,7 +321,7 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
 
     Mod 099 moved the ``_migrate`` variant out of here into
     :func:`render_migration_task_definitions`, because migration is a
-    per-codebase operation and this is a per-process renderer.
+    per-codebase operation and this is a per-core-service renderer.
     """
     body = dict(svc.body)
     cpu = body.get("cpu", "256")
@@ -558,7 +558,8 @@ def render_migration_task_definitions(
     emits no application-origin telemetry signals (Mod 018).
 
     A per-**codebase** pass (Mod 099). Through Mod 096 this block was emitted
-    inside :func:`render_task_definition` — a per-*process* renderer — and the
+    inside :func:`render_task_definition` — a per-*core-service* renderer — and
+    the
     "exactly one per codebase" invariant was bought by setting
     ``schema_owned_by_db`` on a single carrier core service, picked by a
     "pick one core service" bridge that Mod 099 deleted outright. It has to
@@ -573,27 +574,27 @@ def render_migration_task_definitions(
     emits no section at all rather than a blank one.
     """
     out: list[str] = []
-    for codebase, procs in group_by_codebase(compiled).items():
-        if not any(p.schema_owned_by_db for p in procs):
+    for codebase, svcs in group_by_codebase(compiled).items():
+        if not any(p.schema_owned_by_db for p in svcs):
             continue
-        head = procs[0]
+        head = svcs[0]
         # WHY: `-migrate` suffix (mod 030) — the task family is a data-plane
         # resolvable ECS identifier, so the joiner uses the unified hyphen.
         # The family keys on `codebase_global_name` and the resource address
         # on `codebase`: both are what migrate.py / release.py
         # reconstruct, and both must stay byte-stable.
         mig_family = f"{head.codebase_global_name}-migrate"
-        # WHY `service_env`, not any app container's env (Mod 096): the
+        # WHY `codebase_env`, not any app container's env (Mod 096): the
         # migration runs per codebase, so it may depend only on codebase-scoped
         # env. Inheriting a core service's `env:` overlay would make
-        # `migrate.sh` silently depend on whichever process was picked.
+        # `migrate.sh` silently depend on whichever core service was picked.
         mig_env_entries, mig_secret_entries = _container_env_entries(
-            head.service_env, ctx.project, ctx.env
+            head.codebase_env, ctx.project, ctx.env
         )
         # WHY the container name and log-stream segment are the CODEBASE and
         # not a compiled identity (Mod 099, a deliberate emitted-value
         # change): they previously carried the carrier's two-segment name
-        # (`api-web`). This is a per-codebase artifact — a process segment in
+        # (`api-web`). This is a per-codebase artifact — a service segment in
         # it names a core service that has nothing to do with the migration.
         mig_container = {
             "name": codebase,
@@ -617,29 +618,29 @@ def render_migration_task_definitions(
             mig_container["environment"] = mig_env_entries
         if mig_secret_entries:
             mig_container["secrets"] = mig_secret_entries
-        # Resources: the PER-DIMENSION maximum across the codebase's process
-        # types, taken over the already-Fargate-tiered values.
+        # Resources: the PER-DIMENSION maximum across the codebase's core
+        # services, taken over the already-Fargate-tiered values.
         #
         # WHY max: it is commutative, so — unlike "pick one" — the migration's
         # size cannot move because an unrelated core service was renamed or
         # added. And it never under-provisions, which retires the OOM risk
         # that motivated the old non-scheduler-first carve-out, so the rule
-        # has no exceptions. A single-process codebase's max is that process's
-        # value, i.e. byte-identical to the pre-Mod-099 emission.
+        # has no exceptions. A single-core-service codebase's max is that core
+        # service's value, i.e. byte-identical to the pre-Mod-099 emission.
         #
         # WHY per dimension and never over pairs: Fargate's allowed memory
         # range is monotone non-decreasing in cpu, which makes
         # (max_cpu, max_mem) provably a valid tier — see
         # `plans/modifications/099_exec_service/overview.md`. Max over *pairs*
         # under any single ordering does not give that property.
-        cpu = max(int(p.body.get("cpu", "256")) for p in procs)
-        memory = max(int(p.body.get("memory", "512")) for p in procs)
+        cpu = max(int(p.body.get("cpu", "256")) for p in svcs)
+        memory = max(int(p.body.get("memory", "512")) for p in svcs)
         # The round-trip is a no-op for valid input by the argument above. It
         # is here to turn that proof into an enforced guarantee — do not
         # delete it as redundant; it is what fires if the argument is ever
         # broken by a refactor.
         cpu, memory = fargate_pair_from_units(
-            cpu, memory, service_name=codebase,
+            cpu, memory,
             where=f"codebases.{codebase}.core_services.*.resources",
         )
         if out:
@@ -673,11 +674,11 @@ def render_migration_task_definitions(
         # WHY no `service=` and `role="etc"` (Mod 099): both used to carry the
         # carrier core service's values. A per-codebase artifact has neither —
         # any value for them would be a pick-one, and after the carrier's
-        # removal `procs[0]` is merely the alphabetically-first core service,
+        # removal `svcs[0]` is merely the alphabetically-first core service,
         # so "preserving" them would silently change what they say (on the
-        # three-process fixture, role would flip `web` -> `scheduler`).
+        # three-core-service fixture, role would flip `web` -> `scheduler`).
         # `"etc"` is the established sentinel for "no single service/role
-        # applies"; `process` is omitted exactly as it is for backing
+        # applies"; `service` is omitted exactly as it is for backing
         # services, which likewise have none.
         out.append(render_hcl_tags(standard_tags(
             "environment", shape_name="core_service",
@@ -1198,7 +1199,7 @@ def emit_hcl_project(
     project: str,
     project_version: str,
     apex_domain: str,
-    core_service_names: list[str],
+    codebase_names: list[str],
     naming_policies: NamingPolicies,
     out_path: Path,
     reverse_proxy: str | None = None,
@@ -1227,9 +1228,9 @@ def emit_hcl_project(
     # three doctrine tag blocks (cicl.md § Naming and Tagging).
     env.globals["standard_tags"] = standard_tags
     tpl = env.get_template("project.tf.j2")
-    svc_entries = [
+    cb_entries = [
         {"name": name, "hcl_id": _hcl_id(name)}
-        for name in sorted(core_service_names)
+        for name in sorted(codebase_names)
     ]
     # Resolve every structural-resource name through its policy before
     # the template runs — policies live in transfer tables, template
@@ -1255,7 +1256,7 @@ def emit_hcl_project(
     # of structural emit sites that bypass the policy table.
     ecr_repo_names = {
         name: f"{project}/{name}"
-        for name in core_service_names
+        for name in codebase_names
     }
     # WHY: ``reverse_proxy`` defaults to "alb" — the doctrine's default
     # when the project leaves the CICL field unset (see cicl.md § Reverse
@@ -1317,7 +1318,7 @@ def emit_hcl_project(
         project_version=project_version,
         apex_domain=apex_domain,
         region=ELASTIC_REGION,
-        core_service_names=svc_entries,
+        codebase_names=cb_entries,
         state_bucket=apply_policy(f"{project}_tofu_state", s3_p),
         state_lock_table=apply_policy(f"{project}_tofu_locks", ddb_p),
         task_execution_role_name=apply_policy(

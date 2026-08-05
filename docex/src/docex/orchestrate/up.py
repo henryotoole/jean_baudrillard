@@ -25,7 +25,7 @@ from docex.orchestrate._common import (
     env_compose_project,
     exec_service_key,
     scheduler_only_services,
-    services_with_schema,
+    codebases_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
 
@@ -33,7 +33,7 @@ from docex.orchestrate.aggregate import aggregate
 def _ensure_initial_dev_build(
     ctx: ProjectContext, docker: DockerClient, svc: str
 ) -> None:
-    """Populate host ``core/<svc>/dist/`` via a one-shot build-stage run.
+    """Populate host ``core/<codebase>/dist/`` via a one-shot build-stage run.
 
     The dev stage Dockerfile's ``RUN ./build.sh`` deposits artifacts
     inside the image at /service/dist, but the host bind mount shadows
@@ -101,7 +101,7 @@ def _ensure_codebase_image(
     it is byte-identical to what was written into the Ofelia INI's
     ``image =`` and to what the exec service's ``image:`` names.
 
-    A missing ``core/<svc>/Dockerfile`` is a real error here (nothing else
+    A missing ``core/<codebase>/Dockerfile`` is a real error here (nothing else
     builds this tag), so — unlike :func:`_ensure_initial_dev_build`, which
     tolerates non-conformant fixtures — we let ``docker build`` surface it
     loudly.
@@ -196,7 +196,7 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     env_file = aggregate(ctx, env=env)
     project_name = env_compose_project(ctx, env)
 
-    # 1a. Dev only: pre-populate the host dist/ for each core service
+    # 1a. Dev only: pre-populate the host dist/ for each codebase
     # before bringing the stack up. The dev stage Dockerfile's
     # ``RUN ./build.sh`` populates the *in-image* dist/, but the host
     # bind mount shadows that — so without a host-side dist/ the dev
@@ -264,7 +264,7 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     # `dev` stage exists precisely so `build.sh` can be re-invoked without
     # rebuilding the image, so forcing a rebuild there would contradict the
     # rationale for the stage and slow the hot loop.
-    schema_owners = services_with_schema(ctx)
+    schema_owners = codebases_with_schema(ctx)
     for svc in schema_owners:
         key = exec_service_key(ctx, env, svc)
         rc = docker.compose_run_one_off(

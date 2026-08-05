@@ -1,7 +1,7 @@
 """Mod 099 — the per-codebase exec service (compose emission).
 
 ``migrate``, ``test`` and ``build`` are per-**codebase** operations that must
-land in a container. Process expansion left them picking one core service's
+land in a container. Service expansion left them picking one core service's
 container to ``compose exec`` into. The compiler now emits a container that
 *is* the codebase — one ``<codebase>-exec`` block per codebase, in every fixed
 env — and the three operations run one-off inside it.
@@ -42,22 +42,22 @@ _WORKER = {
 }
 
 
-def _multi_process_project(fixture: Path, dest: Path) -> Path:
+def _multi_service_project(fixture: Path, dest: Path) -> Path:
     root = dest / "project"
     shutil.copytree(fixture, root, dirs_exist_ok=False)
     shutil.rmtree(root / "infra" / "output", ignore_errors=True)
     infra_path = root / "infra" / "infra.yml"
     doc = yaml.safe_load(infra_path.read_text())
-    procs = doc["codebases"]["api"]["core_services"]
-    procs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
-    procs["worker"] = dict(_WORKER)
+    svcs = doc["codebases"]["api"]["core_services"]
+    svcs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
+    svcs["worker"] = dict(_WORKER)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
     return root
 
 
 @pytest.fixture(scope="module")
 def fixed_root(tmp_path_factory) -> Path:
-    root = _multi_process_project(_FIXED, tmp_path_factory.mktemp("exec_fixed"))
+    root = _multi_service_project(_FIXED, tmp_path_factory.mktemp("exec_fixed"))
     assert run_compile(load_project_context(root)) == 0
     return root
 
@@ -116,11 +116,11 @@ def test_2_exec_service_is_profile_gated_and_nothing_depends_on_it(
 
 def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
     """The rule with teeth. `migrate.sh`, `test.sh` and `build.sh` may depend
-    only on codebase-scoped env — so a service-level `env:` key is not merely
+    only on codebase-scoped env — so a core service's `env:` key is not merely
     discouraged in the exec container, it is *absent*.
 
     Guarded against a vacuous pass at both ends: the planted key must be
-    present on its own process's block, and a service-level key must be
+    present on its own core service's block, and a codebase-level key must be
     present on the exec block.
     """
     for env in ("dev", "test", "stage", "prod"):
@@ -129,9 +129,9 @@ def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
         assert _WEB_ONLY_KEY not in exec_env, env
         assert _SERVICE_LEVEL_KEY in exec_env, env
         assert exec_env["PROJECT_VERSION"] == "0.1.0"
-        # The process that declared it does see it.
+        # The core service that declared it does see it.
         assert _WEB_ONLY_KEY in services[f"sample-{env}-api-web"]["environment"]
-        # ...and its sibling process, which did not declare it, does not.
+        # ...and its sibling core service, which did not declare it, does not.
         assert (
             _WEB_ONLY_KEY
             not in services[f"sample-{env}-api-worker"]["environment"]
@@ -145,7 +145,7 @@ def test_3b_exec_telemetry_identity_is_codebase_scoped(fixed_root: Path):
     signal that this is not a declared core service.
 
     Anti-vacuity guard in the same test: the sibling app containers DO carry
-    the two-segment name and the process attribute. Without it, a change that
+    the two-segment name and the service attribute. Without it, a change that
     dropped the OTel keys from every surface would pass.
     """
     for env in ("dev", "test", "stage", "prod"):
@@ -156,12 +156,12 @@ def test_3b_exec_telemetry_identity_is_codebase_scoped(fixed_root: Path):
         assert "docex.codebase=api" in attrs, env
         assert "docex.service" not in attrs, (env, attrs)
         # The app containers beside it are core service, and say so.
-        for proc in ("web", "worker"):
-            app_env = services[f"sample-{env}-api-{proc}"]["environment"]
-            assert app_env["OTEL_SERVICE_NAME"] == f"api-{proc}", (env, proc)
+        for svc in ("web", "worker"):
+            app_env = services[f"sample-{env}-api-{svc}"]["environment"]
+            assert app_env["OTEL_SERVICE_NAME"] == f"api-{svc}", (env, svc)
             app_attrs = app_env["OTEL_RESOURCE_ATTRIBUTES"]
-            assert "docex.codebase=api" in app_attrs, (env, proc)
-            assert f"docex.service={proc}" in app_attrs, (env, proc)
+            assert "docex.codebase=api" in app_attrs, (env, svc)
+            assert f"docex.service={svc}" in app_attrs, (env, svc)
 
 
 # ---------------------------------------------------------------------------

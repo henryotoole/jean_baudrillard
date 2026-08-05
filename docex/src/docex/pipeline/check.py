@@ -40,7 +40,7 @@ from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
 from docex.naming import dns_label
-from docex.orchestrate._common import codebases, services_with_schema
+from docex.orchestrate._common import codebases, codebases_with_schema
 from docex.pipeline._worktree import (
     cleanup_worktree,
     make_temp_branch,
@@ -139,14 +139,16 @@ def _contract_format_for_role(role: str) -> tuple[str, bool]:
 def _parse_contract_filename(name: str) -> tuple[str, str, str] | None:
     """``"api.web.openapi.yml"`` → ``("api", "web", "openapi")``; else ``None``.
 
-    RIGHT-anchored, per contracts.md's `${service}.${process}.${format}.yml`. The
-    left-anchored `name.split(".", 1)[0]` this replaces yielded "api" — a valid
-    `codebases` key purely because the codebase happens to be the first segment
-    — and discarded the process entirely, so the health gate reasoned at codebase
-    granularity and silently `continue`d on anything it could not match.
+    RIGHT-anchored, per contracts.md's `${codebase}.${service}.${format}.yml`.
+    The left-anchored `name.split(".", 1)[0]` this replaces yielded "api" — a
+    valid `codebases` key purely because the codebase happens to be the first
+    segment — and discarded the core service entirely, so the health gate
+    reasoned at codebase granularity and silently `continue`d on anything it
+    could not match.
 
     Exactly three segments are required: `_SERVICE_NAME_RE` (model.py) admits no
-    dots in a service or process name, so a canonical contract filename has three
+    dots in a codebase or core service name, so a canonical contract filename has
+    three
     and nothing else is a name this gate authored.
     """
     stem = name
@@ -176,13 +178,13 @@ def _resolve_service(
         ref = ServiceRef.parse(dotted)
     except ValueError:
         return None
-    svc = infra.codebases.get(ref.codebase)
+    cb = infra.codebases.get(ref.codebase)
+    if cb is None:
+        return None
+    svc = cb.core_services.get(ref.service)
     if svc is None:
         return None
-    proc = svc.core_services.get(ref.service)
-    if proc is None:
-        return None
-    return ref.codebase, ref.service, proc
+    return ref.codebase, ref.service, svc
 
 
 # ---------------------------------------------------------------------------
@@ -354,13 +356,14 @@ def _gate_contracts(
     what gives the health-endpoint gate something to validate. Driving the set off
     `consumes` alone would silently switch that gate off for a public edge.
 
-    Providers ship a contract at ``infra/contracts/<svc>.<proc>.<fmt>.yml``. The
-    path is process-keyed unconditionally: one codebase may run two HTTP process
-    types — a public `api` and an internal `admin` — and both are genuine
-    boundaries deserving their own contract.
+    Providers ship a contract at
+    ``infra/contracts/<codebase>.<service>.<fmt>.yml``. The path is
+    service-keyed unconditionally: one codebase may run two HTTP core services —
+    a public `api` and an internal `admin` — and both are genuine boundaries
+    deserving their own contract.
 
     Returns (existing_contracts, providers) — the contract paths that DO exist,
-    for the next gate to scan, and the provider process refs, dotted.
+    for the next gate to scan, and the provider core service refs, dotted.
     """
     infra = ctx.infra
     existing: list[Path] = []
@@ -373,28 +376,28 @@ def _gate_contracts(
     # reader of `consumes`; it lives on the AUTHORING model (Mod 098 kept it off
     # `CompiledService` deliberately), which is what this gate reads.
     consumed: set[str] = set()
-    for _s, _p, _svc, proc in infra.all_core_services():
-        consumed |= proc.consumes_refs()
+    for _cbn, _svcn, _cb, svc in infra.all_core_services():
+        consumed |= svc.consumes_refs()
 
     contracts_dir = worktree / "infra" / "contracts"
     missing: list[str] = []
     fallbacks: list[str] = []
-    for svc_name, service_name, _svc, proc in infra.all_core_services():
+    for cb_name, svc_name, _cb, svc in infra.all_core_services():
         # contracts.md § Health Checks: `scheduler` core services are exempt.
         # Rule 25 now forbids consuming one and rule 27 forbids `web` in its
         # networks, so neither arm can reach a scheduler — the gate states the
         # exemption anyway so it does not depend on the validator to be correct.
-        if proc.role == "scheduler":
+        if svc.role == "scheduler":
             continue
-        label = ServiceRef(svc_name, service_name).dotted
-        on_web = "web" in (proc.networks or [])
+        label = ServiceRef(cb_name, svc_name).dotted
+        on_web = "web" in (svc.networks or [])
         if not (on_web or label in consumed):
             continue  # not a provider
         providers.append(label)
-        fmt, role_known = _contract_format_for_role(proc.role)
+        fmt, role_known = _contract_format_for_role(svc.role)
         if not role_known:
-            fallbacks.append(f"{label} (role {proc.role!r})")
-        candidate = contracts_dir / f"{svc_name}.{service_name}.{fmt}.yml"
+            fallbacks.append(f"{label} (role {svc.role!r})")
+        candidate = contracts_dir / f"{cb_name}.{svc_name}.{fmt}.yml"
         if candidate.is_file():
             existing.append(candidate)
         else:
@@ -417,7 +420,7 @@ def _gate_contracts(
         detail = (
             f"{len(existing)} contract(s) present"
             if existing
-            else "no provider core service — nothing to check"
+            else "no provider core services — nothing to check"
         )
         report.add("contracts_exist", True, detail + fallback_clause)
     return existing, providers
@@ -452,7 +455,7 @@ def _gate_health_endpoints(
        `health_check_path`. Per § Declared by fields those two fields *are* the
        health declaration. On elastic the `port` is also exactly what makes the
        target Service-Connect-discoverable, which is what lets a sibling `web`
-       process reach its `/health` one hop away. Distinct from rule 28, which
+       core service reach its `/health` one hop away. Distinct from rule 28, which
        constrains a core service that *has* `health_check_path`; this requires a
        consumes target to have it at all.
 
@@ -470,12 +473,12 @@ def _gate_health_endpoints(
         parsed = _parse_contract_filename(path.name)
         if parsed is None:
             continue  # not a contract filename this gate authored
-        svc, service_name, fmt = parsed
-        resolved = _resolve_service(infra, f"{svc}.{service_name}")
+        cb_name, svc_name, fmt = parsed
+        resolved = _resolve_service(infra, f"{cb_name}.{svc_name}")
         if resolved is None:
             continue  # contract for an unknown core service — skip
-        _s, _p, proc = resolved
-        if proc.role == "scheduler":
+        _cbn, _svcn, svc = resolved
+        if svc.role == "scheduler":
             continue
 
         try:
@@ -495,44 +498,44 @@ def _gate_health_endpoints(
                 f"— every long-running core service serves it)"
             )
 
-        if "web" not in (proc.networks or []):
+        if "web" not in (svc.networks or []):
             continue
-        for dotted in sorted(proc.consumes_refs()):
+        for dotted in sorted(svc.consumes_refs()):
             target = _resolve_service(infra, dotted)
             if target is None:
                 continue
-            t_svc, t_proc_name, t_proc = target
-            if t_proc.role == "scheduler":
+            t_cb, t_svc_name, t_svc = target
+            if t_svc.role == "scheduler":
                 continue
-            if "web" in (t_proc.networks or []):
+            if "web" in (t_svc.networks or []):
                 continue  # publicly reachable; nothing to proxy
-            key = f"/health/{t_svc}/{t_proc_name}"
+            key = f"/health/{t_cb}/{t_svc_name}"
             if not _declares(key):
                 problems.append(
                     f"{path.name}: missing 'GET {key}' (required because "
-                    f"{svc}.{service_name} consumes non-web {dotted})"
+                    f"{cb_name}.{svc_name} consumes non-web {dotted})"
                 )
 
     # --- 3: what the consumed core service's FIELDS must declare --------
     # Keyed by target so two consumers of one under-declared target produce one
     # problem naming both, not two problems saying the same thing.
     underdeclared: dict[str, tuple[list[str], set[str]]] = {}
-    for svc_name, service_name, _svc, proc in infra.all_core_services():
-        for dotted in sorted(proc.consumes_refs()):
+    for cb_name, svc_name, _cb, svc in infra.all_core_services():
+        for dotted in sorted(svc.consumes_refs()):
             target = _resolve_service(infra, dotted)
             if target is None:
                 continue
-            _t_svc, _t_proc_name, t_proc = target
-            if t_proc.role == "scheduler":
+            _t_cb, _t_svc_name, t_svc = target
+            if t_svc.role == "scheduler":
                 continue
             absent = []
-            if t_proc.port is None:
+            if t_svc.port is None:
                 absent.append("port")
-            if (t_proc.model_extra or {}).get("health_check_path") is None:
+            if (t_svc.model_extra or {}).get("health_check_path") is None:
                 absent.append("health_check_path")
             if absent:
                 entry = underdeclared.setdefault(dotted, (absent, set()))
-                entry[1].add(ServiceRef(svc_name, service_name).dotted)
+                entry[1].add(ServiceRef(cb_name, svc_name).dotted)
     for dotted in sorted(underdeclared):
         absent, consumers = underdeclared[dotted]
         problems.append(
@@ -652,39 +655,39 @@ def _gate_healthcheck_tooling(
         )
 
 
-def _gate_service_scripts(
+def _gate_codebase_scripts(
     worktree: Path,
     ctx: ProjectContext,
     report: CheckReport,
 ) -> None:
-    """``build.sh`` and ``test.sh`` for every core service; ``migrate.sh``
-    for any service that's a schema owner."""
+    """``build.sh`` and ``test.sh`` for every codebase; ``migrate.sh``
+    for any codebase that's a schema owner."""
     problems: list[str] = []
-    services = codebases(ctx)
-    schema_owners = set(services_with_schema(ctx))
+    all_codebases = codebases(ctx)
+    schema_owners = set(codebases_with_schema(ctx))
 
-    for svc in services:
-        svc_root = worktree / "core" / svc
+    for cb in all_codebases:
+        cb_root = worktree / "core" / cb
         for script in ("build.sh", "test.sh"):
-            path = svc_root / script
+            path = cb_root / script
             if not path.is_file():
-                problems.append(f"core/{svc}/{script} missing")
+                problems.append(f"core/{cb}/{script} missing")
             elif not _is_executable(path):
-                problems.append(f"core/{svc}/{script} not executable")
-        if svc in schema_owners:
-            mpath = svc_root / "migrate.sh"
+                problems.append(f"core/{cb}/{script} not executable")
+        if cb in schema_owners:
+            mpath = cb_root / "migrate.sh"
             if not mpath.is_file():
-                problems.append(f"core/{svc}/migrate.sh missing")
+                problems.append(f"core/{cb}/migrate.sh missing")
             elif not _is_executable(mpath):
-                problems.append(f"core/{svc}/migrate.sh not executable")
+                problems.append(f"core/{cb}/migrate.sh not executable")
 
     if problems:
-        report.add("service_scripts", False, "; ".join(problems))
+        report.add("codebase_scripts", False, "; ".join(problems))
     else:
         report.add(
-            "service_scripts",
+            "codebase_scripts",
             True,
-            f"build.sh/test.sh present for {len(services)} service(s)",
+            f"build.sh/test.sh present for {len(all_codebases)} codebase(s)",
         )
 
 
@@ -847,7 +850,7 @@ def run_check(
             _gate_version_not_released(project_root, worktree, git, report)
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
         _gate_health_endpoints(worktree, worktree_ctx, contracts, report)
-        _gate_service_scripts(worktree, worktree_ctx, report)
+        _gate_codebase_scripts(worktree, worktree_ctx, report)
         _gate_healthcheck_tooling(worktree, worktree_ctx, docker, report)
         _gate_observability_backend_url_reachable(worktree_ctx, report)
 

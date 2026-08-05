@@ -243,7 +243,7 @@ class AWSClient(Protocol):
         """Return True iff the ECR repository ``repository`` contains an
         image with the given ``tag``.
 
-        Used by ``rollback`` to confirm every core service has an image
+        Used by ``rollback`` to confirm every codebase has an image
         at the target version before any infra is touched. Maps to ECR
         ``describe_images`` with ``imageTag=<tag>``;
         ``ImageNotFoundException`` and ``RepositoryNotFoundException``

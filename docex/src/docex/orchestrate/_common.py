@@ -7,7 +7,7 @@ The functions here cover concerns that are reused across ``up``,
     ``docex compile`` before ``docex up``.
   * Validate that the named env is one this command supports.
   * Locate the compiled compose file for an env.
-  * Enumerate the core services / schema-owning services.
+  * Enumerate the codebases / schema-owning codebases.
   * Resolve a codebase to its emitted **exec service** — the container the
     per-codebase operations (``migrate``, ``test``, ``build``) run inside.
 """
@@ -92,15 +92,15 @@ def assert_fixed_env(env: str, *, command: str) -> None:
 
 
 def codebases(ctx: ProjectContext) -> list[str]:
-    """Return the codebase keys of every core service, sorted.
+    """Return the key of every codebase, sorted.
 
     These are *authoring* keys (``api``), not compiled identities
     (``api-web``) — every consumer here is a per-codebase operation
-    (``core/<svc>/``, the image ref, ``build.sh``).
+    (``core/<codebase>/``, the image ref, ``build.sh``).
 
     Sorted output keeps ``docex build`` / ``docex test`` deterministic
     across runs — a developer running ``docex test`` twice sees the
-    same per-service order both times.
+    same per-codebase order both times.
     """
     if ctx.infra is None:
         return []
@@ -108,7 +108,7 @@ def codebases(ctx: ProjectContext) -> list[str]:
 
 
 def scheduler_only_services(ctx: ProjectContext) -> list[str]:
-    """Codebase keys with NO long-running core service, sorted.
+    """Codebase keys with NO long-running core services, sorted.
 
     Every core service of such a codebase is a ``scheduler``, so the
     codebase contributes no ordinary compose service block at all — only
@@ -137,26 +137,26 @@ def scheduler_only_services(ctx: ProjectContext) -> list[str]:
     )
 
 
-def services_with_schema(ctx: ProjectContext) -> list[str]:
-    """Return core services that declare ``schema_owned_by``.
+def codebases_with_schema(ctx: ProjectContext) -> list[str]:
+    """Return the codebases that own a backing-service schema.
 
-    These are the services whose ``migrate.sh`` must be invoked by
+    These are the codebases whose ``migrate.sh`` must be invoked by
     ``up`` (dev/test), ``migrate`` (dev/test), and ``test``. Sorted
     for determinism, matching ``codebases``.
     """
     if ctx.infra is None:
         return []
-    # A core service "owns a schema" by declaring schema_owned_by on
-    # the backing service; we look at backing services whose value
-    # points at a core service.
+    # A codebase owns a schema by declaring schema_owned_by on the
+    # backing service; we look at backing services whose value points
+    # at a codebase.
     schema_owners: set[str] = set()
     for _name, backing in (ctx.infra.backing_services or {}).items():
         owner = getattr(backing, "schema_owned_by", None)
         if owner:
             schema_owners.add(owner)
-    # Filter to those that are actually core services in the doc.
-    valid_core = set(codebases(ctx))
-    return sorted(schema_owners & valid_core)
+    # Filter to those that are actually codebases in the doc.
+    valid_codebases = set(codebases(ctx))
+    return sorted(schema_owners & valid_codebases)
 
 
 def _codebase_naming_policy(
@@ -164,14 +164,15 @@ def _codebase_naming_policy(
 ) -> NamingPolicy | None:
     """The naming policy for a codebase-keyed identity.
 
-    A codebase-keyed name has no core service and therefore no single role to
-    resolve an engine from. Every core service of the codebase must agree on
+    A codebase-keyed name has no core service of its own and therefore no
+    single role to resolve an engine from. Every core service of the codebase
+    must agree on
     the policy for the name to be well-defined, so we resolve all of them and
     require agreement rather than picking one — picking one is precisely the
     instability Mod 099 removed from migration sizing. All bundled core roles
     use ``ecs``.
 
-    Mirrors the compiler's own per-process engine resolution (first engine in
+    Mirrors the compiler's own per-service engine resolution (first engine in
     sorted order that supports ``foundation``), because the names derived from
     this must match ``CompiledService.codebase_global_name`` byte-for-byte.
     Both codebase-keyed identities outside the compiler come through here:
@@ -179,9 +180,9 @@ def _codebase_naming_policy(
     ``migrate.py::_migration_task_family`` (``-migrate``).
 
     Returns ``None`` when the policy cannot be derived at all (unknown
-    codebase, no core service, or no engine supporting ``foundation``); each
+    codebase, no core services, or no engine supporting ``foundation``); each
     caller decides whether that is a hard error or a best-effort fallback.
-    Raises when the core service *disagree*, which is never a fallback case:
+    Raises when the core services *disagree*, which is never a fallback case:
     the name would be ambiguous and silently wrong.
     """
     core = (ctx.infra.codebases or {}).get(codebase) if ctx.infra else None
@@ -207,10 +208,10 @@ def _codebase_naming_policy(
         return None
     if len(resolved) > 1:
         detail = ", ".join(
-            f"{proc!r} → {pol!r}" for pol, proc in sorted(resolved.items())
+            f"{svc!r} → {pol!r}" for pol, svc in sorted(resolved.items())
         )
         raise InfraFileError(
-            f"core service {codebase!r}: its core service resolve to "
+            f"codebase {codebase!r}: its core services resolve to "
             f"different naming policies ({detail}), so the codebase-keyed "
             f"name is ambiguous. A codebase-scoped identity (the exec "
             f"service, the migration task definition) needs one policy for "
@@ -245,8 +246,8 @@ def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
     if policy is None:
         raise InfraFileError(
             f"cannot derive the exec service key for codebase {codebase!r} "
-            f"in {env!r}: it is not a core service in infra.yml, declares no "
-            f"core service, or none of its roles has an engine supporting "
+            f"in {env!r}: it is not a codebase in infra.yml, declares no "
+            f"core services, or none of its roles has an engine supporting "
             f"the fixed foundation."
         )
     key = f"{codebase_global_name(ctx.project.name, env, codebase, policy)}-exec"

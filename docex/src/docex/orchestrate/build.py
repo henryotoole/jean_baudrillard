@@ -1,4 +1,4 @@
-"""``docex build [<svc>]`` — refresh ``dist/`` in the running dev env.
+"""``docex build [<codebase>]`` — refresh ``dist/`` in the running dev env.
 
 This is the dev-iteration build path. The canonical, ship-worthy build
 happens inside ``docker build`` (which runs ``build.sh`` in the build
@@ -8,7 +8,7 @@ developer wants fresh artifacts without paying for a container rebuild.
 Per cicd.md § Build Step (dev iteration):
 
   1. Verify dev is running.
-  2. Clear ``$pr/core/<svc>/dist/`` on the host.
+  2. Clear ``$pr/core/<codebase>/dist/`` on the host.
   3. ``compose run --rm`` the codebase's exec service with ``./build.sh``
      (Mod 099; ``cicd.md § Build Step`` still says ``exec`` and is Mod
      106's to fix).
@@ -41,11 +41,11 @@ def run_build(
     ctx: ProjectContext,
     docker: DockerClient,
     *,
-    service: str | None = None,
+    codebase: str | None = None,
 ) -> int:
-    """Run ``build.sh`` for one or all core services.
+    """Run ``build.sh`` for one or all codebases.
 
-    ``service=None`` builds every core service in deterministic order.
+    ``codebase=None`` builds every codebase in deterministic order.
     The first failure short-circuits the rest (matches the doctrine's
     "fail at the first non-zero exit" contract for build).
     """
@@ -73,20 +73,20 @@ def run_build(
             "dev env is not running; run 'docex up dev' first."
         )
 
-    all_cores = codebases(ctx)
-    if service is None:
-        targets = all_cores
+    all_codebases = codebases(ctx)
+    if codebase is None:
+        targets = all_codebases
     else:
-        if service not in all_cores:
+        if codebase not in all_codebases:
             raise EnvNotSupported(
-                f"service {service!r} is not a core service; "
-                f"known core services: {all_cores}"
+                f"{codebase!r} is not a codebase in infra.yml; "
+                f"known codebases: {all_codebases}"
             )
-        targets = [service]
+        targets = [codebase]
 
-    for svc in targets:
+    for cb in targets:
         rc = _build_one(
-            ctx, docker, compose_file, svc,
+            ctx, docker, compose_file, cb,
             env_file=env_file, project_name=project_name,
         )
         if rc != 0:
@@ -98,17 +98,17 @@ def _build_one(
     ctx: ProjectContext,
     docker: DockerClient,
     compose_file: Path,
-    svc: str,
+    codebase: str,
     *,
     env_file: Path | None,
     project_name: str,
 ) -> int:
-    """Run the full dev-iteration build path for a single service."""
+    """Run the full dev-iteration build path for a single codebase."""
     # The codebase's exec service — the container that *is* the codebase
     # (Mod 099). `build.sh` therefore sees codebase-scoped env only, and the
     # codebase → container rule is a construction, not a suffix scan.
-    service_key = exec_service_key(ctx, _BUILD_ENV, svc)
-    # MOD 099 DELETED the per-service "is this container running" gate and
+    service_key = exec_service_key(ctx, _BUILD_ENV, codebase)
+    # MOD 099 DELETED the per-codebase "is this container running" gate and
     # its crash-loop diagnostic (Gap D, mod 050) that stood here. Mechanically
     # it had to go: the exec service is `profiles:`-gated and so is never in
     # the running set by construction. But it should have gone anyway — the
@@ -122,7 +122,7 @@ def _build_one(
     # whole-stack `if not running: raise EnvNotRunning` in `run_build` stays.
 
     # Step 2: clear host-side dist/.
-    dist_dir = ctx.project_root / "core" / svc / "dist"
+    dist_dir = ctx.project_root / "core" / codebase / "dist"
     if dist_dir.exists():
         # Wipe contents, not the directory itself — the bind mount
         # would otherwise need to be re-established by the container.
@@ -149,7 +149,7 @@ def _build_one(
     )
     if rc != 0:
         print(
-            f"error: build.sh for service {svc!r} exited {rc}.",
+            f"error: build.sh for codebase {codebase!r} exited {rc}.",
             file=sys.stderr,
         )
         return rc
@@ -157,12 +157,12 @@ def _build_one(
     # Step 4: assert dist/ non-empty.
     if not dist_dir.exists() or not any(dist_dir.iterdir()):
         raise BuildFailed(
-            f"build.sh for {svc!r} exited 0 but {dist_dir} is empty. "
+            f"build.sh for {codebase!r} exited 0 but {dist_dir} is empty. "
             "Likely causes: build.sh wrote to a different path, or the "
             "container's /service/dist isn't bind-mounted to "
             f"{dist_dir} (check 'docex compile' regenerated the "
             "compose file with the Phase 2 bind-mount patch)."
         )
 
-    print(f"build: refreshed {svc} dist/ ({sum(1 for _ in dist_dir.iterdir())} entries)")
+    print(f"build: refreshed {codebase} dist/ ({sum(1 for _ in dist_dir.iterdir())} entries)")
     return 0

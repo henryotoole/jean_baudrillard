@@ -20,7 +20,7 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
 
-# WHY: the default must match infra.yml's `port: 8080` for this process
+# WHY: the default must match infra.yml's `port: 8080` for this core service
 # type — nothing injects PORT, so the two are coupled by convention.
 port = int(os.environ.get("PORT", "8080"))
 

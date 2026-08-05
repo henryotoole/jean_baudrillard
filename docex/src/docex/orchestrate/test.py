@@ -6,7 +6,7 @@ Per cicd.md § Build Test Step:
      runs build.sh in the build stage so test images carry correct
      artifacts).
   2. Migrate against the test env.
-  3. Run each core service's test.sh, collecting exit codes.
+  3. Run each codebase's test.sh, collecting exit codes.
   4. Always tear down with ``preserve_volumes=False`` (test env is
      throwaway; fresh runs get fresh databases).
 
@@ -27,7 +27,7 @@ from docex.orchestrate._common import (
     ensure_compiled,
     env_compose_project,
     exec_service_key,
-    services_with_schema,
+    codebases_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
 
@@ -98,8 +98,8 @@ def run_test(
         # rebuilding the image; that asymmetry is why this is not
         # unconditional. `run_test` is the `test` env by construction
         # (`_TEST_ENV`), so it passes True flat.
-        for svc in services_with_schema(ctx):
-            key = exec_service_key(ctx, _TEST_ENV, svc)
+        for cb in codebases_with_schema(ctx):
+            key = exec_service_key(ctx, _TEST_ENV, cb)
             rc = docker.compose_run_one_off(
                 compose_file, key, ["./migrate.sh"], build=True,
                 env_file=env_file, project_dir=project_dir,
@@ -107,14 +107,14 @@ def run_test(
             )
             if rc != 0:
                 print(
-                    f"error: migrate.sh for {svc!r} in test env exited {rc}.",
+                    f"error: migrate.sh for {cb!r} in test env exited {rc}.",
                     file=sys.stderr,
                 )
                 first_failure = rc
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. test.sh for each core service, in the codebase's exec service.
+        # 3. test.sh for each codebase, in the codebase's exec service.
         # Mod 103: no scheduler carve-out. The exec service is emitted for
         # every codebase — scheduler-only ones included — so a codebase with no
         # long-running container in the `test` stack still has somewhere to run

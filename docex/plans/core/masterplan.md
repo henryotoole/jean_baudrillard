@@ -113,12 +113,12 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `bootstrap` | elastic only (no-op on fixed) | `project.yml`, AWS creds | AWS: S3 bucket + DynamoDB table for tofu state |
 | `up <env>` | fixed envs only (`dev`/`test`) | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env` | host docker (compose up; runs migrations after) |
 | `down <env>` | fixed envs only | running compose stack | host docker (compose down; keeps named volumes) |
-| `build [<svc>]` | dev iteration | a running `dev` stack, `core/<svc>/{src,build.sh}` | `core/<svc>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
+| `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
 | `test` | fresh `test` env | full project | host docker (ephemeral test stack), exit code |
 | `migrate <env>` | both | service images at current version, `infra/secrets/<env>.env` | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test |
 | `merge` | both | feature branch, `project.yml` | rebases onto main, tags `v<version>`, pushes both |
-| `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per core service, tag, push to registry |
+| `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per codebase, tag, push to registry |
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
 | `stagetest` | both | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL | ephemeral stage-tester container, exit code |
 | `rollback <env> <target_version>` | both, branches internally | `v<target_version>` git tag, target version's `infra.yml` (via ephemeral worktree), `infra/secrets/<env>.env` | recompiled output (in worktree), foundation-specific apply with migrations skipped |
@@ -130,7 +130,7 @@ Each command's authoritative behavior lives in [docex.md](../../../doctrine/infr
 A few commands compose others rather than duplicate logic:
 
 - `check` invokes `compile` (to verify it succeeds), `build` (via `docker build` during test), and `test`.
-- `up` and `test` cause `docker build` to run as needed, which in turn runs each service's `build.sh` inside the `build` stage. Two gaps in that sentence are closed explicitly, both because **`compose up --build` does not build a `profiles:`-gated service** and `compose run` builds only when an image is *absent* (never when a present one is stale):
+- `up` and `test` cause `docker build` to run as needed, which in turn runs each codebase's `build.sh` inside the `build` stage. Two gaps in that sentence are closed explicitly, both because **`compose up --build` does not build a `profiles:`-gated service** and `compose run` builds only when an image is *absent* (never when a present one is stale):
   - **`test`-env one-offs pass `--build`.** In `test` the image *is* the artifact under test, and for a codebase with no non-gated compose service nothing else ever refreshes its tag. `dev` deliberately does not: there the source arrives by bind mount and the `dev` stage exists precisely so `build.sh` can be re-invoked *without* an image rebuild, so `docex build` — the hot iteration loop — must not pay for one.
   - **`up dev` builds a scheduler-only codebase's image itself**, since no compose service of that codebase builds it. See [compiler.md § The scheduler trigger](./compiler.md#the-scheduler-trigger).
 - `release` invokes `migrate` against the target env before applying new application state.
@@ -146,13 +146,13 @@ A few commands compose others rather than duplicate logic:
 - Doctrine prose excerpts that back `docex why`.
 
 **Not bundled (lives in the project):**
-- Per-service `build.sh`, `test.sh`, `migrate.sh` — bespoke per service and per language.
-- Per-service `Dockerfile`s.
-- Language runtimes and toolchains for project code — those live inside each service's image.
+- Per-codebase `build.sh`, `test.sh`, `migrate.sh` — bespoke per codebase and per language.
+- Per-codebase `Dockerfile`s.
+- Language runtimes and toolchains for project code — those live inside each codebase's image.
 - Project-local transfer table extensions at `infra/transfer_tables/` (deep-merged with bundled tables at compile time).
 - The stage-tester image definition at `infra/stage/Dockerfile` and the stage tests themselves.
 
-**Principle:** `docex` orchestrates; per-service containers do language-specific work. The `docex` image never needs Node, Go, or a service-specific build environment — it just invokes `docker` and friends correctly.
+**Principle:** `docex` orchestrates; per-codebase containers do language-specific work. The `docex` image never needs Node, Go, or a codebase-specific build environment — it just invokes `docker` and friends correctly.
 
 ## Filesystem Surface
 
@@ -162,19 +162,19 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `project.yml` — name, version, docex_version
 - `infra/infra.yml` — CICL source
 - `infra/transfer_tables/` (optional) — project-local table extensions
-- `infra/contracts/<svc>.<proc>.<fmt>.yml` — per-provider contracts (validated during `check`)
+- `infra/contracts/<codebase>.<service>.<fmt>.yml` — per-provider contracts (validated during `check`)
 - `infra/secrets/<env>.env` — operator-maintained secret values
 - `infra/config/<env>.env` — operator-maintained non-secret per-env config values
 - `infra/tte/<env>.env` — dev/test TTE (transient-to-env) store, read during aggregation (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md))
 - `infra/deploy_creds/<env>` — SSH private key for fixed `release`
 - `infra/stage/{Dockerfile, stage_test.sh, tests/}` — stage tester definition and tests
-- `core/<svc>/{Dockerfile, build.sh, test.sh, migrate.sh, src/, migrations/, tests/}` — per-service source and shims
+- `core/<codebase>/{Dockerfile, build.sh, test.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
 - `CHANGELOG.md` — referenced by `merge` for version-bump validation
 - `.git/` — required by `check`, `merge`, and any command that needs commit identity
 
 **Write:**
 - `infra/output/<env>/...` — `compile` output (compose + ansible for fixed envs; HCL for elastic envs)
-- `core/<svc>/dist/` — `build` output (dev iteration only; formal builds keep artifacts inside `docker build`)
+- `core/<codebase>/dist/` — `build` output (dev iteration only; formal builds keep artifacts inside `docker build`)
 - `infra/tte/<env>.env` — dev/test TTE minting (mint-if-absent during aggregation)
 - `.docex/agg/<env>.env` — the derived container-facing aggregate (gitignored, under the existing `.docex/`)
 - Ephemeral git worktrees under `.docex/worktrees/` (or similar) — created and destroyed by `check`
@@ -240,13 +240,13 @@ Two of those gates are the only place `consumes:` is read, and their criteria ar
 
 - **Provider set = (`consumes` targets) ∪ (`web`-network core services)**, minus `scheduler` core services. Both arms are load-bearing. The first is the declared interface graph. The second catches every publicly reachable boundary even when nothing *inside* the project consumes it — drive the set off `consumes` alone and a public edge silently loses its contract, taking with it everything the health gate has to validate.
 - **Contract format follows the provider's `role`** — `web` → openapi, `worker` → asyncapi. The role is what fixes the communication mechanism, so it is the honest source. An unrecognized role falls back to openapi rather than raising (raising would deny the operator every *other* gate's result, which is what the aggregation pattern exists to avoid) and the fallback is named in the gate's detail line so it is never silent.
-- **Contract paths are parsed right-anchored** — `<codebase>.<service>.<fmt>.yml`, counting segments from the right. The path is process-keyed unconditionally, because one codebase may run two HTTP core services (a public `api`, an internal `admin`) and both are genuine boundaries.
+- **Contract paths are parsed right-anchored** — `<codebase>.<service>.<fmt>.yml`, counting segments from the right. The path is service-keyed unconditionally, because one codebase may run two HTTP core services (a public `api`, an internal `admin`) and both are genuine boundaries.
 - **Self health** is required of every *OpenAPI* provider, web-network or not. A `worker` is not checked in its contract because AsyncAPI has no natural place for an HTTP path — not because it is exempt; its self-health is asserted through its fields instead.
-- **The fan-out** — `GET /health/<svc>/<proc>` — is keyed off `consumes`, for each target not itself on `web`. Not `depends_on`: a web edge does not depend on its worker (it needs the *broker* up), and rule 24 forbids a core `depends_on` outright, so a `depends_on`-keyed gate requires nothing at all of a web → worker edge. A dead consumer is invisible from outside — requests keep returning 200 while work piles up behind it. Targets that *are* on `web` are skipped: they are publicly reachable and answer their own `/health`, so there is nothing to proxy.
+- **The fan-out** — `GET /health/<codebase>/<service>` — is keyed off `consumes`, for each target not itself on `web`. Not `depends_on`: a web edge does not depend on its worker (it needs the *broker* up), and rule 24 forbids a core `depends_on` outright, so a `depends_on`-keyed gate requires nothing at all of a web → worker edge. A dead consumer is invisible from outside — requests keep returning 200 while work piles up behind it. Targets that *are* on `web` are skipped: they are publicly reachable and answer their own `/health`, so there is nothing to proxy.
 - **A `consumes` target must declare both `port` and `health_check_path`.** Those two fields *are* its health declaration, and on elastic the `port` is also exactly what makes it Service-Connect-discoverable. Distinct from rule 28, which constrains a core service that *has* `health_check_path`; this requires a consumes target to have it at all.
 - **The curl gate stays keyed off `health_check_path`**, not `role`. The compiler emits the curl healthcheck from the field, so the field is what the requirement follows.
 
-Mod 101 wrote these; before it, `_infer_contract_format` had returned `openapi` unconditionally since the day it was written (its asyncapi branch looked a *core* service name up in `backing_services`, which `model.py` forbids from overlapping), so the async-contract path had never once executed and the `depends_on`-keyed fan-out flaw went unnoticed behind it.
+Mod 101 wrote these; before it, `_infer_contract_format` had returned `openapi` unconditionally since the day it was written (its asyncapi branch looked a *codebase* name up in `backing_services`, which `model.py` forbids from overlapping), so the async-contract path had never once executed and the `depends_on`-keyed fan-out flaw went unnoticed behind it.
 
 ## Repository Structure
 
