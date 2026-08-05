@@ -1,4 +1,4 @@
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: "example.com"
 observability_backend_url: "https://hyperdx.example.com"
@@ -20,7 +20,7 @@ codebases:
         command: ["python", "/service/dist/app.py"]
         port: 8080
         networks: [web, internal]
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 1.0
           memory: 2GB

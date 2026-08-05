@@ -1,4 +1,4 @@
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: "luxrnd.tech"
 # The web *core service* on the bare <env>.<project>.<apex> subdomain.
@@ -42,19 +42,19 @@ codebases:
         # container's docker healthcheck via the role's
         # `health_check_path` field translation.
         health_check_path: /health
-        depends_on: [appdb, probe, events]
-        # Interface edge, not a readiness gate: `api.web` proxies the
-        # worker's liveness at /health/api/worker and therefore speaks to
-        # that boundary. One direction only — this worker polls a table and
-        # never calls the web edge, so the reverse edge would be a false
-        # declaration. (cicl.md § Consumes Relationships.)
-        consumes: [api.worker]
+        # ONE relation: bare entries name backing services, the dotted entry
+        # names a core service. `api.web` proxies the worker's liveness at
+        # /health/api/worker and therefore speaks to that boundary. One
+        # direction only — this worker polls a table and never calls the web
+        # edge, so the reverse edge would be a false declaration.
+        # (cicl.md § Uses Relationships.)
+        uses: [appdb, probe, events, api.worker]
         env:
           # Core-service-scoped: only the web edge exposes /health/{probe,events},
           # so only it declares these refs — which is what keeps `probe` and
-          # `events` out of the worker's depends_on. Per rule 7 a
+          # `events` out of the worker's `uses`. Per rule 7 a
           # CODEBASE-level ref would oblige EVERY core service to declare the
-          # edge, forcing the worker to depend on backings it never touches.
+          # edge, forcing the worker to declare backings it never touches.
           #
           # Project-local container backings: nginx sidecar + ClickHouse
           # analytics_db.
@@ -64,8 +64,8 @@ codebases:
           CLICKHOUSE_PORT: ${backing_services.events.port}
           # Four-segment core magic refs — the worker's docker-DNS address
           # (ECS Service Connect on elastic), used by the /health/api/worker
-          # fan-out. Holding these refs is what obliges `consumes:
-          # [api.worker]` above.
+          # fan-out. Holding these refs is what obliges the `api.worker`
+          # entry in `uses:` above.
           WORKER_HOST: ${codebases.api.core_services.worker.host}
           WORKER_PORT: ${codebases.api.core_services.worker.port}
         resources:
@@ -77,12 +77,12 @@ codebases:
         command: ["python", "/service/dist/entrypoints/worker.py"]
         # A port purely for the liveness probe: a worker is never routed
         # (it isn't on the `web` network, so rule 15 doesn't apply), but a
-        # `consumes` target must be probeable, and on elastic the port is
+        # core `uses` target must be probeable, and on elastic the port is
         # also what makes it Service-Connect-discoverable.
         port: 8081
         health_check_path: /health
         networks: [internal]
-        depends_on: [appdb]
+        uses: [appdb]
         # Honoured in `prod` only — clamped to 1 in dev/test/stage. The prod
         # release is therefore the only thing that exercises the fixed
         # replica unroll; see PRE_CUT_CHECKLIST.md § C.9.
@@ -114,7 +114,7 @@ codebases:
         schedule: "0 3 * * *"          # 03:00 UTC daily
         command: ["python", "/service/dist/entrypoints/prune.py"]
         networks: [internal]
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 0.25
           memory: 512MB

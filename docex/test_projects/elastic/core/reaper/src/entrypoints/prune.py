@@ -3,7 +3,7 @@
 Run-to-completion: one reap pass, then exit with the adapter's status. No
 tick and no health server — `scheduler` core services are **exempt** from
 the health model (contracts.md § Self health). There is no long-running
-container to probe, and a scheduler is never a `consumes` target; "did last
+container to probe, and a scheduler is never a `uses` target; "did last
 night's job run" is a telemetry question.
 
 Launched by the trigger on each fire — Ofelia on fixed, an EventBridge

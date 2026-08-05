@@ -31,6 +31,7 @@ from docex.cicl.model import (
     Codebase,
     ServiceRef,
     Resources,
+    names_core_service,
 )
 from docex.cicl.substitute import HCLLiteral, substitute_tree
 from docex.cicl.transfer import EngineEntry, TransferTables
@@ -467,7 +468,17 @@ class CompiledService:
     global_name: str
     body: dict[str, Any]  # merged transfer-table block (resolved)
     networks: list[str]  # docker network / SG short names
-    depends_on: list[str]
+    # The authored `uses:` entries, VERBATIM — bare for a backing target,
+    # dotted for a core one. See cicl.md § Uses Relationships.
+    #
+    # WHY one field with two derived accessors, and not two fields: the
+    # backing/core split below is DERIVED FROM TARGET KIND, not authored.
+    # There is one relation in `infra.yml` (the two-field
+    # `depends_on`/`consumes` split was retired in 1.7.0), and storing the
+    # split would invite a construction site that populates the two lists
+    # inconsistently. Nothing can land in the wrong list because nothing is
+    # placed into a list at all.
+    uses: list[str]
     port: int | None
     env: dict[str, Any]  # core service `env` block, resolved
     # Public host(s) this service is routed at (empty if not web-network).
@@ -521,17 +532,36 @@ class CompiledService:
     # the prod-only clamp on top of it. Consumed by the fixed compose unroll
     # and by the elastic ECS `desired_count` (Mod 100).
     replicas: int = 1
-    # Rule 25's interface edges, as COMPILED identities (`api-worker`) — the
-    # same keys into `CompiledEnv.services` that `depends_on` holds, so an edge
-    # of either relation resolves with one dict lookup. Empty for a backing
-    # service, which has no `consumes:` (rule 14). Mod 104 compiles it for
-    # `describe`'s union view; it is a declared field on both models, so it
-    # cannot reach field translation and nothing is emitted from it.
-    # WHY here rather than beside `depends_on`, where it belongs conceptually:
-    # `depends_on` sits in this dataclass's non-defaulted region, and a field
-    # inserted there would break the three sites that construct
-    # `CompiledService` positionally/directly. Do not "correct" the placement.
-    consumes: list[str] = field(default_factory=list)
+    # --- The one and only derivation of the backing / core split ----------
+    # Both classify through `names_core_service`, i.e. on `"." in entry`.
+    # That is total and unambiguous: `_SERVICE_NAME_RE` forbids a dot in any
+    # service name, so bare/dotted partitions the entries with no overlap and
+    # no gap, and rule 25 makes that partition *mean* target kind.
+
+    @property
+    def uses_backing(self) -> list[str]:
+        """`uses` targets that are backing services. A backing service's
+        compiled identity IS its bare name, so no translation is needed."""
+        return [u for u in self.uses if not names_core_service(u)]
+
+    @property
+    def uses_core(self) -> list[str]:
+        """`uses` targets that are core services, as COMPILED identities
+        (`api-worker`) — the same keys into `CompiledEnv.services`.
+
+        Unparseable entries are dropped, exactly as the authoring-model
+        accessor drops them: rule 25 reports each malformed entry once, and it
+        must not ALSO resurface downstream.
+        """
+        out: list[str] = []
+        for entry in self.uses:
+            if not names_core_service(entry):
+                continue
+            try:
+                out.append(ServiceRef.parse(entry).compiled)
+            except ValueError:
+                continue
+        return out
 
 
 @dataclass
@@ -1018,7 +1048,7 @@ def compile_env(
             global_name=ctx["global_service_name"],
             body=body,
             networks=list(svc.networks),
-            depends_on=list(svc.depends_on or []),
+            uses=(list(svc.uses or []) if is_core else []),
             # Fall back to engine.default_port when the project doesn't
             # declare port: in infra.yml. The substitution context (line
             # 379) already does this fallback for the ${port} variable
@@ -1073,19 +1103,6 @@ def compile_env(
             ),
             codebase_env=codebase_env,
             replicas=(svc.replicas if is_core else 1),
-            # `consumes_refs()` (Mod 101) is the ONE parse of rule 25's field —
-            # it normalizes to the dotted reference form and drops entries that
-            # do not parse, so a malformed entry is reported once by rule 25 and
-            # never resurfaces here as a phantom node. Re-parsing dotted →
-            # compiled is the price of not writing a second parser; every entry
-            # is known-parseable by construction.
-            consumes=(
-                sorted(
-                    ServiceRef.parse(dotted).compiled
-                    for dotted in svc.consumes_refs()
-                )
-                if is_core else []
-            ),
         )
 
     return CompiledEnv(
@@ -1147,8 +1164,6 @@ def _apply_fixed_invariants(
     # Map short network names to project-scoped names via top-level
     # ``networks:`` section. The compose emitter rewires these.
     out["networks"] = list(svc.networks)
-    if svc.depends_on:
-        out["depends_on"] = list(svc.depends_on)
     return out
 
 

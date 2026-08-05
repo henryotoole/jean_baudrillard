@@ -1,6 +1,6 @@
 """Pydantic v2 schema for ``infra.yml`` (CICL).
 
-Cross-document validation (depends_on graph, magic-ref resolution,
+Cross-document validation (the `uses` graph, magic-ref resolution,
 container_registry-on-fixed, etc.) lives in ``compile.py`` — this
 module covers only what can be checked from a single ``infra.yml`` in
 isolation. See ``cicl.md`` for the full validation rules list.
@@ -27,7 +27,24 @@ _SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
 # validator and rollback's pre-flight precondition both compare against
 # it — WHY: two literals for one fact would drift at the worst possible
 # moment, the next CICL generation. See cicl.md § CICL Version.
-CURRENT_CICL_VERSION = "2"
+CURRENT_CICL_VERSION = "3"
+
+
+def names_core_service(entry: str) -> bool:
+    """Classify one ``uses:`` entry by FORM: dotted ⇒ core, bare ⇒ backing.
+
+    WHY form is a sound proxy for target kind, totally and unambiguously:
+    ``_SERVICE_NAME_RE`` forbids a dot in any name, and
+    ``CICLDocument._validate_service_names`` enforces it on codebase names,
+    core-service names, and backing-service names alike. So "contains a dot"
+    partitions the entries with no overlap and no gap, and cicl.md rule 25
+    makes that partition *mean* target kind.
+
+    The split is derived, never authored — every consumer of it (the authoring
+    accessors below, ``CompiledService.uses_backing`` / ``uses_core``) routes
+    through here so there is exactly one place it can be got wrong.
+    """
+    return "." in entry
 
 
 @dataclass(frozen=True)
@@ -35,7 +52,7 @@ class ServiceRef:
     """A reference to one core service of one codebase.
 
     Dots for reference, hyphens for emission (cicl.md § Dots for reference,
-    hyphens for emission). Authoring and reference forms — ``consumes:``
+    hyphens for emission). Authoring and reference forms — ``uses:``
     targets, ``domain_default_service``, magic refs, ``describe`` node ids —
     are dotted; emitted data-plane names are hyphenated. This type is the one
     place that rule is expressed.
@@ -127,15 +144,12 @@ class CoreService(BaseModel):
     networks: list[str] = Field(min_length=1)
     resources: Resources
     port: int | None = None
-    # Rule 24: backing services only. A core service here is an error.
-    depends_on: list[str] = Field(default_factory=list)
-    # Rule 25: core service only, dotted and fully qualified
-    # ("api.worker"). The interface half of the split `depends_on` used to
-    # conflate — `depends_on` is a readiness gate over backing services,
-    # `consumes` is an interface edge between core services. CI-only:
-    # contracts, the health fan-out, and rule 7 read it; nothing is emitted
-    # from it. See cicl.md § Consumes Relationships.
-    consumes: list[str] = Field(default_factory=list)
+    # cicl.md § Uses Relationships. ONE relation: a bare entry names a backing
+    # service, a dotted entry names a core service, fully qualified. Only core
+    # services declare it — a backing service has no outbound edges and is a
+    # graph SINK, which is what makes the cycle rule fall out of the graph's
+    # shape instead of being enforced against it (rule 6, retired 1.7.0).
+    uses: list[str] = Field(default_factory=list)
     # Carried onto CompiledService as the DECLARED value; `effective_replicas`
     # (compile.py) applies the prod-only clamp. Read by the fixed compose
     # unroll and the elastic ECS `desired_count` (Mod 100).
@@ -143,6 +157,28 @@ class CoreService(BaseModel):
     # The only field valid at both levels. A core service's effective env is
     # the codebase-level block merged under its own (cicl.md § Field scoping).
     env: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_retired_relations(cls, data: Any) -> Any:
+        # WHY: extra="allow" means a stray `depends_on:`/`consumes:` would land
+        # silently in model_extra and resurface as `tt_rule_4_undeclared_field`
+        # — an unrelated message about transfer-table field declarations. The
+        # 1.7.0 merge is a one-time migration mistake, so it earns a targeted
+        # message. NEVER accept either as a silent alias.
+        if not isinstance(data, dict):
+            return data
+        for stray in ("depends_on", "consumes"):
+            if stray in data:
+                raise ValueError(
+                    f"`{stray}` was retired in CICL v3. There is one relation "
+                    f"now, named `uses`: an entry names a backing service bare "
+                    f"(`database`) or a core service dotted and fully qualified "
+                    f"(`api.worker`). Merge this service's `depends_on:` and "
+                    f"`consumes:` entries into a single `uses:` list (cicl.md "
+                    f"§ Uses Relationships). See upgrades/upgrade_1.7.0.md."
+                )
+        return data
 
     @model_validator(mode="after")
     def _validate_command_nonempty(self) -> "CoreService":
@@ -153,8 +189,8 @@ class CoreService(BaseModel):
             raise ValueError("command must not be an empty list")
         return self
 
-    def consumes_refs(self) -> set[str]:
-        """This core service's ``consumes:`` targets, normalized to dotted form.
+    def core_uses(self) -> set[str]:
+        """This core service's dotted ``uses:`` targets, normalized.
 
         Entries that do not parse are dropped rather than passed through: rule 25
         reports each one once, and a malformed entry must not ALSO surface
@@ -164,12 +200,18 @@ class CoreService(BaseModel):
         dots-for-reference parse lives in exactly one place.
         """
         out: set[str] = set()
-        for raw in (self.consumes or []):
+        for raw in (self.uses or []):
+            if not names_core_service(raw):
+                continue
             try:
                 out.add(ServiceRef.parse(raw).dotted)
             except ValueError:
                 continue
         return out
+
+    def backing_uses(self) -> list[str]:
+        """Bare ``uses:`` targets, in authored order."""
+        return [raw for raw in (self.uses or []) if not names_core_service(raw)]
 
 
 # Both core and backing services share these base fields.
@@ -181,15 +223,38 @@ class _ServiceBase(BaseModel):
 
     role: str
     networks: list[str] = Field(min_length=1)
-    depends_on: list[str] = Field(default_factory=list)
     port: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_retired_relations(cls, data: Any) -> Any:
+        # WHY: extra="allow" means a stray `depends_on:`/`consumes:` would land
+        # silently in model_extra and resurface as `tt_rule_4_undeclared_field`
+        # — an unrelated message about transfer-table field declarations. This
+        # is a one-time migration mistake, so it earns a targeted message.
+        # NEVER accept either as a silent alias.
+        if not isinstance(data, dict):
+            return data
+        for stray in ("depends_on", "consumes"):
+            if stray in data:
+                raise ValueError(
+                    f"`{stray}` was retired in CICL v3. There is one relation "
+                    f"now, named `uses` — but a BACKING service declares no "
+                    f"outbound edges at all: it is a graph sink (cicl.md "
+                    f"§ Uses Relationships). Where an engine genuinely needs "
+                    f"another container beneath it, that is an engine concern "
+                    f"and belongs in the engine's transfer-table `defaults` "
+                    f"block, not in infra.yml. Delete this field. See "
+                    f"upgrades/upgrade_1.7.0.md."
+                )
+        return data
 
 
 # Fields that moved from the codebase to the core service in CICL v2.
 # Used only to produce a targeted migration error — see below.
 _MOVED_TO_SERVICE = (
     "role", "command", "networks", "resources", "port",
-    "depends_on", "replicas",
+    "uses", "replicas",
 )
 
 
@@ -322,10 +387,11 @@ class CICLDocument(BaseModel):
             raise ValueError(
                 "cicl_version '1' is no longer supported. The current generation "
                 "nests a `core_services:` block under each entry in `codebases:`, "
-                "and adds the `consumes` relation and five-segment core magic refs "
-                "(${codebases.<cb>.core_services.<svc>.<part>}). Follow "
+                "carries the single `uses` relation, and takes five-segment core "
+                "magic refs (${codebases.<cb>.core_services.<svc>.<part>}). Follow "
                 "upgrades/upgrade_1.6.0.md then upgrades/upgrade_1.7.0.md to "
-                "migrate this infra.yml, then set cicl_version: \"2\"."
+                f"migrate this infra.yml, then set cicl_version: "
+                f"\"{CURRENT_CICL_VERSION}\"."
             )
         raise ValueError(
             f"unknown cicl_version {version!r}; the current "

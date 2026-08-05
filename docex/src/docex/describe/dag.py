@@ -1,12 +1,13 @@
 """Text DAG renderer for ``docex describe <env> dag``.
 
 Output groups resources by infrastructure tier (prerequisite / project
-/ environment), then renders BOTH relations between environment services as
-arrows: ``depends_on`` (readiness, solid ``->``) and ``consumes`` (interface,
-dashed ``..>``). The rendered union is therefore a *directed* graph which may
-legally contain cycles, since ``consumes`` is a cyclic digraph by doctrine
-(``web ↔ worker``); only the readiness relation alone is acyclic. The format is
-plain ASCII so it greps and copies cleanly out of a terminal.
+/ environment), then renders the ONE relation — ``uses`` — between environment
+services as arrows of two kinds, DERIVED FROM TARGET KIND: a backing target is
+solid ``->``, a core target is dashed ``..>``. The rendered graph is directed
+and may legally contain cycles, because a cycle among core targets is legal
+and is the most common web/worker topology there is (cicl.md § The graph may
+contain cycles). The format is plain ASCII so it greps and copies cleanly out
+of a terminal.
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ def target_id(compiled: CompiledEnv, key: str) -> str:
 
     Falls back to the raw key when the target is absent. ``run_describe`` calls
     ``compile_env`` WITHOUT ``validate_document``, so a document with an
-    unresolvable ``consumes`` target reaches the renderer; ``describe`` is
+    unresolvable ``uses`` target reaches the renderer; ``describe`` is
     purely illustrative and must degrade to printing an odd token rather than
     raise.
     """
@@ -74,30 +75,33 @@ def target_id(compiled: CompiledEnv, key: str) -> str:
 
 
 def collect_edges(compiled: CompiledEnv) -> list[tuple[str, str, str]]:
-    """Every edge of both relations, as ``(from_id, to_id, kind)``.
+    """Every ``uses`` edge, as ``(from_id, to_id, kind)``.
+
+    ``kind`` is the TARGET's kind — ``uses_backing`` or ``uses_core`` — not a
+    second relation. There is one relation and two renderings of its edges.
 
     The single derivation behind both renderers. ``llm.py`` ran a second,
     independent copy of this loop until Mod 104: there is one graph and two
     *renderings* of it, so there is one derivation.
 
-    Readiness edges first, each group sorted by source then target, so the
-    output is order-stable.
+    Backing-targeted edges first, each group sorted by source then target, so
+    the output is order-stable.
 
     A flat pass over ``CompiledEnv.services`` — deliberately NOT a graph walk.
-    ``consumes`` is a cyclic digraph by doctrine (``web ↔ worker`` is legal and
-    the most common topology there is), so a traversal here would need a
-    visited set and would be one forgotten line away from unbounded recursion.
-    Keep it flat: there is no traversal to get wrong.
+    The ``uses`` graph is a cyclic digraph by doctrine (``web ↔ worker`` is
+    legal and the most common topology there is), so a traversal here would
+    need a visited set and would be one forgotten line away from unbounded
+    recursion. Keep it flat: there is no traversal to get wrong.
     """
     edges: list[tuple[str, str, str]] = []
     for name in sorted(compiled.services):
         svc = compiled.services[name]
-        for dep in sorted(svc.depends_on):
-            edges.append((node_id(svc), target_id(compiled, dep), "depends_on"))
+        for dep in sorted(svc.uses_backing):
+            edges.append((node_id(svc), target_id(compiled, dep), "uses_backing"))
     for name in sorted(compiled.services):
         svc = compiled.services[name]
-        for consumed in sorted(svc.consumes):
-            edges.append((node_id(svc), target_id(compiled, consumed), "consumes"))
+        for used in sorted(svc.uses_core):
+            edges.append((node_id(svc), target_id(compiled, used), "uses_core"))
     return edges
 
 
@@ -148,15 +152,15 @@ def render_dag(compiled: CompiledEnv) -> str:
         )
     lines.append("")
 
-    # Both relations, visually distinguished. The kind is carried TWICE — glyph
-    # and heading — because this output is as often grepped as read: `grep
-    # consumes` must find the interface edges. `->` / `..>` is mermaid's
-    # solid/dashed (`-->` / `-.->`) rendered in ASCII.
+    # One relation, two target kinds, visually distinguished. The kind is
+    # carried TWICE — glyph and heading — because this output is as often
+    # grepped as read: `grep uses` must find the edges. `->` / `..>` is
+    # mermaid's solid/dashed (`-->` / `-.->`) rendered in ASCII.
     edges = collect_edges(compiled)
     groups: list[list[str]] = []
     for kind, heading, arrow in (
-        ("depends_on", "depends_on edges (readiness) — solid:", "->"),
-        ("consumes", "consumes edges (interface) — dashed:", "..>"),
+        ("uses_backing", "uses edges (backing target) — solid:", "->"),
+        ("uses_core", "uses edges (core target) — dashed:", "..>"),
     ):
         rendered = [
             f"  {src} {arrow} {dst}" for src, dst, k in edges if k == kind

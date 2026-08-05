@@ -33,7 +33,7 @@ _ELASTIC = _FIXTURES / "sample_project_scheduler_elastic"
 _MIXED_FIXED = _FIXTURES / "sample_project"
 _MIXED_ELASTIC = _FIXTURES / "sample_project_elastic"
 
-# `depends_on: [appdb]`: the fixtures declare their DATABASE_* magic refs at the
+# `uses: [appdb]`: the fixtures declare their DATABASE_* magic refs at the
 # CODEBASE level, and a codebase-level ref obliges every core service of that
 # codebase to carry the readiness edge (rule 7). `disk: 25GB` matches what the
 # elastic fixture's own core services use, so Fargate tiering accepts it.
@@ -42,7 +42,7 @@ _JOB = {
     "schedule": "0 3 * * *",
     "command": ["python", "-m", "jobs.cleanup"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
 }
 
@@ -413,7 +413,7 @@ def _doc(src: str) -> CICLDocument:
 
 
 _VALID = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -468,7 +468,7 @@ def test_schedule_on_web_service_rejected():
     """`schedule` is a role-specific field declared only on scheduler; on a
     web service rule 4 (undeclared field) rejects it."""
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"

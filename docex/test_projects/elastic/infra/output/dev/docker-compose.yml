@@ -104,13 +104,6 @@ services:
     - python
     - /service/dist/entrypoints/web.py
     container_name: docex-smoke-elastic-dev-api-web
-    depends_on:
-      docex-smoke-elastic-dev-appdb:
-        condition: service_healthy
-      docex-smoke-elastic-dev-events:
-        condition: service_started
-      docex-smoke-elastic-dev-probe:
-        condition: service_started
     deploy:
       resources:
         limits:
@@ -194,9 +187,6 @@ services:
     - python
     - /service/dist/entrypoints/worker.py
     container_name: docex-smoke-elastic-dev-api-worker
-    depends_on:
-      docex-smoke-elastic-dev-appdb:
-        condition: service_healthy
     deploy:
       resources:
         limits:

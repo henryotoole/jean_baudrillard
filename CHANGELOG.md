@@ -53,6 +53,11 @@ first post-`0.4.0` overhaul.
   rule numbers are stable identities cited from other doctrine files, the pre-cut
   checklist, and `docex`'s own validation issue ids.
 
+- **`docex` implements the `uses` merge.** The compiler, validator, emitters,
+  `describe` renderers, and CI gates now read the single relation; the exec
+  block's health-gated readiness derivation is the only ordering the compiler
+  still emits.
+
 - **`role: scheduler` retires; the clock is an ordinary core service.** A
   schedule is a property of an *invocation*, not of a deployment, and
   `role: scheduler` was a process type that was not a process — every carve-out

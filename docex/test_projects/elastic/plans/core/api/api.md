@@ -11,7 +11,7 @@ One codebase, one image, **two core services**. `api` is the project's applicati
 
 `api.web` is the project's `domain_default_service`, so prod's web edge answers at three hosts: `api-web.prod.docex-smoke-elastic.luxrnd.tech` (canonical), `prod.docex-smoke-elastic.luxrnd.tech` (bare-env), and `docex-smoke-elastic.luxrnd.tech` (bare-project ergonomic) — per `cicl.md § Domain`. Routing is handled by the project ALB (mod 038's project-tier ALB with stage+prod ACM certs as SNI bindings); the bare-env and bare-project forms only apply to prod.
 
-`api.worker` is never routed. It carries a `port` and a `health_check_path` purely because it is a `consumes` target and must therefore be probeable (`contracts.md § Declared by fields`).
+`api.worker` is never routed. It carries a `port` and a `health_check_path` purely because it is a core `uses` target and must therefore be probeable (`contracts.md § Declared by fields`).
 
 ### Why one codebase and not two
 
@@ -65,7 +65,7 @@ Because it runs per codebase, `migrate.sh` may read **codebase-level `env:` only
 ## Hard boundaries
 
 - **The two hex modules do not import each other.** `pings` writes pings; `processor` consumes them. They are connected only by the `pings` table, and each reaches it through its own `RepoPingsPostgres`. Sharing a codebase does not make them one module.
-- **No `consumes: [api.web]` on the worker.** `cicl.md`'s worked example declares the mutual `web ↔ worker` cycle, and it is legal — but *this* worker polls a table and never calls the web edge, so the reverse edge would be a false declaration in a file downstream projects copy.
-- **`/health/api/worker` is one hop only.** It proxies the worker's own `/health` and never its fan-out endpoints; the `consumes` graph may cycle.
+- **No `api.web` entry in the worker's `uses:`.** `cicl.md`'s worked example declares the mutual `web ↔ worker` cycle, and it is legal — but *this* worker polls a table and never calls the web edge, so the reverse edge would be a false declaration in a file downstream projects copy.
+- **`/health/api/worker` is one hop only.** It proxies the worker's own `/health` and never its fan-out endpoints; the `uses` graph may cycle.
 - `/health/probe` and `/health/events` are exercise endpoints for the project-local backings — they are *not* doctrine-mandated (probe and events are backings, not core services). They exist so the stage tests can catch Service Connect / SG / EFS-mount wiring regressions.
 - **No real queue.** The `pings` table is the work queue. The doctrine ships no `queue` role, which is why the worker's AsyncAPI channel addresses a table rather than a topic — the most visible loose end the CICL-v2 advance leaves.

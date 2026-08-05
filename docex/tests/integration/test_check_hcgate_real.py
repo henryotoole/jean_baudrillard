@@ -28,7 +28,7 @@ def _make_hc_project(root: Path, dockerfile_body: str) -> Path:
         'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
     )
     (root / "infra" / "infra.yml").write_text(
-        'cicl_version: "2"\n'
+        'cicl_version: "3"\n'
         "foundation: fixed\n"
         'apex_domain: "example.com"\n'
         'container_registry: "registry.example.com"\n'

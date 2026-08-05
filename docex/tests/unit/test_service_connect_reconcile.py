@@ -2,17 +2,17 @@
 
 Regression guard for a cut-blocking defect found by the 1.6.0 pre-cut elastic
 smoke walk at ``PRE_CUT_CHECKLIST § D.11``: on a first-time elastic release the
-doctrine-mandated ``consumes`` fan-out failed *permanently*, decided by a
+doctrine-mandated ``uses`` fan-out failed *permanently*, decided by a
 start-order race.
 
 ECS Service Connect fixes a client task's resolvable endpoint set at task start
 (AWS: "New endpoints that are added to the namespace after the most recent
 deployment won't be added to the task configuration"), and ``docex`` emits the
-consumer's and the consumed's ``aws_ecs_service`` with no ordering between them.
+consumer's and the used service's ``aws_ecs_service`` with no ordering between them.
 On the walk ``api-web`` started 15 s before its worker and returned
 ``503 … Name or service not known`` for the rest of that task's life.
 
-Ordering cannot fix it: a ``consumes`` cycle (``web ↔ worker``) has no valid
+Ordering cannot fix it: a ``uses`` cycle (``web ↔ worker``) has no valid
 creation order. So the fix is a post-apply redeploy of affected consumers, and
 these tests pin its trigger — which must be *precise*, because firing on every
 release would add a rolling deploy to every deploy, and firing never would ship
@@ -35,7 +35,7 @@ _FIXTURE_ELASTIC = (
     Path(__file__).resolve().parent.parent / "fixtures" / "sample_project_elastic"
 )
 
-# A `consumes` target must declare `port` and `health_check_path` — those two
+# A core `uses` target must declare `port` and `health_check_path` — those two
 # fields *are* its health declaration (contracts.md § Declared by fields), and
 # on elastic the port is what makes it Service-Connect-discoverable at all.
 _WORKER = {
@@ -44,7 +44,7 @@ _WORKER = {
     "port": 8081,
     "health_check_path": "/health",
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
 }
 
@@ -53,7 +53,7 @@ _SCHEDULER = {
     "schedule": "0 3 * * *",
     "command": ["python", "-m", "jobs.cleanup"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.25, "memory": "512MB"},
 }
 
@@ -71,12 +71,12 @@ def _project(tmp_path: Path, mutate) -> object:
 
 
 @pytest.fixture
-def web_consumes_worker(tmp_path: Path):
-    """`api.web` consumes `api.worker` — the walk's topology."""
+def web_uses_worker(tmp_path: Path):
+    """`api.web` uses `api.worker` — the walk's topology."""
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
-        svcs["web"]["consumes"] = ["api.worker"]
+        svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
     return _project(tmp_path, mutate)
 
 
@@ -109,7 +109,7 @@ def _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply, env="prod"):
 
 
 def test_reconcile_redeploys_consumer_of_newly_registered_target(
-    web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
     """The walk's exact failure. The worker's endpoint appears during this
     release, so `api-web` — which started without it — must be redeployed."""
@@ -117,7 +117,7 @@ def test_reconcile_redeploys_consumer_of_newly_registered_target(
         set(),                          # before the apply: nothing registered
         {"sample-prod-api-worker"},     # after: the worker is now discoverable
     ]
-    rc = _run(web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     assert _redeployed(fake_aws) == ["sample-prod-api-web"], (
         "the consumer of the newly registered target must be redeployed"
@@ -125,7 +125,7 @@ def test_reconcile_redeploys_consumer_of_newly_registered_target(
 
 
 def test_no_reconcile_when_namespace_unchanged(
-    web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
     """The test that keeps ordinary releases cheap. A steady-state release
     registers nothing new, so the reconcile must be a complete no-op — not a
@@ -134,7 +134,7 @@ def test_no_reconcile_when_namespace_unchanged(
     fake_aws.service_connect_endpoints = [
         {"sample-prod-api-web", "sample-prod-api-worker"},
     ]
-    rc = _run(web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     assert _redeployed(fake_aws) == []
     assert _waited(fake_aws) == [], (
@@ -142,7 +142,7 @@ def test_no_reconcile_when_namespace_unchanged(
     )
 
 
-def test_reconcile_handles_consumes_cycle(
+def test_reconcile_handles_uses_cycle(
     tmp_path: Path, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
     """`web ↔ worker` is legal and, per cicl.md, the most common web/worker
@@ -152,8 +152,8 @@ def test_reconcile_handles_consumes_cycle(
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
-        svcs["worker"]["consumes"] = ["api.web"]
-        svcs["web"]["consumes"] = ["api.worker"]
+        svcs["worker"]["uses"] = [*svcs["worker"].get("uses", []), "api.web"]
+        svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
     ctx = _project(tmp_path, mutate)
 
     fake_aws.service_connect_endpoints = [
@@ -168,7 +168,7 @@ def test_reconcile_handles_consumes_cycle(
 
 
 def test_consumer_of_preexisting_target_is_not_redeployed(
-    web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
     """The diff is per-TARGET, not per-namespace. `api-web`'s only target was
     already registered, so `api-web` can already resolve it — the appearance of
@@ -177,7 +177,7 @@ def test_consumer_of_preexisting_target_is_not_redeployed(
         {"sample-prod-api-worker"},                          # target already there
         {"sample-prod-api-worker", "sample-prod-something"},  # unrelated newcomer
     ]
-    rc = _run(web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     assert _redeployed(fake_aws) == []
 
@@ -187,12 +187,12 @@ def test_scheduler_consumer_is_never_redeployed(
 ):
     """A scheduler emits no `ecs_service`, so there is nothing to redeploy —
     and `update_service` against a non-existent service is an error, not a
-    no-op. Even holding a `consumes` edge, it must be skipped."""
+    no-op. Even holding a `uses` edge, it must be skipped."""
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
         svcs["nightly"] = dict(_SCHEDULER)
-        svcs["nightly"]["consumes"] = ["api.worker"]
+        svcs["nightly"]["uses"] = [*svcs["nightly"].get("uses", []), "api.worker"]
     ctx = _project(tmp_path, mutate)
 
     fake_aws.service_connect_endpoints = [
@@ -205,13 +205,13 @@ def test_scheduler_consumer_is_never_redeployed(
 
 
 def test_slow_rollout_warns_but_does_not_fail_the_release(
-    web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
 ):
     """`update_service` was accepted and ECS will converge; failing an
     otherwise-good release over rollout latency would be wrong."""
     fake_aws.service_connect_endpoints = [set(), {"sample-prod-api-worker"}]
     fake_aws.ecs_services_stable = False
-    rc = _run(web_consumes_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     out = capsys.readouterr().out
     assert "warning" in out and "steady state" in out

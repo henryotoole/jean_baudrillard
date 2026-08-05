@@ -53,7 +53,7 @@ _WORKER = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
 _NIGHTLY = {
@@ -61,7 +61,7 @@ _NIGHTLY = {
     "schedule": "0 3 * * *",
     "command": ["python", "-m", "jobs.cleanup"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
 }
 
@@ -272,12 +272,26 @@ def test_8_no_host_ports_on_any_replica(fixed_root: Path):
         assert "ports" not in services[key]
 
 
-def test_9_depends_on_second_pass_reaches_derived_services(fixed_root: Path):
+def test_9_derived_services_carry_no_gate_and_the_exec_block_still_does(
+    fixed_root: Path,
+):
+    """The `depends_on` second pass is gone with the retired relation, and
+    replica blocks were only ever its TARGETS — `uses` emits nothing onto a
+    core service's own block, derived or not (cicl.md § Uses Relationships).
+
+    Re-pointed rather than deleted: a replica is a compiler-DERIVED block, so
+    it is exactly where a stale ordering emission would survive a grep of
+    `infra.yml`. Asserting the exec gate in the same breath keeps the pairing
+    honest — the emission did not disappear, it moved to the one block no
+    project authors.
+    """
     services = _compose(fixed_root, "prod")["services"]
     for key in _WORKER_KEYS + _WEB_KEYS:
-        assert services[key]["depends_on"] == {
-            "sample-prod-appdb": {"condition": "service_healthy"}
-        }
+        assert "depends_on" not in services[key], services[key].get("depends_on")
+    exec_key = next(k for k in services if k.endswith("-api-exec"))
+    assert services[exec_key]["depends_on"] == {
+        "sample-prod-appdb": {"condition": "service_healthy"}
+    }
 
 
 def test_10_exec_service_does_not_multiply(fixed_root: Path):
@@ -340,7 +354,7 @@ def _svc(*, is_core: bool, replicas: int) -> CompiledService:
         name="api-worker", role="worker" if is_core else "relational_db",
         engine="python" if is_core else "postgres", foundation="fixed",
         is_core=is_core, global_name="sample-prod-api-worker", body={},
-        networks=["internal"], depends_on=[], port=None, env={},
+        networks=["internal"], uses=[], port=None, env={},
         replicas=replicas,
     )
 
@@ -364,7 +378,7 @@ def test_14c_backing_services_never_replicate():
 
 
 _HEAD = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"

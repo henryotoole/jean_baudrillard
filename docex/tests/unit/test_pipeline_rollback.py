@@ -325,9 +325,12 @@ def test_rollback_rejects_cicl_v1_target(
             fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
         )
     msg = str(excinfo.value)
-    assert "CICL v1→v2 boundary" in msg
+    assert "CICL v1→v3 boundary" in msg
     assert "Nothing has been touched" in msg
     assert "Fix forward" in msg
+    # The reassurance line is the whole point of the boundary branch, and it
+    # must name the CURRENT generation rather than a hard-coded one.
+    assert 'Once a second cicl_version "3" release exists' in msg
 
 
 def test_rollback_cicl_v1_aborts_before_worktree_created(
@@ -371,9 +374,9 @@ def test_rollback_v2_target_proceeds_to_release(
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
 ):
     """The new precondition must not become a false gate: a target that
-    explicitly declares cicl_version "2" reaches the release call."""
+    explicitly declares the CURRENT cicl_version reaches the release call."""
     ctx, fake_git = worktree_populator
-    fake_git.file_at_ref[(_TAG, _INFRA)] = 'cicl_version: "2"\n'
+    fake_git.file_at_ref[(_TAG, _INFRA)] = 'cicl_version: "3"\n'
     rc = _invoke(
         ctx, fake_git, fake_docker, fake_aws, fake_ansible,
         fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
@@ -435,8 +438,9 @@ def test_rollback_absent_cicl_version_gets_boundary_message(
     sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
 ):
-    """A document predating the field is by definition pre-v2 — it gets the
-    boundary message, but must not be misreported as declaring "1"."""
+    """A document predating the field is by definition an older generation —
+    it gets the boundary message, but must not be misreported as declaring a
+    version string it does not carry."""
     _preflight_git(
         fake_git, content="foundation: fixed\napex_domain: example.com\n",
     )
@@ -446,27 +450,55 @@ def test_rollback_absent_cicl_version_gets_boundary_message(
             fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
         )
     msg = str(excinfo.value)
-    assert "CICL v1→v2 boundary" in msg
+    assert "CICL v1→v3 boundary" in msg
     assert "predates the field" in msg
     assert 'declares cicl_version "1"' not in msg
 
 
-def test_rollback_rejects_unrecognized_cicl_version(
+def test_rollback_v2_target_gets_the_boundary_message_not_the_generic_one(
     sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
 ):
-    """An unrecognized generation is not the known one-cycle v1 boundary
-    condition, so it gets a distinct message — mirroring rule 21's split."""
-    _preflight_git(fake_git, content='cicl_version: "3"\n')
+    """Mod 113. Once `CURRENT_CICL_VERSION` moved to "3", every EXISTING tagged
+    release declares "2" — so this is the case the operator actually hits, and
+    it is a known one-release-cycle condition rather than a mystery.
+
+    The precondition is NOT weakened (rollback still aborts). What this pins is
+    that the message is intelligible: it names the target's own generation and
+    the current one, and it keeps the reassurance line saying the condition
+    clears once a second v3 release exists. Before the generalization a "2"
+    target fell into the generic branch, which is accurate but drops exactly
+    the reassurance the situation calls for.
+    """
+    _preflight_git(fake_git, content='cicl_version: "2"\nfoundation: fixed\n')
     with pytest.raises(RollbackPreconditionFailed) as excinfo:
         _invoke(
             sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
             fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
         )
     msg = str(excinfo.value)
-    assert "'3'" in msg
+    assert "CICL v2→v3 boundary" in msg
+    assert 'declares cicl_version "2"' in msg
+    assert 'Once a second cicl_version "3" release exists' in msg
+    assert "Nothing has been touched" in msg
+
+
+def test_rollback_rejects_unrecognized_cicl_version(
+    sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+    fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+):
+    """An unrecognized generation is not a known one-cycle boundary
+    condition, so it gets a distinct message — mirroring rule 21's split."""
+    _preflight_git(fake_git, content='cicl_version: "9"\n')
+    with pytest.raises(RollbackPreconditionFailed) as excinfo:
+        _invoke(
+            sample_ctx, fake_git, fake_docker, fake_aws, fake_ansible,
+            fake_tofu_init, fake_tofu_apply, fake_tofu_plan,
+        )
+    msg = str(excinfo.value)
+    assert "'9'" in msg
     assert "Fix forward" in msg
-    assert "v1→v2 boundary" not in msg
+    assert "boundary" not in msg
 
 
 def test_rollback_lists_all_missing_images(

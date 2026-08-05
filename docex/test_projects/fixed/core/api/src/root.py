@@ -47,7 +47,7 @@ CLICKHOUSE_PORT = os.environ.get("CLICKHOUSE_PORT")
 
 # Five-segment core magic refs — ${codebases.api.core_services.worker.{host,port}}.
 # Declared on the `api.web` core service's env only, which is exactly what
-# obliges its `consumes: [api.worker]` entry (cicl.md validation rule 7).
+# obliges the `api.worker` entry in its `uses:` list (cicl.md validation rule 7).
 WORKER_HOST = os.environ.get("WORKER_HOST")
 WORKER_PORT = os.environ.get("WORKER_PORT")
 
@@ -122,7 +122,7 @@ def build_app() -> FastAPI:
 
     # Health fan-out. Unlike the two probes above, this one IS
     # doctrine-mandated: contracts.md § Fan-out requires every
-    # `web`-network core service to expose the health of each `consumes`
+    # `web`-network core service to expose the health of each core `uses`
     # target that is not itself on the `web` network. `api.worker` sits on
     # `[internal]` alone, so nothing outside can reach its own /health —
     # `api.web` proxies it at /health/<codebase>/<service>.
@@ -131,7 +131,7 @@ def build_app() -> FastAPI:
         if not WORKER_HOST or not WORKER_PORT:
             raise HTTPException(503, "WORKER_HOST/PORT not set")
         # WHY: one hop only — proxy the worker's OWN /health, never its
-        # fan-out endpoints. The `consumes` graph may legally contain
+        # fan-out endpoints. The `uses` graph may legally contain
         # cycles (cicl.md § The graph may contain cycles), so a fan-out
         # calling a fan-out would recurse without bound. The short hard
         # timeout is the other half of the guarantee: a wedged target must

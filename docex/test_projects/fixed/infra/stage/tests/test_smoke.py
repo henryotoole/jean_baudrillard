@@ -45,7 +45,7 @@ def test_health_endpoint() -> None:
 
 
 def test_health_fanout_reports_worker_liveness() -> None:
-    """The doctrine-required `consumes` fan-out (contracts.md § Fan-out).
+    """The doctrine-required `uses` fan-out (contracts.md § Fan-out).
 
     A 200 here means three separate things worked: the four-segment magic
     refs resolved to a reachable address, `api.web` could reach a non-`web`

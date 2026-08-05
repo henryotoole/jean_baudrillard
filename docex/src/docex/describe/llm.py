@@ -48,10 +48,10 @@ def render_llm(compiled: CompiledEnv) -> str:
             "engine": svc.engine,
             "networks": svc.networks,
             "port": svc.port,
-            "depends_on": svc.depends_on,
-            # Display ids, so a node's relations join to node `short` values
-            # exactly as `depends_on` already does.
-            "consumes": [target_id(compiled, k) for k in svc.consumes],
+            "uses_backing": svc.uses_backing,
+            # Display ids, so a node's edges join to node `short` values
+            # exactly as `uses_backing` already does.
+            "uses_core": [target_id(compiled, k) for k in svc.uses_core],
         })
 
     edges = [

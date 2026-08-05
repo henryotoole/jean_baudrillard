@@ -18,7 +18,7 @@ def _doc(src: str) -> CICLDocument:
 
 
 _BASE_FIXED = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -31,7 +31,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 1.0
           memory: 2GB
@@ -246,31 +246,19 @@ def test_rule_3_unresolved_magic_ref_unknown_part():
     assert "rule_3_unresolved_magic_ref" in rules
 
 
-def test_rule_6_depends_on_cycle():
-    # Force a cycle. Mod 096: the cycle must live entirely in the
-    # backing-service graph — rule 24 makes a core `depends_on` target a
-    # hard error, so core services are leaves and cannot form one.
-    src = _BASE_FIXED.replace(
-        "    schema_owned_by: api\n",
-        "    schema_owned_by: api\n    depends_on: [cache]\n"
-        "  cache:\n"
-        "    role: cache\n"
-        "    engine: redis\n"
-        "    networks: [internal]\n"
-        "    port: 6379\n"
-        "    depends_on: [appdb]\n",
-    )
-    doc = _doc(src)
-    issues = validate_document(doc, _tables())
-    rules = [i.rule for i in issues]
-    assert "rule_6_depends_on_cycle" in rules
+# Rule 6 (`depends_on` cycles) is RETIRED in 1.7.0 and its number tombstoned.
+# `test_rule_6_depends_on_cycle` is deleted with it: a backing service declares
+# no outbound edges, so it is a graph SINK and there is no backing-graph cycle
+# left to construct. Acyclicity across backing-targeted edges is now a property
+# of the graph's shape rather than a rule enforced against it
+# (cicl.md § The graph may contain cycles).
 
 
-def test_rule_7_magic_ref_implies_depends_on():
-    # Reference appdb via magic ref but remove it from depends_on.
+def test_rule_7_magic_ref_implies_uses():
+    # Reference appdb via magic ref but remove it from `uses`.
     src = _BASE_FIXED.replace(
-        "        depends_on: [appdb]\n",
-        "        depends_on: []\n",
+        "        uses: [appdb]\n",
+        "        uses: []\n",
     )
     src = _with_service_block(
         src, "        env:\n          X: ${backing_services.appdb.host}\n"
@@ -278,7 +266,7 @@ def test_rule_7_magic_ref_implies_depends_on():
     doc = _doc(src)
     issues = validate_document(doc, _tables())
     rules = [i.rule for i in issues]
-    assert "rule_7_magic_ref_implies_depends_on" in rules
+    assert "rule_7_magic_ref_implies_uses" in rules
 
 
 def test_rule_8_schema_owned_by_unknown():
@@ -404,7 +392,7 @@ def test_validate_emits_missing_for_supported_foundation(tmp_path: Path):
     # An elastic doc consuming the custom role so the elastic foundation
     # path triggers.
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -506,7 +494,7 @@ def test_validate_field_target_not_applicable_when_service_off_web():
     # network and given a health_check_path. Health check field still
     # routes to `target_group` per the bundled web.yml.
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -532,7 +520,7 @@ codebases:
 def test_validate_field_target_applicable_when_on_web():
     """Same field on a service that IS on `web` should NOT trip the rule."""
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -718,7 +706,7 @@ def test_apex_domain_accepts_three_part_country_apex():
 def test_service_name_blacklist(reserved: str):
     """A service named with any reserved token (`dev`/`test`/`stage`/
     `prod`/`www`) fails validation. Rule 14."""
-    # Replace api -> reserved in codebases and update depends_on chain.
+    # Replace api -> reserved in codebases and update the schema owner.
     src = _BASE_FIXED.replace("  api:", f"  {reserved}:").replace(
         "schema_owned_by: api", f"schema_owned_by: {reserved}",
     )

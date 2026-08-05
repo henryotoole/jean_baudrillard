@@ -92,7 +92,7 @@ def _make_doc(foundation: str = "fixed") -> CICLDocument:
         )
 
     return CICLDocument(
-        cicl_version="2",
+        cicl_version="3",
         foundation=foundation,
         apex_domain="example.com",
         observability_backend_url="https://obs.example.com",
@@ -103,7 +103,7 @@ def _make_doc(foundation: str = "fixed") -> CICLDocument:
                 core_services={
                     "web": _proc(
                         "web", networks=["web", "internal"],
-                        depends_on=["db"], port=8080,
+                        uses=["db"], port=8080,
                     ),
                     "worker": _proc("worker", networks=["internal"]),
                     "nightly_cleanup": _proc("scheduler", networks=["internal"]),

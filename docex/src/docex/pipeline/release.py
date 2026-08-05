@@ -219,7 +219,7 @@ def _consumer_reconcile_set(
 ) -> list[tuple[str, str]]:
     """Consumers that must be redeployed, as ``(consumer, triggering target)``.
 
-    A consumer qualifies when it declares a ``consumes`` target whose Service
+    A consumer qualifies when it declares a CORE ``uses`` target whose Service
     Connect endpoint was **absent from the namespace before this apply**. Such a
     consumer's tasks may have started before that endpoint existed, and a
     Service Connect client fixes its resolvable endpoint set at task start — so
@@ -238,14 +238,14 @@ def _consumer_reconcile_set(
     out: list[tuple[str, str]] = []
     for name in sorted(compiled.services):
         svc = compiled.services[name]
-        if not svc.is_core or not svc.consumes:
+        if not svc.is_core or not svc.uses_core:
             continue
         # WHY: a `scheduler` core service emits no `ecs_service`, so there is
         # nothing to redeploy — and `update_service` against a service that
         # does not exist is an error, not a no-op.
         if "ecs_service" not in svc.emits.get("elastic", []):
             continue
-        for key in sorted(svc.consumes):
+        for key in sorted(svc.uses_core):
             target = compiled.services.get(key)
             # An unresolvable target cannot survive validation, but the
             # reconcile must not be the thing that raises if one ever does.
@@ -276,7 +276,7 @@ def _reconcile_service_connect_consumers(
     task's resolvable endpoint set at task start, so a consumer created
     alongside its target may permanently fail to resolve it. Redeploying the
     consumer after everything is registered is the only fix — ordering cannot
-    work, because a ``consumes`` cycle (``web ↔ worker``, the most common
+    work, because a ``uses`` cycle (``web ↔ worker``, the most common
     topology there is) has no valid creation order.
 
     Cheap by construction: on a steady-state release nothing new is registered,
@@ -305,7 +305,7 @@ def _reconcile_service_connect_consumers(
     for consumer, target in pairs:
         print(
             f"release: reconciling Service Connect consumer {consumer!r} — "
-            f"its `consumes` target {target!r} registered during this release, "
+            f"its `uses` target {target!r} registered during this release, "
             f"and a client cannot resolve an endpoint added after it started."
         )
         try:
@@ -315,7 +315,7 @@ def _reconcile_service_connect_consumers(
             # whose consumers cannot reach their targets is not released.
             print(
                 f"error: could not force a new deployment of {consumer!r}: "
-                f"{exc}. Its `consumes` target {target!r} is newly registered, "
+                f"{exc}. Its `uses` target {target!r} is newly registered, "
                 f"so {consumer!r} cannot resolve it until redeployed — the "
                 f"/health/<codebase>/<service> fan-out will return 503. Re-run "
                 f"`docex release {env}`, or redeploy it by hand.",

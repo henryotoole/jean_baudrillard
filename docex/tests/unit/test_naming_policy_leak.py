@@ -89,7 +89,7 @@ def _core_svc(
             "logging": {"<<": "*default-logging"},
         },
         networks=networks,
-        depends_on=[],
+        uses=[],
         port=port,
         env={},
         web_hosts=(

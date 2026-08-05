@@ -49,7 +49,7 @@ _WORKER: dict[str, Any] = {
     "port": 8090,
     "networks": ["internal"],
     "health_check_path": "/health",
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
 
@@ -269,7 +269,7 @@ def test_merge_target_leaves_no_gap_when_not_last(tmp_path: Path):
 
 
 _ELASTIC_DOC = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -281,7 +281,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 1.0
           memory: 2GB
@@ -332,7 +332,7 @@ def test_field_target_container_definition_undeclared_rejected(tmp_path: Path):
 
 
 _WORKER_DOC = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"

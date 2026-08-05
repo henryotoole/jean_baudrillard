@@ -70,7 +70,7 @@ See [`api/api.md`](./api/api.md). Two core services on one artifact; they were t
 
 - **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`) and [`processor`](./api/hex/processor.md) (driven by `api.worker`). They share a codebase but not a module boundary.
 - **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI).
-- **`consumes`**: `api.web consumes api.worker`, one direction only, obliged by the five-segment magic refs `${codebases.api.core_services.worker.{host,port}}` on the web edge.
+- **`uses`**: `api.web` uses `api.worker`, one direction only, obliged by the five-segment magic refs `${codebases.api.core_services.worker.{host,port}}` on the web edge.
 - **Schema owner**: `schema_owned_by: api`.
 
 `api.web`: a Fargate task in the `web` + `internal` security groups; ALB target group registered with a listener rule matching its per-env hosts. It is the `domain_default_service`, so prod's edge also answers at the bare-env and bare-project hosts.

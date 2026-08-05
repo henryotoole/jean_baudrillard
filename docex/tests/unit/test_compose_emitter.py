@@ -167,21 +167,41 @@ def test_backing_service_on_web_is_routed(tmp_path: Path):
     assert "Host(`appdb.dev.sample.example.com`)" in rule
 
 
-def test_depends_on_uses_service_healthy_when_target_has_healthcheck(tmp_path: Path):
-    """api depends on appdb (postgres → engine table declares a healthcheck),
-    so the emitted long-form depends_on must wait for service_healthy."""
+def test_exec_gate_is_service_healthy_and_no_other_block_is_gated(tmp_path: Path):
+    """The exec block is the compiler's ONE remaining ordering emission.
+
+    `uses` emits nothing onto a core or backing service's own block (cicl.md
+    § Uses Relationships), so `depends_on:` may appear on the `-exec` block and
+    nowhere else. The exec gate itself must stay LONG-FORM: `api` uses `appdb`
+    (postgres → the engine table declares a healthcheck), so the condition must
+    be `service_healthy`, not `service_started` and not a bare list. A
+    downgrade here races every first migration against its database and
+    surfaces as a flaky migration rather than as a compiler bug.
+    """
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api-web")
-    deps = api.get("depends_on")
-    assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
-    # The dep key must be the project-scoped global name of `appdb`.
-    appdb_key = next((k for k in deps if k.endswith("appdb")), None)
-    assert appdb_key is not None, f"appdb not in api.depends_on: {sorted(deps)}"
-    assert deps[appdb_key] == {"condition": "service_healthy"}, deps[appdb_key]
+
+    exec_keys = [k for k in services if k.endswith("-exec")]
+    assert exec_keys, sorted(services)
+    for key in exec_keys:
+        deps = services[key].get("depends_on")
+        assert isinstance(deps, dict), (
+            f"{key}: expected long-form depends_on map, got {deps!r}"
+        )
+        appdb_key = next((k for k in deps if k.endswith("appdb")), None)
+        assert appdb_key is not None, f"appdb not in {key}.depends_on: {sorted(deps)}"
+        assert deps[appdb_key] == {"condition": "service_healthy"}, deps[appdb_key]
+
+    for name, block in services.items():
+        if name.endswith("-exec"):
+            continue
+        assert "depends_on" not in block, (
+            f"{name} carries depends_on: {block['depends_on']!r} — `uses` emits "
+            f"nothing onto a core or backing service's own block"
+        )
 
 
 def test_web_network_is_project_env_external_and_others_are_project_scoped(tmp_path: Path):
@@ -262,10 +282,10 @@ def test_web_router_emits_certresolver_doctrine(tmp_path: Path):
     assert any(l.endswith(expected_suffix) for l in labels), labels
 
 
-def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path: Path):
-    """A dep target without a healthcheck must get service_started. We add
+def test_exec_gate_is_service_started_when_target_has_no_healthcheck(tmp_path: Path):
+    """A gate target without a healthcheck must get service_started. We add
     a project-local transfer table for a custom no-healthcheck backing
-    role and point api at it via depends_on. (Mod 031 removed the bundled
+    role and point api at it via `uses`. (Mod 031 removed the bundled
     `reverse_proxy` role that used to serve this purpose.)"""
     import yaml as _yaml
     root = _copy_fixture(tmp_path)
@@ -288,8 +308,8 @@ def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path
     infra_yml = root / "infra" / "infra.yml"
     original = infra_yml.read_text()
     modified = original.replace(
-        "    depends_on: [appdb]",
-        "    depends_on: [appdb, proxy]",
+        "    uses: [appdb]",
+        "    uses: [appdb, proxy]",
         1,
     ) + (
         "\n  proxy:\n"
@@ -304,11 +324,11 @@ def test_depends_on_uses_service_started_when_target_has_no_healthcheck(tmp_path
     run_compile(ctx)
 
     services = _compose_services(root, "dev")
-    api = _find_core_service_block(services, "api-web")
-    deps = api.get("depends_on")
+    exec_key = next(k for k in services if k.endswith("-api-exec"))
+    deps = services[exec_key].get("depends_on")
     assert isinstance(deps, dict), f"expected long-form depends_on map, got {deps!r}"
     proxy_key = next((k for k in deps if k.endswith("proxy")), None)
-    assert proxy_key is not None, f"proxy not in api.depends_on: {sorted(deps)}"
+    assert proxy_key is not None, f"proxy not in {exec_key}.depends_on: {sorted(deps)}"
     # Confirm the proxy block really has no healthcheck (guards the test
     # against silently degrading if a future doctrine change adds one).
     proxy_block = services[proxy_key]

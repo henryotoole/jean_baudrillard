@@ -34,7 +34,7 @@ def _tables():
 # A postgres backing (POSTGRES_PASSWORD minted -> TTE, POSTGRES_USER fixed ->
 # in no category) plus a core service with one bespoke secret and one config.
 _MIXED = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -51,7 +51,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 1.0
           memory: 2GB
@@ -102,7 +102,7 @@ def test_category_of_resolves_each_category_and_unknowns():
 
 def test_two_core_services_sharing_a_secret_dedupe():
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -186,7 +186,7 @@ def test_secret_manifest_keys_sources_and_order():
 
 def test_secret_manifest_dedupes_shared_key_keeping_first_source():
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -242,7 +242,7 @@ def test_config_manifest_yields_declared_config_with_service_source():
 
 def test_config_manifest_empty_when_no_config_declared():
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"

@@ -36,19 +36,18 @@ _ELASTIC = _FIXTURES / "sample_project_elastic"
 # in the migrate task definition's — that is the codebase-scoped-env rule.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 
-# `depends_on: [appdb]` on EVERY core service: the fixture declares its
-# DATABASE_* magic refs at the CODEBASE level, and a codebase-level ref obliges
-# every core service of that codebase to carry the readiness edge (rule 7,
-# cicl.md § Consumes Relationships § Three clarifications).
-# `consumes: [api.web]` (paired with `web`'s `consumes: [api.worker]` below)
-# gives the fixture the legal web ↔ worker cycle, so every assertion in this
-# module doubles as a witness that the field changes no emitted output.
+# `uses: [appdb]` on EVERY core service: the fixture declares its DATABASE_*
+# magic refs at the CODEBASE level, and a codebase-level ref obliges every core
+# service of that codebase to declare the edge (rule 7, cicl.md § Uses
+# Relationships § Three clarifications).
+# The `api.web` entry (paired with `web`'s `api.worker` below) gives the
+# fixture the legal web ↔ worker cycle, so every assertion in this module
+# doubles as a witness that the field changes no emitted output.
 _WORKER = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
-    "consumes": ["api.web"],
+    "uses": ["appdb", "api.web"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
 _NIGHTLY = {
@@ -56,7 +55,7 @@ _NIGHTLY = {
     "schedule": "0 3 * * *",
     "command": ["python", "-m", "jobs.cleanup"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
 }
 
@@ -70,7 +69,7 @@ def _three_service_project(fixture: Path, tmp_path: Path) -> Path:
     doc = yaml.safe_load(infra_path.read_text())
     svcs = doc["codebases"]["api"]["core_services"]
     svcs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
-    svcs["web"]["consumes"] = ["api.worker"]
+    svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
     svcs["worker"] = dict(_WORKER)
     svcs["nightly_cleanup"] = dict(_NIGHTLY)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
@@ -363,16 +362,23 @@ def test_40_ansible_emits_one_migration_task_per_codebase(fixed_root: Path):
     assert "sample-stage-api-exec" in compose["services"]
 
 
-def test_consumes_reaches_no_emitted_artifact(fixed_root: Path, elastic_root: Path):
-    """`consumes` is CI-only — contracts, health fan-out, rule 7 — and must
-    reach no compose or HCL output.
+def test_uses_reaches_no_emitted_artifact(fixed_root: Path, elastic_root: Path):
+    """`uses` emits NOTHING onto a core service's own block — no compose key,
+    no HCL resource, on either foundation (cicl.md § Uses Relationships).
+
+    Strengthened by mod 113: this asserted `"consumes" not in <emitted>` when
+    `consumes` was half the relation. It is now true of the WHOLE relation, so
+    it is the pin on the rule-of-record item rather than on one branch of a
+    split. The only surviving emission derived from `uses` is the exec block's
+    readiness gate, which lands under compose's own `depends_on:` key — the
+    word `uses` never appears.
 
     A guard, not a tautology: field translation reads `svc.model_extra` and a
-    declared pydantic field is never in it, so `consumes` *cannot* be emitted
+    declared pydantic field is never in it, so `uses` *cannot* be emitted
     today. But "is not read" and "cannot be read" look identical until someone
     adds a read site, and this test is what tells them apart.
 
-    Env-tier only: the project-tier template carries the word in an unrelated
+    Env-tier only: the project-tier template carries "consumes" in an unrelated
     prose comment ("docex consumes credentials..."), which is not a leak.
     """
     for root in (fixed_root, elastic_root):
@@ -384,8 +390,8 @@ def test_consumes_reaches_no_emitted_artifact(fixed_root: Path, elastic_root: Pa
                 if not path.is_file():
                     continue
                 text = path.read_text(errors="replace")
-                assert "consumes" not in text, (
-                    f"`consumes` leaked into emitted output at {path}"
+                assert "uses" not in text, (
+                    f"`uses` leaked into emitted output at {path}"
                 )
 
 

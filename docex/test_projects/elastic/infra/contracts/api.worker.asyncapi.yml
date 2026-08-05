@@ -1,6 +1,6 @@
 # AsyncAPI contract for the `api.worker` core service.
 #
-# Why this file exists: `api.web` declares `consumes: [api.worker]`, which
+# Why this file exists: `api.web` declares `api.worker` in `uses:`, which
 # makes the worker a provider, and the format follows from the provider's
 # ROLE — `role: worker` → asyncapi (contracts.md § Standards). This is the
 # format path that was *provably unreachable* before mod 101.

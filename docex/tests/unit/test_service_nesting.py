@@ -37,7 +37,7 @@ def _issues(src: str) -> list[str]:
 
 
 _HEAD = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -146,15 +146,21 @@ def test_6_empty_command_rejected(empty):
 
 def test_7_cicl_version_1_rejected_with_upgrade_pointer():
     with pytest.raises(PydanticValidationError) as exc:
-        _doc(_BASE.replace('cicl_version: "2"', 'cicl_version: "1"'))
+        _doc(_BASE.replace('cicl_version: "3"', 'cicl_version: "1"'))
     msg = str(exc.value)
+    # Both guides, in chain order — a v1 document migrates through 1.6.0's
+    # `core_services:` nesting AND 1.7.0's relation merge before it compiles.
     assert "upgrade_1.6.0.md" in msg
+    assert "upgrade_1.7.0.md" in msg
     assert "core_services:" in msg
+    assert "`uses`" in msg
+    # It must land the author on the CURRENT generation, not an intermediate.
+    assert 'cicl_version: "3"' in msg
 
 
 def test_8_unknown_cicl_version_rejected_with_distinct_message():
     with pytest.raises(PydanticValidationError) as exc:
-        _doc(_BASE.replace('cicl_version: "2"', 'cicl_version: "3"'))
+        _doc(_BASE.replace('cicl_version: "3"', 'cicl_version: "4"'))
     msg = str(exc.value)
     assert "unknown cicl_version" in msg
     # Distinct from the v1 message: no migration guide, nothing to migrate.
@@ -374,75 +380,26 @@ def test_rule_5_derivatives_do_not_over_reject():
 
 
 # ---------------------------------------------------------------------------
-# 12-14 — rule 24 (`depends_on` names backing services only) and rule 6.
+# 12-14 — DELETED (mod 113). Rules 6 and 24 are RETIRED in 1.7.0 and their
+# numbers tombstoned, never reused.
+#
+#   test_12_core_to_core_depends_on_rejected_and_names_consumes
+#   test_13_backing_to_core_depends_on_rejected
+#       Rule 24 restricted `depends_on` to backing services. There is one
+#       relation now and its shape rule is rule 25, which permits a core target
+#       outright — so there is nothing left to reject. The successor coverage
+#       (a bare CODEBASE name in `uses` is still an error) lives in
+#       test_uses_relation.py::test_1_bare_codebase_name_rejected.
+#
+#   test_14_backing_service_cycle_still_fatal
+#       Rule 6's DFS is gone. A backing service declares no outbound edges, so
+#       it is a graph SINK and a backing-targeted cycle cannot be CONSTRUCTED,
+#       let alone detected — acyclicity is a property of the graph's shape
+#       rather than a rule enforced against it (cicl.md § The graph may contain
+#       cycles). Pinned in its only possible form by
+#       test_uses_relation.py::test_uses_on_a_backing_service_is_rejected_
+#       with_a_targeted_message.
 # ---------------------------------------------------------------------------
-
-
-_TWO_CODEBASES = _HEAD + """
-codebases:
-  api:
-    core_services:
-      web:
-        role: web
-        command: ["python", "/service/dist/root.py"]
-        networks: [web, internal]
-        port: 8080
-        depends_on: [billing]
-        resources:
-          cpu: 1.0
-          memory: 2GB
-  billing:
-    core_services:
-      web:
-        role: web
-        command: ["python", "/service/dist/root.py"]
-        networks: [web, internal]
-        port: 8081
-        resources:
-          cpu: 1.0
-          memory: 2GB
-"""
-
-
-def test_12_core_to_core_depends_on_rejected_and_names_consumes():
-    issues = validate_document(_doc(_TWO_CODEBASES), _tables())
-    hits = [i for i in issues if i.rule == "rule_24_depends_on_core_service"]
-    assert hits
-    assert "consumes:" in hits[0].message
-
-
-def test_13_backing_to_core_depends_on_rejected():
-    src = _BASE + """
-backing_services:
-  appdb:
-    role: relational_db
-    engine: postgres
-    version: "15"
-    networks: [internal]
-    port: 5432
-    depends_on: [api]
-"""
-    assert "rule_24_depends_on_core_service" in _issues(src)
-
-
-def test_14_backing_service_cycle_still_fatal():
-    src = _BASE + """
-backing_services:
-  appdb:
-    role: relational_db
-    engine: postgres
-    version: "15"
-    networks: [internal]
-    port: 5432
-    depends_on: [cache]
-  cache:
-    role: cache
-    engine: redis
-    networks: [internal]
-    port: 6379
-    depends_on: [appdb]
-"""
-    assert "rule_6_depends_on_cycle" in _issues(src)
 
 
 # ---------------------------------------------------------------------------

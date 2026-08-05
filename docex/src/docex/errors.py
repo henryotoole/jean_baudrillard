@@ -216,7 +216,7 @@ class TofuApplyFailed(DocexError):
 class ValidationIssue:
     """A single validation problem detected during compile."""
 
-    rule: str  # e.g. "rule_7_depends_on_matches_magic_ref"
+    rule: str  # e.g. "rule_7_magic_ref_implies_uses"
     message: str  # human-readable
     where: str | None = None  # optional path/context hint
 

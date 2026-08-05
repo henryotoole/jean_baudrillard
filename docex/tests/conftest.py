@@ -332,7 +332,7 @@ class FakeGitClient:
     # to a compilable stub keeps every rollback test asserting its own
     # subject instead of acquiring boilerplate git-content setup.
     # Boundary tests override per key.
-    default_file_content: str | None = 'cicl_version: "2"\n'
+    default_file_content: str | None = 'cicl_version: "3"\n'
     # Refs that ``ref_exists`` should return True for. Tests scripting an
     # empty remote set this to ``set()`` (or omit ``origin/main``); the
     # default models an established repo with a populated main.

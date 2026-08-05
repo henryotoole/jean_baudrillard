@@ -10,12 +10,13 @@
 # Health-endpoint rules (doctrine/infrastructure/contracts.md § Health Checks):
 #   - GET /health is mandatory for every long-running core service.
 #   - GET /health/<codebase>/<service> is mandatory on every `web`-network core service
-#     type, one per `consumes` target that is not itself on the `web`
-#     network. Sourced from `consumes`, never from `depends_on`.
+#     type, one per CORE `uses` target that is not itself on the `web`
+#     network. Sourced from the core-targeted half of `uses`: a backing
+#     target has no `<codebase>/<service>` health form to proxy.
 #
 # So the three /health sub-paths below are NOT alike:
 #   - /health/api/worker IS doctrine-required. `api.web` declares
-#     `consumes: [api.worker]`, and the worker sits on `[internal]` alone,
+#     `api.worker` in `uses:`, and the worker sits on `[internal]` alone,
 #     so nothing outside can reach its own /health.
 #   - /health/probe and /health/events are NOT required (probe and events
 #     are backing services, not core services). They're declared here
@@ -83,10 +84,10 @@ paths:
 
   # Doctrine-required health fan-out onto the `api.worker` core service.
   # One hop only: this proxies the worker's own /health and never its
-  # fan-out endpoints, because the `consumes` graph may legally cycle.
+  # fan-out endpoints, because the `uses` graph may legally cycle.
   /health/api/worker:
     get:
-      summary: Liveness of the `api.worker` core service (consumes fan-out).
+      summary: Liveness of the `api.worker` core service (uses fan-out).
       operationId: healthApiWorker
       responses:
         "200":

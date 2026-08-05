@@ -28,7 +28,7 @@ def _tables():
 
 
 _MINIMAL_FIXED = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -47,7 +47,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 1.0
           memory: 2GB
@@ -63,7 +63,7 @@ backing_services:
 
 
 _MINIMAL_ELASTIC = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -81,7 +81,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 1.0
           memory: 2GB
@@ -106,7 +106,7 @@ def test_observability_backend_url_required():
     """A doc that omits the field is rejected by pydantic with a
     field-required error."""
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 container_registry: registry.example.com
@@ -170,7 +170,7 @@ def _multi_core_fixed_doc() -> CICLDocument:
     """A fixed-foundation doc with two core services to verify per-service
     injection on every core."""
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -202,7 +202,7 @@ codebases:
 
 def _multi_core_elastic_doc() -> CICLDocument:
     src = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -415,7 +415,7 @@ def test_otel_resource_attributes_format():
 
 
 _MULTI_SERVICE_FIXED = """
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"

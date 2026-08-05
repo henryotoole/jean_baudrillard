@@ -283,23 +283,37 @@ _FIX_FORWARD = (
 )
 
 
+# Generations this docex RECOGNIZES as older than the one it compiles. A
+# target declaring one of these gets the boundary message (which explains the
+# condition and says it clears after one release); anything else is genuinely
+# unknown and gets the generic branch.
+_RECOGNIZED_OLDER_CICL = ("1", "2")
+
+
 def _boundary_message(tag_name: str, target_cicl: str | None) -> str:
     """Compose the abort text for a target docex cannot compile.
 
     Splits on *why* the target is uncompilable, because the two cases
-    call for different operator expectations: the v1 boundary is a
-    known one-release-cycle condition, an unrecognized generation is
-    not.
+    call for different operator expectations: a RECOGNIZED older
+    generation is a known one-release-cycle condition, an unrecognized
+    generation is not.
+
+    WHY parameterized on the target's own generation rather than
+    hard-coding a boundary: every CICL bump makes the previous generation
+    "the old one", and a message naming a fixed pair goes stale in the same
+    instant the constant moves — which is exactly when the operator is
+    reading it.
     """
-    if target_cicl is None or target_cicl == "1":
+    if target_cicl is None or target_cicl in _RECOGNIZED_OLDER_CICL:
         declared = (
-            'declares cicl_version "1"'
-            if target_cicl == "1"
+            f'declares cicl_version "{target_cicl}"'
+            if target_cicl is not None
             else "declares no cicl_version, so it predates the field"
         )
+        generation = target_cicl if target_cicl is not None else "1"
         return (
-            "rollback aborted — cannot roll back across the CICL v1→v2 "
-            "boundary.\n"
+            f"rollback aborted — cannot roll back across the CICL "
+            f"v{generation}→v{CURRENT_CICL_VERSION} boundary.\n"
             "Nothing has been touched.\n"
             f"\nTarget {tag_name}'s infra/infra.yml {declared}. This docex "
             f'compiles only cicl_version "{CURRENT_CICL_VERSION}", and '
@@ -307,8 +321,8 @@ def _boundary_message(tag_name: str, target_cicl: str | None) -> str:
             "docex (cicd.md § Rollback step 3) — so no rollback to "
             "this target can succeed.\n\n"
             + _FIX_FORWARD
-            + '\n\nOnce a second cicl_version "2" release exists, rollback '
-            "works normally."
+            + f'\n\nOnce a second cicl_version "{CURRENT_CICL_VERSION}" '
+            "release exists, rollback works normally."
         )
     return (
         f"rollback aborted — target {tag_name}'s infra/infra.yml declares "

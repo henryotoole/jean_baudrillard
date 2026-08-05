@@ -515,15 +515,14 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     """
     # Services
     services: dict[str, Any] = {}
-    # Map compiled identity -> compose service key (global name). depends_on
-    # is authored against simple names in infra.yml, but the compose file's
-    # service keys are the global names — they must agree or docker compose
-    # rejects the file with "depends on undefined service".
-    # Mod 096: the keys are now compiled identities, so a core entry is
-    # two-segment (`api-web`) and no longer matches a bare authored name.
-    # That is safe because rule 24 forbids a core `depends_on` target
-    # outright — every authored edge names a backing service, whose compiled
-    # identity is still its bare name.
+    # Map compiled identity -> compose service key (global name). Its one
+    # consumer is the exec block's readiness gate below: `uses` is authored
+    # against simple names in infra.yml, but the compose file's service keys
+    # are the global names — they must agree or docker compose rejects the
+    # file with "depends on undefined service".
+    # A core entry here is two-segment (`api-web`) and so never matches a bare
+    # authored name. That is safe because the gate reads `uses_backing` only,
+    # and a backing service's compiled identity IS its bare name.
     simple_to_global = {
         n: s.global_name for n, s in compiled.services.items()
     }
@@ -691,10 +690,12 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
     # what makes the codebase-scoped-env rule true in the environment where
     # violating it costs the most.
     #
-    # This pass runs BEFORE the depends_on second pass below on purpose, so
-    # the exec block's short-form `depends_on` is rewritten to long-form
-    # `condition: service_healthy` by the existing machinery rather than by a
-    # duplicate of it.
+    # This pass runs LAST among the blocks it reads. Every core, replica,
+    # backing, and sidecar block is already in `services` by the time it
+    # starts, which is what lets the readiness gate below resolve each
+    # target's condition INLINE — no second pass over `services` is needed or
+    # wanted. (Only ofelia containers are emitted after this, and they are
+    # never exec targets.)
     for codebase, svcs in group_by_codebase(compiled).items():
         head = svcs[0]
         exec_block: dict[str, Any] = {
@@ -738,9 +739,38 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             # Never `web`: the exec container is a one-off operations shell
             # and is never publicly routed.
             exec_block["networks"] = exec_nets
-        exec_deps = sorted({d for p in svcs for d in p.depends_on})
+        # THE COMPILER'S ONE REMAINING ORDERING EMISSION. `uses` emits nothing
+        # onto a core service's own block; the exec block carries the union of
+        # its codebase's BACKING-targeted `uses` edges, rewritten to
+        # `condition: service_healthy` (cicl.md § Startup ordering is not a
+        # doctrine feature; migrations.md § Dev and Test Mechanism).
+        #
+        # WHY long-form and not compose short-form: short-form waits only for
+        # the target container to *start*. Backing services like postgres take
+        # measurable time to become reachable after starting, so a `migrate.sh`
+        # launched through `compose run` would hit a refused TCP socket and
+        # surface as a flaky migration rather than as a compiler bug.
+        # `service_healthy` gates on the target's already-declared healthcheck;
+        # `service_started` is the fallback when the target declares none
+        # (semantically equivalent to short-form). DO NOT downgrade this to a
+        # plain list.
+        #
+        # This is `uses_backing`, never `uses_core`: a one-shot batch job waits
+        # on the datastores it writes to, and a core target has no readiness
+        # gate to offer anyway.
+        exec_deps = sorted({d for p in svcs for d in p.uses_backing})
         if exec_deps:
-            exec_block["depends_on"] = exec_deps
+            long_form: dict[str, Any] = {}
+            for dep in exec_deps:
+                target_global = simple_to_global.get(dep, dep)
+                target_block = services.get(target_global, {})
+                long_form[target_global] = {
+                    "condition": (
+                        "service_healthy" if "healthcheck" in target_block
+                        else "service_started"
+                    )
+                }
+            exec_block["depends_on"] = long_form
         exec_block["labels"] = [
             _docex_project_label(compiled.project_dns_label)
         ]
@@ -752,34 +782,6 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # ./migrate.sh` executes the script directly under WORKDIR /service),
         # and `restart`.
         services[f"{head.codebase_global_name}-exec"] = exec_block
-
-    # Second pass: rewrite each service's depends_on from compose short-form
-    # (list of names) to long-form (map keyed by global name with a condition).
-    # WHY: short-form only waits for the target container to *start*. Backing
-    # services like postgres take measurable time to become reachable after
-    # starting; a dependent service (or `compose exec` from `docex up`) that
-    # connects too early hits a refused TCP socket. service_healthy uses the
-    # target's already-declared healthcheck as the gate; service_started is
-    # the safe fallback when the target declares no healthcheck (semantically
-    # equivalent to compose short-form).
-    # A second pass is required because the condition depends on whether the
-    # target's emitted block contains a ``healthcheck`` key — every block must
-    # exist before we can resolve any dependency's condition.
-    for block in services.values():
-        deps = block.get("depends_on")
-        if not isinstance(deps, list):
-            continue
-        long_form: dict[str, Any] = {}
-        for dep in deps:
-            target_global = simple_to_global.get(dep, dep)
-            target_block = services.get(target_global, {})
-            cond = (
-                "service_healthy"
-                if "healthcheck" in target_block
-                else "service_started"
-            )
-            long_form[target_global] = {"condition": cond}
-        block["depends_on"] = long_form
 
     # Build top-level dict without the x-logging key (we render it by hand
     # so its YAML anchor reference is exact).

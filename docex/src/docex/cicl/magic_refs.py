@@ -167,7 +167,7 @@ class MagicRefMatch:
 
 
 # The self-reference rule, stated once. Two rules forbid a core service from
-# pointing at itself — a magic ref (rule 3) and a `consumes` entry (rule 25) —
+# pointing at itself — a magic ref (rule 3) and a `uses` entry (rule 25) —
 # and their messages must state the RULE identically while differing in
 # consequence. A shared constant is what makes that a guarantee rather than a
 # request; the previous form was a docstring asking the next editor to keep
@@ -178,7 +178,7 @@ _SELF_REF_RULE = "A core service may not reference itself"
 def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
     """cicl.md § Magic Refs — a core service may not reference itself.
 
-    Sibling to :func:`self_consumes_message` below (rule 25's self-`consumes`
+    Sibling to :func:`self_uses_message` below (rule 25's self-`uses`
     clause). Both state ``_SELF_REF_RULE`` and then diverge on consequence.
     """
     return (
@@ -191,21 +191,21 @@ def self_reference_message(ref: ParsedMagicRef, consumer_label: str) -> str:
     )
 
 
-def self_consumes_message(ref: ServiceRef) -> str:
-    """cicl.md rule 25 — a core service may not consume itself.
+def self_uses_message(ref: ServiceRef) -> str:
+    """cicl.md rule 25 — a core service may not use itself.
 
     Lives in this module, beside :func:`self_reference_message`, despite being
-    a `consumes` concern rather than a magic-ref one: the two messages must
+    a `uses` concern rather than a magic-ref one: the two messages must
     state ``_SELF_REF_RULE`` identically, and co-location is what makes that
     visible to whoever edits either. Do not "tidy" it into validate.py.
     """
     return (
-        f"core service {ref.dotted!r} lists itself in `consumes:`. "
-        f"{_SELF_REF_RULE}: a self-edge makes both derivations `consumes` "
+        f"core service {ref.dotted!r} lists itself in `uses:`. "
+        f"{_SELF_REF_RULE}: a self-edge makes both derivations `uses` "
         f"feeds nonsensical — the core service would be its own contract "
         f"provider, and its health fan-out would proxy its own `/health` at "
         f"`/health/{ref.codebase}/{ref.service}`. "
-        f"See cicl.md § Consumes Relationships."
+        f"See cicl.md § Uses Relationships."
     )
 
 

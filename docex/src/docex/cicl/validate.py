@@ -7,16 +7,20 @@ infra.yml plus the transfer tables and the foundation context:
     Rule 2: roles defined in tables.
     Rule 3: magic refs resolve.
     Rule 4: engines known + match foundation.
-    Rule 6: no depends_on cycles.
-    Rule 7: magic-ref-implied edges — `depends_on` for a backing target,
-            `consumes` for a core service.
+    Rule 6: RETIRED in 1.7.0 (number tombstoned). A backing service declares
+            no outbound edges, so it is a graph sink and acyclicity across
+            backing-targeted edges is a property of the graph's shape.
+    Rule 7: a magic ref must be matched by a `uses` entry on the referencing
+            core service.
     Rule 8: relational_db has valid schema_owned_by.
     Rule 9: container_registry set on fixed foundation.
     Rule 10: every core service has cpu+memory (covered by pydantic;
              re-checked here as defense-in-depth).
     Rule 11: resources.gpu not declared under elastic foundation.
-    Rule 25: `consumes` names core service, fully qualified as
-             `<codebase>.<service>`, and never itself.
+    Rule 24: RETIRED in 1.7.0 (number tombstoned). There is one relation now
+             and its shape rule is rule 25.
+    Rule 25: `uses` names either a backing service, bare, or a core service
+             fully qualified as `<codebase>.<service>`, and never itself.
 
 Field validation (rule 4 in transfer_tables.md: every role-specific
 field on a service is declared in the engine's ``fields:`` block) is
@@ -33,8 +37,8 @@ from typing import Any
 from docex.cicl.magic_refs import (
     MagicRefArityError,
     find_magic_refs,
-    self_consumes_message,
     self_reference_message,
+    self_uses_message,
     walk_strings,
 )
 from docex.cicl.model import (
@@ -43,6 +47,7 @@ from docex.cicl.model import (
     Codebase,
     ServiceRef,
     CoreService,
+    names_core_service,
 )
 from docex.cicl.transfer import TransferTables
 from docex.errors import ValidationIssue
@@ -56,11 +61,14 @@ _STANDARD_CODEBASE_FIELDS = {"core_services", "secrets", "config", "env"}
 # Core-service level: everything CoreService declares as a real field.
 # Anything else must be declared in the engine's `fields:` block (tt rule 4).
 _STANDARD_SERVICE_FIELDS = {
-    "role", "command", "networks", "depends_on", "consumes", "port", "env",
+    "role", "command", "networks", "uses", "port", "env",
     "resources", "replicas",
 }
+# `uses` is listed here NOT because a backing service may declare it — it may
+# not — but so the extras walk stays quiet and `rule_uses_on_backing_service`
+# (below) is the single reporter of a backing-scoped `uses:`.
 _STANDARD_BACKING_FIELDS = {
-    "role", "networks", "depends_on", "port", "engine", "version",
+    "role", "networks", "uses", "port", "engine", "version",
     "schema_owned_by",
 }
 
@@ -104,8 +112,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_roles_and_engines(doc, tables))
     issues.extend(_validate_role_specific_fields(doc, tables))
     issues.extend(_validate_magic_refs(doc, tables))
-    issues.extend(_validate_depends_on(doc))
-    issues.extend(_validate_consumes(doc))
+    issues.extend(_validate_uses(doc))
     issues.extend(_validate_schema_owned_by(doc))
     issues.extend(_validate_container_registry(doc))
     issues.extend(_validate_resources(doc))
@@ -269,7 +276,7 @@ def _validate_role_specific_fields(
 
 
 # ---------------------------------------------------------------------------
-# Rule 3 + 7: magic refs resolve, and imply depends_on.
+# Rule 3 + 7: magic refs resolve, and imply a `uses` entry.
 # ---------------------------------------------------------------------------
 
 
@@ -280,16 +287,18 @@ def _validate_magic_refs(
 
     def scan(
         label: str, where_label: str, own_ref: tuple[str, str] | None,
-        templates: list[str], depends_on: list[str],
-        consumes: set[str] | None,
+        templates: list[str], uses: set[str] | None,
     ) -> None:
         """Rule 3 + rule 7 over one referencer's templates.
 
-        Rule 7 is kind-aware: ``depends_on`` answers it for a backing target,
-        ``consumes`` answers it for a core service. ``consumes=None``
-        means the referencer is a *backing service*, which cannot answer it at
-        all — see the core branch below for why that is rule 7 correctly not
-        applying rather than a hole in it.
+        Rule 7 is ONE clause over ONE relation: a magic ref must be matched by
+        a ``uses`` entry on the referencing core service. ``uses`` here is that
+        core service's full set — core targets dotted, backing targets bare —
+        so the two branches below differ only in the form of the key they look
+        up. ``uses=None`` means the referencer is a *backing service*, which
+        declares no edges at all and so cannot answer rule 7 — see the core
+        branch below for why that is rule 7 correctly not applying rather than
+        a hole in it.
         """
         for template in templates:
             for match in find_magic_refs(template):
@@ -358,34 +367,35 @@ def _validate_magic_refs(
                             ),
                             where=where_label,
                         ))
-                    # Rule 7, core half. ONE-DIRECTIONAL by construction: the
-                    # walk is over refs, looking each up in the consumes set.
+                    # Rule 7, core target. ONE-DIRECTIONAL by construction: the
+                    # walk is over refs, looking each up in the `uses` set.
                     # There is no walk in the other direction and none may be
-                    # added — `api.web` declares `consumes: [api.worker]` for
+                    # added — `api.web` declares `uses: [api.worker]` for
                     # the contract and the health fan-out while holding no ref
                     # to the worker, because it reaches it through the broker.
                     # A bidirectional rule would reject the most common
                     # web/worker topology in existence.
-                    if consumes is None:
-                        # A backing service holds this ref. Rule 7 is worded
-                        # "on the referencing CORE SERVICE"; a backing service
-                        # has no `consumes:` and (rule 24) may not depends_on a
-                        # core service, so there is nothing it could declare.
+                    if uses is None:
+                        # A backing service holds this ref. Rule 7 governs
+                        # "the referencing CORE SERVICE"; a backing service
+                        # declares NO outbound edges at all — it is a graph
+                        # sink — so there is nothing it could declare.
                         # WHY skipped rather than rejected: the ref can be
                         # perfectly legitimate — an object_store CORS origin set
-                        # to ${codebases.api.core_services.web.host} — and it is not a
-                        # CALL. Embedding a hostname in your own config implies
-                        # no readiness coupling and crosses no interface
-                        # boundary, so there is nothing for either relation to
-                        # express. This is rule 7 correctly not applying, not a
-                        # hole in it. Pinned by
-                        # test_consumes_relation.py::test_backing_referencer_*.
+                        # to ${codebases.api.core_services.web.host} — and it is
+                        # not a CALL. Embedding a hostname in your own config
+                        # crosses no interface boundary, so there is no
+                        # interface implication for the relation to express.
+                        # This is rule 7 correctly not applying, not a hole in
+                        # it. Doctrine says so in as many words (cicl.md rule 7,
+                        # second sentence onward). Pinned by
+                        # test_uses_relation.py::test_backing_referencer_*.
                         continue
                     dotted = ServiceRef(ref.target, ref.service).dotted
-                    if dotted not in consumes:
+                    if dotted not in uses:
                         msg = (
                             f"core service {label!r} references {dotted!r} via "
-                            f"{ref.text} but does not list it in consumes"
+                            f"{ref.text} but does not list it in uses"
                         )
                         if own_ref is not None and ref.target == own_ref[0]:
                             # SAME-CODEBASE IS NOT EXEMPT. The check compares
@@ -397,9 +407,9 @@ def _validate_magic_refs(
                                 "does not make it not a boundary"
                             )
                         issues.append(ValidationIssue(
-                            rule="rule_7_magic_ref_implies_consumes",
+                            rule="rule_7_magic_ref_implies_uses",
                             message=(
-                                msg + ". See cicl.md § Consumes Relationships."
+                                msg + ". See cicl.md § Uses Relationships."
                             ),
                             where=where_label,
                         ))
@@ -444,25 +454,29 @@ def _validate_magic_refs(
                         where=where_label,
                     ))
 
-                # Rule 7: depends_on must include the target. The self-case
-                # only ever meant anything for a backing consumer, whose
-                # `label` IS its own name.
-                if ref.target != label and ref.target not in (depends_on or []):
+                # Rule 7, backing target. Same clause, same id — the rule is
+                # one. A backing target is named BARE, so the lookup key is
+                # `ref.target` rather than a dotted form. The self-case only
+                # ever meant anything for a backing referencer, whose `label`
+                # IS its own name; `uses is None` already covers it, and the
+                # guard is kept because it costs nothing.
+                if uses is None:
+                    continue
+                if ref.target != label and ref.target not in uses:
                     issues.append(ValidationIssue(
-                        rule="rule_7_magic_ref_implies_depends_on",
+                        rule="rule_7_magic_ref_implies_uses",
                         message=(
                             f"service {label!r} references {ref.target!r} via "
-                            f"{ref.text} but does not list "
-                            f"it in depends_on"
+                            f"{ref.text} but does not list it in uses"
+                            ". See cicl.md § Uses Relationships."
                         ),
                         where=where_label,
                     ))
 
     # Core: one scan per core service, over its EFFECTIVE env (codebase-level
     # merged under core-service-level). A codebase-level `env:` ref therefore
-    # obliges EVERY core service of that codebase to carry the edge ITS KIND
-    # CALLS FOR — `depends_on` for a backing target, `consumes` for a core
-    # one — cicl.md § Consumes Relationships § Three clarifications.
+    # obliges EVERY core service of that codebase to declare the edge —
+    # cicl.md § Uses Relationships § Three clarifications.
     for cb_name, svc_name, cb, svc in doc.all_core_services():
         templates: list[str] = []
         for v in _effective_env(cb, svc).values():
@@ -482,8 +496,9 @@ def _validate_magic_refs(
             _service_where(cb_name, svc_name),
             (cb_name, svc_name),
             templates,
-            list(svc.depends_on or []),
-            svc.consumes_refs(),
+            # The referencer's FULL `uses` set: core targets dotted, backing
+            # targets bare. One set, because the rule is one clause.
+            svc.core_uses() | set(svc.backing_uses()),
         )
 
     for name, svc in sorted(doc.backing_services.items()):
@@ -502,160 +517,124 @@ def _validate_magic_refs(
                     templates.append(c)
         for v in (svc.model_extra or {}).values():
             templates.extend(walk_strings(v))
-        # `consumes=None`: a backing service has no such field and cannot
-        # answer rule 7 for a core target. Reasoning at the core branch's
-        # `if consumes is None` above.
-        scan(name, name, None, templates, list(svc.depends_on or []), None)
+        # `uses=None`: a backing service declares no outbound edges at all, so
+        # it cannot answer rule 7 for a target of either kind. Reasoning at the
+        # core branch's `if uses is None` above.
+        scan(name, name, None, templates, None)
 
     return issues
 
 
 # ---------------------------------------------------------------------------
-# Rule 6: depends_on cycle.
+# Rule 25: `uses` names a backing service bare, or a core service fully
+# qualified, and never itself. Plus the standing scope rule that only a core
+# service may declare `uses` at all.
+#
+# Rules 6 and 24 are RETIRED (1.7.0) and their numbers are tombstoned, never
+# reused. Rule 6's cycle DFS is gone because a backing service declares no
+# outbound edges and is therefore a graph SINK: acyclicity across
+# backing-targeted edges falls out of the graph's shape rather than being
+# enforced against it (cicl.md § The graph may contain cycles). Rule 6's
+# unknown-TARGET check is not gone — it survives below as the bare-name arm of
+# `rule_25_unresolved_uses`.
 # ---------------------------------------------------------------------------
 
 
-def _validate_depends_on(doc: CICLDocument) -> list[ValidationIssue]:
-    issues: list[ValidationIssue] = []
-    all_authored = doc.all_authored()
+def _validate_uses(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 25, plus the standing `uses`-is-core-service-scoped rule.
 
-    def check_edges(label: str, where: str, deps: list[str]) -> None:
-        for dep in deps or []:
-            if dep not in all_authored:
-                issues.append(ValidationIssue(
-                    rule="rule_6_unknown_depends_on",
-                    message=f"service {label!r} depends_on unknown service {dep!r}",
-                    where=where,
-                ))
-            elif dep in doc.codebases:
-                # Rule 24 (Mod 096).
-                issues.append(ValidationIssue(
-                    rule="rule_24_depends_on_core_service",
-                    message=(
-                        f"{label!r} declares depends_on: [{dep!r}], "
-                        f"which is a core service. `depends_on` is a readiness gate and "
-                        f"names backing services ONLY. Interface coupling "
-                        f"between core services is a different relation with "
-                        f"different rules and lives in `consumes:`. "
-                        f"See cicl.md § Depends-On Relationships."
-                    ),
-                    where=f"{where}.depends_on",
-                ))
-
-    for cb_name, svc_name, _cb, svc in doc.all_core_services():
-        check_edges(
-            f"core service {ServiceRef(cb_name, svc_name).dotted}",
-            _service_where(cb_name, svc_name),
-            list(svc.depends_on or []),
-        )
-    for name, svc in sorted(doc.backing_services.items()):
-        check_edges(name, name, list(svc.depends_on or []))
-
-    # Cycle detection (rule 6) over the BACKING-service graph only. With
-    # rule 24 in force a core service can only point at a backing
-    # service, so core services are leaves and cannot participate in
-    # a cycle.
-    backing = doc.backing_services
-    WHITE, GRAY, BLACK = 0, 1, 2
-    color: dict[str, int] = {n: WHITE for n in backing}
-
-    def dfs(node: str, path: list[str]) -> None:
-        color[node] = GRAY
-        for dep in sorted((backing[node].depends_on or [])):
-            if dep not in backing:
-                continue
-            if color[dep] == GRAY:
-                cycle = path + [node, dep]
-                issues.append(ValidationIssue(
-                    rule="rule_6_depends_on_cycle",
-                    message=f"depends_on cycle: {' -> '.join(cycle)}",
-                ))
-                return
-            if color[dep] == WHITE:
-                dfs(dep, path + [node])
-        color[node] = BLACK
-
-    for n in sorted(backing):
-        if color[n] == WHITE:
-            dfs(n, [])
-    return issues
-
-
-# ---------------------------------------------------------------------------
-# Rule 25: `consumes` names core service, fully qualified, not itself.
-# ---------------------------------------------------------------------------
-
-
-def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 25. `ServiceRef.parse` is the parser — Mod 096 already wrote the
+    `ServiceRef.parse` is the parser — Mod 096 already wrote the
     bare-name-is-illegal rule and its reasoning into it, and a second parser
-    would be a second place for that rule to drift."""
+    would be a second place for that rule to drift.
+    """
     issues: list[ValidationIssue] = []
     for cb_name, svc_name, _cb, svc in doc.all_core_services():
         label = ServiceRef(cb_name, svc_name).dotted
-        where = f"{_service_where(cb_name, svc_name)}.consumes"
+        where = f"{_service_where(cb_name, svc_name)}.uses"
 
-        def backing_message(entry: str, label: str = label) -> str:
+        def codebase_message(entry: str, label: str = label) -> str:
             return (
-                f"core service {label!r} lists {entry!r} in `consumes:`, which "
-                f"names the backing service {entry.split('.')[0]!r}. `consumes` "
-                f"is an interface edge between core services; readiness "
-                f"coupling to a backing service lives in `depends_on:`. "
-                f"See cicl.md § Depends-On Relationships."
+                f"core service {label!r} lists {entry!r} in `uses:`, which "
+                f"names the codebase {entry.split('.')[0]!r}. A bare codebase "
+                f"name is an error, not shorthand for 'all its core services': "
+                f"an interface edge points at a specific boundary, and a "
+                f"codebase does not have one contract. Name a core service "
+                f"fully qualified, as '<codebase>.<service>'. "
+                f"See cicl.md § Uses Relationships."
             )
 
-        for raw in (svc.consumes or []):
-            # WHY the namespace is consulted before the parser: `consumes:
-            # [appdb]` is the mistake this field invites — an author reaching
-            # for the relation they know — and "a codebase has no single
-            # boundary" is the wrong answer to it.
-            if "." not in raw and raw in doc.backing_services:
+        for raw in (svc.uses or []):
+            # --- bare entry: names a backing service ----------------------
+            if not names_core_service(raw):
+                if raw in doc.backing_services:
+                    continue
+                # WHY the codebase namespace is consulted here: `uses: [api]`
+                # is the mistake the merged field invites — an author naming
+                # the codebase they mean instead of the boundary — and "no
+                # such service" is the wrong answer to it.
+                if raw in doc.codebases:
+                    issues.append(ValidationIssue(
+                        rule="rule_25_uses_malformed",
+                        message=codebase_message(raw), where=where,
+                    ))
+                    continue
+                # The surviving unknown-TARGET check. Formerly
+                # `rule_6_unknown_depends_on`; rule 6 is retired but this check
+                # is live and necessary — a typo'd target must fail at compile
+                # time, not later as an unresolvable magic ref or not at all.
+                # It belongs to rule 25, whose own sentence it fails: an entry
+                # naming nothing that exists names neither a backing service
+                # nor a core service.
                 issues.append(ValidationIssue(
-                    rule="rule_25_consumes_malformed",
-                    message=backing_message(raw), where=where,
+                    rule="rule_25_unresolved_uses",
+                    message=(
+                        f"core service {label!r} lists {raw!r} in `uses:`, but "
+                        f"no backing service {raw!r} is declared; known: "
+                        f"{sorted(doc.backing_services)}"
+                    ),
+                    where=where,
                 ))
                 continue
+
+            # --- dotted entry: names a core service -----------------------
             try:
                 ref = ServiceRef.parse(raw)
             except ValueError as exc:
                 issues.append(ValidationIssue(
-                    rule="rule_25_consumes_malformed",
+                    rule="rule_25_uses_malformed",
                     message=(
-                        f"core service {label!r}: invalid `consumes:` entry — "
+                        f"core service {label!r}: invalid `uses:` entry — "
                         f"{exc} Rule 25 requires the same fully-qualified form "
-                        f"(cicl.md § Consumes Relationships)."
+                        f"(cicl.md § Uses Relationships)."
                     ),
                     where=where,
                 ))
                 continue
-            # Before the existence check: an author who consumes themselves
+            # Before the existence check: an author who uses themselves
             # should get the self message, not a redundant pair.
             if (ref.codebase, ref.service) == (cb_name, svc_name):
                 issues.append(ValidationIssue(
-                    rule="rule_25_self_consumes",
-                    message=self_consumes_message(ref), where=where,
+                    rule="rule_25_self_uses",
+                    message=self_uses_message(ref), where=where,
                 ))
                 continue
             target = doc.codebases.get(ref.codebase)
             if target is None:
-                message = (
-                    backing_message(raw) if ref.codebase in doc.backing_services
-                    else (
-                        f"core service {label!r} lists {raw!r} in `consumes:`, "
+                issues.append(ValidationIssue(
+                    rule="rule_25_unresolved_uses",
+                    message=(
+                        f"core service {label!r} lists {raw!r} in `uses:`, "
                         f"but no codebase {ref.codebase!r} is declared; "
                         f"known: {sorted(doc.codebases)}"
-                    )
-                )
-                issues.append(ValidationIssue(
-                    rule="rule_25_unresolved_consumes",
-                    message=message, where=where,
+                    ),
+                    where=where,
                 ))
                 continue
             if ref.service not in target.core_services:
                 issues.append(ValidationIssue(
-                    rule="rule_25_unresolved_consumes",
+                    rule="rule_25_unresolved_uses",
                     message=(
-                        f"core service {label!r} lists {raw!r} in `consumes:`, "
+                        f"core service {label!r} lists {raw!r} in `uses:`, "
                         f"but codebase {ref.codebase!r} declares no core "
                         f"service {ref.service!r}; known: "
                         f"{sorted(target.core_services)}"
@@ -663,20 +642,46 @@ def _validate_consumes(doc: CICLDocument) -> list[ValidationIssue]:
                     where=where,
                 ))
                 continue
+            # KEPT knowingly out of step with committed rule 25, which carries
+            # no scheduler clause: `role: scheduler` is not retired until Mod
+            # 116, and deleting this guard here would leave a live role
+            # unguarded across three mod boundaries.
             if target.core_services[ref.service].role == "scheduler":
                 issues.append(ValidationIssue(
-                    rule="rule_25_consumes_scheduler",
+                    rule="rule_25_uses_scheduler",
                     message=(
-                        f"core service {label!r} lists {raw!r} in `consumes:`, but "
+                        f"core service {label!r} lists {raw!r} in `uses:`, but "
                         f"{raw!r} is a `scheduler` core service. Cron invokes a "
                         f"scheduler and nobody else does, so it exposes no boundary "
-                        f"to consume — and it is exempt from the health fan-out that "
-                        f"`consumes` drives. See cicl.md rule 25 and "
+                        f"to use — and it is exempt from the health fan-out that "
+                        f"`uses` drives. See cicl.md rule 25 and "
                         f"contracts.md § Health Checks."
                     ),
                     where=where,
                 ))
                 continue
+
+    # `uses` is core-service-scoped. Not a numbered rule — cicl.md's Service
+    # Fields scope column plus the standing "`./bin/docex compile` will always
+    # fail loudly when a field is placed in the wrong scope" sentence. Read off
+    # model_extra because `_ServiceBase` does not declare the field.
+    for name, backing in sorted(doc.backing_services.items()):
+        if "uses" in (backing.model_extra or {}):
+            issues.append(ValidationIssue(
+                rule="rule_uses_on_backing_service",
+                message=(
+                    f"backing service {name!r} declares `uses:`. Only core "
+                    f"services declare `uses` — a backing service has no "
+                    f"outbound edges at all and is a graph SINK "
+                    f"(cicl.md § Uses Relationships, and the Service Fields "
+                    f"scope column). Where an engine genuinely needs another "
+                    f"container beneath it, which containers an engine "
+                    f"requires is an ENGINE concern and belongs in that "
+                    f"engine's transfer-table `defaults:` block, not in "
+                    f"infra.yml."
+                ),
+                where=f"backing_services.{name}",
+            ))
     return issues
 
 

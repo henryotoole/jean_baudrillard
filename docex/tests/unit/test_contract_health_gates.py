@@ -7,11 +7,11 @@ Three things land here:
    `_infer_contract_format` — a heuristic whose asyncapi branch was unreachable
    from the day it was written, which is why no test in this codebase's history
    ever produced an AsyncAPI provider.
-2. The provider set is (`consumes` targets) ∪ (`web`-network core service),
-   minus schedulers — Mod 098 added `consumes` and nothing read it until now.
-3. The health fan-out keys off `consumes`, not `depends_on`. Under rule 24 a web
-   core service cannot `depends_on` its worker at all, so the old gate required
-   *nothing* of a web → worker edge.
+2. The provider set is (CORE-targeted `uses` entries) ∪ (`web`-network core
+   service), minus schedulers.
+3. The health fan-out keys on CORE `uses` targets specifically: it proxies a
+   target's own `/health` at a `<codebase>/<service>` path, and a BACKING
+   target has no such form to proxy.
 
 Inline-`infra.yml` projects under `tmp_path` in the style of `_hc_ctx`
 (`test_pipeline_check.py`): the shapes under test are one-off, and a fixture
@@ -38,7 +38,7 @@ from docex.pipeline.check import (
 
 
 _HEAD = (
-    'cicl_version: "2"\n'
+    'cicl_version: "3"\n'
     "foundation: fixed\n"
     'apex_domain: "example.com"\n'
     'container_registry: "registry.example.com"\n'
@@ -55,7 +55,7 @@ def _proc(
     networks: list[str],
     port: int | None = None,
     hcp: bool = False,
-    consumes: list[str] | None = None,
+    uses: list[str] | None = None,
     extra: list[str] | None = None,
 ) -> str:
     lines = [
@@ -68,8 +68,8 @@ def _proc(
         lines.append(f"        port: {port}")
     if hcp:
         lines.append("        health_check_path: /health")
-    if consumes is not None:
-        lines.append(f"        consumes: {json.dumps(consumes)}")
+    if uses is not None:
+        lines.append(f"        uses: {json.dumps(uses)}")
     lines.extend(extra or [])
     lines += [
         "        resources:",
@@ -131,7 +131,7 @@ def _contracts_result(ctx, root) -> tuple:
 
 
 def _health_result(ctx, root):
-    """Run both gates in sequence — the health gate consumes the contract
+    """Run both gates in sequence — the health gate reads the contract
     gate's output, exactly as ``run_check`` wires them."""
     report = CheckReport()
     contracts, _providers = _gate_contracts(root, ctx, report)
@@ -144,7 +144,7 @@ def _web_and_worker(
     worker_port: int | None = 9090,
     worker_hcp: bool = True,
 ) -> str:
-    """`api.web` (web network) consumes `api.worker` (internal only)."""
+    """`api.web` (web network) uses `api.worker` (internal only)."""
     return _codebase(
         "api",
         _proc(
@@ -153,7 +153,7 @@ def _web_and_worker(
             networks=["web", "internal"],
             port=8080,
             hcp=True,
-            consumes=["api.worker"],
+            uses=["api.worker"],
         ),
         _proc(
             "worker",
@@ -171,11 +171,11 @@ def _web_and_worker(
 
 
 def test_worker_provider_gets_asyncapi(tmp_path):
-    """A `consumes` target is a provider, and its format follows its ROLE.
+    """A core `uses` target is a provider, and its format follows its ROLE.
 
-    This is the case the old code could not express. `api.worker` is neither on
-    `web` nor a `depends_on` target (rule 24 forbids the latter outright), so the
-    old provider test made it a non-provider and demanded no contract at all —
+    This is the case the old code could not express. `api.worker` is not on
+    `web`, so the old provider test made it a non-provider and demanded no
+    contract at all —
     and even had it been a provider, `_infer_contract_format` would have handed
     it `openapi`, because its asyncapi branch was unreachable.
     """
@@ -256,7 +256,7 @@ def test_scheduler_is_never_a_provider(tmp_path):
     assert "jobs.nightly" not in res.detail
 
     # And it is exempt from the fan-out and the probeability assertion even when
-    # something (illegally, per rule 25) consumes it.
+    # something (illegally, per rule 25) uses it.
     src_consumed = (
         _codebase(
             "api",
@@ -266,7 +266,7 @@ def test_scheduler_is_never_a_provider(tmp_path):
                 networks=["web", "internal"],
                 port=8080,
                 hcp=True,
-                consumes=["jobs.nightly"],
+                uses=["jobs.nightly"],
             ),
         )
         + _codebase(
@@ -351,24 +351,13 @@ def test_missing_fanout_probe_fails(tmp_path):
     assert _health_result(ctx, root).passed
 
 
-def test_fanout_required_without_depends_on(tmp_path):
-    """The whole point of keying off `consumes`: rule 24 forbids a core
-    `depends_on`, so a `depends_on`-keyed gate would require nothing here."""
-    src = _web_and_worker()
-    assert "depends_on" not in src  # the shape genuinely has no depends_on edge
-
-    ctx, root = _project(
-        tmp_path,
-        src,
-        {
-            "api.web.openapi.yml": _openapi("/health"),
-            "api.worker.asyncapi.yml": _ASYNCAPI,
-        },
-    )
-    assert "depends_on" not in (root / "infra" / "infra.yml").read_text()
-    res = _health_result(ctx, root)
-    assert not res.passed
-    assert "/health/api/worker" in res.detail
+# `test_fanout_required_without_depends_on` is DELETED (mod 113). It asserted
+# that the fan-out fires even though the shape declares no `depends_on` edge —
+# i.e. that the gate keys on `consumes` and not on the other relation. With one
+# relation there is no second field for the gate not to key on, so the test has
+# no subject left. What survives is stronger and lives above: the fan-out keys
+# on CORE-targeted `uses` entries specifically, because a backing target has no
+# `<codebase>/<service>` health form to proxy.
 
 
 def test_web_target_is_not_proxied(tmp_path):
@@ -382,7 +371,7 @@ def test_web_target_is_not_proxied(tmp_path):
             networks=["web", "internal"],
             port=8080,
             hcp=True,
-            consumes=["api.admin"],
+            uses=["api.admin"],
         ),
         _proc("admin", "web", networks=["web", "internal"], port=8081, hcp=True),
     )
@@ -420,7 +409,7 @@ def test_openapi_provider_requires_self_health(tmp_path):
 def test_internal_openapi_provider_requires_self_health(tmp_path):
     """Q5's widening: self-`/health` follows the OpenAPI contract, not `web`
     membership. § Self health has no web-network qualifier — an internal-only
-    `web`-role core service reached via `consumes` is exactly what must be probeable
+    `web`-role core service reached via `uses` is exactly what must be probeable
     one hop away."""
     src = _codebase(
         "api",
@@ -430,7 +419,7 @@ def test_internal_openapi_provider_requires_self_health(tmp_path):
             networks=["web", "internal"],
             port=8080,
             hcp=True,
-            consumes=["api.internal"],
+            uses=["api.internal"],
         ),
         _proc("internal", "web", networks=["internal"], port=8081, hcp=True),
     )
@@ -455,7 +444,7 @@ def test_internal_openapi_provider_requires_self_health(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_consumes_target_without_port_fails(tmp_path):
+def test_core_uses_target_without_port_fails(tmp_path):
     ctx, root = _project(
         tmp_path,
         _web_and_worker(worker_port=None),
@@ -471,7 +460,7 @@ def test_consumes_target_without_port_fails(tmp_path):
     assert "api.web" in res.detail  # names the consumer too
 
 
-def test_consumes_target_without_health_check_path_fails(tmp_path):
+def test_core_uses_target_without_health_check_path_fails(tmp_path):
     ctx, root = _project(
         tmp_path,
         _web_and_worker(worker_hcp=False),
@@ -486,7 +475,7 @@ def test_consumes_target_without_health_check_path_fails(tmp_path):
     assert "health_check_path" in res.detail
 
 
-def test_fully_declared_consumes_target_passes(tmp_path):
+def test_fully_declared_core_uses_target_passes(tmp_path):
     """The positive control for the two above — otherwise they could pass for
     the wrong reason."""
     ctx, root = _project(

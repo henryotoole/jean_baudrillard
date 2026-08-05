@@ -63,14 +63,14 @@ See [`api/api.md`](./api/api.md). Two core services on one artifact; they were t
 
 - **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`) and [`processor`](./api/hex/processor.md) (driven by `api.worker`). They share a codebase but not a module boundary — no imports cross between them.
 - **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI). Two boundaries, two contracts; the path is keyed on the core service.
-- **`consumes`**: `api.web consumes api.worker`, one direction only. `api.web` holds four-segment magic refs to `${codebases.api.core_services.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
+- **`uses`**: `api.web` uses `api.worker`, one direction only. `api.web` holds four-segment magic refs to `${codebases.api.core_services.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
 - **Schema owner**: `schema_owned_by: api`. `migrate.sh` runs once for the codebase, not once per core service.
 
 `api.web` is the `domain_default_service`, so prod's web edge answers at three hosts: `api-web.prod.docex-smoke-fixed.luxrnd.tech`, `prod.docex-smoke-fixed.luxrnd.tech` (bare-env), and `docex-smoke-fixed.luxrnd.tech` (bare-project).
 
-`api.worker` is never routed and carries a `port` + `health_check_path` solely because a `consumes` target must be probeable. Its `/health` reports the **poll loop's** monotonic tick, not the process's aliveness: 503 once the tick is 30 s stale, tick at least every 10 s even when idle. Both thresholds are doctrine-fixed. `replicas: 2` is declared and honoured in `prod` only.
+`api.worker` is never routed and carries a `port` + `health_check_path` solely because a core `uses` target must be probeable. Its `/health` reports the **poll loop's** monotonic tick, not the process's aliveness: 503 once the tick is 30 s stale, tick at least every 10 s even when idle. Both thresholds are doctrine-fixed. `replicas: 2` is declared and honoured in `prod` only.
 
-`api.web` exposes `/health` (doctrine-mandated), `/health/api/worker` (doctrine-mandated — the `consumes` fan-out, one hop, short hard timeout), and `/health/probe` + `/health/events` (**not** doctrine-mandated — probe and events are *backing services*, not core services; they let the stage tests catch wiring regressions in Service Connect, SG self-ingress, and EFS mount-target setup on the elastic counterpart).
+`api.web` exposes `/health` (doctrine-mandated), `/health/api/worker` (doctrine-mandated — the `uses` fan-out, one hop, short hard timeout), and `/health/probe` + `/health/events` (**not** doctrine-mandated — probe and events are *backing services*, not core services; they let the stage tests catch wiring regressions in Service Connect, SG self-ingress, and EFS mount-target setup on the elastic counterpart).
 
 #### `reaper` — the scheduler codebase
 
@@ -78,7 +78,7 @@ One core service, `prune`, named after the **job** rather than the role, per `ci
 
 - **Role**: `scheduler` — a cron-triggered, run-to-completion job, not a long-running server. On fixed, an Ofelia container launches it as a one-off container per fire; on the elastic counterpart, an EventBridge Scheduler invokes an ECS `RunTask` (no `ecs_service`). Suppressed entirely in the `test` env (the trigger is dropped so a job never fires inside the test window).
 - **Schedule**: `0 3 * * *` (03:00 UTC daily).
-- **Contract**: none. `scheduler` core services are exempt from both the contract and the health model — cron invokes them and nobody else does, so a scheduler is never a `consumes` target.
+- **Contract**: none. `scheduler` core services are exempt from both the contract and the health model — cron invokes them and nobody else does, so a scheduler is never a `uses` target.
 - **Driving adapters**: `ContReaperCli` (translates the job trigger into a single `reap()` call, then exits 0).
 - **Driven adapters**: `RepoPingsPostgres` (its own minimal repo — a single `delete_processed_before` method; no code shared with `api` per the cross-module rule).
 - **Hex modules**: **`reaper`** — domain value `RetentionWindow` (a positive-day window with a `cutoff(now)`); alogic `ReaperService.reap()` deletes processed pings older than the cutoff.
@@ -104,7 +104,7 @@ The Dockerfile `CMD` is deliberately irrelevant for core services: `command` is 
 1. **Ping creation.** `POST /pings` on `api.web` → `ContPingsHttp` translates to a driving port call → `PingService.create_ping()` constructs a `Ping`, calls `RepoPings.save()` → row lands in postgres with `processed_at = NULL` → 201 returned.
 2. **Ping processing.** `entrypoints/worker.py`'s loop calls `ContProcessorCli.run_once()` once a second → `ProcessorService` claims `pings WHERE processed_at IS NULL` in batches of 32 → for each row the no-op business logic runs → `RepoPings.mark_processed(id)` sets `processed_at = now()` → the loop bumps its monotonic tick and sleeps.
 3. **Self health.** `GET /health` on `api.web` returns `{"version": "<project version>"}`, straight from the process. `GET /health` on `api.worker` returns the same shape but is gated on the tick from flow 2: stale by more than 30 s and it 503s, which is what makes a wedged loop fail its own probe rather than a liveness thread reporting health while nothing moves.
-4. **Health fan-out.** `GET /health/api/worker` on `api.web` proxies the worker's own `/health` over the internal network with a hard 3 s timeout — one hop, never the target's fan-out, because the `consumes` graph may legally cycle. Doctrine-required, because `api.web` declares `consumes: [api.worker]` and the worker is not on the `web` network. This is the only externally-visible view of the worker's liveness.
+4. **Health fan-out.** `GET /health/api/worker` on `api.web` proxies the worker's own `/health` over the internal network with a hard 3 s timeout — one hop, never the target's fan-out, because the `uses` graph may legally cycle. Doctrine-required, because `api.web` declares `api.worker` in `uses:` and the worker is not on the `web` network. This is the only externally-visible view of the worker's liveness.
 5. **Project-local-backing reachability.** `GET /health/probe` confirms `api.web` can resolve and reach the `probe` nginx sidecar by service name; `GET /health/events` confirms it can open a TCP connection to ClickHouse. Both exercise Service Connect / docker network DNS at the smoke-test layer.
 6. **Ping reaping.** Nightly (`0 3 * * *`), the `reaper.prune` job fires → `ReaperService.reap()` computes the cutoff from a 30-day `RetentionWindow` → `RepoPings.delete_processed_before(cutoff)` deletes expired *processed* pings (unprocessed and recently-processed rows survive) → the job exits 0. Suppressed in `test`.
 

@@ -349,12 +349,13 @@ def _gate_contracts(
 ) -> tuple[list[Path], list[str]]:
     """Verify every required contract file is present.
 
-    Per contracts.md, **the provider set is (`consumes` targets) ∪ (`web`-network
-    core service)**, minus `scheduler` core service. Both arms are load-bearing:
-    the first is the declared interface graph; the second catches every publicly
-    reachable boundary even when nothing inside the project consumes it, which is
-    what gives the health-endpoint gate something to validate. Driving the set off
-    `consumes` alone would silently switch that gate off for a public edge.
+    Per contracts.md, **the provider set is (CORE-targeted `uses` entries) ∪
+    (`web`-network core service)**, minus `scheduler` core service. Both arms
+    are load-bearing: the first is the declared interface graph; the second
+    catches every publicly reachable boundary even when nothing inside the
+    project uses it, which is what gives the health-endpoint gate something to
+    validate. Driving the set off `uses` alone would silently switch that gate
+    off for a public edge.
 
     Providers ship a contract at
     ``infra/contracts/<codebase>.<service>.<fmt>.yml``. The path is
@@ -372,12 +373,12 @@ def _gate_contracts(
         report.add("contracts_exist", True, "no infra.yml — skipped")
         return existing, providers
 
-    # Every `consumes` target in the document, dotted. Mod 101 is the first
-    # reader of `consumes`; it lives on the AUTHORING model (Mod 098 kept it off
-    # `CompiledService` deliberately), which is what this gate reads.
+    # Every CORE-targeted `uses` entry in the document, dotted. This gate reads
+    # the AUTHORING model, so it goes through `core_uses()`; a backing target
+    # is not a provider and has no contract.
     consumed: set[str] = set()
     for _cbn, _svcn, _cb, svc in infra.all_core_services():
-        consumed |= svc.consumes_refs()
+        consumed |= svc.core_uses()
 
     contracts_dir = worktree / "infra" / "contracts"
     missing: list[str] = []
@@ -442,22 +443,21 @@ def _gate_health_endpoints(
        for an HTTP path — not because it is exempt. Its self-health is asserted
        through its fields instead (3).
     2. **Fan-out** — every `web`-network core service declares
-       ``GET /health/<codebase>/<service>`` for each of its `consumes` targets that is not
-       itself on `web`. Keyed off `consumes`, not `depends_on`: a web edge does not
-       depend on its worker (it needs the *broker* up), and rule 24 now forbids a
-       core `depends_on` outright, so a `depends_on`-keyed gate requires nothing at
-       all of a web → worker edge. A dead consumer is invisible from outside —
-       requests keep returning 200 while work piles up behind it. Targets on `web`
-       are skipped: they are publicly reachable and answer their own `/health`, so
-       there is nothing to proxy. Backing services have no `<codebase>/<service>` form and
-       are not required (mod 047); a project may still declare them voluntarily.
-    3. **Probeability** — a `consumes` target declares both `port` and
+       ``GET /health/<codebase>/<service>`` for each of its CORE-targeted `uses`
+       entries that is not itself on `web`. Keyed on core targets specifically:
+       the fan-out proxies a target's own `/health` at a `<codebase>/<service>`
+       path, and a BACKING target has no such form to proxy (mod 047 — a project
+       may still declare one voluntarily). A dead consumer is invisible from
+       outside — requests keep returning 200 while work piles up behind it.
+       Targets on `web` are skipped: they are publicly reachable and answer
+       their own `/health`, so there is nothing to proxy.
+    3. **Probeability** — a core `uses` target declares both `port` and
        `health_check_path`. Per § Declared by fields those two fields *are* the
        health declaration. On elastic the `port` is also exactly what makes the
        target Service-Connect-discoverable, which is what lets a sibling `web`
        core service reach its `/health` one hop away. Distinct from rule 28, which
        constrains a core service that *has* `health_check_path`; this requires a
-       consumes target to have it at all.
+       core `uses` target to have it at all.
 
     `scheduler` core services are exempt throughout.
     """
@@ -500,7 +500,7 @@ def _gate_health_endpoints(
 
         if "web" not in (svc.networks or []):
             continue
-        for dotted in sorted(svc.consumes_refs()):
+        for dotted in sorted(svc.core_uses()):
             target = _resolve_service(infra, dotted)
             if target is None:
                 continue
@@ -513,15 +513,15 @@ def _gate_health_endpoints(
             if not _declares(key):
                 problems.append(
                     f"{path.name}: missing 'GET {key}' (required because "
-                    f"{cb_name}.{svc_name} consumes non-web {dotted})"
+                    f"{cb_name}.{svc_name} uses non-web {dotted})"
                 )
 
-    # --- 3: what the consumed core service's FIELDS must declare --------
+    # --- 3: what the used core service's FIELDS must declare ------------
     # Keyed by target so two consumers of one under-declared target produce one
     # problem naming both, not two problems saying the same thing.
     underdeclared: dict[str, tuple[list[str], set[str]]] = {}
     for cb_name, svc_name, _cb, svc in infra.all_core_services():
-        for dotted in sorted(svc.consumes_refs()):
+        for dotted in sorted(svc.core_uses()):
             target = _resolve_service(infra, dotted)
             if target is None:
                 continue
@@ -539,7 +539,7 @@ def _gate_health_endpoints(
     for dotted in sorted(underdeclared):
         absent, consumers = underdeclared[dotted]
         problems.append(
-            f"consumes target {dotted!r} declares no "
+            f"core `uses` target {dotted!r} declares no "
             f"{' and no '.join(absent)} — those fields ARE its health "
             f"declaration (contracts.md § Declared by fields), and on elastic "
             f"the port is what makes it Service-Connect-discoverable. "

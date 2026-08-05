@@ -27,7 +27,7 @@ def _policies():
 # be routed. Mod 096: `api` also carries a non-web `worker` core service, which
 # must get no host at all.
 _DOC = _doc("""
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"

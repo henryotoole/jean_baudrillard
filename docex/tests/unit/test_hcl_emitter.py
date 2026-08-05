@@ -568,7 +568,7 @@ _MIGRATE_WORKER = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
 
@@ -1073,7 +1073,7 @@ def test_mod108_scheduler_run_task_emits_its_command(tmp_path: Path):
         "schedule": "0 3 * * *",
         "command": ["python", "-m", "jobs.cleanup"],
         "networks": ["internal"],
-        "depends_on": ["appdb"],
+        "uses": ["appdb"],
         "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
     }
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))

@@ -216,7 +216,7 @@ def test_preinfra_dev_dns_enumerates_per_web_core_service(
         "networks": ["web", "internal"],
         # Rule 7: the fixture's DATABASE_* refs are declared at the SERVICE
         # level, so every core service of `api` owes the readiness edge.
-        "depends_on": ["appdb"],
+        "uses": ["appdb"],
         "resources": {"cpu": 0.5, "memory": "1GB", "disk": "20GB"},
     }
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))

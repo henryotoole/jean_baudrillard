@@ -263,7 +263,7 @@ def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False, worker_hc=F
         "          disk: 1GB\n"
     ) if extra_worker else ""
     (root / "infra" / "infra.yml").write_text(
-        'cicl_version: "2"\n'
+        'cicl_version: "3"\n'
         "foundation: fixed\n"
         'apex_domain: "example.com"\n'
         'container_registry: "registry.example.com"\n'

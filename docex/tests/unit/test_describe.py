@@ -4,9 +4,10 @@
 the unit layer is their home; before Mod 104 the only coverage was
 ``tests/integration/test_compile.py::test_describe_dag_and_llm``.
 
-Mod 104 made the renderers show BOTH relations — ``depends_on`` (readiness) and
-``consumes`` (interface) — over dotted reference-form node ids, from a single
-shared derivation. These tests pin each of those properties separately.
+Mod 104 made the renderers show the relation's edges as two kinds DERIVED
+FROM TARGET KIND — ``uses_backing`` (solid) and ``uses_core`` (dashed) — over
+dotted reference-form node ids, from a single shared derivation. These tests
+pin each of those properties separately.
 """
 
 from __future__ import annotations
@@ -32,14 +33,14 @@ def _compiled(src: str, env: str = "prod"):
     )
 
 
-def _doc(web_consumes: str = "[api.worker]") -> str:
+def _doc(web_uses: str = "[appdb, api.worker]") -> str:
     """The test document. ``web ↔ worker`` is the legal interface cycle.
 
-    `web_consumes` is substituted verbatim so a variant can carry a malformed
+    `web_uses` is substituted verbatim so a variant can carry a malformed
     or unresolvable target without a second copy of the document.
     """
     return f"""
-cicl_version: "2"
+cicl_version: "3"
 foundation: fixed
 apex_domain: example.com
 container_registry: registry.example.com
@@ -53,15 +54,13 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         port: 8080
         networks: [web, internal]
-        depends_on: [appdb]
-        consumes: {web_consumes}
+        uses: {web_uses}
         resources: {{cpu: 1.0, memory: 2GB, disk: 20GB}}
       worker:
         role: worker
         command: ["python", "-m", "worker"]
         networks: [internal]
-        depends_on: [appdb]
-        consumes: [api.web]
+        uses: [appdb, api.web]
         replicas: 4
         resources: {{cpu: 0.5, memory: 1GB, disk: 20GB}}
 backing_services:
@@ -80,38 +79,43 @@ def _arrow_lines(out: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 1-3. `consumes` on CompiledService
+# 1-3. `uses` on CompiledService
 # ---------------------------------------------------------------------------
 
 
-def test_consumes_compiles_to_compiled_identities():
+def test_core_uses_derives_compiled_identities():
     """Not dotted — these are keys into ``CompiledEnv.services``.
 
-    The whole point of the compiled form is that an edge of either relation
-    resolves with one dict lookup, so the lookup is asserted too.
+    The whole point of the compiled form is that an edge resolves with one
+    dict lookup, so the lookup is asserted too.
     """
     c = _compiled(_doc())
-    assert c.services["api-web"].consumes == ["api-worker"]
-    assert c.services["api-worker"].consumes == ["api-web"]
+    assert c.services["api-web"].uses_core == ["api-worker"]
+    assert c.services["api-worker"].uses_core == ["api-web"]
     for key in ("api-worker", "api-web"):
         assert key in c.services
 
 
-def test_backing_service_compiles_to_empty_consumes():
-    """A backing service has no ``consumes:`` (rule 14), so the field is []."""
+def test_backing_service_compiles_to_no_edges_at_all():
+    """A backing service declares no outbound edges — it is a graph SINK
+    (cicl.md § Uses Relationships), so BOTH derived lists are empty."""
     c = _compiled(_doc())
-    assert c.services["appdb"].consumes == []
+    assert c.services["appdb"].uses == []
+    assert c.services["appdb"].uses_core == []
+    assert c.services["appdb"].uses_backing == []
 
 
-def test_malformed_consumes_entries_are_dropped():
-    """A rule-25-rejected entry must not surface as a phantom node.
+def test_malformed_dotted_uses_entries_are_dropped():
+    """A rule-25-rejected entry must not surface as a phantom CORE node.
 
-    ``consumes_refs()`` drops what does not parse, and ``compile_env`` does not
-    validate, so this is the property that keeps a bare name (``api``) or a
-    backing target (``appdb``) from reaching the graph view.
+    ``uses_core`` drops what does not parse, and ``compile_env`` does not
+    validate, so this is the property that keeps a bare codebase name (``api``)
+    from reaching the graph view as a core edge. A bare name classifies as a
+    BACKING target by form, which is where ``appdb`` and ``api`` both land.
     """
-    c = _compiled(_doc(web_consumes='["appdb", "api"]'))
-    assert c.services["api-web"].consumes == []
+    c = _compiled(_doc(web_uses='["appdb", "api"]'))
+    assert c.services["api-web"].uses_core == []
+    assert c.services["api-web"].uses_backing == ["appdb", "api"]
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +126,8 @@ def test_malformed_consumes_entries_are_dropped():
 def test_dag_renders_both_edge_kinds_distinguishably():
     """Both headings, and each relation under its own glyph — never the other's."""
     out = render_dag(_compiled(_doc()))
-    assert "depends_on edges (readiness) — solid:" in out
-    assert "consumes edges (interface) — dashed:" in out
+    assert "uses edges (backing target) — solid:" in out
+    assert "uses edges (core target) — dashed:" in out
     assert "  api.web -> appdb" in out
     assert "  api.web ..> api.worker" in out
     # The glyphs do not cross over.
@@ -139,7 +143,7 @@ def test_dag_node_ids_are_dotted_and_emitted_name_still_shown():
     assert "sample-prod-api-web" in out
 
 
-def test_dag_consumes_cycle_renders_each_edge_once():
+def test_dag_uses_cycle_renders_each_edge_once():
     """``web ↔ worker`` is legal; the flat pass emits two lines, not a walk.
 
     ``render_dag`` is called directly, so a recursive implementation fails here
@@ -172,22 +176,23 @@ def test_dag_replicas_yield_one_node():
 def test_llm_edges_carry_both_kinds():
     doc = json.loads(render_llm(_compiled(_doc())))
     edges = doc["edges"]
-    assert {e["kind"] for e in edges} == {"depends_on", "consumes"}
-    consumes = [e for e in edges if e["kind"] == "consumes"]
-    assert {(e["from"], e["to"]) for e in consumes} == {
+    assert {e["kind"] for e in edges} == {"uses_backing", "uses_core"}
+    core = [e for e in edges if e["kind"] == "uses_core"]
+    assert {(e["from"], e["to"]) for e in core} == {
         ("api.web", "api.worker"),
         ("api.worker", "api.web"),
     }
 
 
-def test_llm_nodes_carry_both_axes_and_consumes():
+def test_llm_nodes_carry_both_axes_and_uses():
     doc = json.loads(render_llm(_compiled(_doc())))
     nodes = {r["short"]: r for r in doc["tiers"]["environment"]}
     web = nodes["api.web"]
     assert web["short"] == "api.web"
     assert web["codebase"] == "api"
     assert web["service"] == "web"
-    assert web["consumes"] == ["api.worker"]
+    assert web["uses_core"] == ["api.worker"]
+    assert web["uses_backing"] == ["appdb"]
     db = nodes["appdb"]
     assert db["codebase"] is None
     assert db["service"] is None
@@ -212,18 +217,18 @@ def test_one_derivation_two_renderings():
     arrows = _arrow_lines(out)
     assert len(arrows) == len(edges)
     for src, dst, kind in edges:
-        arrow = "->" if kind == "depends_on" else "..>"
+        arrow = "->" if kind == "uses_backing" else "..>"
         assert f"  {src} {arrow} {dst}" in arrows
 
 
-def test_unresolvable_consumes_target_degrades_to_raw_key():
+def test_unresolvable_uses_target_degrades_to_raw_key():
     """``describe`` is illustrative: it prints an odd token rather than raising.
 
     ``run_describe`` compiles WITHOUT ``validate_document``, so a well-formed
     but unresolvable target (``ghost.web``) reaches the renderer.
     """
-    c = _compiled(_doc(web_consumes='["ghost.web"]'))
-    assert c.services["api-web"].consumes == ["ghost-web"]
+    c = _compiled(_doc(web_uses='["ghost.web"]'))
+    assert c.services["api-web"].uses_core == ["ghost-web"]
     out = render_dag(c)
     assert "  api.web ..> ghost-web" in out
     assert node_id(c.services["api-web"]) == "api.web"

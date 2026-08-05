@@ -72,7 +72,7 @@ def _svc(
             "memory": "512",
         },
         networks=networks or ["internal"],
-        depends_on=[],
+        uses=[],
         port=port,
         env={},
         emits=emits or {"elastic": ["task_definition", "ecs_service"]},

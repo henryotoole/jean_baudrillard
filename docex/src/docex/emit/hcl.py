@@ -842,7 +842,6 @@ def render_rds_instance(svc: CompiledService, ctx: _RenderCtx) -> str:
     body.pop("logging", None)
     body.pop("restart", None)
     body.pop("container_name", None)
-    body.pop("depends_on", None)
     body.pop("environment", None)
 
     nets = list(svc.networks)
@@ -876,7 +875,6 @@ def render_elasticache_cluster(svc: CompiledService, ctx: _RenderCtx) -> str:
     body.pop("logging", None)
     body.pop("restart", None)
     body.pop("container_name", None)
-    body.pop("depends_on", None)
     body.pop("environment", None)
 
     nets = list(svc.networks)
@@ -912,7 +910,6 @@ def render_s3_bucket(svc: CompiledService, ctx: _RenderCtx) -> str:
     body.pop("logging", None)
     body.pop("restart", None)
     body.pop("container_name", None)
-    body.pop("depends_on", None)
     body.pop("environment", None)
     body.pop("networks", None)
 

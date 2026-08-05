@@ -284,7 +284,7 @@ def test_bootstrap_underscored_project_hyphenates_s3_bucket(
         'name: docex_smoke_elastic\nversion: "0.0.1"\ndocex_version: "0.7.0"\n'
     )
     (proj / "infra" / "infra.yml").write_text(
-        'cicl_version: "2"\n'
+        'cicl_version: "3"\n'
         'foundation: elastic\n'
         'apex_domain: example.com\n'
         'observability_backend_url: "https://obs.example.com"\n'

@@ -37,7 +37,7 @@ _WORKER = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
     "networks": ["internal"],
-    "depends_on": ["appdb"],
+    "uses": ["appdb"],
     "resources": {"cpu": 0.5, "memory": "1GB"},
 }
 
@@ -218,7 +218,7 @@ def test_5_bind_mounts_in_dev_only(fixed_root: Path):
 
 
 # ---------------------------------------------------------------------------
-# 6-7 — networks and depends_on unions.
+# 6-7 — networks and the backing-targeted `uses` union.
 # ---------------------------------------------------------------------------
 
 
@@ -233,11 +233,17 @@ def test_6_networks_are_the_non_web_union(fixed_root: Path):
         assert services[f"sample-{env}-api-exec"]["networks"] == ["internal"]
 
 
-def test_7_depends_on_is_long_form_and_health_gated(fixed_root: Path):
-    """The union of the codebase's `depends_on`, rewritten by the existing
-    second pass — which is why the exec pass runs before it rather than
-    duplicating it. `service_healthy` is what makes `docex migrate dev`
-    against a torn-down stack bring the database up instead of failing."""
+def test_7_uses_gate_is_long_form_and_health_gated(fixed_root: Path):
+    """The union of the codebase's BACKING-targeted `uses` edges, rewritten
+    inline to `condition: service_healthy` (cicl.md § Startup ordering is not a
+    doctrine feature; migrations.md § Dev and Test Mechanism).
+
+    This is the compiler's ONE remaining ordering emission, and this assertion
+    is its guard. `service_healthy` is what makes `docex migrate dev` against a
+    torn-down stack bring the database up and WAIT for it, instead of racing a
+    cold postgres and failing. A downgrade to `service_started`, or to a bare
+    short-form list, surfaces as an intermittent migration failure rather than
+    as a compiler bug — so it must be caught here."""
     for env in ("dev", "test", "stage", "prod"):
         block = _services(fixed_root, env)[f"sample-{env}-api-exec"]
         assert block["depends_on"] == {

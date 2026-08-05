@@ -440,7 +440,7 @@ def test_composed_secret_in_env_fails_compile(tmp_path: Path):
 
 
 _SECRET_INFRA = """\
-cicl_version: "2"
+cicl_version: "3"
 foundation: __FND__
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -532,7 +532,7 @@ def test_compose_has_logging_anchor(tmp_path: Path):
 
 
 _NAMING_INFRA = """\
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: example.com
 observability_backend_url: "https://obs.example.com"
@@ -551,7 +551,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         port: 8080
         networks: [web, internal]
-        depends_on: [appdb]
+        uses: [appdb]
         resources:
           cpu: 0.25
           memory: 512MB
