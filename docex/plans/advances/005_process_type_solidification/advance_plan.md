@@ -561,6 +561,23 @@ are found, because the mod that finds them is never the mod that owns them.
 | `transfer_tables.md` ~615/~687 still carry pre-`processes:` flat-form examples that `cicl_version: "3"` rejects. Field renamed only, per Mod 112's scope. | Mod 112 | Mod 118 |
 | `doctrine_excerpts/index.yml` still has **zero entries** for either relation field or the scheduler. Whether `uses` and `clock` earn entries is an explicit decision, not an omission. | Mod 112 | Mod 118 |
 | `test_projects/fixed` has no committed `infra/output/`, so "grep the compiled output" needs a fresh compile there rather than a grep of the tree. | Mod 113 | Both smoke walks |
+| **`docex build` is broken by its own dev container.** `orchestrate/build.py:131` clears `dist/` host-side with `shutil.rmtree`; the dev container runs as **root** and writes `dist/__pycache__/*.pyc` owned by root on import, which the host uid cannot unlink → `PermissionError`. **Self-regenerating within a single run** — `run_up` creates the residue its own `run_build` then cannot delete, which is why clearing it by hand buys exactly one green run. Affects every doctrine project, not just the smoke seeds; `PRE_CUT_CHECKLIST.md` D.6 already documents a `sudo rm -rf` workaround, which is the tell that this has been a product bug hiding as an environment quirk. Currently the **only** integration failure (17/18). | Mod 114 | **Mod 119** — see below |
+
+### 2b. Mod 119 — `docex build` bytecode residue (unplanned, required)
+`mod-developer`, small. Runs after 116, before the walks.
+
+Not in the original plan, and admitted deliberately rather than absorbed
+silently: Goal 4 SC3 requires `pytest -m integration` green, and this is the one
+failure standing in its way. It is also a real defect in shipped product code
+that every downstream project inherits — the `sudo rm -rf` in
+`PRE_CUT_CHECKLIST.md` D.6 has been treating the symptom.
+
+**Preferred fix: clear `dist/` from inside the container**, where the process
+that created the root-owned files can delete them. This changes `docex`
+internals only. The alternatives both cost more: `PYTHONDONTWRITEBYTECODE=1` on
+the dev service changes emitted output for every project, and running the dev
+container as the host uid is a far larger change with its own failure modes.
+Whichever lands, D.6's workaround note comes out with it.
 
 ### 3. Automated gates
 `pytest tests/unit` and `pytest -m integration`, both green, before either walk.
