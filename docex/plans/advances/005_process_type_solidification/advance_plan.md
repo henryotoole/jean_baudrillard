@@ -251,9 +251,9 @@ Ordering rule for the whole plan: **the suite is green at every mod boundary.**
 
 ---
 
-## Step 0 — Recon: the Service Connect name freeze ✅ COMPLETE
+## Step 0 — Recon: the Service Connect name freeze
 
-> **Result: the premise holds.** Measured us-east-1, 2026-08-05. A client task
+> ✅ **COMPLETE. Result: the premise holds.** Measured us-east-1, 2026-08-05. A client task
 > ran 27 probe cycles over five minutes after the name existed and three after
 > it was backed by a healthy instance, with byte-identical `UNRESOLVED` output
 > and an unchanged `/etc/hosts`; the replacement task resolved it on its *first*
