@@ -8,16 +8,15 @@ developer wants fresh artifacts without paying for a container rebuild.
 Per cicd.md § Build Step (dev iteration):
 
   1. Verify dev is running.
-  2. Clear ``$pr/core/<codebase>/dist/`` on the host.
-  3. ``compose run --rm`` the codebase's exec service with ``./build.sh``
-     (Mod 099; ``cicd.md § Build Step`` still says ``exec`` and is Mod
-     106's to fix).
+  2. Ensure ``$pr/core/<codebase>/dist/`` exists on the host.
+  3. ``compose run --rm`` the codebase's exec service, which clears
+     ``/service/dist`` and then runs ``./build.sh`` (Mod 099; Mod 119
+     moved the clear inside the container).
   4. Assert ``dist/`` is non-empty afterward.
 """
 
 from __future__ import annotations
 
-import shutil
 import sys
 from pathlib import Path
 
@@ -35,6 +34,45 @@ from docex.orchestrate.aggregate import aggregate
 
 
 _BUILD_ENV = "dev"
+
+# The dev-iteration clear + build, run as ONE command inside the codebase's
+# exec service.
+#
+# WHY the clear is not host-side (Mod 119): `core/<codebase>/dist/` is a
+# container-owned tree. Everything that writes into it writes as root through
+# the bind mount — `up.py::_ensure_initial_dev_build`'s cp, `build.sh` under
+# `compose run`, and the dev core service's `__pycache__` on import. The host
+# owns the directory node (docex mkdir'd it) and nothing inside. Unlink
+# permission comes from the *parent* directory, so the host uid can delete a
+# root-owned `dist/app.py` but not anything inside a root-owned
+# `dist/__pycache__/` — which is exactly what `shutil.rmtree` used to hit,
+# with PermissionError. It was self-regenerating: `run_up` created the residue
+# its own `run_build` then could not delete. The container is root and can,
+# so the clear goes where the writer is. This also means a checkout that
+# already has residue self-heals on the next build with no operator `sudo`.
+#
+# WHY one command rather than a separate clear container: `docex build` IS the
+# hot iteration loop — the same reason this path deliberately does not pass
+# `build=True` (see the note in `_build_one`). A second container start is pure
+# added latency on the one command whose purpose is to be cheap.
+#
+# WHY `find -mindepth 1 -delete` rather than `rm -rf dist/*`: the bind-mount
+# point itself cannot be removed, and glob-based deletion misses dotfiles
+# without a cryptic `./.[!.]* ./..?*` incantation. It is also the idiom the
+# doctrine's own sample `build.sh` uses, for this same reason.
+#
+# DEPENDENCY: the dev stage image must carry `sh` and `find`. `sh` was already
+# required (`build.sh` is `#!/bin/sh` and is invoked as `./build.sh`); `find`
+# is in both coreutils and busybox, so any base carrying a build toolchain has
+# it. Deliberately NOT a doctrine rule: the doctrine's one image requirement
+# (`curl`) is backed by a `docex check` gate, and an unenforced image
+# requirement is a claim in the rule of record that nothing verifies. The
+# failure mode here is loud anyway — `find: not found`, non-zero exit, build
+# fails immediately.
+_CLEAR_AND_BUILD = (
+    "set -e; cd /service; mkdir -p dist; "
+    "find dist -mindepth 1 -delete; exec ./build.sh"
+)
 
 
 def run_build(
@@ -121,18 +159,10 @@ def _build_one(
     # `up.py::_diagnose_unhealthy`, not a precondition on `build`. The
     # whole-stack `if not running: raise EnvNotRunning` in `run_build` stays.
 
-    # Step 2: clear host-side dist/.
+    # Step 2: ensure the host-side dist/ directory node exists. Its
+    # *contents* are cleared inside the container — see _CLEAR_AND_BUILD.
     dist_dir = ctx.project_root / "core" / codebase / "dist"
-    if dist_dir.exists():
-        # Wipe contents, not the directory itself — the bind mount
-        # would otherwise need to be re-established by the container.
-        for child in dist_dir.iterdir():
-            if child.is_dir():
-                shutil.rmtree(child)
-            else:
-                child.unlink()
-    else:
-        dist_dir.mkdir(parents=True, exist_ok=True)
+    dist_dir.mkdir(parents=True, exist_ok=True)
 
     # Step 3: invoke build.sh in a one-off exec-service container.
     #
@@ -144,12 +174,14 @@ def _build_one(
     # non-cached `RUN ./build.sh` image rebuild in front of the one command
     # whose entire purpose is to avoid it. Do not "fix" this omission.
     rc = docker.compose_run_one_off(
-        compose_file, service_key, ["./build.sh"], env_file=env_file,
-        project_dir=ctx.project_root, project_name=project_name,
+        compose_file, service_key, ["sh", "-c", _CLEAR_AND_BUILD],
+        env_file=env_file, project_dir=ctx.project_root,
+        project_name=project_name,
     )
     if rc != 0:
         print(
-            f"error: build.sh for codebase {codebase!r} exited {rc}.",
+            f"error: clear+build for codebase {codebase!r} exited {rc} "
+            "(ran in the codebase's exec service).",
             file=sys.stderr,
         )
         return rc

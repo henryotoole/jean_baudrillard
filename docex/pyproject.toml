@@ -55,3 +55,11 @@ markers = [
 # basenames across services and confuse pytest's importmode.
 testpaths = ["tests"]
 norecursedirs = ["fixtures", "__pycache__", "infra/output"]
+# Mod 119: keep a test's tmp tree only when it fails. Integration tests
+# download ~676 MB of OpenTofu AWS provider per copy and pytest retains the
+# last 3 run roots, so "keep everything" is ~18 GB of steady state. The
+# retention given up is for *passing* tests, which nobody inspects; a
+# failing test keeps its whole tree (and `_reclaim_root_owned_residue`
+# chowns it so it is readable). To get a green run's tree back for
+# debugging: `pytest --tmp-path-retention-policy=all`.
+tmp_path_retention_policy = "failed"

@@ -8,6 +8,7 @@ that mutates state should reset by hand.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -80,6 +81,47 @@ def _isolate_shared_stacks():
     _clean()
     yield
     _clean()
+
+
+@pytest.fixture(autouse=True)
+def _reclaim_root_owned_residue(tmp_path: Path):
+    """Return ownership of the test's tmp tree to the host uid at teardown.
+
+    WHY (Mod 119): every integration test leaves root-owned paths behind,
+    because containers run as root against bind mounts —
+    ``dist/__pycache__`` and ``dist/app.py`` from the dev stack,
+    ``.pytest_cache`` and ``infra/stage/tests/__pycache__`` from the
+    stagetest container. A root-owned *directory* makes its contents
+    unlinkable by the host uid, so pytest's own tmp cleanup (it keeps the
+    last 3 ``pytest-N`` roots and ``rm_rf``s the rest) raises
+    PermissionError and abandons the whole root — pinning the gigabytes of
+    OpenTofu AWS provider binaries the ``tofu validate`` tests download.
+    Measured before this mod: 20 tiny root-owned paths holding 5.9 GB
+    hostage. It surfaced as unrelated tests failing on
+    ``no space left on device``.
+
+    Two of those producers are outside ``dist/`` entirely, which is why the
+    fix in ``orchestrate/build.py`` does not make this fixture redundant:
+    nothing in ``build.py`` can reach ``.pytest_cache``. Do not delete this
+    as duplicative of the product fix.
+
+    ``chown``, not ``rm``: with ``tmp_path_retention_policy = "failed"`` the
+    trees that survive are the failing ones, and those are exactly the ones
+    someone wants to read.
+
+    Depends on ``tmp_path`` so it finalizes *before* pytest's own
+    ``tmp_path`` finalizer, which is what does the deleting.
+
+    Best-effort: reclamation failing must never redden a green test.
+    """
+    yield
+    if not _docker_available():
+        return
+    subprocess.run(
+        ["docker", "run", "--rm", "-v", f"{tmp_path}:/work", "alpine:latest",
+         "chown", "-R", f"{os.getuid()}:{os.getgid()}", "/work"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    )
 
 
 @pytest.fixture

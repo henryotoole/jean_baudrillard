@@ -134,6 +134,37 @@ first post-`0.4.0` overhaul.
 
 ### Fixed
 
+- **`docex build` leaked disk without bound and could not clear its own
+  `dist/`** (mod 119). `orchestrate/build.py` cleared `core/<codebase>/dist/`
+  from the host with `shutil.rmtree`, but that tree is container-owned:
+  everything in it is written as **root** through the bind mount — the initial
+  artifact copy at `up` time, `build.sh` under `compose run`, and the dev core
+  service's `__pycache__` on import. Unlink permission comes from the *parent*
+  directory, so the host uid could delete a root-owned `dist/app.py` but nothing
+  inside a root-owned `dist/__pycache__/`, and the build died with
+  `PermissionError`. It was self-regenerating — `up` created the residue its own
+  `build` then could not delete — which is why clearing it by hand bought
+  exactly one green run. The clear now happens **inside** the exec container,
+  where the process that wrote the files can remove them, folded into the same
+  one-off run as `build.sh` so the hot iteration loop pays for no extra
+  container start. Any checkout already carrying residue self-heals on its next
+  `docex build`, with no operator `sudo`.
+
+  The disk consequence was larger than the failing build. Root-owned residue is
+  tiny but **unremovable**, and a directory that cannot be emptied makes its
+  whole enclosing tree unremovable — so on the development machine it had pinned
+  **30 GB** of `/tmp`, mostly downloaded OpenTofu provider binaries that nothing
+  could reclaim. It first presented as two unrelated `tofu validate` tests
+  failing on `no space left on device`, a signature that looks nothing like its
+  cause. Note the shape of it: the residue was never the volume, only the pin.
+
+  Two consequences for the `dev` stage image and for anyone reading `dist/`:
+  it must carry `find` as well as `sh` (both are present in any base with a
+  build toolchain; a missing `find` fails the build immediately and loudly),
+  and a root-owned file in `dist/` after a build is **correct** — the artifact
+  is written by a root container by design. What changed is that `docex` no
+  longer requires the host uid to delete anything there.
+
 - **An interrupted elastic release could leave a permanently broken env and exit
   0** (mod 114). The Service Connect consumer reconcile diffed the post-apply
   namespace against a snapshot taken *before* any apply in the same release. That

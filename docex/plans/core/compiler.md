@@ -262,6 +262,30 @@ service's container happened to be chosen. Two properties carry it:
   `build.sh` may depend only on codebase-scoped env* an enforceable rule rather
   than a convention: a core-service-level key is not discouraged there, it is absent.
 
+A third property is owed to `docex build` in particular (mod 119): **the exec
+container clears `dist/`, not the host.** `core/<codebase>/dist/` is a
+container-owned tree — everything that writes into it writes as root through the
+bind mount (`up.py::_ensure_initial_dev_build`'s cp, `build.sh` under
+`compose run`, the dev core service's `__pycache__` on import). `docex` owns only
+the directory node it created, so it may create, list and stat `dist/` but must
+never delete inside it from the host: unlink permission comes from the *parent*,
+which makes a root-owned `dist/__pycache__/` unclearable by the host uid. So
+`orchestrate/build.py` hands the exec service one command,
+`sh -c "…; find dist -mindepth 1 -delete; exec ./build.sh"`, rather than two
+container starts — `docex build` is the hot iteration loop, the same reason it
+does not pass `build=True`. A checkout that already carries root-owned residue
+self-heals on the next build with no operator `sudo`.
+
+This makes `sh` and `find` a requirement of the `dev` stage image. `sh` was
+already one (`build.sh` is `#!/bin/sh`, invoked as `./build.sh`); `find` is in
+both coreutils and busybox, so any base carrying a build toolchain has it. It is
+deliberately **not** a doctrine rule: the doctrine's one image requirement
+(`curl`) is backed by a `docex check` gate, and an image requirement with no gate
+is a claim in the rule of record that nothing verifies. Whether `find` should be
+promoted to doctrine *together with* a `check` gate alongside `curl` is a
+coherent question for a future advance — the failure mode meanwhile is loud
+(`find: not found`, non-zero exit, immediate build failure), not silent.
+
 It carries the codebase's image ref (identical across the codebase's core
 services, so one tag and one build), the `build:` block in `dev`/`test`, the dev
 bind mounts in `dev`, the union of the codebase's non-`web` networks, and the

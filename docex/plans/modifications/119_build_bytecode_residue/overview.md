@@ -224,11 +224,25 @@ by design and is the same property the fix relies on.
 
 The invariant is narrower:
 
-> No root-owned *directory* survives the clear, and `docex build` is
-> **repeatably** green against a `dist/` full of root-owned artifacts.
+> Root-owned residue present *before* the clear does not survive it, and
+> `docex build` is **repeatably** green against a `dist/` full of root-owned
+> artifacts.
 
 Repeatability is the real claim. A manual `sudo rm -rf` also produced one green
 build; what it never produced was a second one.
+
+**Second correction, found during implementation.** The first draft of the
+integration test asserted `not (dist / "__pycache__").exists()` after a build.
+That is wrong too, and for the same reason one step further out: the fixture's
+`build.sh` ends with `cp -r src/. dist/`, and `src/__pycache__` exists on any
+machine where something has imported the fixture — it is gitignored, so its
+existence is machine state. The directory therefore legitimately reappears
+*after* the clear, carrying a fresh copy rather than surviving residue (proven
+by md5: the surviving `.pyc` was byte-identical to `src/__pycache__`'s, while
+the seeded `residue.pyc` was gone). The assertion is on the seeded residue.
+Even "no root-owned directory survives" is unsafe as a literal assertion, since
+a `__pycache__` copied in by the root exec container is legitimately root-owned
+— exactly as `dist/app.py` is.
 
 ## Rulings (sarge, at design approval)
 
