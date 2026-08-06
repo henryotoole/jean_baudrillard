@@ -593,6 +593,35 @@ the dev service changes emitted output for every project, and running the dev
 container as the host uid is a far larger change with its own failure modes.
 Whichever lands, D.6's workaround note comes out with it.
 
+### 2c. Pre-existing defects in the canonical examples — found by Mod 118
+
+Found by Mod 118's compile harness, verified, and **deliberately not fixed there**:
+none is advance-005 residue, and the `database` rename ripples through Mod 112's
+protected output. Root causes dated to `991b76d` (the reserved-name rule) and
+`307d47a` (the original bulk commit). Handed to `cohere` as **known inputs**, then
+to the consolidated fix mod below.
+
+| Defect | Why it matters |
+| ------ | -------------- |
+| `database` is a **reserved** backing name for the postgres engine (`relational_db.yml:43`), yet `cicl.md`'s canonical example *and* `shape.md` both use it | Both examples are **compiler-rejecting**. A reader who copies either gets a validation error on their first compile. |
+| `cicl.md`'s canonical example contains **literal tabs** (`:103`, `:105`, throughout). **16 of 42 `yml` fences** under `doctrine/` + `skills/` indent with tabs | YAML forbids tabs for indentation, so these are not examples — they are *text shaped like examples*. None is copy-pasteable. Not a formatting-convention call. |
+| `cicl.md:22-107` violates **its own rule 7** — a magic ref to `${backing_services.bucket.bucket_name}` with `bucket` absent from `uses:` | The canonical example fails the rule it exists to teach. |
+| `cicl.md:376-382` — `uses: [database, …]` with `database` undeclared | Same class as the row above, in a fence Mod 118's own design doc had listed as "verified correct" — on a *read*. |
+
+**Long-standing is not the same as low-priority.** `cicl.md`'s canonical fence is
+the one every project author copies first, and `upgrade_1.7.0.md` sends readers
+straight to it. Shipping the release whose entire subject is *how to author
+`infra.yml`* with a self-rejecting, unparseable canonical example is the wrong
+trade, whatever its age.
+
+### 2d. Mod 121 — consolidated fix pass (post-`cohere`)
+`mod-developer`. Sequenced **after** the audit, **before** the walks.
+
+Takes `cohere`'s findings plus § 2c. Fixing before auditing would mean two fix
+passes and two review cycles over one corpus; auditing first means one of each.
+Mechanical findings land autonomously; semantic ones come to sarge, and anything
+altering Mod 112's rule of record goes to the operator.
+
 ### 3. Automated gates
 `pytest tests/unit` and `pytest -m integration`, both green, before either walk.
 Per `RELEASING.md § What Gates a Release`, the skills changed here
