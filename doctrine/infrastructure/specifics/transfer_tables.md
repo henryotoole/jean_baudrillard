@@ -19,9 +19,9 @@ Transfer tables make use of three distinct kinds of substitution, each resolved 
 
 | Syntax | Resolved by | When | Example |
 | ------ | ----------- | ---- | ------- |
-| `${var}` | docex compiler | at `./bin/docex compile` | `${global_service_name}` → `myproject-prod-database` |
+| `${var}` | docex compiler | at `./bin/docex compile` | `${global_service_name}` → `myproject-prod-appdb` |
 | `$[var]` | docker-compose or ECS | at container start (runtime) | `$[POSTGRES_USER]` → value of `POSTGRES_USER` env var |
-| `@<expr>` | OpenTofu | at `tofu apply` (elastic only) | `@aws_db_instance.database.endpoint` → the live RDS endpoint |
+| `@<expr>` | OpenTofu | at `tofu apply` (elastic only) | `@aws_db_instance.appdb.endpoint` → the live RDS endpoint |
 
 ### `${var}` — compile-time substitution
 
@@ -39,10 +39,10 @@ A `$[VAR]`'s resolution depends on the **`kind`** of the engine `env:` entry it 
 
 This is how transfer tables reference provider-allocated values — RDS endpoints, ElastiCache addresses, S3 bucket ARNs — that AWS only assigns when resources are created.
 
-For example, `@aws_db_instance.${name}.endpoint` for a service named `database` becomes the HCL literal:
+For example, `@aws_db_instance.${name}.endpoint` for a service named `appdb` becomes the HCL literal:
 
 ```hcl
-aws_db_instance.database.endpoint
+aws_db_instance.appdb.endpoint
 ```
 
 Tofu's dependency graph then ensures the RDS instance is created first, after which the endpoint value is known and substituted everywhere it's referenced. `@<expr>` is meaningless in compose output, so it appears only in elastic-side templates.
@@ -53,7 +53,7 @@ The following variables are always available inside a transfer table entry:
 
 | Variable | Refers to |
 | -------- | --------- |
-| `${name}` | The service's identity as the compiler keys it: the simple `infra.yml` name for a backing service (e.g. `database`), and the two-segment compiled identity for a [core service](../cicl.md#core-services) (e.g. `api-web`). |
+| `${name}` | The service's identity as the compiler keys it: the simple `infra.yml` name for a backing service (e.g. `appdb`), and the two-segment compiled identity for a [core service](../cicl.md#core-services) (e.g. `api-web`). |
 | `${global_service_name}` | The globally-unique form of the service name (see [Naming Policies](#naming-policies)). |
 | `${port}` | The service's `port` field from `infra.yml`. |
 | `${networks}` | The list of networks the service belongs to. |
@@ -66,7 +66,7 @@ The following variables are always available inside a transfer table entry:
 
 ### Magic refs
 
-When `infra.yml` references another service via a magic ref like `${backing_services.database.host}`, the compiler resolves it by looking up the named service's engine and rendering the matching part from its `provides:` block — in this case, the postgres engine's `host` part. Magic refs are a CICL feature; transfer tables provide the resolution targets.
+When `infra.yml` references another service via a magic ref like `${backing_services.appdb.host}`, the compiler resolves it by looking up the named service's engine and rendering the matching part from its `provides:` block — in this case, the postgres engine's `host` part. Magic refs are a CICL feature; transfer tables provide the resolution targets.
 
 ## Naming Policies
 
@@ -89,11 +89,11 @@ Policies live as a top-level `naming_policies:` block in the transfer tables, na
 
 ```yml
 naming_policies:
-	<policy_name>:
-		separator: underscore | hyphen
-		case: any | lower
-		max_len: <int>              # optional
-		overflow: error | hash_truncate   # optional; default error
+  <policy_name>:
+    separator: underscore | hyphen
+    case: any | lower
+    max_len: <int>              # optional
+    overflow: error | hash_truncate   # optional; default error
 ```
 
 - **`separator`** — chooses what `_` in the internal form becomes in the rendered name. `hyphen` translates each `_` to `-`; `underscore` preserves the underscore form (and translates stray `-` back to `_` for symmetry).
@@ -147,9 +147,9 @@ Policies live in a top-level `generation_policies:` block and are referenced by 
 
 ```yml
 generation_policies:
-	<policy_name>:
-		length: <int>
-		alphabet: url_safe | alnum   # named character set
+  <policy_name>:
+    length: <int>
+    alphabet: url_safe | alnum   # named character set
 ```
 
 ### Doctrine-shipped policies
@@ -168,110 +168,110 @@ A role is defined under the top-level `roles:` block. Each role contains one or 
 
 ```yml
 roles:
-	<role_name>:
-		description: "<one-line role summary>"   # optional; surfaced by `./bin/docex roles`
-		<engine_name>:
-			foundation: fixed | elastic | both
-			default_port: <int>   # optional
-			emits:
-				fixed: [<target_name>, ...]     # first entry = default target
-				elastic: [<target_name>, ...]   # first entry = default target
-			defaults:
-				fixed: { ... }
-				elastic: { ... }
-			fields:
-				<role_specific_field>:
-					fixed:
-						target: <target_name>   # optional; defaults to first emits.fixed entry
-						<translation body>
-					elastic:
-						target: <target_name>   # optional; defaults to first emits.elastic entry
-						<translation body>
-			provides:
-				<part_name>:
-					fixed: "..."
-					elastic: "..."
-			env:
-				# Scalar shorthand — KEY: "desc" == {kind: secret, desc: "desc"}:
-				<ENV_VAR_NAME>: "human-readable description"
-				# Full form declares the variable's kind:
-				<ENV_VAR_NAME>:
-					kind: secret | minted | fixed   # default: secret
-					desc: "human-readable description"
-					value: "<literal>"              # kind: fixed only
-					policy: <generation_policy>     # kind: minted only
-			naming: <policy_name>   # reference into top-level naming_policies:
+  <role_name>:
+    description: "<one-line role summary>"   # optional; surfaced by `./bin/docex roles`
+    <engine_name>:
+      foundation: fixed | elastic | both
+      default_port: <int>   # optional
+      emits:
+        fixed: [<target_name>, ...]     # first entry = default target
+        elastic: [<target_name>, ...]   # first entry = default target
+      defaults:
+        fixed: { ... }
+        elastic: { ... }
+      fields:
+        <role_specific_field>:
+          fixed:
+            target: <target_name>   # optional; defaults to first emits.fixed entry
+            <translation body>
+          elastic:
+            target: <target_name>   # optional; defaults to first emits.elastic entry
+            <translation body>
+      provides:
+        <part_name>:
+          fixed: "..."
+          elastic: "..."
+      env:
+        # Scalar shorthand — KEY: "desc" == {kind: secret, desc: "desc"}:
+        <ENV_VAR_NAME>: "human-readable description"
+        # Full form declares the variable's kind:
+        <ENV_VAR_NAME>:
+          kind: secret | minted | fixed   # default: secret
+          desc: "human-readable description"
+          value: "<literal>"              # kind: fixed only
+          policy: <generation_policy>     # kind: minted only
+      naming: <policy_name>   # reference into top-level naming_policies:
 ```
 
 ### Walking example: `relational_db` / `postgres`
 
 ```yml
 roles:
-	relational_db:
-		postgres:
-			foundation: both
-			emits:
-				fixed: [compose_service]
-				elastic: [rds_instance]
-			defaults:
-				fixed:
-					volumes:
-						- ${global_service_name}_data:/var/lib/postgresql/data
-					healthcheck:
-						test: ["CMD-SHELL", "pg_isready -U $[POSTGRES_USER] -d ${name}"]
-						interval: 10s
-						timeout: 5s
-						retries: 5
-					environment:
-						POSTGRES_USER: $[POSTGRES_USER]
-						POSTGRES_PASSWORD: $[POSTGRES_PASSWORD]
-						POSTGRES_DB: ${name}
-				elastic:
-					engine: "postgres"
-					instance_class: "db.t3.medium"
-					allocated_storage: 20
-					storage_encrypted: false
-					publicly_accessible: false
-					backup_retention_period: 7
-					deletion_protection: true
-					storage_type: "gp3"
-			fields:
-				version:
-					fixed:
-						image: postgres:${field_value}
-					elastic:
-						engine_version: ${field_value}
-			provides:
-				host:
-					fixed: "${global_service_name}"
-					# .address (hostname only), NOT .endpoint (host:port) — port is its
-					# own part, and .endpoint would compose to a malformed host:port:port.
-					elastic: "@aws_db_instance.${name}.address"
-				port:
-					fixed: "${port}"
-					elastic: "${port}"
-				db:
-					fixed: "${name}"
-					elastic: "${name}"
-				user:
-					fixed: "$[POSTGRES_USER]"
-					elastic: "$[POSTGRES_USER]"
-				password:
-					fixed: "$[POSTGRES_PASSWORD]"
-					elastic: "$[POSTGRES_PASSWORD]"
-				sslmode:
-					fixed: "disable"
-					elastic: "require"
-			env:
-				POSTGRES_USER:
-					kind: fixed
-					value: appuser
-					desc: "Postgres role name — doctrine-fixed, not a secret."
-				POSTGRES_PASSWORD:
-					kind: minted
-					policy: password
-					desc: "Postgres role password — generated once per env."
-			naming: rds   # RDS identifier (hyphen + lower + 63); applied on both foundations for consistency
+  relational_db:
+    postgres:
+      foundation: both
+      emits:
+        fixed: [compose_service]
+        elastic: [rds_instance]
+      defaults:
+        fixed:
+          volumes:
+            - ${global_service_name}_data:/var/lib/postgresql/data
+          healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $[POSTGRES_USER] -d ${name}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+          environment:
+            POSTGRES_USER: $[POSTGRES_USER]
+            POSTGRES_PASSWORD: $[POSTGRES_PASSWORD]
+            POSTGRES_DB: ${name}
+        elastic:
+          engine: "postgres"
+          instance_class: "db.t3.medium"
+          allocated_storage: 20
+          storage_encrypted: false
+          publicly_accessible: false
+          backup_retention_period: 7
+          deletion_protection: true
+          storage_type: "gp3"
+      fields:
+        version:
+          fixed:
+            image: postgres:${field_value}
+          elastic:
+            engine_version: ${field_value}
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          # .address (hostname only), NOT .endpoint (host:port) — port is its
+          # own part, and .endpoint would compose to a malformed host:port:port.
+          elastic: "@aws_db_instance.${name}.address"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+        db:
+          fixed: "${name}"
+          elastic: "${name}"
+        user:
+          fixed: "$[POSTGRES_USER]"
+          elastic: "$[POSTGRES_USER]"
+        password:
+          fixed: "$[POSTGRES_PASSWORD]"
+          elastic: "$[POSTGRES_PASSWORD]"
+        sslmode:
+          fixed: "disable"
+          elastic: "require"
+      env:
+        POSTGRES_USER:
+          kind: fixed
+          value: appuser
+          desc: "Postgres role name — doctrine-fixed, not a secret."
+        POSTGRES_PASSWORD:
+          kind: minted
+          policy: password
+          desc: "Postgres role password — generated once per env."
+      naming: rds   # RDS identifier (hyphen + lower + 63); applied on both foundations for consistency
 ```
 
 Every `$[POSTGRES_USER]` reference in `defaults`, the `healthcheck`, and `provides.user` is left unchanged — because `POSTGRES_USER` is `kind: fixed`, the compiler inlines `appuser` at each site, so the username leaves the store entirely and only `POSTGRES_PASSWORD` is minted. `appuser` clears RDS master-username rules and this engine's own `reserved_names`.
@@ -290,7 +290,7 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 
 - **`fields`** (optional) — declares the role-specific fields the project may set on this service in `infra.yml` (e.g., `version: "15"` for relational_db, `versioning: true` for object_store), and how each translates per foundation. The compile-time variable `${field_value}` refers to the value the project supplied. Each per-foundation translation may declare an optional `target:` naming the destination from the engine's `emits:` list; when omitted, the translation lands on the default target. This is what lets a single field on a single service contribute to *more than one* emitted resource — e.g., `health_check_path` on a `web/container` service routes to `target_group` on elastic (the ALB target group's health check) while still landing on `compose_service` (the container's docker healthcheck) on fixed.
 
-- **`provides`** (optional) — declares the discrete connection **parts** of this engine that consumers may reference via magic refs (e.g., `${backing_services.database.host}`). Each part is foundation-aware: a separate template per foundation. Templates may use any of the three [substitution syntaxes](#substitution-grammar) — `${var}` for compile-time values, `$[var]` for runtime app refs, or `@<expr>` for HCL pass-through (elastic only, used for provider-allocated values like RDS endpoints). Common part names are short and consistent across engines of the same role: `host`, `port`, `db`, `user`, `password` for relational_db; `bucket_name`, `region`, `endpoint`, `access_key`, `secret_key` for object_store; etc. Engines may expose any additional parts they need. **An engine never exposes a pre-composed connection string — there is no `url` part** (see the rule below).
+- **`provides`** (optional) — declares the discrete connection **parts** of this engine that consumers may reference via magic refs (e.g., `${backing_services.appdb.host}`). Each part is foundation-aware: a separate template per foundation. Templates may use any of the three [substitution syntaxes](#substitution-grammar) — `${var}` for compile-time values, `$[var]` for runtime app refs, or `@<expr>` for HCL pass-through (elastic only, used for provider-allocated values like RDS endpoints). Common part names are short and consistent across engines of the same role: `host`, `port`, `db`, `user`, `password` for relational_db; `bucket_name`, `region`, `endpoint`, `access_key`, `secret_key` for object_store; etc. Engines may expose any additional parts they need. **An engine never exposes a pre-composed connection string — there is no `url` part** (see the rule below).
 
 	Exposing parts rather than composed strings is a **hard rule**, not a stylistic preference. A composed value (e.g. a `DATABASE_URL`) would have to inline secrets like the database password — but elastic's secret injection (ECS `secrets[]` sourced from SSM) can only deliver each secret as a whole standalone env var; it cannot embed one inside a larger value without materializing that value as plaintext in the task definition and Tofu state. Parts-only is therefore the single model that keeps `provides:` identical across foundations, which is exactly what preserves fixed↔elastic portability. As a consequence, a secret like `$[POSTGRES_PASSWORD]` never appears as an inline value in compiled artifacts — it flows through compose's runtime substitution (fixed) or the ECS `secrets[]` block (elastic), staying out of any persisted task definition or compose snapshot. (A `kind: fixed` var such as `POSTGRES_USER` is the opposite case: it is inlined to its literal `appuser` at compile and *does* appear inline — safe precisely because it is not a secret.) A consumer that needs a composed handle (e.g., `DATABASE_URL`) builds it from the parts at startup — the standard cloud-native pattern, and now the only one.
 
@@ -299,7 +299,7 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 	- **`minted`** — a value `docex` generates per its `policy:` (see [§ Generation Policies](#generation-policies)) the first time an env needs it, recorded in that env's **TTE store** (never the secrets file, never git). Its `$[...]` refs are emitted as runtime references like a secret; only the *source* differs. Generation is impure and never runs at `compile`.
 	- **`fixed`** — a doctrine-fixed literal (`value:`), not a secret and not stored. Every `$[VAR]` reference to it is **inlined at compile time**; the variable appears in no store and no secrets file.
 
-	Because a secret or minted part resolves to exactly one bare `$[REF]` (never a composed string), the container-edge binding stays 1:1 — a consumer's `DATABASE_PASSWORD: ${backing_services.database.password}` is delivered as a compose `environment:` line `DATABASE_PASSWORD: ${POSTGRES_PASSWORD}` (fixed) or an ECS `secrets[]` entry `{ name = "DATABASE_PASSWORD", valueFrom = <SSM path of POSTGRES_PASSWORD> }` (elastic). The container's env-var surface is identical across foundations; only the delivery mechanism differs, and the underlying key (`POSTGRES_PASSWORD`) identifies the value in the store, not what the app reads. Embedding a secret inside a larger value is a compile error. (The full source→container flow is in [config_and_secrets.md](./config_and_secrets.md).)
+	Because a secret or minted part resolves to exactly one bare `$[REF]` (never a composed string), the container-edge binding stays 1:1 — a consumer's `DATABASE_PASSWORD: ${backing_services.appdb.password}` is delivered as a compose `environment:` line `DATABASE_PASSWORD: ${POSTGRES_PASSWORD}` (fixed) or an ECS `secrets[]` entry `{ name = "DATABASE_PASSWORD", valueFrom = <SSM path of POSTGRES_PASSWORD> }` (elastic). The container's env-var surface is identical across foundations; only the delivery mechanism differs, and the underlying key (`POSTGRES_PASSWORD`) identifies the value in the store, not what the app reads. Embedding a secret inside a larger value is a compile error. (The full source→container flow is in [config_and_secrets.md](./config_and_secrets.md).)
 
 - **`naming`** (required) — name of a policy declared in the top-level `naming_policies:` block. The compiler applies the policy's separator/case/max_len when forming `${global_service_name}` for this engine's resources, so per-engine identifier rules live in one declarative table rather than scattered through emit code. See [Naming Policies](#naming-policies) for the canonical set and the doctrine-wide separator preference.
 
@@ -309,60 +309,60 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 
 ```yml
 roles:
-	web:
-		container:
-			foundation: both
-			emits:
-				fixed: [compose_service]
-				elastic: [task_definition, ecs_service, target_group]
-			defaults:
-				fixed:
-					# Port, env, and uses come from the project's infra.yml.
-					# Image is derived from `container_registry` + project + service + version
-					# (see cicl.md § Container Registry). cpu/memory limits and tmpfs sizing
-					# come from the service's `resources:` block (see § Resources Translation).
-					# Routing is NOT carried here. The compiler emits it
-					# network-driven for any `web`-network service — Traefik
-					# discovery labels picked up by the project's own traefik
-					# (fixed) / an ALB target group + listener rule attached
-					# to the project ALB (elastic), with per-service domains.
-					# See networks.md and cicl.md § Domain.
-				elastic:
-					# Port, env, and uses come from infra.yml. Image is derived (see fixed
-					# block above). cpu/memory/ephemeral_storage come from the service's
-					# `resources:` block (see § Resources Translation). Doctrine adds Fargate
-					# task settings; the ALB target group + listener rule are emitted alongside
-					# the ECS service when this service is on the `web` network, attaching to
-					# the project's project-tier ALB by ARN (looked up via the project tofu
-					# remote state).
-					launch_type: FARGATE
-					network_mode: awsvpc
-			fields:
-				health_check_path:
-					fixed:
-						# target omitted → defaults to compose_service
-						healthcheck:
-							test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
-							interval: 30s
-							timeout: 5s
-							retries: 3
-					elastic:
-						target: target_group
-						health_check:
-							path: ${field_value}
-							healthy_threshold: 2
-							unhealthy_threshold: 3
-							interval: 30
-							timeout: 5
-			provides:
-				host:
-					fixed: "${global_service_name}"
-					elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable by ECS tasks inside the namespace (via Envoy sidecar). Mesh-internal only — not resolvable from outside the mesh via DNS. See shape.md § Elastic-Foundation.
-				port:
-					fixed: "${port}"
-					elastic: "${port}"
-			env: {}
-			naming: ecs   # ECS cluster/service/task family + Service Connect name (hyphen, case-preserving, 255)
+  web:
+    container:
+      foundation: both
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service, target_group]
+      defaults:
+        fixed:
+          # Port, env, and uses come from the project's infra.yml.
+          # Image is derived from `container_registry` + project + service + version
+          # (see cicl.md § Container Registry). cpu/memory limits and tmpfs sizing
+          # come from the service's `resources:` block (see § Resources Translation).
+          # Routing is NOT carried here. The compiler emits it
+          # network-driven for any `web`-network service — Traefik
+          # discovery labels picked up by the project's own traefik
+          # (fixed) / an ALB target group + listener rule attached
+          # to the project ALB (elastic), with per-service domains.
+          # See networks.md and cicl.md § Domain.
+        elastic:
+          # Port, env, and uses come from infra.yml. Image is derived (see fixed
+          # block above). cpu/memory/ephemeral_storage come from the service's
+          # `resources:` block (see § Resources Translation). Doctrine adds Fargate
+          # task settings; the ALB target group + listener rule are emitted alongside
+          # the ECS service when this service is on the `web` network, attaching to
+          # the project's project-tier ALB by ARN (looked up via the project tofu
+          # remote state).
+          launch_type: FARGATE
+          network_mode: awsvpc
+      fields:
+        health_check_path:
+          fixed:
+            # target omitted → defaults to compose_service
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
+              interval: 30s
+              timeout: 5s
+              retries: 3
+          elastic:
+            target: target_group
+            health_check:
+              path: ${field_value}
+              healthy_threshold: 2
+              unhealthy_threshold: 3
+              interval: 30
+              timeout: 5
+      provides:
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"   # Service Connect discoveryName. Resolvable by ECS tasks inside the namespace (via Envoy sidecar). Mesh-internal only — not resolvable from outside the mesh via DNS. See shape.md § Elastic-Foundation.
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
+      naming: ecs   # ECS cluster/service/task family + Service Connect name (hyphen, case-preserving, 255)
 ```
 
 This entry shows what differs from a backing service like postgres:
@@ -807,10 +807,10 @@ Every emitted `docker-compose.yml` is prepended with the YAML anchor referenced 
 
 ```yml
 x-logging: &default-logging
-	driver: json-file
-	options:
-		max-size: "10m"
-		max-file: "3"
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 ```
 
 ### Depends-on emission (fixed)
@@ -819,8 +819,8 @@ Compose `depends_on` is emitted on **one block only** — the per-codebase exec 
 
 ```yml
 depends_on:
-	${global_service_name_of_target}:
-		condition: service_healthy   # or service_started
+  ${global_service_name_of_target}:
+    condition: service_healthy   # or service_started
 ```
 
 ### Per-resource (elastic)
@@ -865,29 +865,29 @@ For each core service, the compiler emits:
 
 ```yml
 deploy:
-	resources:
-		limits:
-			cpus: "${resources.cpu}"
-			memory: ${resources.memory}
+  resources:
+    limits:
+      cpus: "${resources.cpu}"
+      memory: ${resources.memory}
 ```
 
 If `resources.disk` is set, the compiler additionally emits a sized tmpfs at `/tmp`:
 
 ```yml
 tmpfs:
-	- /tmp:size=${resources.disk}
+  - /tmp:size=${resources.disk}
 ```
 
 If `resources.gpu` is set, the compiler additionally emits NVIDIA device reservations:
 
 ```yml
 deploy:
-	resources:
-		reservations:
-			devices:
-				- driver: nvidia
-				  count: ${resources.gpu.count}
-				  capabilities: [gpu]
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: ${resources.gpu.count}
+          capabilities: [gpu]
 ```
 
 ### Elastic (ECS Fargate task definition)
@@ -935,7 +935,7 @@ When loading transfer tables (doctrine and project-local merged) and compiling a
 4. Every role-specific field used in `infra.yml` for a given service is declared in that engine's `fields:` block.
 5. Every compile-time variable reference (`${...}`) in any rendered template resolves to a known variable in its context.
 6. Every runtime ref (`$[...]`) appearing in any `provides:` part template is also declared in the engine's `env:` block — so dependency propagation can wire it up correctly when a consumer references that part.
-7. Every magic ref in `infra.yml` (e.g., `${backing_services.database.host}`) names a part the referenced engine's `provides:` block exposes.
+7. Every magic ref in `infra.yml` (e.g., `${backing_services.appdb.host}`) names a part the referenced engine's `provides:` block exposes.
 8. `@<expr>` refs appear only in elastic-side templates (`provides.<part>.elastic`, `defaults.elastic`, etc.) and never in fixed-side templates, where HCL syntax is meaningless.
 9. The `naming` policy resolved for each engine is satisfied by the `${global_service_name}` the compiler generates. A rendered name that exceeds the policy's `max_len` fails compile cleanly with a descriptive error, *unless* the policy sets `overflow: hash_truncate`, in which case the name is truncated with a deterministic hash suffix to fit (see [§ Naming Policies](#naming-policies)).
 10. Every engine's `naming:` value is the name of a policy declared in `naming_policies:` (bundled or project-local). An unknown policy ref fails compile at load time.

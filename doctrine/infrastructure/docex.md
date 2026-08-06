@@ -41,6 +41,8 @@ Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perfo
 | `preinfra <side>` | Checks that the necessary prerequisite infrastructure resources exist for this project to launch on the indicated infrastructure side |
 | `projinfra <direction> <side>` | Idempotently controls project-tier infrastructure for a given side. |
 | `envinfra <direction> <env>` | Bring up or tear down a fixed-foundation environment locally. |
+| `secrets <op> <env> [...]` | Manage an environment's secrets file without exposing secret values to the caller. |
+| `config <op> <env> [...]` | Manage an environment's non-secret config file. |
 | `build <codebase>` | Run `build.sh` for one or all codebases. |
 | `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. |
 | `migrate <env>` | Apply database migrations for each schema-owning codebase in `<env>`. |
@@ -120,7 +122,7 @@ Command refuses to run with `direction="up"` if `./bin/docex preinfra <side>` fa
 
 Manages the per-environment secrets file `$pr/infra/secrets/<env>.env` without ever exposing secret **values** to the caller — the tooling that lets an LLM agent drive secret handling while remaining structurally unable to read a value. The full model (the three configurable-value categories, the standard file form, aggregation) lives in [config_and_secrets.md](./specifics/config_and_secrets.md); this is the command surface.
 
-- **`scaffold`** reconciles the file's key set against the deterministic set derived from `infra.yml` + doctrine (core `secrets:` blocks, backing engines' `kind: secret` env vars, doctrine-injected keys): it adds every required key (empty), removes stale ones, and preserves existing values. Idempotent.
+- **`scaffold`** reconciles the file's key set against the deterministic set derived from `infra.yml` + doctrine (codebase `secrets:` blocks, backing engines' `kind: secret` env vars, doctrine-injected keys): it adds every required key (empty), removes stale ones, and preserves existing values. Idempotent.
 - **`status`** is a redacted read — per key it reports `SET`/`UNSET`, the declaring codebase, and the description, **never the value**. `--format json` yields a machine-readable shape for detecting "required but never set." There is deliberately **no** value-printing command; a value leaves the file only at [materialization](./specifics/config_and_secrets.md#materialization-at-release).
 - **`set`** writes one key. Its value channel is a **no-echo tty prompt** or `--from-file <path>`, **never a positional argument** — so the agent invokes the command while the human supplies the value, which never transits the agent's context.
 - **`copy`** copies one key's value between environments **without surfacing it** (no value channel at all). Secrets and config only — **never TTE** (minted per env). A same-side copy (`dev`↔`test`, `stage`↔`prod`) is the intended use; a cross-side copy warns; an unset source errors; the target is overwritten.

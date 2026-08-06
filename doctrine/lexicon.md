@@ -4,13 +4,13 @@ stratum: resident
 
 # Lexicon #
 
-This guide defines special words and phrases that have unique context for all markdown files in this folder.
+This guide defines special words and phrases that have unique context for all markdown files in this folder. It defines *concepts*, not CICL field names: `uses`, `role`, `env:`, and `networks:` are specified in [cicl.md § Service Fields](./infrastructure/cicl.md#service-fields) rather than here.
 
 | Word | Synonyms | Definition |
 | ---- | -------- | ---------- |
 | Doctrine |  | Fundamental and immutable rules for software engineering. |
 | Development Machine |  | The discrete server on which development occurs. `dev` and `test` envs run here. Code is written here. Git commands, ansible playbooks, and OpenTofu calls originate on this machine with credentials on this machine. |
-| Operator |  | The human engineer working on the development machine with LLM's to write code. |
+| Operator |  | The human engineer working on the development machine with LLMs to write code. |
 | Project Root | "$pr" | The directory of the root folder of the project. This is not the filesystem root. Sometimes this will be indicated as `$pr` e.g. "$pr/dir/file.txt". |
 | jean root | "$jb" | The directory of the root folder of the repo that contains the doctrine, `docex`, etc. Sometimes this will be indicated as `$jb` e.g. "$jb/doctrine/doctrine.md". |
 | Project |  | Refers to all code and infrastructure within the scope of the project root. Includes docker compose config, dockerfiles, code architecture, and the code itself. |

@@ -62,9 +62,9 @@ Traefik on the instance discovers backend services through its built-in **ECS pr
 
 ```
 traefik.enable=true
-traefik.http.routers.api-prod.rule=Host(`api.prod.myproject.example.com`) || Host(`prod.myproject.example.com`) || Host(`myproject.example.com`)
-traefik.http.routers.api-prod.tls.certresolver=doctrine
-traefik.http.services.api-prod.loadbalancer.server.port=8080
+traefik.http.routers.api-web-prod.rule=Host(`api-web.prod.myproject.example.com`) || Host(`prod.myproject.example.com`) || Host(`myproject.example.com`)
+traefik.http.routers.api-web-prod.tls.certresolver=doctrine
+traefik.http.services.api-web-prod.loadbalancer.server.port=8080
 ```
 
 The provider fills in the backend server IPs from the running tasks it discovers; the label only declares the container port. ECS rotates task IPs as services roll; the next poll (≤ `refreshSeconds`) reconciles traefik's routing table to the live set. The host-rule logic (including the bare-project / bare-env alternates for the `domain_default_service`) is identical to the ALB path's listener-rule matching, so the two reverse-proxy options route the same hosts to the same core services.

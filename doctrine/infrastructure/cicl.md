@@ -33,77 +33,80 @@ observability_backend_url: "https://hyperdx.example.com"
 
 codebases:
 
-	# One codebase, one image, three core services.
-	api:
-		# Codebase-scoped fields sit at the codebase level.
-		secrets:
-			DISCORD_API_KEY: "Key to the discord bot used by the API."
-		env:
-			BUCKET_NAME:  ${backing_services.bucket.bucket_name}
-			DATABASE_HOST: ${backing_services.database.host}
-			DATABASE_PORT: ${backing_services.database.port}
-			DATABASE_NAME: ${backing_services.database.db}
-			DATABASE_USER: ${backing_services.database.user}
-			DATABASE_PASSWORD: ${backing_services.database.password}
-			DATABASE_SSLMODE: ${backing_services.database.sslmode}
-		core_services:
-			web:
-				role: web
-				command: ["python", "-m", "entrypoints.http"]
-				port: 8080
-				networks: [web, internal]
-				health_check_path: /health
-				resources:
-					cpu: 1.0
-					memory: 2GB
-					disk: 20GB
-				uses: [database, cache, bucket, api.worker]
-			worker:
-				role: worker
-				command: ["python", "-m", "entrypoints.worker"]
-				port: 8080
-				networks: [internal]
-				health_check_path: /health
-				replicas: 4
-				resources:
-					cpu: 2.0
-					memory: 4GB
-				uses: [cache, database, api.web]
-			clock:
-				role: clock
-				command: ["python", "-m", "entrypoints.clock"]
-				port: 8080
-				networks: [internal]
-				health_check_path: /health
-				resources:
-					cpu: 0.25
-					memory: 512MB
-				uses: [database, api.worker]
-				schedules:
-					nightly_cleanup: "0 3 * * *"
-					hourly_rollup: "0 * * * *"
+  # One codebase, one image, three core services.
+  api:
+    # Codebase-scoped fields sit at the codebase level.
+    secrets:
+      DISCORD_API_KEY: "Key to the discord bot used by the API."
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+      DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
+    core_services:
+      web:
+        role: web
+        command: ["python", "-m", "entrypoints.http"]
+        port: 8080
+        networks: [web, internal]
+        health_check_path: /health
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 20GB
+        env:
+          # Core-service-scoped: only `web` touches the bucket, so the ref
+          # belongs here rather than on the codebase.
+          BUCKET_NAME: ${backing_services.bucket.bucket_name}
+        uses: [appdb, cache, bucket, api.worker]
+      worker:
+        role: worker
+        command: ["python", "-m", "entrypoints.worker"]
+        port: 8080
+        networks: [internal]
+        health_check_path: /health
+        replicas: 4
+        resources:
+          cpu: 2.0
+          memory: 4GB
+        uses: [cache, appdb, api.web]
+      clock:
+        role: clock
+        command: ["python", "-m", "entrypoints.clock"]
+        port: 8080
+        networks: [internal]
+        health_check_path: /health
+        resources:
+          cpu: 0.25
+          memory: 512MB
+        uses: [appdb, api.worker]
+        schedules:
+          nightly_cleanup: "0 3 * * *"
+          hourly_rollup: "0 * * * *"
 
 backing_services:
 
-	database:
-		role: relational_db
-		engine: postgres
-		version: "15"
-		networks: [internal]
-		schema_owned_by: api
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    schema_owned_by: api
 
-	cache:
-		role: cache
-		engine: redis
-		version: "7"
-		networks: [internal]
+  cache:
+    role: cache
+    engine: redis
+    version: "7"
+    networks: [internal]
 
-	bucket:
-		role: object_store
-		port: 9000	# on the web network, so a routing port is required
-		engine: [minio, s3]
-		versioning: true	# A role-specific field.
-		networks: [web, internal]
+  bucket:
+    role: object_store
+    port: 9000 # on the web network, so a routing port is required
+    engine: [minio, s3]
+    versioning: true # A role-specific field.
+    networks: [web, internal]
 ```
 
 ### Core Services
@@ -114,17 +117,17 @@ The codebase is the unit of *code*; the core service is the unit of *deployment*
 
 ```yml
 codebases:
-	api:
-		secrets: { ... }        # codebase-scoped
-		config:  { ... }        # codebase-scoped
-		env:     { ... }        # codebase-scoped, merged into every core service
-		core_services:
-			web:                # a core service
-				role: web
-				command: [...]
-			worker:
-				role: worker
-				command: [...]
+  api:
+    secrets: { ... }        # codebase-scoped
+    config:  { ... }        # codebase-scoped
+    env:     { ... }        # codebase-scoped, merged into every core service
+    core_services:
+      web:                  # a core service
+        role: web
+        command: [...]
+      worker:
+        role: worker
+        command: [...]
 ```
 
 > **Naming**: A core service is generally named after its role, unless a codebase declares two on the same role. `role: web` → `web`; `role: worker` → `worker`; `role: clock` → `clock`.
@@ -163,7 +166,7 @@ Some services will have additional fields. These are role specific, and will be 
 
 Every role may declare fields which are "provided" to other services. These tend to represent fundamental properties like `port` or `host`. They are defined per role in the `docex` transfer tables so that `docex` is careful and consistent when compiling `infra.yml`.
 
-Restrictions with infra providers (particularly AWS SSM) mean that provided fields must be *values*, and can not be strings which are interpolated later. A role never exposes a pre-composed connection string. A consumer that needs a composed handle (e.g. a database url) builds it from the parts at startup. In the example above, `api` would need a database url to connect to the `database` backing service. We provide `DATABASE_HOST`, `DATABASE_PORT`, etc. as environmental variables so that the code within `api` can construct a database url at runtime. This produces an identical landscape across all four environments.
+Restrictions with infra providers (particularly AWS SSM) mean that provided fields must be *values*, and can not be strings which are interpolated later. A role never exposes a pre-composed connection string. A consumer that needs a composed handle (e.g. a database url) builds it from the parts at startup. In the example above, `api` would need a database url to connect to the `appdb` backing service. We provide `DATABASE_HOST`, `DATABASE_PORT`, etc. as environmental variables so that the code within `api` can construct a database url at runtime. This produces an identical landscape across all four environments.
 
 The provided fields for each role live in the `docex` transfer tables, not in this doctrine. To discover them, run `./bin/docex role <role>` — it lists the role's engines and their provided fields (which are secrets, the required env vars, and the role-specific fields). `./bin/docex roles` lists every available role. See [docex.md](./docex.md#role).
 
@@ -173,7 +176,7 @@ A magic ref reads a [provided field](#provided-fields) off another service. A co
 
 ```
 ${codebases.<codebase>.core_services.<service>.<part>}   # five segments — api.web.host
-${backing_services.<service>.<part>}                     # three segments — database.host
+${backing_services.<service>.<part>}                     # three segments — appdb.host
 ```
 
 Refs are always **dotted**. Emitted names are hyphenated; see [Domain](#domain).
@@ -204,7 +207,7 @@ Consistent naming and tagging conventions are employed wherever possible to ensu
 
 For `fixed`-foundation infrastructure resources, there are no tags. Naming standards are:
 1. Docker networks: `${project_name}-${env_name}-${network_definition_name}`
-2. Docker containers `${project}-${env}-${codebase}-${service}`
+2. Docker containers: `${project}-${env}-${codebase}-${service}`
 
 #### Elastic Foundation
 
@@ -346,11 +349,11 @@ The `resources:` field declares the computing resources a [core service](#core-s
 
 ```yml
 resources:
-	cpu: 1.0          # required; vCPUs, fractional allowed (e.g., 0.5, 2)
-	memory: 2GB       # required; RAM. Decimal units (MB, GB) only.
-	disk: 20GB        # optional; ephemeral storage for temp files. Foundation-dependent default if omitted.
-	gpu:              # optional; omit when no GPU is required
-		count: 1      # number of GPUs to request
+  cpu: 1.0          # required; vCPUs, fractional allowed (e.g., 0.5, 2)
+  memory: 2GB       # required; RAM. Decimal units (MB, GB) only.
+  disk: 20GB        # optional; ephemeral storage for temp files. Foundation-dependent default if omitted.
+  gpu:              # optional; omit when no GPU is required
+    count: 1        # number of GPUs to request
 ```
 
 | Field | Fixed (compose) | Elastic (ECS Fargate) |
@@ -375,15 +378,15 @@ resources:
 
 ```yml
 codebases:
-	api:
-		core_services:
-			web:
-				uses: [database, cache, bucket, api.worker]
+  api:
+    core_services:
+      web:
+        uses: [appdb, cache, bucket, api.worker]
 ```
 
-A `uses` entry names either a **backing service**, bare (`database`), or a **core service**, dotted and fully qualified (`api.worker`). A bare codebase name is illegal, not shorthand for "all its core services": an interface edge points at a specific boundary, and a codebase does not have one contract.
+A `uses` entry names either a **backing service**, bare (`appdb`), or a **core service**, dotted and fully qualified (`api.worker`). A bare codebase name is illegal, not shorthand for "all its core services": an interface edge points at a specific boundary, and a codebase does not have one contract.
 
-**Only core services declare `uses`.** A backing service has no outbound edges at all. Where an engine genuinely needs another container beneath it, which containers an engine requires is an *engine* concern and belongs in its transfer table's `defaults` block, not in `infra.yml`. The consequence is structural and load-bearing: a backing service is a **sink** in the relation graph. See [The graph may contain cycles](#the-graph-may-contain-cycles).
+**Only core services declare `uses`.** A backing service has no outbound edges at all. Where an engine genuinely needs another container beneath it, that requirement is an *engine* concern and belongs in its transfer table's `defaults` block, not in `infra.yml`. The consequence is structural and load-bearing: a backing service is a **sink** in the relation graph. See [The graph may contain cycles](#the-graph-may-contain-cycles).
 
 Provider and consumer survive as **derived** vocabulary rather than as field names: a core service that is used by another is a provider, and the one doing the using is a consumer. See [contracts.md](./contracts.md).
 

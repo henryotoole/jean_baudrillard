@@ -71,9 +71,9 @@ __PART III__: Infrastructure Smoke Test
 	2. `dist`, `src`, and `tests` folders.
 		+ These will be empty.
 	3. Infrastructure scripts: `build.sh`, `test.sh`.
-		+ These can be empty, they must merely exist.
+		+ These can be empty; they must merely exist.
 	4. If this codebase owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
-		+ These can be empty, they must merely exist.
+		+ These can be empty; they must merely exist.
 6. Compile `infra.yml`.
 7. Use `./bin/docex secrets scaffold` and `./bin/docex config scaffold` to create configurable var `<env>.env` files.
 	1. Set needed values in `$pr/infra/config/<env>.env` for `dev` and `test`.

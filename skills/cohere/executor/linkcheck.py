@@ -1,25 +1,36 @@
 #!/usr/bin/env python3
-"""Deterministic mechanical checks for the doctrine corpus.
+"""Deterministic mechanical checks for the doctrine corpus and its skills.
 
-Covers two of the three mechanical checks in the cohere skill:
+Covers two of the four mechanical checks in the cohere skill:
   1. Broken links / references (missing files, missing heading anchors)
   3. Identical filenames (every doctrine filename must be unique)
 
 Spelling/grammar (check 2) stays an LLM pass — it is not deterministic.
+Examples that do not compile (check 4) are `verify_examples.py`'s job.
+
+Both `doctrine/` and `skills/` are scanned by default. `doctrine.md` calls
+keeping thread-skill pointers valid "the one ongoing cost of this structure,
+and it should be checked mechanically" — scanning only `doctrine/` left every
+skill->doctrine link unchecked, and left every doctrine link *out* of the
+scanned tree with its anchor silently unverified (the anchor table is built
+only from scanned files, so an unknown target fails open).
 
 Usage:
-    python3 linkcheck.py [DOCTRINE_ROOT]
+    python3 linkcheck.py [ROOT ...]
 
-DOCTRINE_ROOT defaults to the `doctrine/` dir resolved relative to this
-script's location ($jb/doctrine). Exits non-zero if any problem is found.
+ROOTs default to the `doctrine/` and `skills/` dirs resolved relative to this
+script's location ($jb). Exits non-zero if any problem is found.
 """
 import os
 import re
 import sys
 
-# Default to $jb/doctrine: this file lives at $jb/skills/cohere/executor/.
+# This file lives at $jb/skills/cohere/executor/.
 _SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-DEFAULT_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "..", "..", "doctrine"))
+JB_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "..", ".."))
+DOCTRINE_ROOT = os.path.join(JB_ROOT, "doctrine")
+SKILLS_ROOT = os.path.join(JB_ROOT, "skills")
+DEFAULT_ROOTS = [DOCTRINE_ROOT, SKILLS_ROOT]
 
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 INLINE_CODE_RE = re.compile(r"`[^`]*`")
@@ -86,22 +97,32 @@ def heading_text(lines):
 
 
 def main():
-    root = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_ROOT
-    root = os.path.realpath(root)
-    if not os.path.isdir(root):
-        print(f"ERROR: doctrine root not found: {root}", file=sys.stderr)
-        return 2
+    roots = sys.argv[1:] if len(sys.argv) > 1 else DEFAULT_ROOTS
+    roots = [os.path.realpath(r) for r in roots]
+    for r in roots:
+        if not os.path.isdir(r):
+            print(f"ERROR: root not found: {r}", file=sys.stderr)
+            return 2
+
+    # WHY: `relpath` against one of several roots is ambiguous, so display
+    # paths hang off the common ancestor of every root instead.
+    display_base = os.path.realpath(os.path.commonpath(roots + [JB_ROOT]))
 
     md_files = []
-    for dp, _, fns in os.walk(root):
-        for fn in fns:
-            if fn.endswith(".md"):
-                md_files.append(os.path.join(dp, fn))
+    for root in roots:
+        for dp, _, fns in os.walk(root):
+            for fn in fns:
+                if fn.endswith(".md"):
+                    md_files.append(os.path.join(dp, fn))
+    md_files = sorted(set(os.path.realpath(f) for f in md_files))
 
+    # WHY: one anchor table across every root, so a skill->doctrine (or
+    # doctrine->skill) link has its anchor actually checked rather than
+    # skipped by the `rp in anchors` guard below.
     anchors = {}
     for f in md_files:
         with open(f) as fh:
-            anchors[os.path.realpath(f)] = anchors_for(heading_text(fh.readlines()))
+            anchors[f] = anchors_for(heading_text(fh.readlines()))
 
     problems = []
 
@@ -109,7 +130,7 @@ def main():
     for f in md_files:
         with open(f) as fh:
             lines = fh.readlines()
-        rel = os.path.relpath(f, root)
+        rel = os.path.relpath(f, display_base)
         for lineno, scannable in strip_code(lines):
             for m in LINK_RE.finditer(scannable):
                 target = m.group(2).strip()
@@ -134,9 +155,20 @@ def main():
                             f"(anchor '{anchor}' not found)")
 
     # Check 3: identical filenames.
+    #
+    # WHY the skills tree is exempt: the uniqueness rule is a *doctrine-corpus*
+    # rule — `doctrine.md` states it about doctrine files. `skills/` carries one
+    # file named SKILL.md per skill by the Agent Skills Standard, so including
+    # them would emit one false positive per skill and make the check useless.
+    # The rule is unchanged; it is applied to the tree it was written about.
+    # Scoping is by root name so an explicitly-passed root behaves the same way.
+    checked_roots = [r for r in roots if os.path.basename(r) != "skills"]
     by_name = {}
     for f in md_files:
-        by_name.setdefault(os.path.basename(f), []).append(os.path.relpath(f, root))
+        if not any(os.path.commonpath([f, r]) == r for r in checked_roots):
+            continue
+        by_name.setdefault(os.path.basename(f), []).append(
+            os.path.relpath(f, display_base))
     for name, paths in sorted(by_name.items()):
         if len(paths) > 1:
             problems.append(f"DUP FILENAME {name}  ->  {', '.join(sorted(paths))}")
@@ -145,7 +177,8 @@ def main():
         print("\n".join(problems))
     else:
         print("No broken links, bad anchors, or duplicate filenames found.")
-    print(f"\nScanned {len(md_files)} markdown files under {root}")
+    print(f"\nScanned {len(md_files)} markdown files under "
+          f"{', '.join(os.path.relpath(r, display_base) or '.' for r in roots)}")
     return 1 if problems else 0
 
 

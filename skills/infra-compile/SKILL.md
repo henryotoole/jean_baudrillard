@@ -27,6 +27,8 @@ How the compiler turns CICL into provider-ready output. **Read on demand.**
 
 [`clock.md`](../../doctrine/infrastructure/specifics/clock.md) — the `clock` role: how the doctrine schedules recurring work. Bare 5-field UTC cron authoring in `schedules:`, the defer-don't-work rule, one clock per codebase, and how the compiled schedule table reaches the container on each foundation. Read when a project needs anything to run on a schedule.
 
+[`cicl_reasoning.md`](../../doctrine/infrastructure/reasoning/cicl_reasoning.md) — why CICL fields are scoped where they are: the codebase-vs-core-service heuristic (*a field belongs to the **codebase** iff its value is determined by the source code, to the **core service** iff determined by the invocation*), and why `env:` is the one field valid at both levels. Read when `cicl.md`'s field table does not settle a case — adding a field, or placing a role-specific one.
+
 ## Thread
 
 - Writing project-local transfer tables (the former `docex-transfer-table` activity, now folded here) goes in `infra/transfer_tables/`.

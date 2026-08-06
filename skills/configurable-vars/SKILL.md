@@ -21,6 +21,8 @@ The full mechanism behind the commands. **Read on demand — only if the normal 
 
 [`config_and_secrets.md`](../../doctrine/infrastructure/specifics/config_and_secrets.md) — the three-category model, standard file form, aggregation, materialization, the required-secret guard, and TTE authoritative-store recovery. Reach for it when values are not reaching containers, a release rejects a secret you believe is set, or a TTE store has diverged (lockout) — not for the routine scaffold→set→status loop.
 
+[`configurable_flow.md`](../../doctrine/charts/configurable_flow.md) — the one-page flow diagram of where configurable values come from and where they land: the three sources, the `docex` command that scaffolds each, and the per-circumstance storage location for every environment.
+
 ## Thread
 
 - **The loop.** If the `<env>.env` files don't exist, `scaffold` creates them from the deterministic key set (also re-run `scaffold` whenever the declared schema changes — it preserves existing values). Then `status <env>` to find `UNSET` keys, `set` each one, and `status` again to confirm none remain. Use `copy <src_env> <tgt_env> <KEY>` to seed one env's value from another (same-side — `dev`↔`test`, `stage`↔`prod` — is the blessed case).

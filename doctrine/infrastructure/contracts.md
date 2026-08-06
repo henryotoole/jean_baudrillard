@@ -36,7 +36,7 @@ Note that while the contract format is dependent upon communication mechanism, i
 
 ## Mandatory Endpoints
 
-In order for the `doctrine`'s infrastructure system to work, certain core services have mandatory endpoints which must exist in their contracts. If they don't exist, the project` won't pass [CI checks](./cicd.md#check-step).
+In order for the `doctrine`'s infrastructure system to work, certain core services have mandatory endpoints which must exist in their contracts. If they don't exist, the project won't pass [CI checks](./cicd.md#check-step).
 
 ### Health Checks
 

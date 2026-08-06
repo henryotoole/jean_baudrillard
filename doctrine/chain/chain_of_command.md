@@ -20,7 +20,7 @@ This measure of knowledge is a practical first-class consideration because it qu
 
 Ideally, all decisions would simply be made by a context with maximum depth and breadth. However, the two compete for space in the total context limit of the agent's model: `context_usage ∝ depth * breadth`. In practice we must choose; this choice lets us scope tasks by rank as a given *kind of task* requires a certain balance of depth and breadth.
 
-SIDE NOTE: Claude's built-in `/goal` is an differing approach to solving the same problem as *chain of command*, but it is one-dimensional and too strict. Given a real blocker, `/goal` forces claude to do almost anything to circumvent it. Sometimes a problem is beyond the scope of an agent's authority, and responsibility for a solution is delegated upwards to a higher agent or ultimately the operator.
+SIDE NOTE: Claude's built-in `/goal` is a differing approach to solving the same problem as *chain of command*, but it is one-dimensional and too strict. Given a real blocker, `/goal` forces claude to do almost anything to circumvent it. Sometimes a problem is beyond the scope of an agent's authority, and responsibility for a solution is delegated upwards to a higher agent or ultimately the operator.
 
 ## Lexicon
 
@@ -29,7 +29,6 @@ Some additions to our doctrine-lexicon (useful for this document, and adaptable 
 | Word | Synonyms | Definition |
 | ---- | -------- | ---------- |
 | Commanding Officer | "CO", "C.O." | The agent which spawned a sub-agent. |
-| Advance |  | A planned collection of mods executed together in service of one or more goals. |
 
 ## Ranks
 
@@ -43,8 +42,8 @@ The following table summarizes some properties of the different ranks:
 
 | Name | Turns Expected | Bounded By | Escalates To | Purpose |
 | ---- | -------------- | ---------- | ------------ | ------- |
-| private | One shot. | Specific, focused instructions. | `private` | Reduce C.O. context burden. |
-| corporal | A handful; predictable depending on process. | General scope of assigned process. | `corporal` | Intelligent detail work. |
+| private | One shot. | Specific, focused instructions. | `corporal` | Reduce C.O. context burden. |
+| corporal | A handful; predictable depending on process. | General scope of assigned process. | `sarge` | Intelligent detail work. |
 | sarge | Unpredictable; scales with scope of advance. | Goals and constraints of the advance. | Operator | Orchestration. |
 
 ### Private
@@ -56,7 +55,7 @@ They are generally one-shot launches; either the `private` subagent will complet
 **Examples**:
 1. The implementation-execution step of a mod cycle.
 2. Researching a topic and returning a summary.
-3. Straightforwards code investigation.
+3. Straightforward code investigation.
 
 NOTE: These are quite similar to the "general" subagents that claude already deploys at will to do research or kick off a specific task.
 
@@ -85,7 +84,7 @@ The `sergeant`'s conversation will be multi-turn and unpredictable, driven by bo
 
 When a ranked agent must make a decision that is outside of its authority, it escalates that decision to its C.O. by ending the current turn with a question (or list of questions if there are multiple decisions). Every rank's agent definition will include escalation guidelines. In practice, `private`-rank agents will rarely raise decisions as they tend to be one-shot. `corporal`-rank agents will, depending on process, probably do this quite frequently as they do the bulk of the real on-the-ground detail work.
 
-Whenever a decision is raised to a C.O. at the end of a subagent's turn, the C.O. agent much choose whether he *himself* has the authority to make the decision. If not, the *C.O.* should raise the decision higher. In this way, decisions ripple all the way up to the human operator.
+Whenever a decision is raised to a C.O. at the end of a subagent's turn, the C.O. agent must choose whether he *himself* has the authority to make the decision. If not, the *C.O.* should raise the decision higher. In this way, decisions ripple all the way up to the human operator.
 
 ### Communication Mechanism
 
@@ -119,14 +118,14 @@ However, chain-of-command-style agents are composed along two *different* axes: 
 
 `.../agents/${rank}/${name}`
 
-Furthermore, an agents rank will be included in the frontmatter of the agent file:
+Furthermore, an agent's rank will be included in the frontmatter of the agent file:
 ```md
 ---
 rank: ${rank}
 ---
 ```
 
-Rank general information (e.g. the contents of this file) will not be imbedded in the agent file. Like other conditional data, it will link back to the doctrine. The agent file will uniquely define:
+Rank general information (e.g. the contents of this file) will not be embedded in the agent file. Like other conditional data, it will link back to the doctrine. The agent file will uniquely define:
 1. The subject matter for which the agent must be knowledgeable: fundamental skills and system prompt.
 2. The chain-of-command specifics needed: escalation guidelines.
 

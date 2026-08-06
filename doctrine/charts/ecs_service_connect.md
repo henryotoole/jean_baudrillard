@@ -1,3 +1,7 @@
+---
+stratum: conditional
+---
+
 # Diagram of ECS Service Connect Name Resolution
 
 ┌───────────────────────────────────────────────────────────────────────────────────┐                ┌─────────────────────┐

@@ -10,7 +10,7 @@ This provides an overview of different forms of documentation and where they bel
 
 | Name | Purpose |
 | ---- | ------- |
-| Product Docs | These are README's, wikis, and onboarding guides that describe the project at the highest level. Generally aimed at an outside operator of the software rather than an internal developer. |
+| Product Docs | These are READMEs, wikis, and onboarding guides that describe the project at the highest level. Generally aimed at an outside operator of the software rather than an internal developer. |
 | Architecture / Design Docs | These are more detailed documents that describe the major architectural components of the project, how they fit together, and why key decisions were made. |
 | Module Docs | These describe a specific module, explain its responsibilities, describe boundaries, etc. |
 | Code Level Docs | These are inline comments, function and class docstrings, even file docstrings. Any documentation that lives alongside code. This is the lowest level and has mostly to do with implementation. |

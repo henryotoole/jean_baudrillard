@@ -15,6 +15,12 @@ What contracts are and what they must contain. **Read this now.**
 
 [`contracts.md`](../../doctrine/infrastructure/contracts.md) — contract formats (OpenAPI for HTTP, AsyncAPI for queues), where they live, the mandatory `/health` and downstream `/health/<codebase>/<service>` endpoints, the loop-liveness tick a long-running core service owes, and how CI checks them.
 
+## Specific Information
+
+The reasoning under the requirement. **Read on demand.**
+
+[`healthchecks.md`](../../doctrine/infrastructure/reasoning/healthchecks.md) — one paragraph on *why* every core service must declare a healthcheck: a system that autoscales and is evaluated by machine has no other way to be judged. `contracts.md` states the requirement; this states its motive.
+
 ## Thread
 
 - Provider/consumer relationships are declared via `uses` in `infra.yml` — author that in `infra-compile`. Only the **core-service** targets of a `uses` list define contract edges; a backing-service target does not.

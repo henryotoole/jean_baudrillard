@@ -10,23 +10,25 @@ The answer is a `clock` core service. It is an ordinary long-running singleton c
 
 There is no separate scheduling primitive. A schedule is a property of an *invocation*, not of a deployment, and a clock is simply the invocation that owns the cron loop.
 
+Not to be confused with the [`Clock` driven port pattern](../../hexagonal_architecture/hex_overview.md#driven-port--adapter-patterns), which abstracts a module's access to the current time. The two are unrelated: this page is about a core service that *fires* scheduled work, not about reading the wall clock.
+
 ## What a clock core service is
 
 ```yml
 codebases:
-	api:
-		core_services:
-			clock:
-				role: clock
-				command: ["python", "-m", "entrypoints.clock"]
-				port: 8080
-				networks: [internal]
-				health_check_path: /health
-				resources: { cpu: 0.25, memory: 512MB }
-				uses: [appdb, api.worker]
-				schedules:
-					nightly_cleanup: "0 3 * * *"
-					hourly_rollup: "0 * * * *"
+  api:
+    core_services:
+      clock:
+        role: clock
+        command: ["python", "-m", "entrypoints.clock"]
+        port: 8080
+        networks: [internal]
+        health_check_path: /health
+        resources: { cpu: 0.25, memory: 512MB }
+        uses: [appdb, api.worker]
+        schedules:
+          nightly_cleanup: "0 3 * * *"
+          hourly_rollup: "0 * * * *"
 ```
 
 `schedules:` is a map of **job name → cron expression**. It is required on a `clock` and rejected on every other role.

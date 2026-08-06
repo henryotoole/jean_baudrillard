@@ -7,7 +7,7 @@ the doctrine's known filestructure so each piece fits one subagent. It reads no
 file contents — it sizes by character count (a stable proxy for tokens; code is
 mostly ASCII, so bytes ≈ chars ≈ tokens × ~3.5) and emits a JSON map on stdout.
 
-It is purely a CODE chunker: it does NOT pair chunks to docs. A service's doc
+It is purely a CODE chunker: it does NOT pair chunks to docs. A codebase's doc
 layout is irregular (especially non-hex frontends) and cannot be resolved into a
 provably-complete file set, so doc selection is left to the skill-agent, which has
 read all the planning docs and can curate the relevant set per chunk (see SKILL.md).
@@ -117,15 +117,15 @@ def _est_tokens(chars: int) -> int:
     return round(chars / CHARS_PER_TOKEN)
 
 
-def _discover_services(root: Path) -> list[Path]:
+def _discover_codebases(root: Path) -> list[Path]:
     core = root / "core"
     if not core.is_dir():
         sys.exit(f"error: {core} does not exist — not a doctrine project layout.")
     return sorted(d for d in core.iterdir() if d.is_dir() and (d / "src").is_dir())
 
 
-def _service_whole_unit(root: Path, svc_dir: Path) -> dict:
-    """A whole service as one packable unit (used when it fits under the budget)."""
+def _codebase_whole_unit(root: Path, svc_dir: Path) -> dict:
+    """A whole codebase as one packable unit (used when it fits under the budget)."""
     src = svc_dir / "src"
     return {
         "name": svc_dir.name,
@@ -135,15 +135,15 @@ def _service_whole_unit(root: Path, svc_dir: Path) -> dict:
     }
 
 
-def _service_units(root: Path, svc_dir: Path) -> list[dict]:
-    """Split one hex service into a shell unit + one unit per hex module."""
+def _codebase_units(root: Path, svc_dir: Path) -> list[dict]:
+    """Split one hex codebase into a shell unit + one unit per hex module."""
     svc = svc_dir.name
     src = svc_dir / "src"
     hex_dir = src / "hex"
     modules = [d for d in sorted(hex_dir.iterdir()) if d.is_dir()] if hex_dir.is_dir() else []
 
     # Shell = everything under src/ except the module dirs (root.py, shared/, util/,
-    # any non-dir files sitting directly in hex/). It carries service-level docs.
+    # any non-dir files sitting directly in hex/). It carries codebase-level docs.
     shell_paths: list[Path] = []
     for child in sorted(src.iterdir()):
         if child.name in IGNORE_DIRS:
@@ -194,7 +194,7 @@ def _chunk(id_: str, granularity: str, units: list[dict], root: Path, budget: in
     return {
         "id": id_,
         "granularity": granularity,
-        "services": sorted({u["svc"] for u in units}),
+        "codebases": sorted({u["svc"] for u in units}),
         "code_paths": code,
         "code_chars": chars,
         "est_tokens": _est_tokens(chars),
@@ -203,33 +203,33 @@ def _chunk(id_: str, granularity: str, units: list[dict], root: Path, budget: in
 
 
 def build_chunks(root: Path, budget: int) -> dict:
-    services = _discover_services(root)
-    svc_chars = {svc: _chars([svc / "src"]) for svc in services}
+    codebases = _discover_codebases(root)
+    svc_chars = {svc: _chars([svc / "src"]) for svc in codebases}
     total = sum(svc_chars.values())
 
     chunks: list[dict] = []
     if total <= budget:
         # Whole source fits one subagent.
-        units = [_service_whole_unit(root, svc) for svc in services]
+        units = [_codebase_whole_unit(root, svc) for svc in codebases]
         chunks.append(_chunk("ALL", "codebase", units, root, budget))
     else:
-        fits = [svc for svc in services if svc_chars[svc] <= budget]
-        big = [svc for svc in services if svc_chars[svc] > budget]
+        fits = [svc for svc in codebases if svc_chars[svc] <= budget]
+        big = [svc for svc in codebases if svc_chars[svc] > budget]
 
-        # Pack whole services together (never mixing modules across services).
-        for bin_units in _binpack([_service_whole_unit(root, svc) for svc in fits], budget):
+        # Pack whole codebases together (never mixing modules across codebases).
+        for bin_units in _binpack([_codebase_whole_unit(root, svc) for svc in fits], budget):
             names = "+".join(u["svc"] for u in bin_units)
-            chunks.append(_chunk(names, "services", bin_units, root, budget))
+            chunks.append(_chunk(names, "codebases", bin_units, root, budget))
 
-        # A service too big to fit whole: split it, alone, into its own chunks.
+        # A codebase too big to fit whole: split it, alone, into its own chunks.
         for svc_dir in big:
             if (svc_dir / "src" / "hex").is_dir():
-                for bin_units in _binpack(_service_units(root, svc_dir), budget):
+                for bin_units in _binpack(_codebase_units(root, svc_dir), budget):
                     ids = "+".join(u["name"].split(":", 1)[1] for u in bin_units)
                     chunks.append(_chunk(f"{svc_dir.name}:{ids}", "modules", bin_units, root, budget))
             else:
-                # Non-hex service over budget: no finer structural bound to split on.
-                chunks.append(_chunk(svc_dir.name, "service", [_service_whole_unit(root, svc_dir)], root, budget))
+                # Non-hex codebase over budget: no finer structural bound to split on.
+                chunks.append(_chunk(svc_dir.name, "codebase", [_codebase_whole_unit(root, svc_dir)], root, budget))
 
     return {
         "root": str(root),
@@ -238,17 +238,17 @@ def build_chunks(root: Path, budget: int) -> dict:
         "chars_per_token": CHARS_PER_TOKEN,
         "total_code_chars": total,
         "chunks": chunks,
-        "hints": _hints(root, services),
+        "hints": _hints(root, codebases),
     }
 
 
-def _hints(root: Path, services: list[Path]) -> dict:
+def _hints(root: Path, codebases: list[Path]) -> dict:
     """Best-effort structural signals: code with no doc, docs with no code."""
     plans_core = root / "plans" / "core"
     undocumented: list[str] = []
     unpaired: list[dict] = []
 
-    for svc_dir in services:
+    for svc_dir in codebases:
         svc = svc_dir.name
         hex_dir = svc_dir / "src" / "hex"
         if hex_dir.is_dir():

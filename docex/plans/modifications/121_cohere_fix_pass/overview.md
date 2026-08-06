@@ -482,6 +482,62 @@ I1 must be re-run **after** the A5 fix specifically: the pydantic failure masks
 validation on that fence entirely, so its first-ever validation happens in this
 mod and may surface further defects.
 
+## 7a. Post-implementation: two lessons worth keeping
+
+### The `EXCERPT` class, and the two ways a check goes bad
+
+Implementation surfaced two fences that cannot parse standalone:
+`telemetry_infra.md:196` and `transfer_tables.md:716`. Both carry
+`logging: *default-logging`, a YAML alias whose `&default-logging` anchor is
+defined in a **different** fence (`transfer_tables.md:809`). They are correct
+documentation — excerpts of a larger compose document, showing the real emitted
+shape.
+
+Three options; **sarge ruled (a)**, and the rejections are the instructive part:
+
+- **(a) Give the harness an `EXCERPT` class.** Landed. Same judgement
+  `ILLUSTRATIVE` already encodes: *this fence is deliberately not a standalone
+  document.*
+- **(b) Inline the anchor into both fences.** Rejected: it edits **correct
+  documentation to satisfy a tool**, and makes the docs worse — the excerpt's
+  entire purpose is to show the emitted shape.
+- **(c) Accept a permanently-red gate.** Rejected: it **trains every future
+  reader to skip the check** — the unshipped-check pathology in reverse, and
+  arguably worse, because an ignored red check looks like coverage.
+
+Two conditions on the class, both implemented and tested:
+
+1. **The condition is narrow**: the fence must fail *only* on undefined aliases,
+   each of which must have an `&anchor` defined elsewhere in the corpus. Proven
+   by stubbing each missing anchor and re-parsing — anything else (a genuine
+   syntax error, an alias nothing defines) still fails.
+   `test_excerpt_condition_does_not_absorb_unrelated_error` guards this.
+   *A classification that can absorb an unrelated failure is a gate with a hole
+   in it.*
+2. **The class is visible**: excerpts print on their own line and are
+   **subtracted from** `fences parsed`, never folded into it. If a genuinely
+   broken fence ever trips the condition, the count is what catches it.
+
+### A gate number that was inferred rather than measured is a trap
+
+This design set a **"42/42 fences parse"** gate. The baseline recorded was
+"4 OK / 3 failed" — those were *validation* results. The parse count was never
+measured. It was **39/42** all along, so the gate was unachievable from the
+moment it was written.
+
+That is the defect worth naming: **the pressure an impossible number creates
+falls on whoever has to meet it, and the cheapest way to meet an impossible
+number is always to damage the thing being measured.** Here that would have
+meant editing two correct fences. The implementor escalating instead of quietly
+inlining an anchor is the behaviour that made the difference — the same instinct
+that made Mod 118's corporal report its own "verified on a read" error.
+
+One of the three baseline failures was a genuine **tool** bug, not a doc bug:
+`doctrine.md:30` shows frontmatter, which is a legal two-document YAML *stream*
+that `safe_load` rejects outright. Fixed with `safe_load_all` and pinned by
+`test_multi_document_stream_parses` — the harness earning its promotion on the
+same day it got it.
+
 ## 8. Scope guards
 
 - **Held, untouched:** `clock.md:96`'s binding-coverage sentence is with the

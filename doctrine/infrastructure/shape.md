@@ -52,7 +52,7 @@ In these sections, [service] is shorthand for "[core_service]s and [backing_serv
 
 ### Elastic-Foundation
 
-**Runtime Shape** - [registrar] sets [dns]; [dns] routes requests by domain to the project's [reverse_proxy] within the [master_network]. The [reverse_proxy] terminates TLS with [cert_manager]. [reverse_proxy] then routes requests to the correct [network] and [service] container unencrypted based on host or path rules. In `prod`, a [core_service] can have multiple replicas (ECS `desired_count`). The [reverse_proxy] load-balances the replicas of a `web` [core_service] via its target group; replicas of an internal [core_service] are balanced by [service_discovery], with no proxy involved. [service]s communicate over shared environment [network]. [service_discovery] allows [service]s to find each other by name; reachability remains gated by SG rules. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
+**Runtime Shape** - [registrar] sets [dns]; [dns] routes requests by domain to the project's [reverse_proxy] within the [master_network]. The [reverse_proxy] terminates TLS with [cert_manager]. [reverse_proxy] then routes requests to the correct [network] and [service] container unencrypted based on host or path rules. In `prod`, a [core_service] can have multiple replicas (ECS `desired_count`). The [reverse_proxy] load-balances the replicas of a `web` [core_service] via its target group; replicas of an internal [core_service] are balanced by [service_discovery], with no proxy involved. [service]s communicate over shared environment [network]s. [service_discovery] allows [service]s to find each other by name; reachability remains gated by SG rules. Telemetry signals originate in [service] containers and are transmitted to [telemetry_sidecar]s, which then export them to the [observability_backend].
 
 **Network Egress** - Outbound requests reach the internet by traveling through the [master_network]'s [nat_gateway] service and IGW.
 
@@ -103,34 +103,35 @@ foundation: elastic
 apex_domain: "example.com"
 domain_default_service: api.web
 repo_url: "https://github.com/owner_account/project_name"
+observability_backend_url: "https://hyperdx.example.com"
 
 codebases:
-	api:
-		env:
-			DATABASE_HOST: ${backing_services.database.host}
-			DATABASE_PORT: ${backing_services.database.port}
-			DATABASE_NAME: ${backing_services.database.db}
-			DATABASE_USER: ${backing_services.database.user}
-			DATABASE_PASSWORD: ${backing_services.database.password}
-		core_services:
-			web:
-				role: web
-				command: ["python", "-m", "entrypoints.http"]
-				port: 8080
-				networks: [web, internal]
-				uses: [database]
-				resources:
-					cpu: 1.0
-					memory: 2GB
-					disk: 20GB
+  api:
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+    core_services:
+      web:
+        role: web
+        command: ["python", "-m", "entrypoints.http"]
+        port: 8080
+        networks: [web, internal]
+        uses: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 20GB
 
 backing_services:
-	database:
-		role: relational_db
-		engine: postgres
-		version: "15"
-		networks: [internal]
-		schema_owned_by: api
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    networks: [internal]
+    schema_owned_by: api
 ```
 
 ### Compiled for `dev` (fixed shape, even though project is elastic)
@@ -143,10 +144,10 @@ backing_services:
 
 **Environment infrastructure:**
 - One internal network: `myproject-dev-internal`
-- A named volume: `myproject-dev-database_data`
+- A named volume: `myproject-dev-appdb_data`
 - An `api-web` container on both networks (no published host port), with Traefik labels routing both `dev.myproject.example.com` (it's the `domain_default_service`) and `api-web.dev.myproject.example.com` to it, plus `DATABASE_*` env for internally constructing the db url
 - An `api-exec` container, profile-gated so `up` never starts it — the per-codebase one-off container `build`, `test`, and `migrate` run inside
-- A `database` container on the internal network, postgres 15 image, env vars and healthcheck per the transfer table
+- An `appdb` container on the internal network, postgres 15 image, env vars and healthcheck per the transfer table
 
 The project traefik (project-tier, listed above) spans the `-web` networks and `docex-ingress`; it picks up the `api-web` container's labels so that `dev.myproject.example.com` and `api-web.dev.myproject.example.com` both actually get routed to it. The developer accesses the project at `dev.myproject.example.com` on the dev machine.
 
@@ -171,7 +172,7 @@ HCL files describing:
 - 1 ECS service for `api-web` (in the project-tier `myproject-prod` cluster), in the master VPC's primary-AZ private subnet, attached to both SGs
 - 1 migration ECS task definition for the `api` codebase (family `myproject-prod-api-migrate`), run as a one-off `RunTask` at release
 - 1 ALB target group for the prod `api-web` core service, plus 1 listener rule on the project ALB whose host-header condition matches the explicit set `api-web.prod.myproject.example.com`, `prod.myproject.example.com`, and `myproject.example.com` pointed at that target group.
-- 1 RDS instance for `database` (identifier `myproject-prod-database`), in the master VPC's primary-AZ private subnet, attached only to the `internal` SG. The RDS subnet group references both private subnets (primary and secondary AZ) to satisfy AWS's multi-AZ requirement; the instance is pinned to the primary AZ.
+- 1 RDS instance for `appdb` (identifier `myproject-prod-appdb`), in the master VPC's primary-AZ private subnet, attached only to the `internal` SG. The RDS subnet group references both private subnets (primary and secondary AZ) to satisfy AWS's multi-AZ requirement; the instance is pinned to the primary AZ.
 - 5 Route53 A-records (alias) in the project's zone:
     - `<project>.<apex_domain>` (bare project)
     - `*.prod.<project>.<apex_domain>` (prod wildcard)
@@ -179,6 +180,6 @@ HCL files describing:
     - `*.stage.<project>.<apex_domain>` (stage wildcard)
     - `stage.<project>.<apex_domain>` (stage ergonomic)
 
-The `api-web` service runs in the master VPC's primary-AZ private subnet, attached to both the `web` SG (so the ALB can reach it) and the `internal` SG (so it can reach `database`). The `database` runs in the same private subnet, attached only to the `internal` SG. The two are wired together by the discrete connection parts the postgres engine's `provides:` block defines: `host` resolves to the live RDS hostname (an `@aws_db_instance.database.address` pass-through), while `user`/`password` arrive as ECS `secrets[]` sourced from SSM. `api-web` composes its own connection string from those parts at startup.
+The `api-web` service runs in the master VPC's primary-AZ private subnet, attached to both the `web` SG (so the ALB can reach it) and the `internal` SG (so it can reach `appdb`). The `appdb` runs in the same private subnet, attached only to the `internal` SG. The two are wired together by the discrete connection parts the postgres engine's `provides:` block defines: `host` resolves to the live RDS hostname (an `@aws_db_instance.appdb.address` pass-through), while `user`/`password` arrive as ECS `secrets[]` sourced from SSM. `api-web` composes its own connection string from those parts at startup.
 
 Egress to anything outside the master VPC (third-party API calls, HyperDX, ECR pulls when no VPC endpoint covers them) flows from the private subnet through the master VPC's centralized NAT gateway and out via the IGW. The ALB reaches the open internet directly via the IGW from the public subnets.

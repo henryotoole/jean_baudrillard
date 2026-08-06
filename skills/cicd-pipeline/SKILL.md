@@ -23,6 +23,8 @@ The mechanism behind the heavier steps. **Read on demand.**
 
 [`release.md`](../../doctrine/infrastructure/specifics/release.md) — how `docex release` drives a build into an env: ansible (fixed) vs. SSM-push plus tofu (elastic), first-release vs. steady-state ordering, and failure modes.
 
+[`elastic_release_pattern.md`](../../doctrine/infrastructure/reasoning/elastic_release_pattern.md) — why the elastic release carries a post-apply reconcile step at all: ECS's three name-resolution mechanisms and why Service Connect is the only one available, why dependency ordering cannot fix the resulting race, and why the fix observes durable state rather than enforcing an order. Read alongside `release.md` when the reconcile step surprises you.
+
 [`migrations.md`](../../doctrine/infrastructure/specifics/migrations.md) — the `migrate.sh` contract and how migrations run per env category and foundation.
 
 [`config_and_secrets.md`](../../doctrine/infrastructure/specifics/config_and_secrets.md) — how `<env>.env` materializes into compose env vars (fixed) or SSM `secrets[]` entries (elastic).

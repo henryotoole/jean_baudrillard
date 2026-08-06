@@ -241,7 +241,7 @@ binds, is delivered under the consumer's own key:
 
 The container sees the same key and value on both foundations; only the delivery
 mechanism differs. The compiler binds these end-to-end: a core service's
-`env: DATABASE_PASSWORD: ${backing_services.database.password}` resolves (per the
+`env: DATABASE_PASSWORD: ${backing_services.appdb.password}` resolves (per the
 engine's `provides:` block) to the runtime ref `$[POSTGRES_PASSWORD]`, which the
 compiler emits as the compose line or ECS entry above. A `kind: fixed` var (e.g.
 `POSTGRES_USER` → `appuser`) is instead inlined at compile and appears as a plain
@@ -251,7 +251,7 @@ literal, never in any store. See
 ## Parts-Only Rule
 
 Engines never expose a pre-composed string for a secret-containing value (e.g.,
-no `database.url` part that includes the password inline). The application
+no `appdb.url` part that includes the password inline). The application
 composes its own connection string from the discrete parts (`host`, `port`,
 `db`, `user`, `password`) at startup.
 

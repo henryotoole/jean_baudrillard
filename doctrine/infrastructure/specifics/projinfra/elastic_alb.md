@@ -41,12 +41,12 @@ The ALB and its SG follow the doctrine's general naming pattern from [transfer_t
 | -------- | ------ | ---------------- |
 | ALB | `alb` | `myproject-alb` |
 | ALB SG | `alb` | `myproject-alb-sg` |
-| Target group (env-tier) | `alb` | `myproject-stage-web-tg` |
+| Target group (env-tier) | `alb` | `myproject-stage-api-web-tg` |
 | Listeners | (not separately named; identified by attached ALB ARN) | — |
 
 The `alb` policy is hyphen-separated, case-preserving, max length 32.
 
-These `name` fields are AWS **resource identifiers** (unique per account+region, ≤32 chars) — *not* the doctrine `Name` tag. AWS caps them hard at 32, which a `${project}-${env}-${service}-tg` target-group name overruns for all but the shortest project names (e.g. `tactical-lifecycle-test-stage-web-tg` is 36). The `alb` policy therefore sets `overflow: hash_truncate` (see [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies)): when the rendered name exceeds 32, docex keeps a readable prefix and appends a short deterministic hash so the identifier always fits and stays unique. The full, untruncated descriptive name is preserved in the resource's `Name` tag (`${project}_${env}_${service}` for the target group's envinfra block, per [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging)), so console ergonomics are unaffected.
+These `name` fields are AWS **resource identifiers** (unique per account+region, ≤32 chars) — *not* the doctrine `Name` tag. AWS caps them hard at 32, which a `${project}-${env}-${codebase}-${service}-tg` target-group name overruns for all but the shortest project names (e.g. `tactical-lifecycle-test-stage-api-web-tg` is 40). The `alb` policy therefore sets `overflow: hash_truncate` (see [transfer_tables.md § Naming Policies](../transfer_tables.md#naming-policies)): when the rendered name exceeds 32, docex keeps a readable prefix and appends a short deterministic hash so the identifier always fits and stays unique. The full, untruncated descriptive name is preserved in the resource's `Name` tag (`${project}_${env}_${service}` for the target group's envinfra block, per [cicl.md § Naming and Tagging](../../cicl.md#naming-and-tagging)), so console ergonomics are unaffected.
 
 ## Subnet Placement
 
@@ -56,7 +56,7 @@ Both subnets are looked up via data sources from the master-VPC preinfra; the AL
 
 ## Listener Rules: What's Project-Tier vs. Env-Tier
 
-The ALB itself (and its listeners) is project-tier. The listener *rules* — the things that match `Host: api.prod.myproject.example.com` and forward to a specific target group — are **env-tier**, emitted by `./bin/docex compile` into each env's `main.tf`. Two reasons:
+The ALB itself (and its listeners) is project-tier. The listener *rules* — the things that match `Host: api-web.prod.myproject.example.com` and forward to a specific target group — are **env-tier**, emitted by `./bin/docex compile` into each env's `main.tf`. Two reasons:
 
 1. Listener rules are 1:1 with env-tier ECS services. Adding a new service to `stage` adds a rule; removing a service removes one. Coupling rule lifecycle to env-tier release is the natural fit.
 2. Rule priorities are scoped per-listener but otherwise unstructured. The compiler assigns deterministic priorities at compile time per env, so env-A's rules don't collide with env-B's.
@@ -73,17 +73,17 @@ data "terraform_remote_state" "project" {
   }
 }
 
-resource "aws_lb_listener_rule" "api" {
+resource "aws_lb_listener_rule" "api_web" {
   listener_arn = data.terraform_remote_state.project.outputs.alb_https_listener_arn
   priority     = <doctrine-computed>
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.api.arn
+    target_group_arn = aws_lb_target_group.api_web.arn
   }
   condition {
     host_header {
       values = [
-        "api.prod.myproject.example.com",
+        "api-web.prod.myproject.example.com",
         "prod.myproject.example.com",
         "myproject.example.com",
       ]

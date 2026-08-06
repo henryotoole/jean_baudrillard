@@ -4,7 +4,7 @@ stratum: resident
 
 # Modifications
 
-This documents the standard modification process for designing and implementing changes a project.
+This documents the standard modification process for designing and implementing changes to a project.
 
 A modification or 'mod' is the fundamental unit of change to a project; whether it be to add a feature or fix a bug. A fixed process (below) ensures that:
 1. A mod's changes can be easily reviewed

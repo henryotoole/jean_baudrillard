@@ -64,7 +64,7 @@ This doctrine requires provider-side contract tests for core services with defin
 #### Consumer Side
 - Runs in a one-off container of the consumer's **codebase** exec service, as above.
 - A mock server is generated from the provider's contract - either via a separate container (Prism, AsyncAPI mock) or as an in-process mock library (e.g., httpx_mock for Python clients).
-- consumer's tests hit the mock instead of the real backend.
+- Consumer's tests hit the mock instead of the real backend.
 - Verifies consumer can work against any contract-conformant provider.
 - Invoked by the codebase's test.sh.
 

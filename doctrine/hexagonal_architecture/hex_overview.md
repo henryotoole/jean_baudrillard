@@ -126,7 +126,7 @@ Only when none of these fit is util appropriate, and even then the entry should 
 
 ### Tests
 
-There are five natural test types in hexagonal architecture. The first four each target a distinct layer: domain, alogic, adapter, and module tests; the fifth (service/flow tests) exercises the whole service at once. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
+There are five natural test types in hexagonal architecture. The first four each target a distinct layer: domain, alogic, adapter, and module tests; the fifth (service/flow tests) exercises the whole codebase at once. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
 
 All the below categories of tests are [codebase tests](../infrastructure/tests.md#codebase-tests) from an infrastructure perspective.
 
@@ -225,7 +225,7 @@ Every hexagonal module has these folders and purposes:
 | Folder or File Name | Purpose |
 | ------------------- | ------- |
 | `adapters` | Contains both driving and driven adapter implementations for the module. |
-| `ports` | Contains the interface definitions for all adapters. It contains both driving and driven port definitions.
+| `ports` | Contains the interface definitions for all adapters. It contains both driving and driven port definitions. |
 | `alogic` | Short for "application logic". This contains the code that actually uses the domain and driven adapters to achieve meaningful work. |
 | `domain` | Contains the domain components — entities, value objects, domain services, and any pure business logic that operates on them. |
 
@@ -258,6 +258,8 @@ These are design patterns that port / adapter pairs will follow to perform their
 | Notifier | Notif | Outbound user-facing notifications (email, SMS, push, etc.). |
 | Clock | Clock | Abstracts access to the current time so alogic remains deterministic and testable. |
 | Lock | Lock | Acquires and releases distributed locks / mutexes against shared resources. |
+
+**Note:** the `Clock` pattern above is unrelated to the infrastructure [`role: clock`](../infrastructure/specifics/clock.md), a core service that fires scheduled jobs. A `clock` core service will often depend on a `Clock` port; the shared word is a collision, not a relationship.
 
 #### Driving Port / Adapter Patterns
 

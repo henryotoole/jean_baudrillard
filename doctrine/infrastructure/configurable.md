@@ -28,7 +28,7 @@ There are three standard sources of configurable values in a doctrine-based proj
 
 TTE vars are mechanical necessities that originate in different roles' engines in the transfer tables. They usually exist to authenticate inter-service communication.
 
-The classic example is the `postgres` engine's `POSTGRES_PASSWORD` variable. This must be set for the `relational_db` backing service when it launches for the first time. Afterwards, the backing service itself remembers it. However, the project must still keep a record of the values so that core services can construct database URI's to query the `relational_db` backing service.
+The classic example is the `postgres` engine's `POSTGRES_PASSWORD` variable. This must be set for the `relational_db` backing service when it launches for the first time. Afterwards, the backing service itself remembers it. However, the project must still keep a record of the values so that core services can construct database URIs to query the `relational_db` backing service.
 
 TTE vars are handled almost entirely automatically by `docex`. During [aggregation](#aggregation), any TTE vars which are absent will be automatically generated. Intervention from the developer is only required if the doctrine-recorded values somehow get out of sync with the container-volume-recorded ones. [config_and_secrets.md](./specifics/config_and_secrets.md#recovery--divergence-not-invalidity)
 
@@ -40,7 +40,7 @@ TTE vars are handled almost entirely automatically by `docex`. During [aggregati
 
 ### Secrets
 
-Secrets are any per-deploy variables which cannot be published. They tend to be things like API keys or passwords. They must be kept secret and safe. This also means that they cannot enter LLM contexts. Secrets are stored in a `.env` file that LLM's should never read. Special `docex` tooling is provided to interact with this file (details below).
+Secrets are any per-deploy variables which cannot be published. They tend to be things like API keys or passwords. They must be kept secret and safe. This also means that they cannot enter LLM contexts. Secrets are stored in a `.env` file that LLMs should never read. Special `docex` tooling is provided to interact with this file (details below).
 
 The keys which compose the secrets `.env` file (that is, the schema) are derived from two sources:
 1. The `secrets` block in `infra.yml` - see [cicl.md](./cicl.md#service-fields).

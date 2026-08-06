@@ -250,7 +250,7 @@ Contracts define the boundaries of core services. They exist both:
 1. As a form of documentation, making it easy for a developer to know how to interact with a core service from the outside without having to understand the interior.
 2. To allow contract testing, the details and benefits of which are discussed [here](./tests.md#contract-tests).
 
-The idea is that all [core services](./cicl.md#core-services) are either providers, consumers, or both. A very simple case is a webapp two codebases: `frontend` and `api`, where `frontend` declares one core service `web` (a webapp) and `api` declares two core services: `web` (an HTTP edge) and `worker` (a queue consumer). The `frontend` communicates with `api.web` over HTTP and `api.web` communicates with `api.worker` over a task queue. This makes:
+The idea is that all [core services](./cicl.md#core-services) are either providers, consumers, or both. A very simple case is a webapp with two codebases: `frontend` and `api`, where `frontend` declares one core service `web` (a webapp) and `api` declares two core services: `web` (an HTTP edge) and `worker` (a queue consumer). The `frontend` communicates with `api.web` over HTTP and `api.web` communicates with `api.worker` over a task queue. This makes:
 + `frontend.web` a consumer only
 + `api.web` a provider and a consumer
 + `api.worker` a provider only
@@ -273,7 +273,7 @@ The `infra` folder holds our infrastructure concerns - driving config, compile c
 **output** - Contains the compiled output. Each `infra/output/${env}` folder holds env-tier compose config or HCL files (depending on environment and foundation), and `infra/output/project/{development,production}/` holds the project-tier output for each side. See [compiler output](./cicl.md#compiler-output) for details.
 **secrets** - The source of truth for all [secrets](./configurable.md#secrets). Can be generated with `./bin/docex secrets scaffold`.
 **config** - The source of truth for all [config](./configurable.md#config). Can be generated with `./bin/docex config scaffold`.
-**tte** - Read-only records of [tte vars](./configurable.md#tte-vars) for `dev` and `stage`. Generated and managed by `docex`.
+**tte** - Read-only records of [tte vars](./configurable.md#tte-vars) for `dev` and `test`. Generated and managed by `docex`.
 **deploy_creds** - Currently used only for `fixed` foundation deployments, this folder holds credentials needed to run the ansible deployment step. These take the form of private keys; corresponding public keys may also be stored there. See [this](./credentials.md#deploy-credentials) for more info.
 **stage** - Contains necessary files to perform [stage tests](./tests.md#staging-tests).
 **contracts** - Contains contracts which describe the boundaries between core services.

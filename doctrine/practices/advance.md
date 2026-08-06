@@ -15,7 +15,7 @@ Every individual advance gets a folder at `$pr/plans/advances/${advance_number}_
 ## Advance Plan
 
 The `advance_plan.md` should contain the following sections:
-1. Goals - A formal listing of the goals of the plan, including success criteria. Good success criteria is specific and testable. See example below.
+1. Goals - A formal listing of the goals of the plan, including success criteria. Good success criteria are specific and testable. See example below.
 2. Tactical Plan - A section which details the approximate path by which the goals will be achieved. The bulk of this will usually be mod cycles. However, this may also include a `project-cohere` step, a "release to production" step, etc.
 	+ Steps in the plan which will leverage subagents should note which subagent will be used.
 

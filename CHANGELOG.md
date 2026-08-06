@@ -17,7 +17,7 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
-"Process type solidification" (advance 005, mods 111-120) — finishes what CICL v2
+"Process type solidification" (advance 005, mods 111-121) — finishes what CICL v2
 started. The two central nouns trade places (a *core service* becomes a
 **codebase**; a *process type* becomes a **core service**), the two service
 relations collapse into one named **`uses`**, and `role: scheduler` — a process
@@ -150,6 +150,47 @@ Downstream projects upgrade per
 
 ### Fixed
 
+- **The canonical `infra.yml` example did not compile** (mod 121). `cicl.md`'s
+  reference fence — the one every project author copies first, and the one
+  `upgrade_1.7.0.md` sends readers straight to — used `database` as a backing
+  service name, which the postgres engine **reserves**; indented with literal
+  **tabs**, which YAML forbids; and violated **its own rule 7**, holding a magic
+  ref to a `bucket` that two of its three core services never declared. Sibling
+  examples in `shape.md`, `transfer_tables.md`, and `config_and_secrets.md`
+  carried the same reserved name, and `shape.md`'s fence additionally omitted the
+  required `observability_backend_url`, so it failed at parse before validation
+  ever ran. All examples now use `appdb` (matching both smoke projects), indent
+  with spaces, and compile clean. The `bucket` ref moved from the codebase-level
+  `env:` into `web`'s own — fixing the rule-7 violation *and* making the fence
+  demonstrate the codebase/core-service `env:` merge it never showed before,
+  rather than teaching readers to declare edges they do not have.
+- **A doctrine file documented a mechanism the doctrine had retired** (mod 121).
+  `reasoning/elastic_release_pattern.md` — written at the head of this advance
+  and never revisited — still described a **double-rollout** of every ECS service
+  driven by shape-change detection during the release. Mods 119/120 replaced that
+  with a per-consumer reconcile keyed on durable state, and `docex` never
+  implemented the double-rollout at all. Rewritten rather than deleted: the
+  motivation (the ordering problem is real, and cycles make creation-ordering
+  impossible) survived the mechanism change, and the file now routes to
+  `release.md` for the mechanism instead of restating it, so it cannot drift the
+  same way twice.
+- **Three conditional-stratum files were unreachable** (mod 121).
+  `cicl_reasoning.md`, `elastic_release_pattern.md`, and `healthchecks.md`
+  declared `stratum: conditional` but no skill pointed at any of them — and the
+  conditional stratum reaches an agent *only* through thread skills. Notably
+  `cicl_reasoning.md` holds the codebase-vs-core-service field-scoping heuristic
+  this entire advance turns on. Now routed from `infra-compile`, `cicd-pipeline`,
+  and `contracts` respectively, as is the orphaned configurable-values chart
+  (renamed `charts/configurable_flow.md`, resolving a duplicate filename).
+- Assorted corpus repairs (mod 121): the configurable-values chart pointed the
+  **config** box at the secrets file — the one artifact an agent reads to learn
+  where values live, aiming config at the file agents are forbidden to read; TTE
+  records were described as `dev` and `stage` rather than `dev` and `test`; the
+  rollback pre-flight named a stale CICL generation; `elastic_alb.md` and
+  `ec2_traefik.md` still used one-segment core-service identity in six places;
+  and the `chain_of_command.md` escalation ladder had each rank escalating to
+  itself.
+
 - **`docex build` leaked disk without bound and could not clear its own
   `dist/`** (mod 119). `orchestrate/build.py` cleared `core/<codebase>/dist/`
   from the host with `shutil.rmtree`, but that tree is container-owned:
@@ -280,6 +321,25 @@ Downstream projects upgrade per
 
 ### Added
 
+- **The `cohere` skill checks examples by compiling them** (mod 121). New
+  executor `skills/cohere/executor/verify_examples.py` extracts every `yml`
+  fence under `doctrine/` + `skills/` and pushes the `infra.yml`-shaped ones
+  through docex's real parse-and-validate path, so an example is proven by
+  compiling rather than by reading. It classifies each fence, because the class
+  decides what "pass" means — and the two classes that are *deliberately not
+  standalone documents* (`ILLUSTRATIVE`, `EXCERPT`) are reported on their own
+  lines and never counted as passes. Promoted after the same throwaway script
+  caught the canonical example broken **twice** across two mods while existing
+  only in a scratchpad: a check that is not shipped is not a check.
+- **`linkcheck.py` covers `skills/`** (mod 121). `doctrine.md` calls keeping
+  thread-skill pointers valid "the one ongoing cost of this structure, and it
+  should be checked mechanically" — but the executor walked `doctrine/` only,
+  and its anchor check silently *failed open* on any target outside the scanned
+  root. Since a section rename is exactly what dangles a router link, and this
+  advance renamed three, skill→doctrine links are now scanned and anchors
+  resolve across both trees. The duplicate-filename check stays scoped to
+  `doctrine/`, where the uniqueness rule was written; `skills/` legitimately
+  carries one `SKILL.md` per skill.
 - **`docex why codebase`** (mod 111). The doctrine's now-primary noun had no
   excerpt, so the one resource `docex why` could not explain was the unit of code
   itself. `docex_process.md`'s artifact-alignment table gains a sixth row for

@@ -106,21 +106,21 @@ Fortunately, setting the chunks can be done deterministically with executor code
 python3 executor/chunk_map.py --root <project-root>
 ```
 
-It walks `core/*/src`, sizing only real source — the executor uses an allowlist of the doctrine's supported languages, so compiled artifacts (`.pyc`, `.o`, `.dll`, extensionless binaries, `node_modules`, `target/`, …) never inflate the count — by character count (a stable proxy for tokens; it reads no file contents), and prints a JSON chunk map. Each chunk is one of these shapes, chosen by size: the **entire source** (small projects), **one or more whole services** packed together (bounded contexts stay separate — modules from different services are never mixed), or **a subset of a single service's hex modules** (a service too big to fit whole). Tune the per-chunk budget with `--budget <chars>` (default 1400000, ≈ 400k tokens); keep it below a subagent's context so there's headroom for its reasoning and output.
+It walks `core/*/src`, sizing only real source — the executor uses an allowlist of the doctrine's supported languages, so compiled artifacts (`.pyc`, `.o`, `.dll`, extensionless binaries, `node_modules`, `target/`, …) never inflate the count — by character count (a stable proxy for tokens; it reads no file contents), and prints a JSON chunk map. Each chunk is one of these shapes, chosen by size: the **entire source** (small projects), **one or more whole codebases** packed together (bounded contexts stay separate — modules from different codebases are never mixed), or **a subset of a single codebase's hex modules** (a codebase too big to fit whole). Tune the per-chunk budget with `--budget <chars>` (default 1400000, ≈ 400k tokens); keep it below a subagent's context so there's headroom for its reasoning and output.
 
-The chunk map is deliberately **code-only** — it does not pair chunks to docs. Doc selection is *your* job as the skill-agent: you read the full set of core planning docs in [Prep](#prep), so you are the right authority to decide which docs are relevant to each chunk's code. This is a deliberate choice — a service's doc layout, especially a non-hex frontend, is irregular and cannot be resolved into a provably-complete file set, so a machine-generated "here are all your docs" list would give the subagent false confidence.
+The chunk map is deliberately **code-only** — it does not pair chunks to docs. Doc selection is *your* job as the skill-agent: you read the full set of core planning docs in [Prep](#prep), so you are the right authority to decide which docs are relevant to each chunk's code. This is a deliberate choice — a codebase's doc layout, especially a non-hex frontend, is irregular and cannot be resolved into a provably-complete file set, so a machine-generated "here are all your docs" list would give the subagent false confidence.
 
 The JSON gives you, per entry in `chunks`:
 + `code_paths` — the source that chunk's subagent should read.
-+ `services` — which service(s) the chunk's code belongs to; use it to pull the right planning docs when you curate (below).
++ `codebases` — which codebase(s) the chunk's code belongs to; use it to pull the right planning docs when you curate (below).
 + `code_chars` / `est_tokens` — the chunk's size.
-+ `over_budget` — `true` when a single module (or a non-hex service) is larger than the budget and *cannot* be split further. The subagent must still take it; expect it to work near its context limit, and lean on the operator if the result looks incomplete.
++ `over_budget` — `true` when a single module (or a non-hex codebase) is larger than the budget and *cannot* be split further. The subagent must still take it; expect it to work near its context limit, and lean on the operator if the result looks incomplete.
 
 And at the top level, two structural signals to inform your doc curation and Class detection:
 + `hints.undocumented_code_units` — code units with no matching module doc (a head-start on [Class 4](#4-undocumented-code)).
 + `hints.unpaired_docs` — docs with no corresponding code: stale/leftover module docs (possible [Class 3](#3-unimplemented-feature)), or `db_schema.md` whose real counterpart lives in `migrations/` (outside chunked source) and must be verified separately.
 
-Each returned chunk should be given a dedicated sub-agent in the next section. Hand each subagent (a) its `code_paths`, and (b) a **curated list of the docs relevant to that code**, which you assemble by hand: the module docs for the modules it holds, the service-level docs for its `services`, and the cross-cutting project docs (`masterplan.md`, plus `conventions.md` if present). When a chunk is a partial slice of a larger service (`granularity: "modules"`), curate only the docs that pertain to the code in that chunk — keep service-wide or cross-module docs for your own later assessment and the [Consistency Pass](#consistency-pass).
+Each returned chunk should be given a dedicated sub-agent in the next section. Hand each subagent (a) its `code_paths`, and (b) a **curated list of the docs relevant to that code**, which you assemble by hand: the module docs for the modules it holds, the codebase-level docs for its `codebases`, and the cross-cutting project docs (`masterplan.md`, plus `conventions.md` if present). When a chunk is a partial slice of a larger codebase (`granularity: "modules"`), curate only the docs that pertain to the code in that chunk — keep codebase-wide or cross-module docs for your own later assessment and the [Consistency Pass](#consistency-pass).
 
 ### Subagent Sweep
 
@@ -154,7 +154,7 @@ Operate ONLY on the code and docs listed below — do NOT read the rest of the p
    - Class 3 (unimplemented feature): a doc describes a feature that code in your
      chunk should implement but does not. ONLY report this for functionality that
      would live in the code you were given. If a doc describes a feature whose code
-     belongs to a part of the service you were NOT handed, do NOT report it — that
+     belongs to a part of the codebase you were NOT handed, do NOT report it — that
      code lives in a sibling chunk and another agent covers it.
    - Class 4 (undocumented code): code in your chunk that merits documentation (per
      the should/should-not-document lists in the Classes section) but has none.
