@@ -275,15 +275,35 @@ Downstream projects upgrade per
   nothing did; both sides report healthy while every call across the edge fails.
 
   The trigger's operands are now both durable AWS state read **after** the apply:
-  a core service is redeployed iff the oldest `startedAt` across its running
-  tasks precedes the Cloud Map `CreateDate` of a name it `uses`. The step
-  therefore describes the env rather than the release that produced it, and every
-  way an env can end up broken — an interrupted release, a hand-run `tofu apply`,
-  a service created out of band, a rollback — is repaired by the next release.
-  The "no-op unless the shape changed" property is not lost but **emergent**: in
-  a converged env every consumer task postdates every registration, so nothing
-  fires. Ties break toward redeploying; a false positive costs one rolling
-  deploy, a false negative costs a broken env that exits 0.
+  a core service is redeployed iff its **PRIMARY ECS deployment** was created at
+  or before the Cloud Map `CreateDate` of a name it `uses`. The step therefore
+  describes the env rather than the release that produced it, and every way an
+  env can end up broken — an interrupted release, a hand-run `tofu apply`, a
+  service created out of band, a rollback — is repaired by the next release. The
+  "no-op unless the shape changed" property is not lost but **emergent**: in a
+  converged env every consumer's deployment postdates every registration, so
+  nothing fires. Ties break toward redeploying; a false positive costs one
+  rolling deploy, a false negative costs a broken env that exits 0.
+
+  The consumer-side operand took two attempts (mod 123 corrected mod 114 before
+  either shipped). Mod 114 compared task `startedAt`, on the recorded reasoning
+  that a Cloud Map name created *before* any of its tasks made the comparison
+  strictly more conservative. That inference was inverted: `CreateDate` is
+  stamped at ECS *service* creation, so a task of that service always starts
+  after it, and `startedAt <= CreateDate` cannot hold whenever consumer and
+  target are created by the same apply — every first release, and every release
+  that bumps the consumer's image. The 1.7.0 elastic smoke walk found the check
+  inert on `prod`: a 503 fan-out for 20+ minutes that two clean `release prod`
+  runs printed nothing about and repaired nothing of.
+
+  The margin constant is **60 seconds**, and it is deliberately *not* a
+  clock-skew allowance — the genuine uncertainty is a few seconds. It collapses
+  the concurrent-creation window into a redeploy, because inside that window the
+  boundary is unmeasurable and the two errors are not symmetric: a false negative
+  is permanent and silent, a false positive is one rolling deploy. On an ordinary
+  code-only release the gap is days or weeks and the step is still a no-op.
+  `release` now states its verdict either way — a skip prints what it checked
+  rather than saying nothing.
 
   `aws_ecs_service` now emits `wait_for_steady_state = true`, so the apply does
   not return while its own rollout is still draining tasks the reconcile would
@@ -291,11 +311,18 @@ Downstream projects upgrade per
   service that cannot converge now fails `tofu apply` rather than letting the
   release proceed, and elastic applies take correspondingly longer.
 
-  The premise underneath the whole mechanism — that a running Service Connect
-  client can never resolve a name registered after its task started — was
-  measured on a scratch Fargate stack rather than taken from the AWS docs. It
-  holds: 27 probe cycles over five minutes with byte-identical `UNRESOLVED`
-  output, and the replacement task resolving on its first cycle.
+  The premise underneath the whole mechanism was measured on scratch Fargate
+  stacks rather than taken from the AWS docs, twice. The first run established
+  that a client cannot resolve a name registered after it launched: 27 probe
+  cycles over five minutes with byte-identical `UNRESOLVED` output, and the
+  replacement task resolving on its first cycle. The second established *which*
+  event freezes the name set — the **deployment**, not the task. Every Envoy
+  identifies to the control plane by its task-set ARN (the deployment id) and is
+  served a cluster list fixed for that deployment, so a task stopped and replaced
+  inside the same PRIMARY deployment probed 47 times over eight minutes and never
+  resolved a name created five minutes earlier. Replacing a task does not help
+  unless the replacement lands in a new deployment — which is what
+  `forceNewDeployment` actually buys.
 
 - **Rename residue in `docex`** (mod 111). The sweep that performed the rename
   substituted the *word* without re-reading the *sentence*, leaving three classes

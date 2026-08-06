@@ -214,24 +214,31 @@ def _release_fixed(
 #: seconds.
 _RECONCILE_STABLE_TIMEOUT_S = 600
 
-#: Grace added to the registration timestamp before comparing it against a
-#: consumer task's start time. Ties are resolved toward redeploying by the
-#: ``<=`` in the comparison itself, so this is ZERO — deliberately.
+#: Grace added to a name's registration time before comparing it against the
+#: consumer's PRIMARY deployment age. Ties are resolved toward redeploying by
+#: the ``<=`` in the comparison itself; this widens that further, on purpose.
 #:
-#: WHY zero, and why it must stay zero: the Cloud Map name is created with the
-#: ECS *service*, before any of its tasks exist. On a perfectly correct
-#: first-ever release the service is created at T0 and its first task starts at
-#: T0+30-90s (image pull, health checks). Any non-zero window therefore fires on
-#: essentially every consumer on every first release — in exactly the case where
-#: the ordering was fine and the task resolved the name on its first attempt.
-#: That is a false positive with a predictable trigger, not a safety margin, and
-#: it would silently convert this step's emergent no-op property into "always
-#: redeploys on a first release". The only real uncertainty is clock skew
-#: between two AWS services (ECS and Cloud Map), which is sub-second and is
-#: covered by the ``<=``. Advance 005's recon measured an exact relationship,
-#: not an approximate one: a task that starts after the name exists resolves it
-#: on its FIRST probe cycle.
-_RECONCILE_SKEW_MARGIN_S = 0
+#: WHY it is non-zero, and why sixty: this is NOT a clock-skew allowance. The
+#: genuine uncertainty is small — advance 005's recon bracketed the freeze
+#: instant to (deployment createdAt - 11.6s, +2.4s], and Cloud Map's
+#: ``CreateDate`` precedes the name's appearance in the control plane's served
+#: cluster list by under a second. Five seconds would cover both.
+#:
+#: Sixty seconds instead COLLAPSES THE CONCURRENT-CREATION WINDOW INTO A
+#: REDEPLOY. Within roughly a minute of a consumer's deployment we stop trying
+#: to adjudicate whether a name was visible to it and simply redeploy, because
+#: (a) that window is exactly where the boundary is unmeasurable — ECS does not
+#: expose its internal ordering, and two timestamps seconds apart do not report
+#: who won; and (b) the two errors are not symmetric. A false negative there is
+#: permanent and silent: an env that exits 0 with both sides reporting healthy
+#: and every call across the edge failing. A false positive is one rolling
+#: deploy.
+#:
+#: The cost lands only where the race is real — one rolling deploy per consumer
+#: on a first release or a shape change. On an ordinary code-only release the
+#: gap between a deployment and a long-established name is days or weeks, the
+#: comparison is not close, and the step is still a no-op.
+_RECONCILE_SKEW_MARGIN_S = 60
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -244,32 +251,19 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
-def _consumer_reconcile_set(
+def _reconcile_candidates(
     compiled: Any,
     *,
     endpoint_created: dict[str, datetime],
-    task_started: Callable[[str], datetime | None],
-) -> list[tuple[str, str]]:
-    """Consumers that must be redeployed, as ``(consumer, triggering target)``.
+) -> list[tuple[str, list[tuple[str, datetime]]]]:
+    """Consumers worth reading a deployment age for, with their registered targets.
 
-    A consumer qualifies when one of its running tasks started **before** the
-    Cloud Map ``CreateDate`` of a name it ``uses``. A Service Connect client
-    fixes its resolvable endpoint set at task start, so such a task can never
-    resolve that target — for the whole life of the task, no matter how long
-    the application retries.
-
-    Both operands are durable AWS state read after the apply, which is what
-    makes this self-healing: it describes the world rather than this release.
-    An interrupted release, a hand-run ``tofu apply``, or a service created out
-    of band all leave a state the next release reads correctly. Mod 114
-    replaced a pre-apply namespace snapshot, which could not (mod 109).
-
-    ``task_started`` is called lazily — only for a consumer that has at least
-    one registered target — so a converged env pays one ``ListServices`` and
-    nothing else.
+    Pure: no AWS. Returns ``(consumer_global_name, [(target_global_name,
+    created)])`` for every core service that declares at least one core ``uses``
+    target which is actually registered in the namespace. A consumer with no
+    such target can never fire, so it is dropped here and costs no API call.
     """
-    out: list[tuple[str, str]] = []
-    margin = timedelta(seconds=_RECONCILE_SKEW_MARGIN_S)
+    out: list[tuple[str, list[tuple[str, datetime]]]] = []
     for name in sorted(compiled.services):
         svc = compiled.services[name]
         if not svc.is_core or not svc.uses_core:
@@ -304,19 +298,56 @@ def _consumer_reconcile_set(
             if created is None:
                 continue
             targets.append((target.global_name, _as_utc(created)))
-        if not targets:
-            continue
+        if targets:
+            out.append((svc.global_name, targets))
+    return out
 
-        started = task_started(svc.global_name)
-        # No running tasks: nothing can be stale, and whatever starts later
-        # reads a namespace that already holds every name above.
-        if started is None:
-            continue
-        started = _as_utc(started)
 
+def _consumer_reconcile_set(
+    candidates: list[tuple[str, list[tuple[str, datetime]]]],
+    *,
+    deployment_created: dict[str, datetime],
+) -> list[tuple[str, str]]:
+    """Consumers that must be redeployed, as ``(consumer, triggering target)``.
+
+    A consumer qualifies when its PRIMARY deployment was created at or before
+    the Cloud Map ``CreateDate`` of a name it ``uses`` (plus
+    ``_RECONCILE_SKEW_MARGIN_S``). A Service Connect Envoy is served a cluster
+    list fixed for its deployment's task-set ARN, so no task in such a
+    deployment can ever resolve that target — replacing tasks inside the
+    deployment does not help, and the application retrying forever does not
+    either.
+
+    A consumer absent from ``deployment_created`` fires. An unreadable
+    deployment age cannot be shown to postdate anything, and the safe direction
+    is one rolling deploy rather than a silently broken env.
+
+    Both operands are durable AWS state read after the apply, which is what
+    makes this self-healing: it describes the world rather than this release.
+    An interrupted release, a hand-run ``tofu apply``, or a service created out
+    of band all leave a state the next release reads correctly.
+
+    It is also SELF-CLEARING BY CONSTRUCTION: `forceNewDeployment` mints a new
+    PRIMARY deployment with a fresh `createdAt`, so a re-run of the same release
+    reads a consumer that now postdates its targets and skips it. Idempotency
+    here is structural, not asserted.
+
+    Mod 123 replaced mod 114's task-`startedAt` operand, which measured the
+    wrong event: `CreateDate` is stamped at ECS *service* creation, so a task
+    of that service always starts after it, and the comparison could not fire
+    whenever consumer and target were created by the same apply.
+    """
+    out: list[tuple[str, str]] = []
+    margin = timedelta(seconds=_RECONCILE_SKEW_MARGIN_S)
+    for consumer, targets in candidates:
+        created_at = deployment_created.get(consumer)
+        if created_at is None:
+            out.append((consumer, targets[0][0]))
+            continue
+        created_at = _as_utc(created_at)
         for global_name, created in targets:
-            if started <= created + margin:
-                out.append((svc.global_name, global_name))
+            if created_at <= created + margin:
+                out.append((consumer, global_name))
                 break
     return out
 
@@ -328,24 +359,29 @@ def _reconcile_service_connect_consumers(
     aws: AWSClient,
     cluster_name: str,
 ) -> int:
-    """Redeploy consumers whose tasks predate a name they must resolve.
+    """Redeploy consumers whose deployment predates a name they must resolve.
 
     Closes the start-order race described in
-    ``cicl.md § Uses Relationships``: ECS Service Connect fixes a client
-    task's resolvable endpoint set at task start, so a consumer created
+    ``cicl.md § Uses Relationships``: ECS Service Connect fixes a service's
+    resolvable endpoint set at *deployment* creation, so a consumer deployed
     alongside its target may permanently fail to resolve it. Redeploying the
     consumer after everything is registered is the only fix — ordering cannot
     work, because a ``uses`` cycle (``web ↔ worker``, the most common
     topology there is) has no valid creation order.
 
-    Mod 114: both operands are read from post-apply AWS state, so the step is
-    self-contained and self-healing — it describes the world rather than this
-    release, and every way an env can end up broken (an interrupted release, a
-    hand-run ``tofu apply``, a service created out of band, a rollback) leaves
-    a state the next release reads correctly and repairs. On a converged env
-    every consumer task postdates every name it ``uses``, the comparison finds
-    nothing, and no service is touched: the no-op is emergent rather than
-    special-cased.
+    Mod 123: the consumer operand is the age of its PRIMARY ECS **deployment**,
+    not of its tasks. Service Connect freezes a deployment's resolvable name set
+    at deployment creation — every Envoy in it is served a cluster list keyed to
+    the deployment's task-set ARN — so a task replaced inside a stale deployment
+    comes up just as unable to resolve. Mod 114 compared task ``startedAt``
+    against the same registration and could not fire when consumer and target
+    were created by one apply, which is every first release; the 1.7.0 elastic
+    walk found it inert on `prod`.
+
+    Both operands are still post-apply durable state, so the step remains
+    self-contained and self-healing, and on a converged env every consumer's
+    deployment postdates every name it ``uses``, nothing fires, and no service
+    is touched.
     """
     from docex.cicl.compile import compile_env
 
@@ -354,8 +390,20 @@ def _reconcile_service_connect_consumers(
 
     endpoint_created = aws.service_connect_endpoints(cluster_name)
     if not endpoint_created:
-        # Nothing is registered, so there is no registration for any task to
-        # predate.
+        # Nothing is registered, so there is no registration for any
+        # deployment to predate.
+        #
+        # WHY this prints: every no-fire path in this step says which one it
+        # was. A silent skip is indistinguishable from a step that never ran,
+        # and an operator reading a release log — or a smoke walk asked to
+        # confirm a `skip` verdict — cannot tell "converged" from "read
+        # nothing" without being told. On a first release this particular line
+        # is a red flag, not reassurance: the namespace should not be empty
+        # after the apply that created it.
+        print(
+            "release: Service Connect reconcile — no endpoints registered in "
+            f"the {env} namespace; nothing to compare against."
+        )
         return 0
 
     compiled = compile_env(
@@ -366,28 +414,39 @@ def _reconcile_service_connect_consumers(
         project_version=ctx.project.version,
     )
 
-    started_cache: dict[str, datetime | None] = {}
+    candidates = _reconcile_candidates(
+        compiled, endpoint_created=endpoint_created,
+    )
+    if not candidates:
+        print(
+            "release: Service Connect reconcile — no core service declares a "
+            "core `uses` target; nothing to reconcile."
+        )
+        return 0
 
-    def task_started(service_name: str) -> datetime | None:
-        if service_name not in started_cache:
-            times = aws.ecs_running_task_start_times(cluster_name, service_name)
-            started_cache[service_name] = min(times) if times else None
-        return started_cache[service_name]
+    # One batched read over exactly the consumers that could fire. A converged
+    # env therefore pays one ListServices plus one DescribeServices.
+    deployment_created = aws.ecs_primary_deployment_times(
+        cluster_name, [c for c, _ in candidates],
+    )
 
     pairs = _consumer_reconcile_set(
-        compiled,
-        endpoint_created=endpoint_created,
-        task_started=task_started,
+        candidates, deployment_created=deployment_created,
     )
     if not pairs:
+        print(
+            f"release: Service Connect reconcile — {len(candidates)} consumer(s) "
+            "checked, all deployments postdate the endpoints they `uses`; "
+            "nothing to redeploy."
+        )
         return 0
 
     for consumer, target in pairs:
         print(
             f"release: reconciling Service Connect consumer {consumer!r} — "
-            f"its oldest running task predates the registration of its `uses` "
-            f"target {target!r}, and a client cannot resolve an endpoint added "
-            f"after it started."
+            f"its current deployment predates the registration of its `uses` "
+            f"target {target!r}, and no task in that deployment can resolve an "
+            f"endpoint added after the deployment was created."
         )
         try:
             aws.ecs_force_new_deployment(cluster_name, consumer)
@@ -397,7 +456,7 @@ def _reconcile_service_connect_consumers(
             print(
                 f"error: could not force a new deployment of {consumer!r}: "
                 f"{exc}. Its `uses` target {target!r} was registered after "
-                f"{consumer!r}'s tasks started, "
+                f"{consumer!r}'s current deployment was created, "
                 f"so {consumer!r} cannot resolve it until redeployed — the "
                 f"/health/<codebase>/<service> fan-out will return 503. Re-run "
                 f"`docex release {env}`, or redeploy it by hand.",

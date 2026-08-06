@@ -486,7 +486,7 @@ class Boto3AWSClient:
         return bool(resp.get("serviceArns"))
 
     # ------------------------------------------------------------------
-    # Mod 109 / 114: Service Connect consumer reconcile
+    # Mod 109 / 114 / 123: Service Connect consumer reconcile
     # ------------------------------------------------------------------
 
     def service_connect_endpoints(self, namespace_name: str) -> dict[str, datetime]:
@@ -524,32 +524,33 @@ class Boto3AWSClient:
                 out[name] = created
         return out
 
-    def ecs_running_task_start_times(
-        self, cluster: str, service: str,
-    ) -> list[datetime]:
+    def ecs_primary_deployment_times(
+        self, cluster: str, services: list[str],
+    ) -> dict[str, datetime]:
+        if not services:
+            return {}
         ecs = self._client("ecs")
-        arns: list[str] = []
-        paginator = ecs.get_paginator("list_tasks")
-        try:
-            for page in paginator.paginate(
-                cluster=cluster, serviceName=service, desiredStatus="RUNNING",
-            ):
-                arns.extend(page.get("taskArns", []))
-        except (
-            ecs.exceptions.ServiceNotFoundException,
-            ecs.exceptions.ClusterNotFoundException,
-        ):
-            return []
-        out: list[datetime] = []
-        # DescribeTasks accepts at most 100 ARNs per call.
-        for i in range(0, len(arns), 100):
-            resp = ecs.describe_tasks(cluster=cluster, tasks=arns[i:i + 100])
-            for task in resp.get("tasks", []):
-                if task.get("lastStatus") != "RUNNING":
+        out: dict[str, datetime] = {}
+        # DescribeServices accepts at most 10 services per call.
+        for i in range(0, len(services), 10):
+            chunk = services[i:i + 10]
+            try:
+                resp = ecs.describe_services(cluster=cluster, services=chunk)
+            except ecs.exceptions.ClusterNotFoundException:
+                # No cluster means no deployments to read; every service reads
+                # as absent, and the caller treats absence as "redeploy".
+                continue
+            for svc in resp.get("services", []):
+                name = svc.get("serviceName")
+                if not name:
                     continue
-                started = task.get("startedAt")
-                if started is not None:
-                    out.append(started)
+                for dep in svc.get("deployments", []):
+                    if dep.get("status") != "PRIMARY":
+                        continue
+                    created = dep.get("createdAt")
+                    if created is not None:
+                        out[name] = created
+                    break
         return out
 
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:

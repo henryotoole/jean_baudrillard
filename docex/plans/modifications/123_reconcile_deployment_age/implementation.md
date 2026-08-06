@@ -752,18 +752,22 @@ a finding — report it, do not paper over it.
 
 ## Step 13 — Rebuild the candidate image
 
+The canonical build, from the jean root — this is `RELEASING.md` step 7 and what
+built the current candidate:
+
 ```bash
 cd /home/ubuntu/.claude/jean_baudrillard
-# use the repo's standard docex image build (see docex/plans/core or build script)
+docker build -t docex:1.7.0 ./docex
 docker images docex:1.7.0
-cd docex/test_projects/fixed   && ./bin/docex --version
-cd ../elastic                  && ./bin/docex --version
+cd /home/ubuntu/.claude/jean_baudrillard/docex/test_projects/fixed   && ./bin/docex --version
+cd /home/ubuntu/.claude/jean_baudrillard/docex/test_projects/elastic && ./bin/docex --version
 ```
 
-Both must print `1.7.0`, and the image must postdate this mod's changes so the
-follow-on partial elastic re-walk (D.9–D.11) exercises the fixed code. If the
-build command is not obvious from the repo, stop and report rather than guessing
-at it.
+Both must print `docex 1.7.0`, and the image must postdate this mod's changes so
+the follow-on elastic walk exercises the fixed code. The shim resolves the pin in
+each `project.yml`, so a failed build surfaces as a **missing image**, not a wrong
+version — treat a missing-image error here as a build failure to report, not a
+pin problem to chase.
 
 ---
 

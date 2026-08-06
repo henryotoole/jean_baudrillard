@@ -22,4 +22,5 @@ stratum: conditional
 └───────────────────────────────────────────────────────────────────────────────────┘                └─────────────────────┘
                                                                                                                             
 * arrows represent an HTTP request fired against a container name.
-* note that the clusters and endpoint status are kept up to date by AWS control plane machinery.
+* note that the endpoints *within* a cluster — their IPs and health status — are kept up to date by AWS control plane machinery.
+* note that the **set of clusters** is not. It is resolved once, when the ECS *deployment* is created, and every task in that deployment is served the same fixed list. A name registered after the deployment never appears in `/etc/hosts` for any of its tasks, and replacing a task does not help unless the replacement lands in a new deployment. See [cicl.md § Resilience covers reachability, not resolvability](../infrastructure/cicl.md#resilience-covers-reachability-not-resolvability).

@@ -532,12 +532,12 @@ class FakeAWSClient:
     # detector and the projinfra-down env-live gate. Defaults True so the
     # steady-state / envs-live paths remain the default.
     cluster_has_services: bool = True
-    # Mod 114: the reconcile reads durable post-apply state, so there is no
-    # "before" to script any more — one mapping of endpoint name -> Cloud Map
-    # CreateDate, and per-service task start times. Defaults are the inert
-    # case: no endpoints registered, no tasks, hence no reconcile.
+    # Mod 114 / 123: the reconcile reads durable post-apply state, so there is
+    # no "before" to script any more — one mapping of endpoint name -> Cloud Map
+    # CreateDate, and one of ECS service name -> PRIMARY deployment createdAt.
+    # Defaults are the inert case: no endpoints registered, hence no reconcile.
     service_connect_endpoint_ages: dict[str, datetime] = field(default_factory=dict)
-    ecs_task_start_times: dict[str, list[datetime]] = field(default_factory=dict)
+    ecs_deployment_times: dict[str, datetime] = field(default_factory=dict)
     ecs_services_stable: bool = True
     ecs_exit_codes: dict[str, int] = field(default_factory=dict)
     raise_on: dict[str, Exception] = field(default_factory=dict)
@@ -739,7 +739,7 @@ class FakeAWSClient:
         self._record("ecs_cluster_has_services", name)
         return self.cluster_has_services
 
-    # -- Mod 109 / 114: Service Connect consumer reconcile ------------
+    # -- Mod 109 / 114 / 123: Service Connect consumer reconcile ------
 
     # NOTE: the fake deliberately does NOT filter the `aws-ecs-sc.client.`
     # prefix — that is the adapter's job, and the pipeline-level test must be
@@ -750,13 +750,20 @@ class FakeAWSClient:
         self._record("service_connect_endpoints", namespace_name)
         return dict(self.service_connect_endpoint_ages)
 
-    def ecs_running_task_start_times(
-        self, cluster: str, service: str,
-    ) -> list[datetime]:
+    def ecs_primary_deployment_times(
+        self, cluster: str, services: list[str],
+    ) -> dict[str, datetime]:
         self._record(
-            "ecs_running_task_start_times", cluster=cluster, service=service,
+            "ecs_primary_deployment_times",
+            cluster=cluster, services=list(services),
         )
-        return list(self.ecs_task_start_times.get(service, []))
+        # Only the requested services, and only those scripted — so a test can
+        # exercise "absent from the mapping → fire" by simply omitting one.
+        return {
+            name: self.ecs_deployment_times[name]
+            for name in services
+            if name in self.ecs_deployment_times
+        }
 
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
         self._record("ecs_force_new_deployment", cluster=cluster, service=service)

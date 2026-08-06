@@ -1,11 +1,11 @@
-"""Unit tests for the mod-114 adapter reads behind the Service Connect
-consumer reconcile.
+"""Unit tests for the adapter reads behind the Service Connect consumer
+reconcile (mods 114 / 123).
 
-Mod 114: the reconcile compares two durable AWS timestamps — a Cloud Map
-endpoint's ``CreateDate`` and the ``startedAt`` of a consumer's oldest running
-task. These tests pin the two adapter methods that produce them, because the
+The reconcile compares two durable AWS timestamps — a Cloud Map endpoint's
+``CreateDate`` and the ``createdAt`` of the consumer's PRIMARY ECS deployment.
+These tests pin the two adapter methods that produce them, because the
 pipeline-level tests run against a fake and so cannot see the shape of the
-boto3 calls or the filtering the port's contract mandates.
+boto3 calls, the chunking, or the filtering the port's contract mandates.
 """
 
 from __future__ import annotations
@@ -80,60 +80,79 @@ def test_service_connect_endpoints_absent_namespace_reads_as_empty(monkeypatch):
     list_services.paginate.assert_not_called()
 
 
-def test_ecs_running_task_start_times_filters_and_chunks(monkeypatch):
-    """Only genuinely RUNNING tasks with a `startedAt` count, and DescribeTasks
-    accepts at most 100 ARNs per call — 150 tasks must become two calls."""
+def test_ecs_primary_deployment_times_chunks_at_ten(monkeypatch):
+    """`DescribeServices` accepts at most 10 services per call, so 23 names must
+    become three calls of 10 / 10 / 3 — and only the PRIMARY deployment's
+    `createdAt` is read. A service mid-rollout carries an ACTIVE deployment too;
+    that one is the *outgoing* task set and is not what the reconcile judges."""
     client = Boto3AWSClient()
     fake_ecs = MagicMock()
-    arns = [f"arn:task/{i}" for i in range(150)]
-    fake_ecs.get_paginator.return_value = _paginator([
-        {"taskArns": arns[:80]}, {"taskArns": arns[80:]},
-    ])
+    names = [f"svc-{i:02d}" for i in range(23)]
 
-    def _describe(cluster, tasks):
-        if len(tasks) == 100:
-            return {"tasks": [
-                {"lastStatus": "RUNNING", "startedAt": _t(40)},
-                # Desired RUNNING but not there yet: it has not read the
-                # namespace, so it cannot be stale.
-                {"lastStatus": "PENDING", "startedAt": _t(41)},
-                # RUNNING but no startedAt reported — same reasoning.
-                {"lastStatus": "RUNNING"},
-            ]}
-        return {"tasks": [{"lastStatus": "RUNNING", "startedAt": _t(46)}]}
+    def _describe(cluster, services):
+        return {"services": [
+            {
+                "serviceName": name,
+                "deployments": [
+                    # Deliberately listed ACTIVE-first: the read must select on
+                    # `status`, not on position.
+                    {"status": "ACTIVE", "createdAt": _t(40)},
+                    {"status": "PRIMARY", "createdAt": _t(46)},
+                ],
+            }
+            for name in services
+        ]}
 
-    fake_ecs.describe_tasks.side_effect = _describe
+    fake_ecs.describe_services.side_effect = _describe
     monkeypatch.setattr(client, "_client", lambda _name: fake_ecs)
 
-    assert client.ecs_running_task_start_times("sample-prod", "sample-prod-api-web") == [
-        _t(40), _t(46),
-    ]
-    assert fake_ecs.describe_tasks.call_count == 2
-    assert fake_ecs.get_paginator.return_value.paginate.call_args.kwargs == {
-        "cluster": "sample-prod",
-        "serviceName": "sample-prod-api-web",
-        "desiredStatus": "RUNNING",
+    out = client.ecs_primary_deployment_times("sample-prod", names)
+
+    assert out == {name: _t(46) for name in names}
+    assert [
+        len(call.kwargs["services"])
+        for call in fake_ecs.describe_services.call_args_list
+    ] == [10, 10, 3]
+    assert fake_ecs.describe_services.call_args.kwargs["cluster"] == "sample-prod"
+
+
+def test_ecs_primary_deployment_times_omits_unreadable_services(monkeypatch):
+    """Absence, not an error and not a default. ECS reports an unknown service
+    under `failures` rather than raising, and a service can be returned with no
+    PRIMARY deployment at all; both are simply missing from the mapping, and the
+    caller reads a missing entry as "redeploy"."""
+    client = Boto3AWSClient()
+    fake_ecs = MagicMock()
+    fake_ecs.describe_services.return_value = {
+        "services": [
+            {
+                "serviceName": "sample-prod-api-web",
+                "deployments": [{"status": "PRIMARY", "createdAt": _t(46)}],
+            },
+            # Returned, but with nothing to read.
+            {"serviceName": "sample-prod-api-worker", "deployments": []},
+        ],
+        "failures": [
+            {"arn": "arn:aws:ecs:…:service/gone", "reason": "MISSING"},
+        ],
     }
-
-
-def test_ecs_running_task_start_times_missing_service_reads_as_no_tasks(monkeypatch):
-    """A service ECS reports as non-existent reads as `[]`, not an error: a
-    service with no tasks cannot hold a stale one."""
-    client = Boto3AWSClient()
-    fake_ecs = MagicMock()
-
-    class ServiceNotFoundException(Exception):
-        pass
-
-    class ClusterNotFoundException(Exception):
-        pass
-
-    fake_ecs.exceptions.ServiceNotFoundException = ServiceNotFoundException
-    fake_ecs.exceptions.ClusterNotFoundException = ClusterNotFoundException
-    pag = MagicMock()
-    pag.paginate.side_effect = ServiceNotFoundException("no such service")
-    fake_ecs.get_paginator.return_value = pag
     monkeypatch.setattr(client, "_client", lambda _name: fake_ecs)
 
-    assert client.ecs_running_task_start_times("sample-prod", "gone") == []
-    fake_ecs.describe_tasks.assert_not_called()
+    assert client.ecs_primary_deployment_times(
+        "sample-prod", ["sample-prod-api-web", "sample-prod-api-worker", "gone"],
+    ) == {"sample-prod-api-web": _t(46)}
+
+
+def test_ecs_primary_deployment_times_no_services_makes_no_call(monkeypatch):
+    """An empty service list must short-circuit, not call `DescribeServices`
+    with `services=[]` — which is a validation error, not an empty result.
+
+    The pipeline already filters to candidate consumers before reading, so a
+    converged env with no core `uses` edge reaches this guard on every release.
+    """
+    client = Boto3AWSClient()
+    fake_ecs = MagicMock()
+    monkeypatch.setattr(client, "_client", lambda _name: fake_ecs)
+
+    assert client.ecs_primary_deployment_times("sample-prod", []) == {}
+    assert fake_ecs.describe_services.call_count == 0

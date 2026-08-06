@@ -1,32 +1,18 @@
-"""Mods 109 + 114 — the Service Connect consumer reconcile.
+"""The elastic release's Service Connect consumer reconcile (mods 109/114/123).
 
-Regression guard for a cut-blocking defect found by the 1.6.0 pre-cut elastic
-smoke walk at ``PRE_CUT_CHECKLIST § D.11``: on a first-time elastic release the
-doctrine-mandated ``uses`` fan-out failed *permanently*, decided by a
-start-order race.
+RULE FOR THIS FILE: every timestamp in a fixture must belong to ONE
+INTERNALLY-CONSISTENT TIMELINE. A consumer's own endpoint `CreateDate` and its
+own PRIMARY deployment `createdAt` are two views of the same ECS service and
+cannot contradict each other; a target's `CreateDate` and a consumer's
+deployment age must sit in an order AWS could actually produce.
 
-ECS Service Connect fixes a client task's resolvable endpoint set at task start
-(AWS: "New endpoints that are added to the namespace after the most recent
-deployment won't be added to the task configuration"), and ``docex`` emits the
-consumer's and the used service's ``aws_ecs_service`` with no ordering between them.
-On the walk ``api-web`` started 15 s before its worker and returned
-``503 … Name or service not known`` for the rest of that task's life.
-
-Ordering cannot fix it: a ``uses`` cycle (``web ↔ worker``) has no valid
-creation order. So the fix is a post-apply redeploy of affected consumers, and
-these tests pin its trigger — which must be *precise*, because firing on every
-release would add a rolling deploy to every deploy, and firing never would ship
-the bug.
-
-**Mod 114 replaced the trigger's operands with durable ones.** Mod 109 diffed
-the post-apply namespace against a snapshot taken before any apply, and that
-snapshot lived in one process's memory. So a release that registered a name and
-was then interrupted left a permanently broken env that *exits 0* on every
-re-run: the re-run's own snapshot already contains the new name, the diff is
-empty, and the stale consumer is never replaced. The question is now asked of
-post-apply AWS state alone — *is any running consumer task older than the
-registration of a name it needs?* — and the aborted-release re-run below is the
-case the old trigger got wrong.
+This is not pedantry. Mod 114's version of this file was green against a
+predicate that could not fire, because its fixtures described a world that
+cannot exist: `api-web`'s endpoint created at 20:46 while one of its own tasks
+started at 20:40 — six minutes before its own service existed. Every "fires"
+assertion rested on that shape, so the suite exercised the code path and never
+once tested the predicate. A green suite built on an impossible world is
+evidence of nothing at all.
 """
 
 from __future__ import annotations
@@ -76,8 +62,20 @@ _CLOCK = {
 
 
 def _t(minute: int, second: int = 0) -> datetime:
-    """A timestamp on the walk's clock. Aware, as boto3's always are."""
+    """A Cloud Map name's `CreateDate`, on the walk's clock. Aware, as boto3's
+    always are."""
     return datetime(2026, 8, 5, 20, minute, second, tzinfo=timezone.utc)
+
+
+def _d(minute: int, second: int = 0) -> datetime:
+    """A PRIMARY deployment's `createdAt`, on the same clock as :func:`_t`.
+
+    Distinct from `_t` only for readability at the call site: a fixture then
+    reads as two columns — when names were registered, and when deployments
+    were created — which have to be orderable against each other by eye for
+    the module docstring's timeline rule to be checkable at all.
+    """
+    return _t(minute, second)
 
 
 def _project(tmp_path: Path, mutate) -> object:
@@ -130,30 +128,170 @@ def _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply, env="prod"):
     )
 
 
+def test_converged_env_is_a_no_op(
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply, capsys,
+):
+    """The property that keeps ordinary releases cheap — and it is **emergent,
+    not arranged**. Nothing special-cases an image-tag release as cheap; every
+    consumer's deployment simply postdates every name it `uses` by more than the
+    margin, so the comparison finds nothing and no service is touched.
+
+    The skip is also ANNOUNCED, and that is asserted here. A silent skip is
+    indistinguishable from a step that never ran, which is precisely the
+    ambiguity a smoke walk asked to confirm a `skip` verdict cannot resolve.
+    """
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": _t(40),
+        "sample-prod-api-worker": _t(40),
+    }
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(50),
+        "sample-prod-api-worker": _d(50),
+    }
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert _redeployed(fake_aws) == []
+    assert _waited(fake_aws) == [], (
+        "nothing was redeployed, so nothing should be waited on either"
+    )
+    out = capsys.readouterr().out
+    assert "consumer(s) checked" in out and "nothing to redeploy" in out, (
+        "a skip must say so — silence cannot be told apart from a step that "
+        "short-circuited before it compared anything"
+    )
+
+
+def test_code_only_release_weeks_later_is_free(
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """**The case the whole no-op property rests on.** On an ordinary code-only
+    release into a long-lived env the names are five weeks old and the fresh
+    deployments are minutes old, so the comparison is not close by orders of
+    magnitude — a 60 s margin is nowhere near enough to bridge it.
+
+    If this ever fires, the margin has stopped being a bounded cost paid on
+    first releases and shape changes, and has become a rolling deploy on every
+    release of every consumer.
+    """
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc),
+        "sample-prod-api-worker": datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc),
+    }
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": datetime(2026, 8, 5, 20, 40, tzinfo=timezone.utc),
+        "sample-prod-api-worker": datetime(2026, 8, 5, 20, 40, tzinfo=timezone.utc),
+    }
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert _redeployed(fake_aws) == []
+
+
+def test_new_target_concurrent_with_consumer_deployment_fires(
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """The walk's failure shape, in the new formulation. `api-worker`'s name is
+    registered five seconds before `api-web`'s deployment is created — inside
+    the concurrent-creation window, where which of the two won is a race the
+    timestamps do not report. The step stops trying to adjudicate it and
+    redeploys.
+
+    `api-worker` itself is left alone: it `uses` only `appdb`, a backing
+    service, so it is not a candidate at all.
+    """
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": _t(46, 8),
+        "sample-prod-api-worker": _t(46, 5),
+    }
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(46, 10),
+        "sample-prod-api-worker": _d(46, 6),
+    }
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert _redeployed(fake_aws) == ["sample-prod-api-web"]
+
+
 def test_aborted_release_rerun_redeploys_stale_consumer(
     web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
-    """**The reason mod 114 exists.** Release N registered
-    `sample-prod-api-worker` and aborted before the reconcile; the operator
-    re-runs. On the re-run both names are already in the namespace, so mod
-    109's before/after diff was EMPTY and nothing was redeployed — the release
-    exited 0 over an env whose `api-web` task, started at 20:40, six minutes
-    before the worker's name existed, can never resolve it for as long as it
-    lives.
+    """**The hole mod 114 existed to close, and did not.** Release N created
+    `api-web`'s deployment at 20:46:02 and registered `sample-prod-api-worker`
+    at 20:46:05, then aborted before the reconcile. The operator re-runs; the
+    re-run's apply is a no-op, so *nothing moves* — the deployment is still the
+    one from release N and the name is still the one from release N.
 
-    The durable comparison sees it: oldest task 20:40 < registration 20:46.
+    Mod 109's before/after diff was empty here because the re-run's own
+    snapshot already contained the new name. Mod 114's task comparison could
+    not fire either: `api-web`'s tasks necessarily started after `api-web`'s own
+    service was created, hence after the worker's name. The deployment age is
+    the first operand that reads this state correctly.
+    """
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": _t(46),
+        "sample-prod-api-worker": _t(46, 5),
+    }
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(46, 2),
+        "sample-prod-api-worker": _d(46, 6),
+    }
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert _redeployed(fake_aws) == ["sample-prod-api-web"], (
+        "the consumer whose deployment predates its target's registration must "
+        "be redeployed, even though no name appeared during this release"
+    )
+
+
+def test_exact_tie_at_margin_redeploys(
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """Ties break toward redeploying. The comparison is `<=` against
+    `CreateDate + 60s`, so a deployment created at exactly that instant is
+    inside the window.
+
+    This pins the `<=` against a later "tidy-up" to `<`. A false positive costs
+    one rolling deploy; a false negative costs a permanently broken env that
+    exits 0. Never round toward silence.
     """
     fake_aws.service_connect_endpoint_ages = {
         "sample-prod-api-web": _t(46),
         "sample-prod-api-worker": _t(46),
     }
-    fake_aws.ecs_task_start_times = {"sample-prod-api-web": [_t(40)]}
+    fake_aws.ecs_deployment_times = {
+        # EXACTLY the target's CreateDate plus the 60 s margin.
+        "sample-prod-api-web": _d(47),
+        "sample-prod-api-worker": _d(46, 1),
+    }
     rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     assert _redeployed(fake_aws) == ["sample-prod-api-web"], (
-        "the consumer whose task predates its target's registration must be "
-        "redeployed, even though no name appeared during this release"
+        "an exact tie must resolve toward redeploying — this is what `<=` buys"
     )
+
+
+def test_one_second_past_margin_is_left_alone(
+    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """The boundary from the other side, one second later. The
+    concurrent-creation window is over, so the step goes back to reading the
+    timestamps at face value and leaves the consumer alone.
+
+    Together with `test_exact_tie_at_margin_redeploys` this pins the margin's
+    width to exactly 60 s from both directions. Widening it is not free: past
+    this line it starts firing on shapes where the ordering was demonstrably
+    fine.
+    """
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": _t(46),
+        "sample-prod-api-worker": _t(46),
+    }
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(47, 1),
+        "sample-prod-api-worker": _d(46, 1),
+    }
+    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert _redeployed(fake_aws) == []
 
 
 def test_client_bookkeeping_entries_do_not_trigger_a_redeploy(
@@ -162,8 +300,8 @@ def test_client_bookkeeping_entries_do_not_trigger_a_redeploy(
     """ECS puts one `aws-ecs-sc.client.<uuid>.<service>` entry in the namespace
     per client-only participant. It registers nothing, nothing can `uses` it,
     and it is not a resolvable alias — so however new it is, it is not a reason
-    to redeploy anybody. Here it is 13 minutes newer than the consumer's task
-    while every real endpoint predates it.
+    to redeploy anybody. Here it is 13 minutes newer than the consumer's
+    deployment, while every real endpoint predates that deployment by six.
 
     The pipeline sees an *unfiltered* namespace on purpose: the adapter does the
     filtering (see `test_aws_service_connect_endpoints.py`), and this asserts
@@ -175,53 +313,13 @@ def test_client_bookkeeping_entries_do_not_trigger_a_redeploy(
         "sample-prod-api-worker": _t(40),
         "aws-ecs-sc.client.7f3c-uuid.sample-prod-api-web": _t(59),
     }
-    fake_aws.ecs_task_start_times = {"sample-prod-api-web": [_t(46)]}
-    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
-    assert rc == 0
-    assert _redeployed(fake_aws) == []
-
-
-def test_converged_env_is_a_no_op(
-    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
-):
-    """The property that keeps ordinary releases cheap — and it is **emergent,
-    not arranged**. Nothing special-cases an image-tag release as cheap; every
-    consumer task simply postdates every name it `uses`, so the comparison
-    finds nothing and no service is touched.
-    """
-    fake_aws.service_connect_endpoint_ages = {
-        "sample-prod-api-web": _t(40),
-        "sample-prod-api-worker": _t(40),
-    }
-    fake_aws.ecs_task_start_times = {
-        "sample-prod-api-web": [_t(46)],
-        "sample-prod-api-worker": [_t(46)],
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(46),
+        "sample-prod-api-worker": _d(46),
     }
     rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     assert _redeployed(fake_aws) == []
-    assert _waited(fake_aws) == [], (
-        "nothing was redeployed, so nothing should be waited on either"
-    )
-
-
-def test_new_target_redeploys_its_consumer(
-    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
-):
-    """The walk's exact failure, in the new formulation. The worker's endpoint
-    is registered after `api-web`'s task started, so `api-web` — which has been
-    returning 503 on the fan-out ever since — must be redeployed."""
-    fake_aws.service_connect_endpoint_ages = {
-        "sample-prod-api-web": _t(40),
-        "sample-prod-api-worker": _t(46),
-    }
-    fake_aws.ecs_task_start_times = {
-        "sample-prod-api-web": [_t(41)],
-        "sample-prod-api-worker": [_t(47)],
-    }
-    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
-    assert rc == 0
-    assert _redeployed(fake_aws) == ["sample-prod-api-web"]
 
 
 def test_uses_cycle_redeploys_both_sides(
@@ -229,8 +327,9 @@ def test_uses_cycle_redeploys_both_sides(
 ):
     """`web ↔ worker` is legal and, per cicl.md, the most common web/worker
     topology there is. It is also the case ordering *cannot* express: in a cycle
-    someone must be created first. Both members must be redeployed, and the
-    reconcile must not recurse or error on the cycle."""
+    someone must be created first. Both deployments are concurrent with both
+    names, so both members must be redeployed — in one pass, and without the
+    reconcile recursing or erroring on the cycle."""
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
@@ -240,11 +339,11 @@ def test_uses_cycle_redeploys_both_sides(
 
     fake_aws.service_connect_endpoint_ages = {
         "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
+        "sample-prod-api-worker": _t(46, 4),
     }
-    fake_aws.ecs_task_start_times = {
-        "sample-prod-api-web": [_t(40)],
-        "sample-prod-api-worker": [_t(40)],
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(46, 1),
+        "sample-prod-api-worker": _d(46, 5),
     }
     rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
@@ -253,81 +352,56 @@ def test_uses_cycle_redeploys_both_sides(
     ]
 
 
-def test_clock_skew_tie_redeploys(
+def test_consumer_absent_from_deployment_map_is_redeployed(
     web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
-    """Ties break toward redeploying. The two timestamps come from two
-    different AWS services, so sub-second skew is possible; `<=` covers it.
+    """No readable PRIMARY deployment — the service missing, reported under
+    `failures`, or carrying no PRIMARY entry — and the consumer fires.
 
-    This pins the `<=` against a later "tidy-up" to `<`. A false positive costs
-    one rolling deploy; a false negative costs a permanently broken env that
-    exits 0. Never round toward silence.
+    An unreadable deployment age cannot be shown to postdate anything, so the
+    safe direction is one rolling deploy rather than a silently broken env. The
+    names here are ten minutes older than the worker's deployment, so a
+    *readable* age would have skipped; the redeploy is caused by the absence
+    alone.
     """
-    fake_aws.service_connect_endpoint_ages = {
-        "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
-    }
-    # EXACTLY equal to the target's CreateDate.
-    fake_aws.ecs_task_start_times = {"sample-prod-api-web": [_t(46)]}
-    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
-    assert rc == 0
-    assert _redeployed(fake_aws) == ["sample-prod-api-web"], (
-        "an exact tie must resolve toward redeploying — this is what `<=` buys"
-    )
-
-
-def test_task_one_second_after_registration_is_not_redeployed(
-    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
-):
-    """The other side of the tie. The margin is ZERO, so a task that starts even
-    slightly after the registration is left alone — it read a namespace that
-    already held the name and resolved it on its first probe cycle.
-
-    This is what stops the margin being "fixed" to 60 s: the name is created
-    with the ECS *service*, before any task exists, so on a correct first
-    release every task starts 30-90 s after it. Any non-zero window would
-    redeploy every consumer on every first release.
-    """
-    fake_aws.service_connect_endpoint_ages = {
-        "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
-    }
-    fake_aws.ecs_task_start_times = {"sample-prod-api-web": [_t(46, 1)]}
-    rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
-    assert rc == 0
-    assert _redeployed(fake_aws) == []
-
-
-def test_consumer_of_preexisting_target_is_not_redeployed(
-    web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
-):
-    """The comparison is per-CONSUMER, not per-namespace. `api-web`'s own target
-    predates its task, so it can already resolve it — the presence of some
-    unrelated, newer endpoint is not a reason to restart it."""
     fake_aws.service_connect_endpoint_ages = {
         "sample-prod-api-web": _t(40),
         "sample-prod-api-worker": _t(40),
-        "sample-prod-something": _t(59),   # unrelated newcomer
     }
-    fake_aws.ecs_task_start_times = {"sample-prod-api-web": [_t(46)]}
+    fake_aws.ecs_deployment_times = {
+        # `sample-prod-api-web` deliberately omitted.
+        "sample-prod-api-worker": _d(50),
+    }
     rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
-    assert _redeployed(fake_aws) == []
+    assert _redeployed(fake_aws) == ["sample-prod-api-web"]
 
 
-def test_consumer_with_no_running_tasks_is_not_redeployed(
+def test_walk_regression_first_prod_release(
     web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
-    """No running tasks means nothing can be stale, and whatever starts later
-    reads a namespace that already holds every name."""
+    """The 1.7.0 elastic smoke walk, with its real numbers.
+
+    `api-web`'s PRIMARY deployment was created 14:06:40; `api-worker`'s Cloud
+    Map name at 14:07:02.391 — 22 seconds later. `api-web` returned 503 on the
+    fan-out for 20+ minutes and TWO clean `release prod` runs repaired nothing.
+    This must fire.
+    """
     fake_aws.service_connect_endpoint_ages = {
-        "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
+        "sample-prod-api-web": datetime(2026, 8, 6, 14, 6, 41, tzinfo=timezone.utc),
+        "sample-prod-api-worker": datetime(
+            2026, 8, 6, 14, 7, 2, 391000, tzinfo=timezone.utc,
+        ),
     }
-    fake_aws.ecs_task_start_times = {}
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": datetime(2026, 8, 6, 14, 6, 40, tzinfo=timezone.utc),
+        "sample-prod-api-worker": datetime(
+            2026, 8, 6, 14, 7, 3, tzinfo=timezone.utc,
+        ),
+    }
     rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
-    assert _redeployed(fake_aws) == []
+    assert _redeployed(fake_aws) == ["sample-prod-api-web"]
 
 
 def test_clock_consumer_is_redeployed_on_the_same_terms(
@@ -336,9 +410,9 @@ def test_clock_consumer_is_redeployed_on_the_same_terms(
     """Mod 115: a clock is an ORDINARY service to the release path.
 
     It emits an `aws_ecs_service`, so it *can* be redeployed — and it must
-    be, on exactly the same predicate as `web`. Here both consumers' tasks
-    predate the worker's registration, so both are replaced; no role test
-    anywhere singles the clock out.
+    be, on exactly the same predicate as `web`. Here both consumers'
+    deployments are created within seconds of the worker's registration, so
+    both are replaced; no role test anywhere singles the clock out.
     """
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
@@ -349,12 +423,13 @@ def test_clock_consumer_is_redeployed_on_the_same_terms(
 
     fake_aws.service_connect_endpoint_ages = {
         "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
-        "sample-prod-api-clock": _t(46),
+        "sample-prod-api-worker": _t(46, 4),
+        "sample-prod-api-clock": _t(46, 8),
     }
-    fake_aws.ecs_task_start_times = {
-        "sample-prod-api-web": [_t(40)],
-        "sample-prod-api-clock": [_t(40)],
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(46, 1),
+        "sample-prod-api-worker": _d(46, 5),
+        "sample-prod-api-clock": _d(46, 9),
     }
     rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
@@ -367,7 +442,8 @@ def test_converged_clock_is_left_alone(
     tmp_path: Path, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
     """The other half of "ordinary": the cheap path is emergent for a clock
-    too. Its task postdates the name it `uses`, so nothing is touched."""
+    too. Its deployment postdates the name it `uses` by ten minutes, so nothing
+    is touched."""
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
@@ -379,10 +455,10 @@ def test_converged_clock_is_left_alone(
         "sample-prod-api-worker": _t(40),
         "sample-prod-api-clock": _t(40),
     }
-    fake_aws.ecs_task_start_times = {
-        "sample-prod-api-web": [_t(46)],
-        "sample-prod-api-worker": [_t(46)],
-        "sample-prod-api-clock": [_t(46)],
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(50),
+        "sample-prod-api-worker": _d(50),
+        "sample-prod-api-clock": _d(50),
     }
     rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
@@ -396,9 +472,12 @@ def test_slow_rollout_warns_but_does_not_fail_the_release(
     otherwise-good release over rollout latency would be wrong."""
     fake_aws.service_connect_endpoint_ages = {
         "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
+        "sample-prod-api-worker": _t(46, 4),
     }
-    fake_aws.ecs_task_start_times = {"sample-prod-api-web": [_t(40)]}
+    fake_aws.ecs_deployment_times = {
+        "sample-prod-api-web": _d(46, 1),
+        "sample-prod-api-worker": _d(46, 5),
+    }
     fake_aws.ecs_services_stable = False
     rc = _run(web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0

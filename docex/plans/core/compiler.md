@@ -200,9 +200,10 @@ give N collector sidecars automatically, because the collector is a container
 
 `wait_for_steady_state = true` **is** emitted (mod 114), so `tofu apply` does not
 return while its own rolling deploy is still draining tasks. The release's
-Service Connect consumer reconcile reads task start times immediately after the
-apply; without it, the reconcile would compare against tasks already on their way
-out and redeploy for nothing. The second-order effect is deliberate too: a
+Service Connect consumer reconcile reads deployment `createdAt` immediately after
+the apply (mod 123); without it, the reconcile could read an age that the same
+apply is about to supersede, or judge tasks already on their way out, and
+redeploy for nothing. The second-order effect is deliberate too: a
 service that cannot converge now fails the apply rather than letting the release
 proceed toward a green exit over a broken env.
 

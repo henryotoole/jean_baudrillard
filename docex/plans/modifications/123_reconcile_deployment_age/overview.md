@@ -99,6 +99,7 @@ now been found five times:
 | Pathspec matching nothing | a command that acted on no files |
 | Teardown gate that could not authenticate | a "clean" it could not have observed |
 | **This fixture** | a suite that could not have detected the failure |
+| **`test_rollback_elastic_reconcile_is_a_noop`** | a no-op it could not have observed — the sample fixture declares no core `uses` edge, so there was never a consumer to judge |
 
 Every instance is one sentence: **something that could not have detected the
 failure reported success.**

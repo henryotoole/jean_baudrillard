@@ -581,10 +581,13 @@ def test_rollback_elastic_reconcile_is_a_noop(
     elastic_worktree_populator, fake_docker, fake_aws, fake_ansible,
     fake_tofu_init, fake_tofu_apply, fake_tofu_plan, stub_compile,
 ):
-    """Mod 109, retriggered by mod 114. The rollback branch reads the Service
-    Connect namespace and reconciles like any other release, but a rollback
-    reverts image tags rather than shape — every consumer task still postdates
-    every registration — so the reconcile must redeploy nothing.
+    """Mod 109, retriggered by mods 114 and 123.
+
+    What this asserts is the WIRING: the rollback branch runs the reconcile step
+    like any other release, with a populated namespace. It does not exercise the
+    predicate — the sample elastic fixture declares no core `uses` edge, so
+    there is no consumer to judge. The predicate itself is covered in
+    `test_service_connect_reconcile.py`.
 
     Worth asserting rather than assuming: the reconcile is wired into this
     branch deliberately (one code path is easier to reason about than two), and
@@ -609,6 +612,10 @@ def test_rollback_elastic_reconcile_is_a_noop(
     # ...and produced no redeploy and no wait.
     assert "ecs_force_new_deployment" not in aws_names
     assert "ecs_wait_services_stable" not in aws_names
+    # Mod 123: no candidate consumer, so the deployment-age read is skipped
+    # entirely. This is what proves the candidate filter is doing its job — a
+    # converged rollback pays one ListServices and nothing else.
+    assert "ecs_primary_deployment_times" not in aws_names
 
 
 def test_rollback_mirrors_gitignored_creds_into_worktree(

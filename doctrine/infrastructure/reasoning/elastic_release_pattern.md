@@ -15,7 +15,7 @@ Service Discovery is a legacy version of Service Connect and has some notorious 
 
 This leaves Service Connect. This produces the unfortunate asymmetry between `fixed` and `elastic` because Service Connect is a decentralized, client-side load balancing and resolving system. It is not a worse system, just different.
 
-The trick is that the decentralized system must still centralize service name resolution. Service Connect achieves this with a Cloud Map registry of the discovery names registered in the namespace. Unfortunately, a client task's copy of that registry is written *exactly once, statically*, when the task launches. A name registered after a task started does not exist for that task for the remainder of its life — it is **unresolvable** rather than merely unreachable, so no amount of application-level backoff ever converges on it.
+The trick is that the decentralized system must still centralize service name resolution. Service Connect achieves this with a Cloud Map registry of the discovery names registered in the namespace. Unfortunately, that registry is resolved *exactly once, statically*, when an ECS **deployment** is created; every task in the deployment is served the same fixed copy. A name registered after the deployment does not exist for any of its tasks — it is **unresolvable** rather than merely unreachable, so no amount of application-level backoff ever converges on it, and replacing a task does not help unless the replacement lands in a new deployment.
 
 See [ecs_service_connect.md](../../charts/ecs_service_connect.md) for a full diagram of the name resolution mechanism.
 

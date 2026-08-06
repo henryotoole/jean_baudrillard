@@ -12,9 +12,15 @@ ephemeral and must become durable.
 > step does not read the apply's own draining tasks. (This line originally
 > claimed *no* emitted-output change; Mod 114 falsified it.) Two doctrine files
 > and one docex code path. ECS Service
-> Connect's launch-time name freeze — which the entire subsection rests on — was
+> Connect's name freeze — which the entire subsection rests on — was
 > observed on a scratch Fargate stack and holds; see [Verified](#verified), which
 > also corrects two secondary claims made in passing below.
+>
+> **Mod 123 replaced the consumer operand a second time.** The freeze is keyed on
+> the ECS **deployment**, not on task launch, so mod 114's task-`startedAt`
+> operand could not fire in the concurrent-creation case it was built for. The
+> record below is corrected in place; [§ Verified](#verified)'s measurements
+> stand as written, and [§ Recon 2](#recon-2) carries the mechanism.
 
 ## Background — the ECS constraint
 
@@ -65,23 +71,33 @@ Three vocabulary precisions that the fix depends on:
    > when the service first brings up a task." [§ Verified](#verified) Q2 refutes
    > that: a service created at `desiredCount: 0` produced a Cloud Map service
    > with a `CreateDate` one second *before* the ECS service's own `createdAt`,
-   > with no instances and no task ever launched. The correction **strengthens
-   > the fix** — `CreateDate` sits earlier relative to any task than assumed, so
-   > `startedAt < CreateDate` is strictly more conservative and biases toward
-   > redeploying, which is the direction [implementation detail
-   > 2](#three-implementation-details-that-matter) demands.
-2. **The read is per-task-launch, not per-deployment.** `forceNewDeployment`
-   fixes nothing by itself; it works because a rolling deployment replaces
-   tasks and each replacement reads the namespace fresh. Same reason a task
-   replaced for any other cause comes up correct with no intervention.
+   > with no instances and no task ever launched.
+   >
+   > **This inference was inverted, and it is the error that shipped mod 114
+   > inert.** Pushing `CreateDate` *earlier* relative to any task makes
+   > `startedAt <= CreateDate` **harder** to satisfy, not easier. A task of a
+   > service always starts after that service was created, so wherever a
+   > consumer's tasks are (re)started by the same apply that creates a target's
+   > name — every first release, and every release that bumps the consumer's
+   > image — the comparison cannot fire at all. It remains satisfiable only
+   > where the consumer is entirely untouched by the apply and its tasks are
+   > already old. Mod 123 replaces the operand with the consumer's PRIMARY
+   > deployment `createdAt`; see [§ Recon 2](#recon-2).
+2. **The read is per-deployment, not per-task-launch.** `forceNewDeployment`
+   works because it creates a **new deployment**, and a deployment's cluster
+   list is resolved when the deployment is created. A task replaced for any
+   other cause — scaling, AZ rebalance, a failed health check — lands in the
+   *same* deployment and inherits the same stale list, so it does **not** come
+   up correct. [§ Recon 2](#recon-2) measured this directly.
 3. **Registrations are unordered relative to each other.** Each provider
    registers whenever its own tasks happen to come up during the concurrent
    `tofu apply`. That is the race.
 
 ### The invariant
 
-> **A task resolves exactly the names that existed when it started, so every
-> consumer task must be younger than every name it needs.**
+> **A task resolves exactly the names that existed when its deployment was
+> created, so every consumer *deployment* must be younger than every name it
+> needs.**
 
 Everything below is a consequence of this one line.
 
@@ -140,12 +156,12 @@ Both operands are durable AWS state, read **after** the apply:
 
 | Operand | Source |
 | ------- | ------ |
-| Consumer task age | `ListTasks` + `DescribeTasks` on the consumer's ECS service; take the **minimum** `startedAt` across running tasks — one stale task is enough to matter |
+| Consumer deployment age | `DescribeServices` on the consumer's ECS service; take `deployments[?status=='PRIMARY'].createdAt`, batched at 10 services per call |
 | Name registration age | `ListServices` on the Cloud Map namespace; `CreateDate` per discovery name |
 
-Redeploy core service `P` iff some running task of `P` started before the
-`CreateDate` of some `consumes` target of `P`. Then the same bounded
-steady-state wait as today.
+Redeploy core service `P` iff `P`'s PRIMARY deployment was created at or before
+the `CreateDate` of some `consumes` target of `P`, plus the margin. Then the
+same bounded steady-state wait as today.
 
 `CreateDate` on the Cloud Map **service** is the correct operand, not instance
 registration time: the name's existence in the namespace is what ECS reads when
@@ -183,11 +199,33 @@ or a `describe`-style read.
    pre-registration tasks that are already on their way out and redeploy for
    nothing. Setting `wait_for_steady_state = true` on the `aws_ecs_service`
    resources gets this for free inside step 3.
-2. **Break ties toward redeploying.** Both timestamps are AWS-server-issued (no
-   client clock), but they come from two different services (ECS and Cloud Map)
-   and small skew is possible. Any grace margin must favour acting: a false
-   positive costs one unnecessary rolling deploy; a false negative costs a
-   permanently broken env that exits 0. Never round toward silence.
+2. **Break ties toward redeploying, and widen the margin deliberately.** The
+   comparison is `<=`, and a fixed **60-second** margin is added to the
+   registration time before comparing. That margin is **not** a skew allowance,
+   and the record must not say it is: the genuine uncertainty is far smaller —
+   [§ Recon 2](#recon-2) brackets the freeze instant to ~14 s wide, and Cloud
+   Map's `CreateDate` precedes the name's appearance in the served cluster list
+   by under a second. Five seconds would cover both.
+
+   What 60 s does is **collapse the concurrent-creation window into an
+   unconditional redeploy**. Within roughly a minute of a consumer's deployment
+   we stop trying to adjudicate whether a name was visible to it and simply
+   redeploy. Two reasons, and they are the only two:
+
+   1. **That window is precisely where the boundary is unmeasurable.** Recon 2
+      bracketed the freeze instant but did not pin it; ECS's internal ordering
+      is not exposed; reading the outcome off two timestamps seconds apart is
+      guessing. The 11.6 s-before case was measured as *visible* — i.e. fine —
+      and fires anyway under a 60 s margin. That is a deliberate false
+      positive, recorded as such.
+   2. **The two errors are not symmetric.** A false negative inside that window
+      is permanent and silent: a broken env that exits 0 with both sides
+      reporting healthy. A false positive is one rolling deploy.
+
+   The cost is bounded and lands only where the race is real — one rolling
+   deploy per consumer on a first release or a shape change. It is free on an
+   ordinary code-only release, where the gap is days or weeks and the
+   comparison is not close by orders of magnitude. Never round toward silence.
 3. **Filter the client bookkeeping entries out of `ListServices`.** Every
    client-only participant gets an entry named
    `aws-ecs-sc.client.<uuid>.<ecs-service-name>` in the namespace — observed in
@@ -206,7 +244,8 @@ snapshot got in. Every correct design does one of exactly three things with the
 ordering:
 
 - **Enforce it** — unconditional redeploy of all consumers post-apply.
-- **Observe it** — task `startedAt` vs. name `CreateDate` (this proposal). The
+- **Observe it** — the consumer's PRIMARY deployment `createdAt` vs. name
+  `CreateDate` (this proposal, as corrected by mod 123). The
   only comparison whose operands carry time.
 - **Remember it** — a post-success cache; really a one-bit record that the
   ordering was established.
@@ -309,8 +348,10 @@ Two doctrine files:
 says only that "`docex` closes that at release time", which remains true and
 needs no edit.
 
-One docex code path: the reconcile step. Cost is one `ListServices` plus
-`ListTasks`+`DescribeTasks` per consumer, and a comparison.
+One docex code path: the reconcile step. Cost is one `ListServices` plus one
+`DescribeServices` batched over the candidate consumers (mod 123; the original
+plan's `ListTasks`+`DescribeTasks` per consumer is retired with the task
+operand), and a comparison.
 
 ## Verified
 
@@ -379,7 +420,10 @@ CURL:sc-probe-target CURL_OK:sc-probe-target http=200
 ```
 
 Same service, same task definition, same namespace, same image — only the task
-is younger. The failure is the launch-time freeze and nothing else.
+is younger. The failure is the name freeze and nothing else. **Read with
+[§ Recon 2](#recon-2):** the replacement resolved because `forceNewDeployment`
+created a new *deployment*, not because the task was new — a replacement inside
+the same deployment does not resolve, as recon 2 measured over 47 probes.
 
 The **reachability** half was confirmed in the same run: scaling a provider from
 0 to 1 task flipped an already-running client's result for that name from `503`
@@ -435,4 +479,60 @@ client-only participant also gets a bookkeeping entry named
 `aws-ecs-sc.client.<uuid>.<ecs-service-name>`, created when its ECS service is
 created — service A produced one despite an empty `services[]`. The reconcile
 step must filter the `aws-ecs-sc.client.` prefix, or it will compare consumer
-task ages against names that are not endpoints.
+ages against names that are not endpoints.
+
+## Recon 2
+
+**The resolvable name set is frozen at ECS *deployment* creation, not at task
+start.** Measured after the 1.7.0 elastic smoke walk found mod 114's trigger
+inert on `prod`.
+
+### The mechanism
+
+Every Service Connect Envoy sidecar identifies itself to the ECS control
+plane's xDS endpoint by its **task-set ARN** (`…/task-set/…/ecs-svc/0983…`) —
+which is the deployment id — and is served a cluster list fixed for that
+deployment. Tasks launched later into the same deployment **inherit** that list;
+they do not re-read the namespace. A new deployment is the only event that
+re-resolves it.
+
+### Measurements
+
+| Observation | Result |
+| ----------- | ------ |
+| Task stopped and replaced **within the same PRIMARY deployment** (same id, same `createdAt`); probed 47× over 8 min for a name created 5 m 34 s earlier | **Never resolved.** Envoy logged `0 added/updated cluster(s)` |
+| Provider created **2.4 s after** a deployment; consumer task started 143 s later | **Invisible** to that task |
+| Provider created **11.6 s before** a deployment, `desiredCount: 0`, no instance ever | **Visible** (503 — an Envoy listener with no upstreams) |
+| `deployments[].updatedAt` advanced past the name's creation | Changed nothing |
+
+The freeze instant is therefore bracketed to
+**`(deployment createdAt − 11.6 s, deployment createdAt + 2.4 s]`**. The
+mechanism says the instant *is* `createdAt`; the bracket is measurement
+granularity, not genuine uncertainty about which event governs.
+
+### Operands excluded
+
+Stated explicitly so neither is proposed a third time:
+
+- **Task `createdAt` / `startedAt` are excluded**, by two orders of magnitude —
+  the 143 s-later task saw nothing, and the same-deployment replacement task saw
+  nothing over eight minutes. Not usable as an operand. This is exactly what
+  made mod 114's predicate inert.
+- **`deployments[].updatedAt` is excluded.** It advanced past the name's
+  creation and changed nothing, so it is not the freeze instant. Not usable.
+
+Instance registration does not govern either: a name with zero instances still
+resolves (Q2, confirmed again here by the `desiredCount: 0` row). The
+reachability/resolvability split in
+[`cicl.md`](../../../../doctrine/infrastructure/cicl.md#resilience-covers-reachability-not-resolvability)
+is unaffected and stays.
+
+### What this falsifies in the doctrine
+
+`cicl.md` argued that holding the ordering once is permanently sufficient
+because "every later task (scaling, AZ rebalance, failed health check, platform
+update) starts into a namespace that already contains the name". The
+**conclusion** survives — but only via deployments: a later task inherits its
+deployment's set, and every deployment created after the name contains it. The
+stated **mechanism** is false, and it is precisely the false model that produced
+this bug twice, so it is corrected rather than left standing.

@@ -38,6 +38,17 @@ The doctrine assumes a project is its own git repository (per [`inception.md`](.
 - [ ] `test_projects/fixed/.git` exists, on branch `main`, with a tag `v<version>` (matching the inner `project.yml`'s `version:`) at HEAD and a clean working tree. If not, initialize per [`test_projects.md § Why the test projects are their own git repos`](../plans/core/test_projects.md#why-the-test-projects-are-their-own-git-repos).
 - [ ] Same for `test_projects/elastic/`.
 
+> **Ordering carve-out — A.2.1 vs. C.6 / D.8.** A.2.1 describes each inner
+> repo's *resting* state (on `main`, clean, `v<version>` at HEAD) and is asserted
+> **before** [C.6](#c6-check--containerize) / [D.8](#d8-check--containerize).
+> Those steps then deliberately restructure the history into the feature-branch
+> shape their prerequisite demands — `main` at the **prior** release, the new
+> version on a feature branch checked out now — and `merge` returns the repo to
+> `main` with the new version at HEAD. The two states are mutually exclusive by
+> design. Re-asserting A.2.1 between the restructure and `merge` will fail, and
+> that failure is expected: **do not "repair" it by moving the tag**, which
+> silently defeats the `check` version-bump gate.
+
 Edits inside `test_projects/*/` dirty both the inner repo and the outer doctrine repo. Commit inner-first per [`test_projects.md § Commit cadence`](../plans/core/test_projects.md#commit-cadence).
 
 ### A.3 Preinfra — both sides
@@ -194,7 +205,7 @@ Run this audit *once per cut*, against each project independently.
 - [ ] **B.13 Stage tester present** — `infra/stage/Dockerfile`, `infra/stage/stage_test.sh`, `infra/stage/tests/` all populated. Per [`tests.md § Staging Tests`](../../doctrine/infrastructure/tests.md#staging-tests).
 - [ ] **B.14 Foundation-irrelevant code parity** — `diff -r test_projects/fixed/core test_projects/elastic/core` produces no output (other than `__pycache__` / `dist/` which are gitignored). This covers the entrypoints too: a core service whose entrypoint differs by foundation means the parts-only env model is leaking foundation specifics into application code — that's a doctrine bug.
 - [ ] **B.15 Data-plane names hyphenate** — `grep -rE '{project_name_with_underscores}' infra/output/` (e.g. `docex_smoke_elastic`) finds only AWS record-key identifiers (IAM, SSM, DDB), tags, comments, and ECR repo names. No occurrence of an underscored project segment on a docker network/container/volume name, ECS Service Connect namespace, Route53 zone or record, or ACM cert. Per mod 030's hyphen-on-data-plane rule plus mod 046's leak fix.
-- [ ] **B.16 No compiled compose gates a core service** — `grep -n 'depends_on' infra/output/*/docker-compose.yml` returns hits **only** inside the per-codebase `-exec` block. The compiler emits no `depends_on:` / `condition:` on any core-service block; the exec block still carries `condition: service_healthy` over the union of that codebase's **backing-targeted** `uses` edges, and it is the one remaining ordering emission in existence. Per [`cicl.md § Startup ordering is not a doctrine feature`](../../doctrine/infrastructure/cicl.md#startup-ordering-is-not-a-doctrine-feature). Both projects' `infra/output/` are git-tracked, so this is a grep, not a compile.
+- [ ] **B.16 No compiled compose gates a core service** — `grep -n 'depends_on' infra/output/*/docker-compose.yml` returns hits **only** inside the per-codebase `-exec` block. The compiler emits no `depends_on:` / `condition:` on any core-service block; the exec block still carries a `depends_on` entry over the union of that codebase's **backing-targeted** `uses` edges — `condition: service_healthy` where the target block declares a `healthcheck:`, `condition: service_started` where it does not (the fixed project's committed output shows `appdb → service_healthy`, `probe`/`events` → `service_started`) — and it is the one remaining ordering emission in existence. Per [`cicl.md § Startup ordering is not a doctrine feature`](../../doctrine/infrastructure/cicl.md#startup-ordering-is-not-a-doctrine-feature). Both projects' `infra/output/` are git-tracked, so this is a grep, not a compile.
 - [ ] **B.17 The schedule table renders and is delivered as a literal** — `infra/output/{dev,test,stage,prod}/schedules.yml` exists (the git-tracked, diff-visible aggregate an operator reads), and each clock's compose `environment:` / task-definition env carries **`DOCEX_SCHEDULES_YAML` holding the rendered YAML itself, not a path**. Grep for a mount or a `configs:` entry naming `schedules` and confirm there is **none** — a mount would mean the single-variable delivery seam regressed to a file, which is precisely what the design deleted. Per [`clock.md § How the schedule reaches the container`](../../doctrine/infrastructure/specifics/clock.md#how-the-schedule-reaches-the-container).
 
 ---
@@ -232,7 +243,7 @@ Run this audit *once per cut*, against each project independently.
 
 ### C.6 Check + Containerize
 
-> **Feature-branch prerequisite (mod 053 / F8).** `check` and `merge` require a real feature-branch shape: `main` must sit at the **prior** release, and the **new** version (bumped `project.yml`) must live on a **feature branch** checked out now. `check` creates an ephemeral worktree merging the feature branch with `origin/main` and runs the gate checks (including "version bumped" and "version not yet released") against that merge. On a single-commit `main` with no feature branch the version-bump gate has nothing to compare against. Restructure the seed's git history to this shape by hand before C.6 if it isn't already (this is the by-hand restructure the smoke walk performs).
+> **Feature-branch prerequisite (mod 053 / F8).** `check` and `merge` require a real feature-branch shape: `main` must sit at the **prior** release, and the **new** version (bumped `project.yml`) must live on a **feature branch** checked out now. `check` creates an ephemeral worktree merging the feature branch with `origin/main` and runs the gate checks (including "version bumped" and "version not yet released") against that merge. On a single-commit `main` with no feature branch the version-bump gate has nothing to compare against. Restructure the seed's git history to this shape by hand before C.6 if it isn't already (this is the by-hand restructure the smoke walk performs). This deliberately conflicts with [A.2.1](#a21-test-projects-are-self-contained-git-repos)'s resting state — see its ordering carve-out.
 >
 > **A reachable `origin` is required.** `check`/`merge` run `git fetch origin` from **inside** the docex container, which mounts the project root and specific `$HOME` subdirs (`~/.docker`, `~/.aws`, `~/.gitconfig`, `~/.ssh`) — **not** arbitrary `$HOME` paths. So a local bare remote must live **under the project root** to be container-visible. Create one in the gitignored `.docex/` (e.g. `git init --bare .docex/origin.git`), `git remote add origin .docex/origin.git`, and `git push origin main v<prior>` so `origin/main` sits at the prior release. The restructure: delete the current `v<new>` tag (merge recreates it), branch the new-version work onto a feature branch, move `main` back to `v<prior>`, push `main` to origin, and check out the feature branch.
 
@@ -345,7 +356,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 ### D.8 Check + Containerize
 
-> **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.7 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`.
+> **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.7 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`. This deliberately conflicts with [A.2.1](#a21-test-projects-are-self-contained-git-repos)'s resting state — see its ordering carve-out.
 
 - [ ] `./bin/docex check` — exits 0.
 - [ ] `./bin/docex merge` — **required; `containerize` refuses to run off `main`** (see C.6 for the full note).
@@ -355,6 +366,39 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 - [ ] `./bin/docex release stage` — first-time-release path detected (ECS cluster absent); ordering swaps to `SSM push → tofu apply → migrate`. ALB listener rules, ECS cluster, ECS services for `api-web`/`api-worker`/`api-clock`/`probe`/`events`, RDS instance, EFS filesystem + mount targets for `events`, all come up. `https://stage.docex-smoke-elastic.luxrnd.tech/health` returns 200.
 - [ ] `api-clock` came up as an **ordinary ECS service** — an `aws_ecs_task_definition` **and** an `aws_ecs_service`, its own CloudWatch log group, a paired otelcol sidecar, and a container-level `healthCheck`. It is a long-running singleton, not an invocation. Confirm `aws ecs list-services` shows exactly **five**: `api-web`, `api-worker`, `api-clock`, `probe`, `events`.
+- [ ] **Record both reconcile operands, and the verdict.** For each consumer
+  (`api-web` and `api-worker` — they form a `uses` cycle):
+  ```bash
+  aws ecs describe-services --cluster docex-smoke-elastic-stage \
+    --services api-web api-worker \
+    --query "services[].[serviceName,deployments[?status=='PRIMARY']|[0].createdAt]"
+  aws servicediscovery list-services \
+    --query "Services[].[Name,CreateDate]"
+  ```
+  Write both timestamps into the walk log. **Expected verdict: `fire` on this
+  first `stage` release** — deployment and name are created seconds apart — and
+  **`skip` on the code-only 0.0.21 release**, where the gap is days.
+
+  The two verdicts are distinguishable in `release`'s own output, and both are
+  explicit — neither is silence:
+
+  | Verdict | What `release` prints |
+  | ------- | --------------------- |
+  | **fire** | one `release: reconciling Service Connect consumer '<name>' — its current deployment predates …` line per consumer, then the bounded steady-state wait |
+  | **skip** | ``release: Service Connect reconcile — N consumer(s) checked, all deployments postdate the endpoints they `uses`; nothing to redeploy.`` |
+
+  **Neither line appearing is itself a finding** — it means the step
+  short-circuited before comparing anything, and the two other paths say so
+  (``no endpoints registered in the <env> namespace …`` / ``no core service
+  declares a core `uses` target …``). Whichever line you get must agree with the
+  two timestamps you recorded.
+
+  > **Why this box exists.** The 1.7.0 walk measured the wrong timestamp (task
+  > `startedAt`, mod 114) and `force-new-deployment` overwrote the evidence
+  > before anyone knew which one mattered — so the failure had to be inferred
+  > from a 503 rather than read off the operands. Recording both is what lets a
+  > walk *confirm* the predicate instead of inferring it from a green fan-out.
+
 - [ ] **Nothing scheduler-shaped exists anywhere.** Assert twice, because the two assertions catch different failures. **Emission:** `grep -nE 'aws_scheduler_schedule|scheduler\.amazonaws\.com' infra/output/*/main.tf` returns nothing. **Leak:** `aws scheduler list-schedules` returns no schedule carrying the project prefix, and no IAM role matching `docex-smoke-elastic-*-scheduler*` survives. The first proves the compiler stopped emitting; the second proves nothing was orphaned by a teardown filter that no longer matches — the silent failure mode the upgrade guide flags.
 - [ ] Exactly **one** `…-migrate` task-definition family exists for the `api` codebase — not one per core service.
 - [ ] `api-worker` has a container-level `healthCheck` and **no** target group; `api-web` has the target group. Its `desired_count` is **1** here (`replicas: 2` clamps outside prod).
@@ -371,6 +415,39 @@ Elastic production-side projinfra applies in two phases separated by an operator
   - `https://prod.docex-smoke-elastic.luxrnd.tech/health` (bare-env → `domain_default_service`)
   - `https://docex-smoke-elastic.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_service`)
 - [ ] `https://docex-smoke-elastic.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. On elastic this additionally proves Service Connect resolved the sibling core service — the `api.worker` `port` is exactly what makes it discoverable, so a missing port surfaces here and nowhere else.
+- [ ] **Record both reconcile operands, and the verdict.** For each consumer
+  (`api-web` and `api-worker` — they form a `uses` cycle):
+  ```bash
+  aws ecs describe-services --cluster docex-smoke-elastic-prod \
+    --services api-web api-worker \
+    --query "services[].[serviceName,deployments[?status=='PRIMARY']|[0].createdAt]"
+  aws servicediscovery list-services \
+    --query "Services[].[Name,CreateDate]"
+  ```
+  Write both timestamps into the walk log. **Expected verdict: `fire` on this
+  first `prod` release** — deployment and name are created seconds apart — and
+  **`skip` on the code-only 0.0.21 release**, where the gap is days.
+
+  The two verdicts are distinguishable in `release`'s own output, and both are
+  explicit — neither is silence:
+
+  | Verdict | What `release` prints |
+  | ------- | --------------------- |
+  | **fire** | one `release: reconciling Service Connect consumer '<name>' — its current deployment predates …` line per consumer, then the bounded steady-state wait |
+  | **skip** | ``release: Service Connect reconcile — N consumer(s) checked, all deployments postdate the endpoints they `uses`; nothing to redeploy.`` |
+
+  **Neither line appearing is itself a finding** — it means the step
+  short-circuited before comparing anything, and the two other paths say so
+  (``no endpoints registered in the <env> namespace …`` / ``no core service
+  declares a core `uses` target …``). Whichever line you get must agree with the
+  two timestamps you recorded.
+
+  > **Why this box exists.** The 1.7.0 walk measured the wrong timestamp (task
+  > `startedAt`, mod 114) and `force-new-deployment` overwrote the evidence
+  > before anyone knew which one mattered — so the failure had to be inferred
+  > from a 503 rather than read off the operands. Recording both is what lets a
+  > walk *confirm* the predicate instead of inferring it from a green fan-out.
+
 - [ ] `aws ecs describe-services` reports `desired_count = 2` and two RUNNING tasks for prod's `api-worker` (`replicas: 2` is honoured in prod only).
 - [ ] POST a ping to `https://docex-smoke-elastic.luxrnd.tech/pings` — returns 201; after ~5s the prod RDS shows the row with non-NULL `processed_at`. Same body shape as [C.9](#c9-release-prod): the field is `payload` and it is required, so `{"message": …}` returns 422.
   ```bash

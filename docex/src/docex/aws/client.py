@@ -298,7 +298,7 @@ class AWSClient(Protocol):
         ...
 
     # ------------------------------------------------------------------
-    # Mod 109 / 114: Service Connect consumer reconcile.
+    # Mod 109 / 114 / 123: Service Connect consumer reconcile.
     # ------------------------------------------------------------------
 
     def service_connect_endpoints(self, namespace_name: str) -> dict[str, datetime]:
@@ -306,11 +306,11 @@ class AWSClient(Protocol):
         Cloud Map ``CreateDate``.
 
         These are the Cloud Map service names inside the env's namespace — the
-        aliases a Service Connect *client* task can resolve, and only if they
-        existed when that task started. ``CreateDate`` is the durable fact the
-        release's consumer reconcile compares task ages against: the name is
-        created when the ECS **service** is created, before any of its tasks
-        exist, and it survives every task replacement beneath it.
+        aliases a Service Connect *client* can resolve, and only if they existed
+        when its **deployment** was created. ``CreateDate`` is the durable fact the
+        release's consumer reconcile compares **deployment** ages against: the
+        name is created when the ECS **service** is created, before any of its
+        tasks exist, and it survives every task replacement beneath it.
 
         **A namespace that does not exist reads as the empty mapping**, which is
         the honest answer on a first release: nothing is registered yet.
@@ -323,22 +323,31 @@ class AWSClient(Protocol):
         """
         ...
 
-    def ecs_running_task_start_times(
-        self, cluster: str, service: str,
-    ) -> list[datetime]:
-        """``startedAt`` for every RUNNING task of an ECS service.
+    def ecs_primary_deployment_times(
+        self, cluster: str, services: list[str],
+    ) -> dict[str, datetime]:
+        """``createdAt`` of the PRIMARY deployment of each named ECS service.
 
-        The caller takes the minimum: one task older than a registration is
-        enough to make the service unable to resolve it.
+        This is the operand the release's consumer reconcile compares endpoint
+        registrations against. A Service Connect Envoy identifies itself to the
+        ECS control plane by its **task-set ARN** — the deployment id — and is
+        served a cluster list fixed for that deployment; tasks launched later
+        into the same deployment inherit it and never re-read the namespace. So
+        the durable question is how old the *deployment* is, not how old its
+        tasks are (mod 123; mod 114 asked the second and could not fire).
 
         Two omissions are deliberate and are part of the contract:
 
-        - **A task with no ``startedAt`` is omitted.** It has not yet read the
-          namespace, so it will read it *after* every name the caller is
-          comparing against already exists. A not-yet-started task cannot be
-          stale.
-        - **A service ECS reports as non-existent reads as ``[]``**, not an
-          error. A service with no tasks cannot hold a stale one.
+        - **A service with no PRIMARY deployment is absent from the mapping.**
+        - **A service ECS does not return (missing, or reported under
+          ``failures``) is absent from the mapping.**
+
+        Absence is not an error and must not raise. The caller reads a missing
+        entry as "redeploy", which is the safe direction: an unreadable
+        deployment age cannot be shown to postdate anything.
+
+        Implementations MUST accept any number of services; ``DescribeServices``
+        caps at 10 per call, and chunking is the implementation's business.
         """
         ...
 
