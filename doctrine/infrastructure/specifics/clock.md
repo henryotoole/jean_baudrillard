@@ -85,12 +85,13 @@ Job names are identifiers and must be valid as such — they are the dispatch ke
 
 ## How the schedule reaches the container
 
-The compiler renders `infra/output/<env>/schedules.yml` from the `schedules:` blocks. Being compiler output, it is git-tracked and diff-visible per [cicl.md § Compiler Output](../cicl.md#compiler-output), so a schedule change shows up in review as an infrastructure change. Cron expressions never enter application code.
+Two things happen, and they serve different purposes.
 
-Delivery reuses the OTel sidecar's already-proven config-delivery paths (see [telemetry_infra.md § Config Delivery](./telemetry_infra.md#config-delivery)) — this is the third user of that mechanism, not a new one:
+**Visibility.** The compiler renders `infra/output/<env>/schedules.yml` from the `schedules:` blocks — an aggregate of every clock in the environment, keyed by clock. Being compiler output, it is git-tracked and diff-visible per [cicl.md § Compiler Output](../cicl.md#compiler-output), so a schedule change shows up in review as an infrastructure change. Nothing reads this file at runtime; it exists so an operator can see what is scheduled.
 
-- **fixed** — the rendered file is mounted into the container via the compose top-level `configs:` block.
-- **elastic** — the rendered content is embedded as a literal string in a task-definition env entry and read from there at startup.
+**Delivery.** A clock receives its own job map — not the aggregate — in the environment variable `DOCEX_SCHEDULES_YAML`, whose value is the **literal rendered YAML** rather than a path to it. The variable is identical on both foundations: a compose `environment:` entry on fixed, a task-definition env entry on elastic. This is the same literal-env pattern the OTel sidecar's config already uses on elastic (see [telemetry_infra.md § Config Delivery](./telemetry_infra.md#config-delivery)), applied to both foundations rather than split between them, so a clock entrypoint reads one variable and parses it — no file to locate, no mount, no per-foundation branch.
+
+`DOCEX_SCHEDULES_YAML` is doctrine-injected and reserved: a project may not declare it in its own `env:`, `secrets:`, or `config:` blocks ([rule 20](../cicl.md#validation-rules)). Cron expressions never enter application code.
 
 The [check step](../cicd.md#check-step) can assert that every declared job name has a binding in the clock's dispatch table, catching a schedule that names a job nobody implements.
 
