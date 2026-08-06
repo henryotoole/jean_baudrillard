@@ -564,7 +564,16 @@ are found, because the mod that finds them is never the mod that owns them.
 | **`docex build` is broken by its own dev container.** `orchestrate/build.py:131` clears `dist/` host-side with `shutil.rmtree`; the dev container runs as **root** and writes `dist/__pycache__/*.pyc` owned by root on import, which the host uid cannot unlink → `PermissionError`. **Self-regenerating within a single run** — `run_up` creates the residue its own `run_build` then cannot delete, which is why clearing it by hand buys exactly one green run. Affects every doctrine project, not just the smoke seeds; `PRE_CUT_CHECKLIST.md` D.6 already documents a `sudo rm -rf` workaround, which is the tell that this has been a product bug hiding as an environment quirk. Currently the **only** integration failure (17/18). | Mod 114 | **Mod 119** — see below |
 
 ### 2b. Mod 119 — `docex build` bytecode residue (unplanned, required)
-`mod-developer`, small. Runs after 116, before the walks.
+`mod-developer`, small. **Promoted: runs immediately after 116, ahead of 117.**
+
+> **Severity revised by Mod 116.** This is not "one integration test fails." It
+> is an **unbounded disk leak**: `/tmp/pytest-of-ubuntu` had accumulated **30 GB**
+> of largely root-owned `.pyc` files that the host uid cannot unlink, so nothing
+> reclaims them. It first presented as two *unrelated* `tofu validate` tests
+> failing on `no space left on device` while pulling the AWS provider — a
+> signature that looks nothing like its cause. Every subsequent mod, and both
+> smoke walks (far more disk-hungry than the suite), run on top of it. That is
+> why it jumps the queue.
 
 Not in the original plan, and admitted deliberately rather than absorbed
 silently: Goal 4 SC3 requires `pytest -m integration` green, and this is the one
