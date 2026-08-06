@@ -150,6 +150,47 @@ Downstream projects upgrade per
 
 ### Fixed
 
+- **The smoke seeds' cleanup checks could not fail** (mod 122). `verify_clean.sh`
+  exited 0 reporting `OK: registry images` while thirty image tags remained in
+  the registry, and had done so for several releases. Four stacked causes: the
+  registry query sent no `Authorization` header and the 401 was swallowed by
+  `|| true`; the digest lookup offered only `manifest.v2+json`, which resolves
+  nothing for the OCI index buildx actually pushes; the local-image pattern
+  required a trailing `/` and so missed `…-stage-tester:latest`; and the repo
+  list was hardcoded to the project's *current* codebases, making repos retired
+  by a rename structurally invisible. The **elastic** seed carried a larger form
+  of the same defect — 21 swallowing query sites and no credential preflight, so
+  expired credentials or one missing IAM permission made all ~20 AWS checks
+  report `OK` and the script exit 0, on the gate that certifies an AWS account
+  has stopped billing. Both scripts are now built on one stated rule — **a check
+  that cannot answer must fail, not report zero** — and both are verified by
+  being observed *failing* first, including the withheld-credential and
+  unreachable-command cases the previous versions passed.
+- **The smoke seeds' `jobs` tests raced the live `api.worker`** (mod 122).
+  `docex test` brings the whole `test` environment up before running `test.sh`,
+  so a live worker drains the same queue the suite writes to. The tests assumed
+  sole agency and so failed intermittently — passing on a cold machine, failing
+  once image layers cached, which **hard-blocked `docex check` and therefore the
+  whole CI/CD chain**. The concurrency test now counts the live worker as a
+  third claimer (identifiable by the "no handler" error it stamps on unrecognized
+  job names) and asserts exclusivity across all three, which is stronger than the
+  two-thread form it replaced; agency-shaped assertions moved to the alogic tier
+  against a stub queue, where the doctrine puts them anyway.
+- **The preinfra container registry could not delete images.** `teardown.sh`
+  assumed `storage.delete.enabled`, but nothing in the doctrine required it, so
+  every manifest `DELETE` returned `405` and
+  [`container_registry.md § Garbage Collection`](./doctrine/infrastructure/preinfra/container_registry.md#garbage-collection)
+  documented a procedure that could not run against the registry the same file
+  specified. `REGISTRY_STORAGE_DELETE_ENABLED: "true"` is now a stated
+  requirement of the registry container, with a deletion round-trip added to
+  § Verifying Reachability so the setup walk proves it.
+- **A clock with a mistyped schedule now fails its deploy** (mod 122). `clock.md`
+  claimed the check step "can assert" that every declared job name has a binding;
+  nothing implemented it. The assertion now lives in the clock itself: it
+  compares its schedule against its dispatch table at startup and exits non-zero
+  **before entering the cron loop**, naming both the offending job and the
+  implemented set. A bound job with *no* schedule stays legitimate and is
+  deliberately unchecked, since the driving port is shared with HTTP and CLI.
 - **The canonical `infra.yml` example did not compile** (mod 121). `cicl.md`'s
   reference fence — the one every project author copies first, and the one
   `upgrade_1.7.0.md` sends readers straight to — used `database` as a backing

@@ -67,7 +67,11 @@ Both test projects share the parent apex `luxrnd.tech` (Route53). The fixed proj
 
 #### A.4.1 Fixed walk DNS
 
-The fixed project's bare apex is `luxrnd.tech` and the project segment derives to `docex-smoke-fixed`. The dev machine's public IP (`$DEV_IP`) needs to be reachable at every per-env host:
+The fixed project's bare apex is `luxrnd.tech` and the project segment derives to `docex-smoke-fixed`. The dev machine's public IP (`$DEV_IP`) needs to be reachable at every per-env host.
+
+**These nine records are created once, in the parent `luxrnd.tech` Route53 zone, as `A` records → `$DEV_IP`, and they are permanent.** They are *standing* records: they survive teardown by design, and [§ E](#e-after-both-walks-succeed) exempts them explicitly. Two reasons. First, `teardown.sh` disclaims DNS as the operator's responsibility (see its header) and always has — this section is now the other half of that statement rather than the only mention. Second, unlike the elastic walk, the fixed project has **no zone lifecycle** for a walk to create and destroy: A.4.2's child-zone records are temporary because `projinfra up/down production` creates and destroys the child zone around them, and no equivalent exists here. Per-walk churn would buy nothing and cost a DNS-propagation stall at the front of every walk.
+
+**Creation.** If `dig +short <subdomain>` returns nothing for any of the nine, create it in the parent `luxrnd.tech` zone as an `A` record → `$DEV_IP` before proceeding. Do this at the Route53 console alongside A.4.2's records; the checklist is operator-driven and deliberately does not script it.
 
 - [ ] `dev.docex-smoke-fixed.luxrnd.tech       A → $DEV_IP`
 - [ ] `*.dev.docex-smoke-fixed.luxrnd.tech     A → $DEV_IP`
@@ -254,12 +258,16 @@ Run this audit *once per cut*, against each project independently.
   - `https://docex-smoke-fixed.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_service`)
 - [ ] `https://docex-smoke-fixed.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. This is the doctrine-required `uses` fan-out and the **only** externally-observable view of `api.worker`'s liveness — a 503 here with a green `/health` means the worker's poll loop is wedged or its tick is stale, which is exactly the failure the loop-liveness rule exists to catch.
 - [ ] `docker ps` shows **two** worker containers, `…-prod-api-worker-1` and `…-prod-api-worker-2`, plus one otelcol sidecar each. `docker network inspect …-prod-internal` shows both carrying the alias `…-prod-api-worker`.
-- [ ] POST a ping to `https://docex-smoke-fixed.luxrnd.tech/pings` — returns 201.
+- [ ] POST a ping to `https://docex-smoke-fixed.luxrnd.tech/pings` — returns 201. The body field is `payload` and it is required (`infra/contracts/api.web.openapi.yml`, `required: [payload]`); a `{"message": …}` body returns **422**, not 201.
+  ```bash
+  curl -sS -X POST https://docex-smoke-fixed.luxrnd.tech/pings \
+    -H 'Content-Type: application/json' -d '{"payload": "walk-ping"}'
+  ```
 - [ ] After ~5s, query the prod postgres database directly: the ping row exists and has a non-NULL `processed_at` (a worker replica picked it up).
 
 > **Clock — fire → defer → drain.** The minutely `heartbeat` job exists solely so this path is observable inside a walk window; `prune_pings` is `0 3 * * *` and will **not** fire during the walk, so do not wait for it.
 
-- [ ] The clock started and its schedule arrived. `docker logs …-prod-api-clock` shows `clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: …`. **Compare the two lists by eye** — a scheduled name absent from the implemented set is a job nobody has written, and nothing currently asserts this automatically.
+- [ ] The clock started and its schedule arrived. `docker logs …-prod-api-clock` shows `clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: …`. This line is still the evidence the schedule **arrived**, so read it — but the comparison itself is now **asserted by the clock at startup** ([`clock.md § How the schedule reaches the container`](../../doctrine/infrastructure/specifics/clock.md#how-the-schedule-reaches-the-container)): a scheduled name with no binding makes the process exit non-zero before entering its loop. So the symptom of a mismatch is a **crash-looping clock container**, not a silently-wrong one — and if the clock is running and logging this line, the binding check has already passed.
 - [ ] A fire deferred. Within ~65 s the same log shows `jobs: 'heartbeat' fired` followed by `jobs: 'heartbeat' deferred as job <uuid>`. **Both lines, not one** — "fired" without "deferred" is the clock reaching the queue and failing.
 - [ ] The worker drained it. `docker logs …-prod-api-worker-1` (or `-2`) shows `jobs: 'heartbeat' performed (job <uuid> …)` carrying the **same uuid**. Matching the uuid is what makes this a proof of the deferral path rather than of two unrelated log lines.
 - [ ] Confirmed in the database: the `jobs` row for that uuid has non-NULL `finished_at` and NULL `error`. Use the same prod postgres access the ping check above already established.
@@ -281,7 +289,11 @@ Exercises `docex rollback` against the real fixed-foundation prod env. The curre
 ### C.11 Teardown
 
 - [ ] `bash teardown.sh` — succeeds. Brings down every env's compose stack with named volumes, deletes registry images for this project, then removes the project traefik / four `-web` networks (the `projinfra down` step). Compiled output is cleared.
-- [ ] `bash verify_clean.sh` — exits 0. No lingering containers, networks, volumes, or registry images carry the project's name prefix (underscored OR hyphenated form).
+- [ ] `bash verify_clean.sh` — exits 0. No lingering containers, networks, volumes, local images, or registry images carry the project's name prefix (underscored OR hyphenated form).
+
+  **The script now fails whenever any check cannot be *answered*, not only when a leftover is found.** That covers a missing `~/.docker/config.json` credential for `registry.luxrnd.tech`, a non-200 from `/v2/_catalog` or `/v2/<repo>/tags/list`, an unparseable body, **and an unreachable docker daemon** — the container/network/volume checks now report `the check could not answer` with the docker error attached, where they previously counted zero lines and printed `OK`. Every one of those cases exits non-zero; the previous version swallowed all of them and reported "clean". A green run is therefore now evidence that each check actually *ran*, which was not previously true: the registry query was unauthenticated, 401'd on every call, and reported zero tags for several releases while the registry held thirty.
+
+  Repositories whose tag list is **null** are expected and are not leftovers. The Registry V2 API keeps a repository entry after its last manifest is deleted, until the operator runs [`container_registry.md § Garbage Collection`](../../doctrine/infrastructure/preinfra/container_registry.md#garbage-collection). The check keys on tags, not on repository presence.
 
 ---
 
@@ -360,11 +372,15 @@ Elastic production-side projinfra applies in two phases separated by an operator
   - `https://docex-smoke-elastic.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_service`)
 - [ ] `https://docex-smoke-elastic.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. On elastic this additionally proves Service Connect resolved the sibling core service — the `api.worker` `port` is exactly what makes it discoverable, so a missing port surfaces here and nowhere else.
 - [ ] `aws ecs describe-services` reports `desired_count = 2` and two RUNNING tasks for prod's `api-worker` (`replicas: 2` is honoured in prod only).
-- [ ] POST a ping to `https://docex-smoke-elastic.luxrnd.tech/pings` — returns 201; after ~5s the prod RDS shows the row with non-NULL `processed_at`.
+- [ ] POST a ping to `https://docex-smoke-elastic.luxrnd.tech/pings` — returns 201; after ~5s the prod RDS shows the row with non-NULL `processed_at`. Same body shape as [C.9](#c9-release-prod): the field is `payload` and it is required, so `{"message": …}` returns 422.
+  ```bash
+  curl -sS -X POST https://docex-smoke-elastic.luxrnd.tech/pings \
+    -H 'Content-Type: application/json' -d '{"payload": "walk-ping"}'
+  ```
 
 > **Clock — fire → defer → drain.** Same group as [C.9](#c9-release-prod), translated to elastic. The minutely `heartbeat` job exists solely so this path is observable inside a walk window; `prune_pings` is `0 3 * * *` and will **not** fire during the walk, so do not wait for it.
 
-- [ ] The clock started and its schedule arrived. The `/docex_smoke_elastic/prod/api-clock` CloudWatch log group shows `clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: …`. **Compare the two lists by eye** — a scheduled name absent from the implemented set is a job nobody has written, and nothing currently asserts this automatically.
+- [ ] The clock started and its schedule arrived. The `/docex_smoke_elastic/prod/api-clock` CloudWatch log group shows `clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: …`. This line is still the evidence the schedule **arrived**, so read it — but the comparison itself is now **asserted by the clock at startup** ([`clock.md § How the schedule reaches the container`](../../doctrine/infrastructure/specifics/clock.md#how-the-schedule-reaches-the-container)): a scheduled name with no binding makes the task exit non-zero before entering its loop. So the symptom of a mismatch is an **ECS task that never reaches RUNNING steady state**, not a silently-wrong clock — and if the clock is logging this line, the binding check has already passed.
 - [ ] A fire deferred. Within ~65 s the same log group shows `jobs: 'heartbeat' fired` followed by `jobs: 'heartbeat' deferred as job <uuid>`. **Both lines, not one** — "fired" without "deferred" is the clock reaching the queue and failing.
 - [ ] The worker drained it. The `/docex_smoke_elastic/prod/api-worker` log group shows `jobs: 'heartbeat' performed (job <uuid> …)` carrying the **same uuid**. Matching the uuid is what makes this a proof of the deferral path rather than of two unrelated log lines.
 - [ ] Confirmed in the database: the `jobs` row for that uuid has non-NULL `finished_at` and NULL `error`. Use the same prod RDS access the ping check above already established.
@@ -389,6 +405,10 @@ Same intent as C.10 but against elastic prod. The rollback path pushes SSM and r
 - [ ] `bash teardown.sh` — disables RDS deletion_protection (polled until landed in AWS), direct-deletes RDS instances with `--skip-final-snapshot` (polled until gone), purges ECR images/repos, then runs `tofu destroy` for prod, stage, project tier in that order. Cleans SSM parameters and the tofu state bucket + lock table.
 - [ ] `bash verify_clean.sh` — exits 0. AWS API queries for every doctrine-emitted resource type filtered by project-name prefix return empty.
 
+  **The script now fails whenever a check cannot be *answered*, not only when a resource is found.** This matters more here than on fixed. Previously every one of the ~20 checks swallowed its `aws` error, so **expired credentials, an unset/wrong region, or one missing IAM permission produced twenty `OK:` lines and exit 0** — a "clean" verdict on an account that was still running RDS instances and ALBs and still billing for them. Now a failed call prints `the check could not answer` with the AWS error attached, and a failed `sts get-caller-identity` **aborts before any check runs** rather than emitting twenty meaningless greens.
+
+  **Eyeball the first line.** The script opens with `==>   interrogating AWS account <id> in region <region>`. Confirm both are the ones you meant to tear down — a completely clean run against the *wrong account* is the one false green that reading the rest of the output cannot detect, because every line is `OK:` and every line is true.
+
 ---
 
 ## E. After both walks succeed
@@ -401,7 +421,7 @@ Same intent as C.10 but against elastic prod. The rollback path pushes SSM and r
 > A core service that cannot run alongside a copy of itself therefore first surfaces in **production**. That is a known limitation of the prod-only clamp, and it is the reason these two steps are not optional.
 
 - [ ] Both `verify_clean.sh` runs are green.
-- [ ] No leftover state in Route53 except the parent `luxrnd.tech` zone and any other unrelated records the operator runs.
+- [ ] No leftover state in Route53 except: the parent `luxrnd.tech` zone; **the nine standing fixed-walk `A` records from [A.4.1](#a41-fixed-walk-dns)**; and any other unrelated records the operator runs. Those nine are *expected* to remain — deleting them breaks the next fixed walk at A.4.1, which is the contradiction this exemption repairs. The elastic walk's records, by contrast, are temporary and A.4.2 requires their removal, **including the parent-zone `NS` delegation**.
 - [ ] No registry images for `docex_smoke_fixed` or `docex_smoke_elastic` remain.
 - [ ] AWS cost report for the smoke-test window matches expectations (~$X for 1–2 hours of stage+prod elastic infra; verify against running tally).
 

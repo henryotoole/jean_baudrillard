@@ -64,32 +64,165 @@ done
 
 # -- 3. Local images for this project ------------------------------------
 echo "-- local docker images"
-for image in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E "(^|/)${PROJECT_NAME}/" || true); do
+# Both name forms, and NO left anchor. Four real shapes must match, and the
+# old pattern — `(^|/)${PROJECT_NAME}/` — caught only the first two, which
+# is why the last two were never DELETED, not merely never reported:
+#   docex_smoke_fixed/api:0.0.18                          (bare repo)
+#   registry.luxrnd.tech/docex_smoke_fixed/api:0.0.18     (registry-prefixed)
+#   docex_smoke_fixed-stage-tester:latest                 (hyphen, not slash)
+#   docex-test-docex-smoke-fixed-api:latest               (docex-built test image)
+# The last two are why the separator class is [-_/:] and why there is no
+# `^`: the project name appears MID-STRING in both.
+for image in $(docker images --format '{{.Repository}}:{{.Tag}}' \
+                 | grep -E "(${PROJECT_NAME}|${PROJECT_NAME_HYPHEN})[-_/:]" || true); do
   docker rmi -f "$image" >/dev/null 2>&1 || true
 done
 
 # -- 4. Registry images for this project ---------------------------------
-# Uses the Docker Registry V2 HTTP API. Requires the registry to allow
-# image deletion (storage.delete.enabled: true in the registry config).
+# Uses the Docker Registry V2 HTTP API. Requires the registry to run with
+# `REGISTRY_STORAGE_DELETE_ENABLED: "true"` — see
+# doctrine/infrastructure/preinfra/container_registry.md § Registry
+# container. Without it every manifest DELETE below returns 405 and this
+# project leaks a tag per release. That requirement used to live ONLY in
+# this comment, which is precisely how a machine-wide misconfiguration
+# survived several releases; it is now doctrine.
 echo "-- registry images at $REGISTRY_HOST"
-# One repo per CODEBASE, not per core service: `api` carries the `web`,
-# `worker` and `clock` core services on one image, so it is one repo. This
-# loop covers every codebase in the project, and there is currently one.
-# Keep it in sync with infra.yml's `codebases:` keys — a codebase added
-# without being added here has its registry repo survive teardown.
-for service in api; do
-  repo="${PROJECT_NAME}/${service}"
-  tags_json="$(curl -fsS "https://${REGISTRY_HOST}/v2/${repo}/tags/list" 2>/dev/null || echo '{}')"
-  for tag in $(echo "$tags_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print('\n'.join(d.get('tags') or []))" 2>/dev/null || true); do
-    digest="$(curl -fsSI -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-        "https://${REGISTRY_HOST}/v2/${repo}/manifests/${tag}" 2>/dev/null \
-        | awk -F': ' 'tolower($1)=="docker-content-digest" {gsub(/\r/,"",$2); print $2}')"
-    if [[ -n "$digest" ]]; then
-      curl -fsS -X DELETE "https://${REGISTRY_HOST}/v2/${repo}/manifests/${digest}" >/dev/null \
-        || echo "   (warning: failed to delete ${repo}:${tag})"
+
+# The registry is htpasswd-protected (container_registry.md § Design, key
+# choice 1), so every /v2/ call needs an Authorization header. Source it
+# from the operator's ~/.docker/config.json — the artefact
+# PRE_CUT_CHECKLIST § A.5 already requires.
+#
+# NOTE: this helper is duplicated verbatim in verify_clean.sh. These two
+# scripts are standalone by design (an operator copies one into a project
+# and runs it) and must not acquire a shared library, so the duplication is
+# intentional. Change one, change the other.
+REGISTRY_CURL_CONFIG=""
+cleanup_registry_config() {
+  [[ -n "$REGISTRY_CURL_CONFIG" ]] && rm -f "$REGISTRY_CURL_CONFIG"
+  return 0
+}
+trap cleanup_registry_config EXIT
+
+# WHY the credential goes through a `curl -K` config file and never `-u`:
+# `-u` and `-H` both put the credential in argv, where any user on the host
+# can read it from `ps`. The config file is mode 600 and removed on exit.
+# It must never be echoed, and this script must never be run under `set -x`.
+init_registry_auth() {
+  local b64
+  b64="$(python3 -c "
+import json, os, sys
+p = os.path.expanduser('~/.docker/config.json')
+try:
+    auth = json.load(open(p))['auths']['${REGISTRY_HOST}']['auth']
+except Exception:
+    sys.exit(1)
+print(auth)
+")" || {
+    echo "   FAIL: registry credential — no entry for ${REGISTRY_HOST} in ~/.docker/config.json"
+    echo "         Resolution: docker login ${REGISTRY_HOST}  (PRE_CUT_CHECKLIST § A.5)"
+    return 1
+  }
+  REGISTRY_CURL_CONFIG="$(mktemp)"
+  chmod 600 "$REGISTRY_CURL_CONFIG"
+  printf 'header = "Authorization: Basic %s"\n' "$b64" > "$REGISTRY_CURL_CONFIG"
+}
+
+if ! init_registry_auth; then
+  echo "   (registry images NOT purged — verify_clean.sh will report what survived)"
+else
+  # Enumerate what the registry HOLDS, not what the project currently
+  # declares. The old loop was hardcoded to `for service in api`, so repos
+  # retired by a rename — `reaper`, `web`, `worker` — could never be purged
+  # at all, and that is where 26 of the 30 tags leaked by the 1.7.0 fixed
+  # walk actually sat.
+  catalog_status="$(curl -sS -K "$REGISTRY_CURL_CONFIG" \
+    -o /tmp/${PROJECT_NAME}-catalog.json -w '%{http_code}' \
+    "https://${REGISTRY_HOST}/v2/_catalog?n=1000" 2>/dev/null || echo "000")"
+  if [[ "$catalog_status" != "200" ]]; then
+    echo "   FAIL: /v2/_catalog returned HTTP ${catalog_status} — no repos purged"
+    repos=""
+  else
+    # An unparseable body is reported, not swallowed into "no repos". A
+    # silent empty list here is indistinguishable from a clean registry and
+    # is exactly how this script leaked 30 tags while claiming to purge.
+    if ! repos="$(python3 -c "
+import json, sys
+try:
+    data = json.load(open('/tmp/${PROJECT_NAME}-catalog.json'))
+except Exception:
+    sys.exit(2)
+for repo in (data.get('repositories') or []):
+    if repo.startswith('${PROJECT_NAME}/'):
+        print(repo)
+")"; then
+      echo "   FAIL: /v2/_catalog returned an unparseable body — no repos purged"
+      repos=""
     fi
+  fi
+  rm -f "/tmp/${PROJECT_NAME}-catalog.json"
+
+  for repo in $repos; do
+    echo "   repo: $repo"
+    tags_status="$(curl -sS -K "$REGISTRY_CURL_CONFIG" \
+      -o /tmp/${PROJECT_NAME}-tags.json -w '%{http_code}' \
+      "https://${REGISTRY_HOST}/v2/${repo}/tags/list" 2>/dev/null || echo "000")"
+    if [[ "$tags_status" != "200" ]]; then
+      echo "   FAIL: ${repo} tags/list returned HTTP ${tags_status} — repo not purged"
+      rm -f "/tmp/${PROJECT_NAME}-tags.json"
+      continue
+    fi
+    if ! tags="$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('/tmp/${PROJECT_NAME}-tags.json'))
+except Exception:
+    sys.exit(2)
+print('\n'.join(d.get('tags') or []))
+")"; then
+      echo "   FAIL: ${repo} tags/list returned an unparseable body — repo not purged"
+      rm -f "/tmp/${PROJECT_NAME}-tags.json"
+      continue
+    fi
+    for tag in $tags; do
+      # WHY three Accept types: buildx pushes an OCI INDEX, so offering
+      # only `manifest.v2+json` resolves nothing for any image this project
+      # has ever produced — the HEAD 404s, no digest is obtained, and the
+      # DELETE below never runs. That is the second of the two bugs that
+      # made teardown silently leak every tag it claimed to remove.
+      #
+      # The HEAD and the awk are separate statements rather than one
+      # pipeline: `set -euo pipefail` would abort the whole teardown on a
+      # transient network failure inside a pipeline, taking steps 5 and 6
+      # (projinfra down, compiled output) with it.
+      digest=""
+      if ! headers="$(curl -sSI -K "$REGISTRY_CURL_CONFIG" \
+          -H 'Accept: application/vnd.oci.image.index.v1+json' \
+          -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
+          -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+          "https://${REGISTRY_HOST}/v2/${repo}/manifests/${tag}" 2>/dev/null)"; then
+        echo "   FAIL: ${repo}:${tag} — manifest HEAD request failed"
+      else
+        digest="$(printf '%s' "$headers" \
+          | awk -F': ' 'tolower($1)=="docker-content-digest" {gsub(/\r/,"",$2); print $2}')"
+      fi
+      if [[ -z "$digest" ]]; then
+        echo "   FAIL: ${repo}:${tag} — no docker-content-digest returned; not deleted"
+        continue
+      fi
+      # A DELETE that is not 202 is a FAILURE, not a warning to skim past.
+      # 405 means the registry runs without REGISTRY_STORAGE_DELETE_ENABLED
+      # (see the section comment above); 401 means the credential is stale.
+      delete_status="$(curl -sS -K "$REGISTRY_CURL_CONFIG" -X DELETE \
+        -o /dev/null -w '%{http_code}' \
+        "https://${REGISTRY_HOST}/v2/${repo}/manifests/${digest}" 2>/dev/null || echo "000")"
+      if [[ "$delete_status" != "202" ]]; then
+        echo "   FAIL: DELETE ${repo}:${tag} returned HTTP ${delete_status} (expected 202)"
+      fi
+    done
+    rm -f "/tmp/${PROJECT_NAME}-tags.json"
   done
-done
+fi
 
 # -- 5. Dev-side projinfra ------------------------------------------------
 # Mod 053 (F18): tear the dev-side projinfra (per-project traefik + four

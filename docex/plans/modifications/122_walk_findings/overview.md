@@ -177,6 +177,37 @@ escalated, not landed here. The `verify_clean.sh` repair is independent of it
 and lands regardless: with delete disabled, teardown leaves tags and
 `verify_clean` correctly goes red — which is the whole point.
 
+### Sweeping the rest of the class — ruled in, not deferred
+
+Raised as a residual and **ruled back into this mod**. The deciding argument:
+both `verify_clean.sh` scripts now print the rule in a header block and then
+violate it further down. That does not merely leave a bug — it **discredits the
+rule for the next reader**, and the rule is the more valuable artifact.
+
+Two sites, and the second is much the worse:
+
+**`fixed/verify_clean.sh`'s `check()` helper.** `count="$("$@" 2>/dev/null |
+wc -l …)"` — with docker unreachable, all three of its container / network /
+volume checks report `OK`. Three call sites.
+
+**`elastic/verify_clean.sh`, throughout.** Measured: **21** swallowing query
+sites (`|| true` / `|| echo '[]'` on `aws` calls), two presence checks that
+cannot tell *absent* from *call failed*, and **no credential preflight**. With
+expired credentials, the wrong region, or one missing IAM permission, **every
+one of its ~20 checks reports `OK` and the script exits 0** — and that script
+is the elastic walk's D.13 gate. This is a strictly larger false-green surface
+than the registry bug this mod was opened for, and it was found only by
+checking whether the class extended across the seed boundary.
+
+The fix is the `aws_query` helper (mirroring `registry_get`, including the
+subshell constraint that helper already documents), plus an
+`sts get-caller-identity` preflight that fails closed and echoes the account and
+region — because a clean run against the *wrong account* is its own false green.
+
+The honest claim this upgrades to: this mod fixes **every** instance of the
+class in both scripts and states the rule, rather than fixing the registry
+instances and stating a rule the same file goes on to break.
+
 ### Cleaning up the existing leak
 
 30 leaked tags across `api`, `reaper`, `web`, `worker` are removed as part of
@@ -290,6 +321,31 @@ have not assumed it.
 
 ---
 
+---
+
+## The theme, stated once — a check must be shown to fail before a pass means anything
+
+This mod was opened because a cleanup check could not fail. While fixing it,
+**the same failure bit the work itself three more times, in three unrelated
+mechanisms**:
+
+| Where | Mechanism | How it presented |
+| ----- | --------- | ---------------- |
+| `verify_clean.sh` / `teardown.sh` | A swallowed HTTP error (`\|\| true` on a 401) | `OK: registry images` while the registry held thirty tags |
+| `registry_get` (first draft of the fix) | A `mark_fail` lost inside `$(…)`'s subshell | Every status read back empty |
+| A boundary scan during verification | A quoted glob pathspec matching nothing | A **vacuous PASS** over four genuinely modified files |
+
+Three different tools, one shape: **something that could not answer reported
+zero, and zero was read as clean.** None of the three was detected by the check
+itself; each was caught only by someone comparing its output against a fact
+known independently.
+
+The lesson is therefore not "watch your globs" or "quote your pathspecs". It is
+that **a verification step's pass is worthless until the step has been observed
+failing.** That is exactly what the four failure proofs establish for
+`verify_clean.sh` — and it is why the credential-withheld proof matters most of
+the four, because it is the one the old script passed.
+
 ## Changes by file
 
 **Both seeds (byte-identical `core/` trees preserved):**
@@ -351,6 +407,23 @@ have not assumed it.
       the one that distinguishes the new script from the old: the old one
       passed this case.
 6. Clear the 30 leaked tags, then a final `verify_clean.sh` green.
+6a. **Baseline sweep — reported separately from the mod's gates.** Once the
+   elastic `verify_clean.sh` repair lands, run it against the AWS account **as
+   it stands now**, before the elastic walk provisions anything. Every check is
+   read-only, so it costs only API calls.
+
+   It answers a question nothing currently can: **have prior elastic walks left
+   billable resources behind while their `verify_clean` runs reported clean?**
+   Given 21 swallowing sites and no credential preflight, a green D.13 has never
+   been evidence of an empty account. The circumstantial signature is already
+   present — stale `docex_smoke_elastic` ECR-tagged local images for
+   `0.0.15`–`0.0.18` survive on this machine, found by the fixed walker.
+
+   Clean means the walk starts against a known-empty account rather than an
+   assumed-empty one. Not clean means real, invisible spend across several
+   releases — RDS instances, ALBs and their NAT-adjacent resources bill whether
+   or not a green line says otherwise — and it must be found **before** a walk
+   layers new resources on top of it, not afterwards tangled with them.
 7. **C.7–C.11 are not re-walked.** They passed and nothing here reaches them.
    `teardown.sh`'s registry path is exercised by step 6 rather than by a full
    C.11.
@@ -399,7 +472,83 @@ already-inner-committed `project.yml`.
    internally consistent, it becomes `test_jobs_dispatch_smoke.py` and the
    docstring carries the whole lesson instead. One-line change either way.
 
-## Still held (not this mod)
+---
 
-`clock.md`'s binding-coverage sentence remains with the operator; nothing here
-touches it.
+## Finding 6 — the held binding-coverage gate (ruled; folded in)
+
+*Added after design approval. Operator ruling, delivered via the C.O.*
+
+`clock.md:98` says the check step "can assert that every declared job name has
+a binding in the clock's dispatch table". **Nothing implements that**, and the
+ruling is that nothing will: the assertion moves to **clock-side startup
+validation**. A bad job name fails the *deploy*, not the check. No
+`--list-jobs`, no argv contract, no `docex` change.
+
+This is the same drift class the whole advance has been correcting — doctrine
+describing a capability no code provides — and it is resolved by **making the
+code true**, not by softening the sentence. That is the better of the two
+repairs and worth recording as the precedent.
+
+### Most of it already exists
+
+The fixed walk captured this from the running prod clock:
+
+```
+entrypoints.clock INFO clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: heartbeat, prune_pings
+```
+
+The entrypoint already computes both sets and logs them. What it does not do is
+**act** on a mismatch. `ContJobsCron.JOB_NAMES` — made class-level and
+instance-free in Mod 117 precisely so any of the three outcomes would be cheap —
+gets its consumer.
+
+### The asymmetry, which is the part to get right
+
+- **A scheduled job with no binding is fatal.** The typo case
+  (`nightly_cleanupp`) is unrunnable. The process exits non-zero **before
+  entering the cron loop**, naming both the offending job *and* the implemented
+  set — an operator reading a crash-looping container needs both halves to see
+  the typo. Failing on first fire instead would mean a clock that starts,
+  passes its health probe, and dies at 03:00, which is strictly worse than one
+  that never starts.
+- **A bound job with no schedule is fine, and must stay fine.** The driving
+  port is shared, so a job reachable only over HTTP or CLI is a legitimate
+  design — firing a job by hand stopped being a special path, which was one of
+  the clock architecture's stated benefits. A future reader will be tempted to
+  make this symmetric. The code must say, in a comment, that it must not be.
+
+### Placement
+
+Two files, split along the layer boundary the doctrine already draws:
+
+- **`ContJobsCron` gains `unbound(scheduled) -> tuple[str, ...]`**, a
+  classmethod returning the scheduled names with no binding. The adapter owns
+  `JOB_NAMES` and the dispatch table, so "which of these can I not dispatch?"
+  is its question, and it is answerable with no instance and no database.
+- **`entrypoints/clock.py` owns the *policy*** — that an unbound name is fatal —
+  because process lifecycle belongs to the runtime host. It calls `unbound(...)`
+  and converts a non-empty result to `SystemExit(1)`, matching the idiom
+  `_load_schedules()` already uses in that same file for its own failures.
+
+This split is what keeps the entrypoint testable-by-not-needing-tests
+(`hex_overview.md § Tests`: "Entrypoints are not a test tier"). Both directions
+become ordinary assertions in `test_clock_smoke.py`, which already exercises
+this adapter with a stub and no database.
+
+### Consequential edits
+
+- `clock.md:98` is rewritten to describe what now happens, and the
+  `docex check` claim is deleted.
+- `ContJobsCron`'s class docstring currently opens a paragraph with **"Binding
+  coverage is asserted nowhere yet."** That becomes false the moment this
+  lands; it is rewritten rather than left as a fossil.
+- `PRE_CUT_CHECKLIST.md:270` (C.9) and `:383` (D.11) both say *"nothing
+  currently asserts this automatically"* and instruct the operator to compare
+  the two lists **by eye**. Both become false. The boxes are rewritten: the
+  log line is still worth reading, but the *assertion* is now the clock's own
+  startup, and the observable consequence of a mismatch is a container that
+  never reaches its loop.
+
+### Still held
+
+Nothing. This was the last held item.

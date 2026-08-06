@@ -16,20 +16,22 @@ performed in order to know how to defer it, at which point nothing stops
 it performing the job itself, which is exactly what
 `clock.md § The clock defers; it does not work` forbids.
 
-**Binding coverage is asserted nowhere yet.** Nothing currently checks
-that every job name in `DOCEX_SCHEDULES_YAML` has an entry in the table
-below; a schedule naming a job nobody implements is caught only when it
-first fires. That is a recorded decision pending an operator ruling on
-where the assertion belongs (a `docex check` gate, or clock-side startup
-validation), not an oversight. `JOB_NAMES` / `job_names()` below are
-class-level and instance-free precisely so that whichever way the ruling
-goes, the assertion costs one comparison.
+**Binding coverage IS asserted, at clock startup.** `unbound()` below
+answers "which of these scheduled names can I not dispatch?", and
+`entrypoints/clock.py` calls it before entering the cron loop and exits
+non-zero if the answer is non-empty. The split is deliberate: the adapter
+owns `JOB_NAMES` and the dispatch table, so the *question* is its to
+answer; the *policy* that an unbound name is fatal belongs to the runtime
+host, because process lifecycle does (clock.md § Architecture). A
+schedule naming a job nobody implements therefore fails the deploy, not
+the 3 a.m. fire. `JOB_NAMES` / `job_names()` are class-level and
+instance-free so that check costs one set comparison and no database.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Callable
+from typing import Callable, Iterable
 from uuid import UUID
 
 from hex.jobs.ports.driving.cont_jobs import ContJobs
@@ -52,6 +54,26 @@ class ContJobsCron:
         """Every job name this adapter can fire. No instance required."""
         return cls.JOB_NAMES
 
+    @classmethod
+    def unbound(cls, scheduled: Iterable[str]) -> tuple[str, ...]:
+        """Scheduled job names this adapter cannot dispatch, sorted.
+
+        Empty means every scheduled name has a binding.
+
+        Classmethod for the same reason `job_names()` is one — see the
+        note on `JOB_NAMES` above. The startup check must run with no
+        service instance and no database.
+        """
+        # ONE DIRECTION ONLY. This answers "which of these can I not
+        # fire?" and nothing else.
+        #
+        # A bound job with NO schedule is legitimate and must never be
+        # reported. The driving port is shared, so a job reachable only
+        # over HTTP or CLI is a deliberate design — firing a job by hand
+        # stopped being a special path, which is one of the clock
+        # architecture's stated benefits. Do not make this symmetric.
+        return tuple(sorted(set(scheduled) - set(cls.JOB_NAMES)))
+
     def __init__(self, service: ContJobs) -> None:
         self._service = service
         self._dispatch: dict[str, Callable[[], UUID]] = {
@@ -59,9 +81,9 @@ class ContJobsCron:
             "prune_pings": service.prune_pings,
         }
         # The instance table and the class tuple must not drift: the tuple
-        # is what any binding check would read, and a name present in one
-        # but not the other would make that check answer about the wrong
-        # set.
+        # is what `unbound()` — and therefore the clock's startup check —
+        # reads, and a name present in one but not the other would make
+        # that check answer about the wrong set.
         assert set(self._dispatch) == set(self.JOB_NAMES), (
             f"dispatch keys {sorted(self._dispatch)} != "
             f"JOB_NAMES {sorted(self.JOB_NAMES)}"
@@ -79,9 +101,12 @@ class ContJobsCron:
 
         Raises:
             KeyError: the schedule names a job this image does not
-                implement. Re-raised rather than swallowed so the loop can
-                record a genuine failure; see the binding-coverage note in
-                the class docstring.
+                implement. The clock's startup check (`unbound()`, see the
+                binding-coverage note in the class docstring) should have
+                made this unreachable, so this is the last line of defence
+                — for a name that arrived some other way, or a dispatch
+                table mutated after startup. Re-raised rather than
+                swallowed so the loop records a genuine failure.
             Exception: whatever the port raises (typically a database
                 error on enqueue), logged and re-raised.
         """

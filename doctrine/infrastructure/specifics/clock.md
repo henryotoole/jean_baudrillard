@@ -95,7 +95,9 @@ Two things happen, and they serve different purposes.
 
 `DOCEX_SCHEDULES_YAML` is doctrine-injected and reserved: a project may not declare it in its own `env:`, `secrets:`, or `config:` blocks ([rule 20](../cicl.md#validation-rules)). Cron expressions never enter application code.
 
-The [check step](../cicd.md#check-step) can assert that every declared job name has a binding in the clock's dispatch table, catching a schedule that names a job nobody implements.
+**A clock validates its own schedule at startup and refuses to start if it cannot honour it.** Before entering its loop, the clock compares every name in `DOCEX_SCHEDULES_YAML` against its own dispatch table and exits non-zero if any name has no binding, logging both the offending names and the set the image implements. A schedule naming a job nobody implements therefore fails the **deploy**, visibly, while an operator is watching — rather than surfacing hours later as a logged failure on the job's first fire. The image is the only thing that knows what it implements, so the image is what asserts it.
+
+The reverse direction is deliberately **not** checked: a job that is bound but unscheduled is legitimate, because the driving port is shared and a job reachable only over HTTP or CLI is a valid design.
 
 ## Deployment
 

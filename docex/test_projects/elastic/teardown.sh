@@ -247,4 +247,20 @@ for pattern in "$PROJECT_NAME" "$PROJECT_NAME_HYPHEN"; do
   done
 done
 
+# Local IMAGES were missing from this sweep entirely, which is the same
+# defect the fixed seed's teardown had: the AWS destroys above purge ECR,
+# but `dev`/`test` builds, the stage-tester image and docex's own test
+# images all live on the local daemon and were never touched. Both name
+# forms, and NO left anchor, because the project name appears MID-STRING
+# in three of the four real shapes:
+#   docex_smoke_elastic/api:0.0.18                                  (bare repo)
+#   <acct>.dkr.ecr.us-east-1.amazonaws.com/docex_smoke_elastic/api:0.0.18  (ECR-prefixed)
+#   docex_smoke_elastic-stage-tester:latest                         (hyphen, not slash)
+#   docex-test-docex-smoke-elastic-api:latest                       (docex-built test image)
+# The unanchored pattern is what lets the ECR host prefix through.
+for image in $(docker images --format '{{.Repository}}:{{.Tag}}' \
+                 | grep -E "(${PROJECT_NAME}|${PROJECT_AWS_PREFIX})[-_/:]" || true); do
+  docker rmi -f "$image" >/dev/null 2>&1 || true
+done
+
 echo "==> teardown complete. run verify_clean.sh to confirm."

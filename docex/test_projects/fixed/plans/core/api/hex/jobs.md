@@ -78,6 +78,19 @@ There are two name-keyed tables:
 
 They agree on the vocabulary — the job names — and on nothing else.
 
+The defer-side table is also what the clock **validates itself against at
+startup**. `ContJobsCron.unbound(scheduled)` returns the scheduled names it
+cannot dispatch, and `entrypoints/clock.py` treats a non-empty answer as fatal:
+the process exits non-zero, naming both the offending job and the implemented
+set, **before the cron loop is entered**. A typo in `schedules:` therefore fails
+the *deploy* rather than surfacing at 03:00 as a logged failure.
+
+The reverse direction is deliberately **not** checked. A job that is bound but
+unscheduled is legitimate: `ContJobs` is a shared driving port, so a job
+reachable only over HTTP or CLI is a design choice, not a mistake. The
+asymmetry is real and is commented at both sites — making it symmetric is the
+tempting "fix" that would break firing a job by hand.
+
 Merging them would couple the clock to the worker's implementation: the clock
 would have to know how a job is *performed* in order to know how to *defer* it,
 and at that point nothing stops it performing the job itself. That is exactly
@@ -107,6 +120,22 @@ The test drives 40 jobs through two connections on two threads in the `test`
 env. Without it, the two-consumer race would first occur in the **prod
 release** — the same prod-only `replicas` clamp under which a core service that
 cannot tolerate a sibling first fails.
+
+**There is a third claimer, and it is counted rather than wished away.**
+`docex test` brings the whole `test` env up before running `test.sh`, so a live
+`api.worker` container drains this queue throughout the run. It is identifiable:
+it has no handler for the test's `conc_<hex>` marker name, so it stamps a "no
+handler" error on every marker row it wins, and nothing else in the run writes
+that column. The test asserts all three claim sets are pairwise disjoint and
+that their union is the whole queue — exclusivity across a **separate container
+on a separate connection pool**, which is what `FOR UPDATE SKIP LOCKED` actually
+defends against in production and closer to it than two threads in one process.
+
+The general rule this establishes, which matters to any project copying this
+tree: **a test running in the `test` env has no sole agency.** The doctrine
+requires the whole stack to be up, so an integration test may assert on outcomes
+in shared state, never on being the only actor. Assertions that need sole agency
+belong in `tests/test_jobs_alogic.py`, where the queue is a stub.
 
 ## Failure handling
 

@@ -1,19 +1,35 @@
-"""Smoke tests for the `jobs` module against the live test-env postgres.
+"""DB-tier smoke tests for the `jobs` module against the live test-env postgres.
 
-Exercises the whole deferral path in one process — enqueue through
+Exercises the deferral path against the real `jobs` table — enqueue through
 `JobService` (what the clock does), drain through `JobRunnerService` (what
 `api.worker` does) — and asserts on the row itself, because the row IS the
 transport.
 
-These tolerate a concurrently-running `api.clock`: a clock is not
-suppressed in `test` (clock.md § What a clock core service is), so the
-minutely `heartbeat` is genuinely in this queue while the suite runs.
-Every assertion is therefore scoped to job ids this test enqueued.
+**Two live actors share this queue while these tests run, not one.**
+`docex test` brings the WHOLE stack up before running `test.sh`
+(`cicd.md § Build Test Step`), so both are genuinely present:
+
+- a live `api.clock`, which ADDS rows (a minutely `heartbeat`); and
+- a live `api.worker`, which REMOVES them — it claims and performs rows
+  from this same table on a ~1 s poll with `batch_size=8`.
+
+The worker is the one that matters, and an earlier version of this
+docstring mentioned only the clock. That half-truth is what let four
+racing assertions live here: a clock only adds rows, so marker-scoping
+survives it, while nothing survives another process taking your row.
+
+**So this file asserts OUTCOMES in shared state, never AGENCY.** "The row
+reached a finished state" is an outcome and holds no matter who performed
+it. "We performed it", "we claimed it", "it was still unstarted when we
+looked" are agency, and every one of them is false the moment the worker
+wins. Assertions of that shape live in `test_jobs_alogic.py`, where the
+queue is a stub and there is no third party by construction.
 """
 
 from __future__ import annotations
 
 import sys
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -29,6 +45,18 @@ from root import _dsn_from_env  # noqa: E402
 
 
 _DRAIN_PASSES = 12
+# WHY a pause between drain passes: we are not the only drainer. If the
+# live api.worker claimed the row first, our `run_once()` can no longer
+# see it and the only thing that will finish it is the worker's own poll,
+# which ticks at ~1 s. Twelve back-to-back passes complete in milliseconds
+# and would fail this file against a queue that is working perfectly.
+_DRAIN_PAUSE_SECONDS = 0.5
+
+# Bounded wait for a row to be claimed by SOMEONE. Long enough to cover
+# several worker polls; short enough that a dead queue fails the suite
+# rather than stalling it.
+_CLAIM_POLL_PASSES = 60
+_CLAIM_POLL_SECONDS = 0.5
 
 
 class _StubRetention:
@@ -61,85 +89,81 @@ def _drain_until_finished(runner: JobRunnerService, ids: list[UUID]) -> None:
 
     Bounded rather than unbounded: a hang here should fail the suite, not
     stall it.
+
+    Returning early because the rows are already finished is the EXPECTED
+    outcome when the live worker wins the race, not a failure — this loop
+    is a way to make progress, not a claim that we are the one making it.
     """
     for _ in range(_DRAIN_PASSES):
         if all(_row(job_id)[2] is not None for job_id in ids):
             return
         runner.run_once()
+        time.sleep(_DRAIN_PAUSE_SECONDS)
     raise AssertionError(f"jobs {ids} did not drain in {_DRAIN_PASSES} passes")
 
 
-def test_enqueued_job_is_claimed_performed_and_completed() -> None:
+def test_an_enqueued_job_reaches_a_finished_row() -> None:
     queue = QueueJobsPostgres(dsn=_dsn_from_env())
-    retention = _StubRetention()
     job_id = JobService(queue=queue).prune_pings()
 
-    # Not started until something claims it — the clock only defers.
-    assert _row(job_id)[1] is None
-
-    runner = JobRunnerService(queue=queue, retention=retention)
+    runner = JobRunnerService(queue=queue, retention=_StubRetention())
     _drain_until_finished(runner, [job_id])
 
+    # The whole assertion is on the ROW. Whoever performed the job — this
+    # runner or the live api.worker — the deferral contract held: a name
+    # was deferred, something claimed it, and it reached a terminal state
+    # without error.
     name, started_at, finished_at, error = _row(job_id)
     assert name == "prune_pings"
     assert started_at is not None
     assert finished_at is not None
     assert finished_at >= started_at
     assert error is None
-    assert retention.calls >= 1
+
+    # DELETED, deliberately — do not restore either of these:
+    #
+    #   assert _row(job_id)[1] is None   (before draining)
+    #   assert retention.calls >= 1      (after draining)
+    #
+    # The first asserted that nothing had claimed the row yet; the live
+    # worker polls the same table and can stamp `started_at` microseconds
+    # after `enqueue` returns. The second asserted AGENCY — that *we*
+    # performed it — and the worker has a real, working `prune_pings`
+    # handler, so a row it wins finishes clean and our stub is never
+    # called. Both properties are real and both are now asserted where
+    # they hold unconditionally:
+    # `test_jobs_alogic.py::test_the_clock_defers_and_does_not_work` and
+    # `test_jobs_alogic.py::test_prune_pings_dispatches_to_retention`.
 
 
-def test_a_failing_handler_records_the_error_and_the_next_job_still_runs() -> None:
-    queue = QueueJobsPostgres(dsn=_dsn_from_env())
-    service = JobService(queue=queue)
-
-    # Order matters: claim is oldest-first, so the poisoned job is claimed
-    # before the healthy one and must not stall it.
-    poisoned = service.prune_pings()
-    healthy = service.heartbeat()
-
-    runner = JobRunnerService(queue=queue, retention=_StubRetention(raises=True))
-    _drain_until_finished(runner, [poisoned, healthy])
-
-    _, _, poisoned_finished, poisoned_error = _row(poisoned)
-    assert poisoned_finished is not None
-    assert poisoned_error is not None
-    assert "retention exploded" in poisoned_error
-
-    _, _, healthy_finished, healthy_error = _row(healthy)
-    assert healthy_finished is not None
-    assert healthy_error is None
-
-
-def test_run_once_returns_the_number_performed() -> None:
-    queue = QueueJobsPostgres(dsn=_dsn_from_env())
-    service = JobService(queue=queue)
-    ids = [service.heartbeat() for _ in range(3)]
-
-    runner = JobRunnerService(queue=queue, retention=_StubRetention())
-    total = 0
-    for _ in range(_DRAIN_PASSES):
-        total += runner.run_once()
-        if all(_row(job_id)[2] is not None for job_id in ids):
-            break
-    # `>=` rather than `==`: a live api.clock may have deferred a heartbeat
-    # of its own into the same batch.
-    assert total >= len(ids)
-    for job_id in ids:
-        assert _row(job_id)[3] is None
-
-
-def test_claim_returns_started_jobs() -> None:
+def test_claim_starts_the_rows_it_returns() -> None:
     queue = QueueJobsPostgres(dsn=_dsn_from_env())
     job_id = JobService(queue=queue).heartbeat()
 
+    # The adapter's contract, and the part of it that is ours to assert:
+    # whatever subset we win comes back ALREADY STARTED. True of the empty
+    # set too, which is the point — the live worker may have taken every
+    # claimable row a millisecond before this call.
     claimed = {job.id: job for job in queue.claim(limit=32)}
-    assert job_id in claimed, "an enqueued job must be claimable"
-    assert claimed[job_id].started_at is not None
+    for job in claimed.values():
+        assert job.started_at is not None, f"claim() returned job {job.id} without started_at"
 
-    # Leave the queue as we found it. Everything claimed here is now
-    # started and would otherwise never be drained by the real worker,
-    # including any heartbeat a live api.clock deferred alongside ours.
+    # Separately: our row must be claimed by SOMEONE. That is an outcome in
+    # shared state and holds whether we won it or the worker did. Bounded,
+    # so a queue that never advances fails rather than hangs.
+    for _ in range(_CLAIM_POLL_PASSES):
+        if _row(job_id)[1] is not None:
+            break
+        time.sleep(_CLAIM_POLL_SECONDS)
+    assert _row(job_id)[1] is not None, (
+        f"job {job_id} was never claimed by anything in "
+        f"{_CLAIM_POLL_PASSES * _CLAIM_POLL_SECONDS:.0f}s"
+    )
+
+    # Leave the queue as we found it. Everything claimed HERE is started
+    # and would otherwise never be drained by the real worker, including
+    # any heartbeat a live api.clock deferred alongside ours. Rows the
+    # worker won are its own to finish and are not in `claimed`.
     now = datetime.now(timezone.utc)
     for claimed_id in claimed:
         queue.complete(id=claimed_id, at=now)

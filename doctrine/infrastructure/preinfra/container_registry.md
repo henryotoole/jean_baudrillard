@@ -19,6 +19,8 @@ Key choices:
 1. **Auth: htpasswd basic auth.** Single shared credential, written to a bcrypt htpasswd file on the host and mounted into the registry container. Operators that need to push or pull must run `docker login registry.${base_domain}` from their machine, which writes the credential into that machine's `~/.docker/config.json` (per [credentials.md § Fixed Container Registry](../credentials.md#fixed-container-registry)). Token-based auth was considered and rejected as overkill for the doctrine's solo-operator assumption.
 2. **Storage: local volume on the host.** Image blobs land in a docker-named volume mounted at the registry's standard storage path (`/var/lib/registry`). Backups are the operator's responsibility and follow whatever scheme they use for the host. S3 storage was considered and rejected — it would drag AWS credentials into what's meant to be a self-contained `fixed` host.
 3. **No retention policy.** Every image version pushed to the registry is kept indefinitely so [`./bin/docex rollback`](../cicd.md#rollback) can always resolve an old version. The registry grows unboundedly with version count; the operator runs [garbage collection](#garbage-collection) manually if and when host disk pressure demands it.
+
+   Deletion is nonetheless **enabled** (`REGISTRY_STORAGE_DELETE_ENABLED: "true"`). The two are independent: the registry expires nothing on its own, but an operator — or a project's `teardown.sh` — must be able to delete a manifest when it asks to. Without the flag every `DELETE /v2/<repo>/manifests/<digest>` returns `405 Method Not Allowed` and [§ Garbage Collection](#garbage-collection)'s first phase is impossible.
 4. **HTTP-only inside the container.** TLS is terminated at the dedicated traefik; the registry itself listens on plain HTTP on its internal network. Identical to the HyperDX pattern.
 
 ## Implementation
@@ -119,6 +121,12 @@ services:
       # external HTTPS host instead of its container-internal hostname,
       # so docker clients follow blob redirects to the right place.
       REGISTRY_HTTP_HOST: https://registry.${BASE_DOMAIN}
+      # Required. The registry refuses manifest DELETE with 405 unless
+      # deletion is explicitly enabled; § Garbage Collection's first phase
+      # and every project's teardown depend on it. Enabling deletion does
+      # NOT make the registry delete anything on its own — the no-retention
+      # choice below is unaffected.
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=container_registry-internal"
@@ -142,6 +150,7 @@ Notes:
 
 - `${BASE_DOMAIN}` is supplied via a sibling `.env` file (or shell environment) so the same compose file is operator-portable.
 - `REGISTRY_HTTP_HOST` is critical when traefik terminates TLS in front of the registry. Without it, the registry generates blob-redirect `Location` headers from the request's internal `Host`, breaking `docker pull` and `docker push` for layered images. With it set to the external HTTPS URL, redirects route correctly back through traefik.
+- `REGISTRY_STORAGE_DELETE_ENABLED` is **not optional**. It is what makes `DELETE /v2/<repo>/manifests/<digest>` return `202 Accepted` instead of `405 Method Not Allowed`. Every `fixed` project's `teardown.sh` deletes its own registry tags at retirement, and [§ Garbage Collection](#garbage-collection)'s first phase cannot start without it. It is a *capability*, not a policy: the registry still expires nothing by itself (see [§ Design](#design) key choice 3). [§ Verifying Reachability](#verifying-reachability) step 4 proves it.
 - The volume `registry_data` is a docker-managed named volume. Its on-disk path resolves under `/var/lib/docker/volumes/`; back this up however the host backs up docker volumes.
 
 ### htpasswd
@@ -265,7 +274,25 @@ After the stack is up, verify end-to-end reachability before declaring setup com
 
    Successful push and pull confirms blob upload, redirects (via `REGISTRY_HTTP_HOST`), and auth all work. A push that hangs partway through layers is almost always a missing or wrong `REGISTRY_HTTP_HOST`; a `denied` response is an auth problem.
 
-If all three pass, the registry is ready for use by `fixed`-foundation projects.
+4. **Manifest deletion → 202.** Resolve the throwaway tag to a digest and delete it:
+
+   ```bash
+   digest="$(curl -fsSI -u '<username>:<password>' \
+       -H 'Accept: application/vnd.oci.image.index.v1+json' \
+       -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+       https://registry.${base_domain}/v2/preinfra-smoke/hello/manifests/0.0.1 \
+     | awk -F': ' 'tolower($1)=="docker-content-digest" {gsub(/\r/,"",$2); print $2}')"
+   curl -fsS -o /dev/null -w '%{http_code}\n' -u '<username>:<password>' \
+     -X DELETE "https://registry.${base_domain}/v2/preinfra-smoke/hello/manifests/${digest}"
+   ```
+
+   Expect `202`. A `405` means `REGISTRY_STORAGE_DELETE_ENABLED` is missing. An empty `digest` means the `Accept` headers did not cover the manifest type actually pushed — buildx pushes an OCI **index**, so `manifest.v2+json` alone resolves nothing.
+
+   This step also **cleans up** the `preinfra-smoke/hello` tag that step 3 leaves behind, which otherwise sits in the registry catalog forever.
+
+Step 4 is what turns the delete requirement from prose into something the setup walk actually *proves*. Its absence is how a machine-wide misconfiguration survived several releases: no project could delete a registry tag, every `fixed` teardown leaked one per release, and the leak was invisible because the cleanup checks downstream of it could not tell a `405` from a clean registry.
+
+If all four pass, the registry is ready for use by `fixed`-foundation projects.
 
 ## Adding Registry Credentials to a Machine
 
@@ -287,6 +314,8 @@ docker login registry.${base_domain}
 
 The registry never deletes images on its own — every version pushed remains available for `./bin/docex rollback`. Disk usage grows linearly with version count, so on a long-lived host the operator may want to reclaim space by deleting old image tags and then running registry GC.
 
+Phase one requires `REGISTRY_STORAGE_DELETE_ENABLED: "true"` on the registry container ([§ Registry container](#registry-container)). Without it, the procedure below cannot start.
+
 Deletion is two-phase: tag/manifest deletion via the registry API (or by removing references), followed by the registry's `garbage-collect` subcommand to actually free blobs:
 
 ```bash
@@ -303,3 +332,5 @@ docker compose up -d registry
 ```
 
 GC is operator-driven, not scheduled — there is no doctrine prescription for how often to run it. Most setups never need to.
+
+**Deleting a repository's last tag does not remove the repository.** The Registry V2 API keeps the repository *entry* in `/v2/_catalog` with a null tag list (`{"tags": null}`) until GC runs. That is expected, not a leftover — a cleanup check (a project's `verify_clean.sh`, for instance) must therefore key on a repository's **tags** rather than on its presence in the catalog, or it will fail permanently against repos that hold nothing.

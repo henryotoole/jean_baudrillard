@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.19] - 2026-08-06
+
+Repairs found by the `1.7.0` pre-cut fixed-foundation smoke walk. No feature
+change; every edit here makes an existing check or test able to do its job.
+
+### Fixed
+
+- **The `jobs` tests no longer assume they are the only actor.** `docex test`
+  brings the whole `test` env up, so a live `api.worker` drains the same queue
+  the suite writes to. `test_jobs_concurrency.py` now accounts for the worker as
+  a **third claimer** — identifiable because it stamps a "no handler" error on
+  the test's marker rows — and asserts exclusivity across all three, which is
+  strictly stronger than the two-thread form it replaces. Assertions that
+  required sole agency moved to a new stub-queue alogic file,
+  `tests/test_jobs_alogic.py`.
+- **`verify_clean.sh` can now fail.** It reported `OK: registry images` while
+  thirty tags remained: the registry query was unauthenticated and 401'd, the
+  reply was swallowed, and empty was read as clean. It now authenticates,
+  enumerates `/v2/_catalog` (so repos retired by a rename are visible),
+  matches image names in every form they take, and **fails whenever a check
+  cannot be answered** rather than reporting zero.
+- **`teardown.sh` actually deletes.** Same auth and catalog fixes, plus the OCI
+  index media type in `Accept` — buildx pushes an index, so the old
+  `manifest.v2+json` request resolved no digest and the delete never ran.
+
+### Added
+
+- **The clock validates its schedule at startup.** A scheduled job name with no
+  binding in the clock's dispatch table now fails the deploy, before the cron
+  loop is entered, naming both the offending job and the implemented set. A
+  bound job with *no* schedule remains legitimate and is deliberately not
+  reported — the driving port is shared, so a job reachable only over HTTP or
+  CLI is a valid design.
+
 ## [0.0.17] - 2026-08-06
 
 This entry covers **four doctrine changes at once**, because the seed was carried

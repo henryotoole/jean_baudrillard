@@ -593,3 +593,305 @@ Run these and report the output. Do **not** run any `./bin/docex` command.
 
 Do not commit. Do not run the smoke walk. Report what you changed, the exact
 test counts, and anything in Steps 1–9 you could not do as written.
+
+---
+
+## Step 11 — clock-side binding validation (addendum)
+
+*Added after Steps 1–10 were written. Operator ruling on the held
+binding-coverage item; see [`overview.md`](./overview.md) § Finding 6 for the
+reasoning, which you should read before starting.*
+
+This step **does** change product source under `core/api/src/**`, which Ground
+Rule 2 otherwise forbids. The rule is suspended for the two files named below
+and for nothing else.
+
+Both seeds, byte-identical.
+
+### 11a. `ContJobsCron.unbound()`
+
+`{fixed,elastic}/core/api/src/hex/jobs/adapters/driving/cont_jobs_cron.py`.
+
+Add a classmethod beside `job_names()`:
+
+```python
+@classmethod
+def unbound(cls, scheduled: Iterable[str]) -> tuple[str, ...]:
+    """Scheduled job names this adapter cannot dispatch, sorted.
+
+    Empty means every scheduled name has a binding.
+    """
+```
+
+Requirements:
+
+- **Classmethod, no instance, no database** — same constraint as `job_names()`,
+  and for the same reason. Comment it by reference rather than restating it.
+- **One direction only.** It answers "which of these can I not fire?" It must
+  **not** report bindings that have no schedule. Comment that asymmetry *here*,
+  where the temptation to make it symmetric actually lives:
+
+  > A bound job with **no** schedule is legitimate and must never be reported.
+  > The driving port is shared, so a job reachable only over HTTP or CLI is a
+  > deliberate design — firing a job by hand stopped being a special path. Do
+  > not make this symmetric.
+- Sorted output, so the error message is stable and diffable.
+
+**Rewrite the class docstring paragraph** that currently begins *"Binding
+coverage is asserted nowhere yet."* — it becomes false with this change.
+Replace it with what is now true: coverage **is** asserted, at clock startup,
+by `entrypoints/clock.py` calling `unbound()`; the adapter answers the
+question and the runtime host owns the policy that an unbound name is fatal.
+Keep the surrounding "two dispatch tables are not duplication" paragraph
+untouched — it is unrelated and still correct.
+
+`fire()`'s `Raises:` docstring cross-references "the binding-coverage note in
+the class docstring". Check that the reference still resolves after the
+rewrite and adjust the wording if not; `fire()`'s own `KeyError` behaviour does
+**not** change — it remains the last line of defence for a name that somehow
+reaches dispatch.
+
+### 11b. `entrypoints/clock.py` — fail fast
+
+`{fixed,elastic}/core/api/src/entrypoints/clock.py`.
+
+Replace the comment block in `main()` that currently begins *"RECORDED
+DECISION, not a TODO:"* — the decision is now made — with the validation
+itself, placed **immediately after** the existing `logger.info("clock: %d
+scheduled job(s): …")` call and **before** the health-server thread starts and
+before `next_at` is seeded.
+
+```python
+    missing = cron.unbound(schedules)
+    if missing:
+        logger.error(
+            "clock: %d scheduled job(s) have no binding: %s; image implements: %s",
+            len(missing), ", ".join(missing), ", ".join(sorted(cron.job_names())),
+        )
+        raise SystemExit(1)
+```
+
+Comment requirements — three WHYs, each earning its line:
+
+1. **Why fatal.** A schedule naming a job this image cannot dispatch is a
+   typo, and it is unrunnable. Fail the *deploy*, not the check.
+2. **Why here rather than on first fire.** A clock that starts, answers its
+   health probe, and then dies at 03:00 is worse than one that never starts.
+   The failure must land while someone is watching the deploy.
+3. **Why both halves are in the message.** An operator reading a crash-looping
+   container needs the offending name *and* the implemented set to see the
+   typo; either alone sends them to the source tree.
+
+Keep `raise SystemExit(1)` rather than `sys.exit` — it matches
+`_load_schedules()`'s existing idiom in this file, and matching it is the
+point.
+
+**Keep the existing "N scheduled job(s) … image implements: …" log line.** It
+is what `PRE_CUT_CHECKLIST` C.9 / D.11 tell the operator to look for, and it is
+still the positive-path evidence that the schedule arrived.
+
+### 11c. Tests — both directions
+
+`{fixed,elastic}/core/api/tests/test_clock_smoke.py`. Two tests, in that
+file's existing no-database, no-`root` idiom:
+
+| Test | Asserts |
+| ---- | ------- |
+| `test_a_scheduled_name_with_no_binding_is_reported` | `ContJobsCron.unbound(["heartbeat", "nightly_cleanupp"]) == ("nightly_cleanupp",)`. Use a **plausible typo**, not `no_such_job` — the test should look like the failure it defends against. |
+| `test_a_binding_with_no_schedule_is_not_reported` | `ContJobsCron.unbound(["heartbeat"]) == ()` even though `prune_pings` is implemented and unscheduled. Comment that this direction is deliberately benign and points at the asymmetry note in the adapter. |
+
+Also assert `unbound(...)` works **off the class**, with no instance
+constructed, in at least one of the two — that is the property Mod 117 paid for
+and the one a future refactor would silently break.
+
+### 11d. `clock.md` — rewrite the held sentence
+
+`$JB/doctrine/infrastructure/specifics/clock.md`, the line at the end of
+§ How the schedule reaches the container:
+
+> The [check step](../cicd.md#check-step) can assert that every declared job
+> name has a binding in the clock's dispatch table, catching a schedule that
+> names a job nobody implements.
+
+Delete it. Replace with a sentence or two, in the file's voice, saying:
+
+- The clock validates its own schedule **at startup**, against its dispatch
+  table, and **refuses to start** if any scheduled name has no binding.
+- So a schedule naming a job nobody implements fails the **deploy**, visibly,
+  rather than surfacing at 03:00 as a logged failure.
+- Say nothing about `docex check`. The claim that it "can assert" this is
+  deleted, not softened — nothing implements it and nothing will.
+
+Do not add an open question, a marker, or a "for now". This is settled.
+
+### 11e. Checklist — C.9 and D.11
+
+`PRE_CUT_CHECKLIST.md:270` (C.9) and `:383` (D.11) are the same box on two
+foundations. Both currently end:
+
+> **Compare the two lists by eye** — a scheduled name absent from the
+> implemented set is a job nobody has written, and nothing currently asserts
+> this automatically.
+
+Both clauses are now false. Rewrite each box to say:
+
+- The log line is still the evidence the schedule **arrived**, so keep reading
+  it.
+- The comparison is now asserted **by the clock itself at startup**; a
+  mismatch means the container exits non-zero and never reaches its loop, so
+  the observable symptom is a crash-looping clock, not a silently-wrong one.
+- Therefore: if the clock is running and logging, the binding check has already
+  passed. Preserve each foundation's own log-access mechanism (`docker logs …`
+  for C.9, the CloudWatch log group for D.11).
+
+### 11f. Verification additions
+
+Add to Step 10:
+
+- `test_clock_smoke.py` is DB-free, so **run it**:
+  `cd $JB/docex/test_projects/fixed/core/api && PYTHONPATH=./src pytest tests/test_clock_smoke.py -q`.
+  Report the count. Do the same for the elastic copy.
+- Re-run Step 10 check 1 (seed parity) **after** these edits — this step touches
+  `core/api/src/**` in both seeds, which is the largest byte-identity risk in
+  the whole mod.
+- Step 10 check 7 changes: modifications under
+  `docex/test_projects/*/core/api/src/` are now **expected**, but only in
+  `entrypoints/clock.py` and
+  `hex/jobs/adapters/driving/cont_jobs_cron.py`. Any other file under `src/`
+  is a violation, and `docex/src/` must still be untouched.
+- `doctrine/` may now show **two** modified files:
+  `infrastructure/preinfra/container_registry.md` and
+  `infrastructure/specifics/clock.md`. No others.
+
+---
+
+## Step 12 — finish sweeping the swallow class (addendum)
+
+*Added after Step 11. Operator ruling: the residual you flagged is fixed here,
+in Mod 122, not deferred.*
+
+The reasoning, because it changes how you should judge edge cases below: both
+`verify_clean.sh` scripts now **print the rule in a header block** — *a check
+that cannot answer must FAIL, not report zero* — and then violate it further
+down. A script that condemns a pattern in its header and commits it three lines
+later does not merely carry a bug; it **discredits the rule for the next
+reader**, and the rule is the more valuable artifact. When in doubt on any
+individual call site, resolve toward making the rule true.
+
+### 12a. `fixed/verify_clean.sh` — the `check()` helper
+
+```sh
+check() {
+  local label="$1"; shift
+  local count
+  count="$("$@" 2>/dev/null | wc -l | tr -d ' ')"
+```
+
+If the docker daemon is unreachable, `docker ps -aq` fails, `wc -l` counts zero
+lines, and the check reports `OK`. All three of its call sites — containers,
+networks, volumes — are affected.
+
+Rewrite it on the shape you already used for local images: run the command,
+test **its** exit status, and only then filter. Requirements:
+
+- A non-zero exit from the queried command prints
+  `FAIL: <label> — the check could not answer` plus the captured stderr, and
+  increments `remaining`.
+- An empty result from a command that **succeeded** is still `OK`.
+- Keep the `check "docker containers" docker ps -aq --filter …` call shape at
+  all three sites — the helper's signature should not change, only its body.
+- Do not silently drop stderr. It is what tells the operator *why* the check
+  could not answer.
+
+### 12b. `elastic/verify_clean.sh` — the same class, ~20 times
+
+**This is the more serious half and it is why the ruling went this way.** That
+script has **21 swallowing query sites** (`|| true` / `|| echo '[]'` on `aws`
+calls), two presence checks of the form
+`if aws … >/dev/null 2>&1; then mark_fail … else report_ok`, and **no
+credential preflight at all**. With expired AWS credentials, or the wrong
+region, or an IAM permission missing, *every one of the ~20 checks reports `OK`
+and the script exits 0.* That script is the elastic walk's D.13 gate.
+
+Three changes:
+
+**1. Credential preflight, before any check.** One `aws sts get-caller-identity`
+call. If it fails, print the failure and **exit non-zero immediately** rather
+than running twenty checks that cannot answer. This is the cheapest guard in
+the file: it catches the dominant real-world cause once, instead of twenty
+times, and it turns the most likely false-green into the most obvious failure.
+Echo the account id and region on success so the operator can see *which*
+account was interrogated — a clean run against the wrong account is its own
+false green.
+
+**2. An `aws_query` helper, mirroring `registry_get`.**
+
+```sh
+AWS_QUERY_OUT=""
+aws_query() {   # aws_query <label> <command...>
+  # Sets AWS_QUERY_OUT on success. On failure: mark_fail + return 1.
+}
+```
+
+- **Call it as a plain command and read `AWS_QUERY_OUT`** — never
+  `x="$(aws_query …)"`. That is the subshell trap you already hit and
+  documented on `registry_get`; the `mark_fail` inside would be discarded.
+  Carry the same WHY comment here rather than assuming the other one will be
+  found.
+- Post-filtering (`tr`, `grep`, `sort -u`, the `python3` filters) moves to the
+  **caller**, operating on `$AWS_QUERY_OUT`. `grep` exiting 1 there is the
+  *clean* answer and stays tolerated — that distinction is the whole point of
+  the split.
+- Convert all 21 sites. The `python3` post-filters that currently end
+  `|| true` (the VPC one at `:55`, and any like it) must also report a failure
+  rather than yield an empty list: an unparseable AWS response is exactly as
+  unanswerable as a failed call.
+
+**3. The two presence checks** (`s3api head-bucket` at `:131`,
+`dynamodb describe-table` at `:136`) conflate *"the resource is absent"*
+(clean) with *"the call failed"* (unanswerable). Distinguish them by
+inspecting the error: a `404`/`NoSuchBucket` and a `ResourceNotFoundException`
+respectively mean clean; **any other** non-zero outcome is a failure to answer
+and must be reported as such. Comment the distinction — it is subtle and a
+future reader will otherwise "simplify" it back.
+
+Do **not** change which resource types are checked, the check order, or the
+`OK:`/`FAIL:` output vocabulary. This step changes *how failure is detected*,
+nothing else. A reviewer diffing this against the previous walk's output should
+see the same lines in the same order on a clean run.
+
+### 12c. Verification — a fourth failure proof
+
+Add to the failure-proof set, in **both** seeds:
+
+- **The unanswerable-command case.** Point `DOCKER_HOST` at a nonexistent
+  socket (e.g. `DOCKER_HOST=unix:///nonexistent/docker.sock`) for the duration
+  of the assertion, run `fixed/verify_clean.sh`, and require:
+  1. non-zero exit, and
+  2. that the docker container/network/volume lines say the check **could not
+     answer** — not `OK`.
+
+  **Hard constraint: do NOT stop the docker daemon.** This machine is shared and
+  other services depend on that daemon. `DOCKER_HOST` proves the same property
+  safely, and it is the more honest test anyway: what is being defended against
+  is *"the command cannot answer"*, not specifically *"dockerd is stopped"*.
+
+- **The elastic equivalent**, in your stubbed harness rather than against real
+  AWS: a stubbed `aws` that exits non-zero must make `elastic/verify_clean.sh`
+  exit non-zero with **no** `OK:` line for the affected check, and the
+  credential preflight must fail closed when `sts get-caller-identity` fails.
+  Do not issue real AWS calls.
+
+### 12d. Documentation touch-ups
+
+- `PRE_CUT_CHECKLIST.md` **C.11**: the paragraph you added about registry
+  queries generalizes — `verify_clean.sh` now fails whenever **any** check
+  cannot be answered, including an unreachable docker daemon. Widen that
+  sentence; do not add a new paragraph.
+- `PRE_CUT_CHECKLIST.md` **D.13**: add the equivalent, and state the specific
+  consequence that motivated it — with expired or wrong-account AWS
+  credentials the script previously reported every resource type clean and
+  exited 0. Mention the preflight's account/region echo as the thing to eyeball.
+
+If Step 11 has already edited either checklist section, integrate rather than
+overwrite.

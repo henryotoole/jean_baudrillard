@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.20] - 2026-08-06
+
+Repairs found by the `1.7.0` pre-cut **fixed**-foundation smoke walk, applied
+here because the `core/` trees are byte-identical across seeds — and because
+this seed's `verify_clean.sh` turned out to carry a larger version of the same
+defect. No feature change.
+
+### Fixed
+
+- **The `jobs` tests no longer assume they are the only actor.** `docex test`
+  brings the whole `test` env up, so a live `api.worker` drains the same queue
+  the suite writes to. `test_jobs_concurrency.py` now accounts for the worker as
+  a **third claimer** and asserts exclusivity across all three, which is
+  stronger than the two-thread form it replaces. Assertions needing sole agency
+  moved to a new stub-queue alogic file, `tests/test_jobs_alogic.py`.
+- **`verify_clean.sh` can now fail.** It had **21** query sites that swallowed
+  errors and **no credential preflight**, so expired credentials, a wrong
+  region, or one missing IAM permission made all ~20 AWS checks report `OK` and
+  the script exit 0 — on the gate that certifies this account has stopped
+  costing money. Every query now fails loudly when it cannot be answered, a
+  preflight aborts early and **echoes the account id and region** (a clean run
+  against the wrong account is its own false green), and the two presence checks
+  now distinguish *resource absent* from *call failed*.
+- **Local docker images are checked and torn down.** Neither script touched them
+  before; the first repaired run found **14** leftovers, including images from
+  the retired `reaper` codebase.
+
+### Added
+
+- **The clock validates its schedule at startup.** A scheduled job name with no
+  binding now fails the deploy before the cron loop is entered, naming both the
+  offending job and the implemented set. A bound job with *no* schedule stays
+  legitimate and is deliberately not reported.
+
 ## [0.0.19] - 2026-08-06
 
 This entry covers **four doctrine changes at once**, because the seed was carried

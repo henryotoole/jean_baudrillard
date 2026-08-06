@@ -152,19 +152,35 @@ def main() -> None:
     schedules = _load_schedules()
     cron = build_clock()
 
-    # RECORDED DECISION, not a TODO: nothing here asserts that every name
-    # in `schedules` has a binding in `cron`'s dispatch table. A schedule
-    # naming a job this image does not implement is caught when it first
-    # fires, as a logged failure. Where that assertion belongs — a `docex
-    # check` gate reading the image, or startup validation right here — is
-    # an open operator ruling. `ContJobsCron.job_names()` is exposed as a
-    # class-level, instance-free accessor precisely so that whichever way
-    # the ruling goes, the check costs one set comparison and no database.
     logger.info(
         "clock: %d scheduled job(s): %s; image implements: %s",
         len(schedules), ", ".join(sorted(schedules)),
         ", ".join(sorted(cron.job_names())),
     )
+
+    # WHY FATAL: a schedule naming a job this image cannot dispatch is a
+    # typo (`nightly_cleanupp`), and it is unrunnable. It fails the DEPLOY
+    # rather than a `docex check` gate — the image is the only thing that
+    # knows what it implements, so the image is what asserts it.
+    #
+    # WHY HERE, and not on first fire: a clock that starts, answers its
+    # health probe, and then dies at 03:00 is strictly worse than one that
+    # never starts. The failure must land while someone is watching the
+    # deploy, so it goes before the health server and before `next_at`.
+    #
+    # WHY BOTH HALVES ARE LOGGED: an operator reading a crash-looping
+    # container needs the offending name AND the implemented set to see the
+    # typo. Either alone sends them to the source tree.
+    #
+    # Only this direction is checked. A bound job with no schedule is
+    # legitimate — see the asymmetry note in `ContJobsCron.unbound()`.
+    missing = cron.unbound(schedules)
+    if missing:
+        logger.error(
+            "clock: %d scheduled job(s) have no binding: %s; image implements: %s",
+            len(missing), ", ".join(missing), ", ".join(sorted(cron.job_names())),
+        )
+        raise SystemExit(1)
 
     # WHY: the health server runs in a daemon thread and the cron loop in
     # the MAIN thread, not the other way round. Signals are only delivered

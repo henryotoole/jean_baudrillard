@@ -24,6 +24,25 @@ They talk through a postgres backing service (`appdb`) — the `pings` table and
 
 `api` is also the doctrine's **reference implementation** of the entrypoint and liveness rules — `src/entrypoints/{web,worker,clock}.py` beside a construct-only `root.py`, with the doctrine-fixed 10 s tick / 30 s staleness thresholds — and of the clock architecture, in `hex/jobs` (the queue and its dispatch) and `hex/retention` (the pruning work a job performs). One standing warning about that pair, because it looks like duplication and is not: the **defer-side** dispatch table in `ContJobsCron` maps a job name to a driving-port method that *enqueues*, while the **perform-side** table in `JobRunnerService` maps a job name to the work itself. Collapsing them would couple the clock to the worker's implementation and destroy the deferral architecture. Downstream projects copy this tree and inherit whatever it fails to explain, so changes here should be made deliberately.
 
+The defer-side table is also the clock's **startup gate**: `entrypoints/clock.py` compares its schedule against `ContJobsCron.unbound(...)` and exits non-zero before entering the loop if any scheduled name has no binding. A typo in `schedules:` fails the deploy rather than surfacing at the job's first due time. The reverse direction — bound but unscheduled — is legitimate and deliberately unchecked, since the driving port is shared with HTTP and CLI.
+
+### The `test` env has no sole actor
+
+A lesson the seeds now teach by example, because they previously taught the opposite. `docex test` brings the **whole** `test` environment up before running `test.sh`, so `api.worker` and `api.clock` are live containers competing with the suite for the same rows. A test that asserts it is the only claimer, or the only performer, is wrong by construction and fails intermittently — passing on a cold machine and failing once image layers cache, which is a worse signature than a clean failure.
+
+So the seeds split by tier: DB-backed tests in `test_jobs_smoke.py` / `test_jobs_concurrency.py` assert only **outcomes in shared state** (and count the live worker as a third claimer, identified by the "no handler" error it stamps on unrecognized job names), while agency-shaped assertions live in `test_jobs_alogic.py` against a stub queue. That is where `hex_overview.md § Tests` puts them anyway; the `test`-env constraint simply makes the doctrine's tiering non-optional.
+
+### `verify_clean.sh`: a check that cannot answer must fail
+
+Both scripts are built on one rule, stated in a comment block at the top of each: **a query that cannot be answered must fail the check, not report zero.** Every false green these scripts produced came from the same shape — a swallowed error (`|| true`, `|| echo '{}'`) yielding an empty result that was read as "clean". The fixed script reported `OK: registry images` for several releases while thirty tags remained, because its registry query was unauthenticated and 401'd; the elastic script had 21 such sites and no credential preflight, so expired credentials made all ~20 AWS checks report `OK` and exit 0 — on the gate that certifies the account has stopped billing.
+
+Consequences worth preserving:
+
+- The elastic script **aborts on a failed `sts get-caller-identity`** and echoes the account id and region. A clean run against the *wrong account* is a false green an operator cannot detect by reading the output.
+- Registry repos are enumerated from `/v2/_catalog`, not from a hardcoded codebase list — repos retired by a rename (`reaper`, `web`, `worker`) are otherwise structurally invisible.
+- A repository whose tag list is **null** is not a leftover; the Registry V2 API keeps the entry until the operator runs garbage collection. The check keys on tags.
+- **A cleanup check must be observed failing before a pass means anything.** These scripts are verified by deliberately leaking a tag, a local image, a withheld credential, and an unanswerable command — the last two being cases the previous versions passed.
+
 Code identity between fixed and elastic is intentional. Per the doctrine's parts-only env model, application code shouldn't know which foundation it's running on; the smoke test's audit step diffs the two trees and fails if real divergence appears.
 
 ```
