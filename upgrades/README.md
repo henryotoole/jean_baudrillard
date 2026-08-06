@@ -13,7 +13,12 @@ The producer side — when and how a guide is authored — is in
 
 A guide is **the upgrade guide that ships with one release** — it describes the
 work to move onto that release from the one before it. It is written once, when
-that release is cut, then never revised. Guides form a totally-ordered **tape**:
+that release is cut, then never revised. **One narrow exception:** a guide's
+**link targets** may be repointed when a later release renames the doctrine
+section a link addresses. Nothing else may change — no prose, no instruction, and
+no version claim. A guide's words are the historical artifact; its links are
+pointers into living doctrine, and a dangling one preserves nothing while making
+the guide unusable. Guides form a totally-ordered **tape**:
 `project-upgrade` finds a project's entry point in the sequence and plays the
 guides forward to the target version. This keeps each guide small and
 single-purpose; no guide has to anticipate "every possible starting point" (the

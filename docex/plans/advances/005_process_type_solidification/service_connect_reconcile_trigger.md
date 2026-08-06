@@ -408,7 +408,7 @@ Two consequences for the record above:
    `CreateDate` now sits *earlier* relative to any task, so the
    `startedAt < CreateDate` comparison is strictly more conservative, biasing
    toward redeploy, which is the direction
-   [the tie-break rule](#two-implementation-details-that-matter) demands.
+   [the tie-break rule](#three-implementation-details-that-matter) demands.
 2. **The `desiredCount: 0` dismissal rests on a false premise.** "Nor does
    creating services at `desiredCount: 0` and scaling up afterward help —
    registration is per-task, so the scale-up cohort races too" is refuted: names

@@ -11,14 +11,18 @@ The doctrine commits to two foundations. Bugs hit each foundation differently �
 
 ## Shape
 
-Both projects share the **same code** under `core/`. There are **two codebases carrying three core services** between them:
+Both projects share the **same code** under `core/`. There is **one codebase carrying three core services**:
 
-- **`api`** — one codebase, one image, two core services. `api.web` (`role: web`) exposes `POST /pings` + `GET /health` + the `/health/api/worker` fan-out; `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, and serves its own `GET /health` off a monotonic loop tick. `api.web` declares `uses: [appdb, probe, events, api.worker]` — bare entries name backing services, the dotted one names a core service. This is the pair that exercises the core-service expansion: one build, one ECR repo, one `-exec` container, one `-migrate` task definition, two sidecars.
-- **`reaper`** — a scheduler-only codebase with one core service, `reaper.prune` (`role: scheduler`), nightly-pruning expired processed pings. Kept separate deliberately: it is the only end-to-end coverage of the scheduler path anywhere, since no integration test touches one.
+- **`api`** — one codebase, one image, three core services.
+  - `api.web` (`role: web`) exposes `POST /pings` + `GET /health` + the `/health/api/worker` fan-out. It declares `uses: [appdb, probe, events, api.worker]` — bare entries name backing services, the dotted one names a core service.
+  - `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, **drains the `jobs` queue**, and serves its own `GET /health` off a monotonic loop tick.
+  - `api.clock` (`role: clock`) is a long-running singleton that owns the cron loop. It declares `schedules: {prune_pings: "0 3 * * *", heartbeat: "* * * * *"}` and `uses: [appdb, api.worker]` — and holds **no magic ref** to the worker, because the edge is the *queue*, not the mesh. It defers and never performs: each fire enqueues a row the worker drains. `prune_pings` carries the retired `reaper` codebase's nightly work on its original schedule; `heartbeat` exists so the fire → defer → drain path is observable inside a walk window.
 
-They talk through a postgres backing service (`appdb`) and the `pings` table, plus two project-local container backings (`probe`, `events`).
+  Together these exercise the core-service expansion: **one** build, **one** ECR repo, **one** `-exec` container, **one** `-migrate` task definition, and **three** otelcol sidecars.
 
-`api` is also the doctrine's **reference implementation** of the entrypoint and liveness rules — `src/entrypoints/{web,worker}.py` beside a construct-only `root.py`, with the doctrine-fixed 10 s tick / 30 s staleness thresholds. Downstream projects will copy it, so changes there should be made deliberately.
+They talk through a postgres backing service (`appdb`) — the `pings` table and the queue's `jobs` table — plus two project-local container backings (`probe`, `events`).
+
+`api` is also the doctrine's **reference implementation** of the entrypoint and liveness rules — `src/entrypoints/{web,worker,clock}.py` beside a construct-only `root.py`, with the doctrine-fixed 10 s tick / 30 s staleness thresholds — and of the clock architecture, in `hex/jobs` (the queue and its dispatch) and `hex/retention` (the pruning work a job performs). One standing warning about that pair, because it looks like duplication and is not: the **defer-side** dispatch table in `ContJobsCron` maps a job name to a driving-port method that *enqueues*, while the **perform-side** table in `JobRunnerService` maps a job name to the work itself. Collapsing them would couple the clock to the worker's implementation and destroy the deferral architecture. Downstream projects copy this tree and inherit whatever it fails to explain, so changes here should be made deliberately.
 
 Code identity between fixed and elastic is intentional. Per the doctrine's parts-only env model, application code shouldn't know which foundation it's running on; the smoke test's audit step diffs the two trees and fails if real divergence appears.
 
@@ -29,13 +33,29 @@ docex/test_projects/
 ├── fixed/                       (foundation: fixed)
 │   ├── project.yml, README.md, CHANGELOG.md, .gitignore
 │   ├── bin/docex                (shim, installed by docex_install.sh)
-│   ├── core/{api,reaper}/       (full hex structure, identical to elastic's)
+│   ├── core/api/                (full hex structure, identical to elastic's)
 │   ├── infra/{infra.yml, contracts/, stage/, secrets/, deploy_creds/, output/}
 │   ├── plans/core/              (masterplan + service docs)
 │   ├── teardown.sh
 │   └── verify_clean.sh
 └── elastic/                     (same shape, foundation: elastic)
 ```
+
+### Coverage given up when `reaper` was deleted
+
+The `fixed` and `elastic` seeds carried a second codebase, `reaper`, until `role: scheduler` was retired. This section is the record of what that cost, so a reader who finds one codebase can find an accounting rather than a gap.
+
+**Why the codebase could not survive.** A clock defers onto its **own** codebase's queue, and only the schema-owning codebase may enqueue ([`clock.md § The clock defers; it does not work`](../../../doctrine/infrastructure/specifics/clock.md#the-clock-defers-it-does-not-work)). `reaper` owned no schema — it reached into `api`'s `pings` table through its own repo adapter — and it had no worker and no queue. A `reaper.clock` would therefore have had to *perform* the prune inside the singleton, which is precisely the one thing the rule forbids. `api` owns the schema, owns a polling worker, and can own a queue, so the clock folded into `api` and the prune became a job on `api`'s driving port.
+
+**What the walk stopped exercising:**
+
+- **One image per codebase** — the multi-codebase build fan-out. With one codebase, `build` and `containerize` no longer iterate.
+- **Two registry repos on fixed** (checked at C.6 of [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md)) and **two ECR repos on elastic** (D.8 checked the count explicitly). Both counts are now one, and both checks now guard against a *second* repo appearing rather than confirming a second is present.
+- **The per-codebase `migrate.sh` / `test.sh` fan-out** — and the sharpest edge of all: a codebase that owns **no** schema, and therefore has no `migrate.sh` at all, is a shape the walk no longer contains anywhere. `reaper` was that shape.
+
+**What was gained,** so the trade is legible rather than only a loss: a real clock **container** running in both walks, a compiler-delivered schedule table (`infra/output/<env>/schedules.yml` plus the `DOCEX_SCHEDULES_YAML` literal), and a fire → defer → drain path exercised end-to-end on both foundations.
+
+**This is not drift, and restoring a second codebase is not the fix.** If the multi-codebase fan-out coverage is wanted back, it needs a second codebase with a genuine reason to exist — not a resurrected `reaper`, whose reason for existing was retired along with `role: scheduler`.
 
 ## Inception-flow divergences
 

@@ -19,7 +19,7 @@ sometimes `api-web`. That costs a few lines on a service that genuinely has one
 process type and buys the deletion of collapse logic at the emitted name, the
 hostname, the contract path, the health path, `OTEL_SERVICE_NAME`, and every tag.
 
-See [`cicl.md § Process Types`](../doctrine/infrastructure/cicl.md#process-types)
+See [`cicl.md § Process Types`](../doctrine/infrastructure/cicl.md#core-services)
 for the model and the [1.6.0 CHANGELOG entry](../CHANGELOG.md) for the full list
 of what changed.
 

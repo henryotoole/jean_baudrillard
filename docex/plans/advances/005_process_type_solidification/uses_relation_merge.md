@@ -38,7 +38,7 @@ in one field while its dependency on `api.web` lives in another.
 
 The 12-factor grounding: infrastructure should not *require* any component to be
 online for another to boot. The doctrine already mandates exactly this at
-[`cicl.md § Depends-On Relationships`](../../../../doctrine/infrastructure/cicl.md#depends-on-relationships):
+[`cicl.md § Startup ordering is not a doctrine feature`](../../../../doctrine/infrastructure/cicl.md#startup-ordering-is-not-a-doctrine-feature):
 
 > **Startup ordering is not a substitute for connection resilience.** Every
 > service must tolerate its dependencies being absent at any moment.
@@ -75,7 +75,7 @@ all.** If `docex` keeps emitting it while the doctrine says nothing, then `dev`
 and `test` genuinely do order startup. A developer writes a service that
 connects at boot with no retry; it works in `dev`, works in `test`, works in
 `stage`-on-fixed — and breaks the first time the project goes elastic, where
-[the gate cannot be honoured](../../../../doctrine/infrastructure/cicl.md#depends-on-relationships).
+[the gate cannot be honoured](../../../../doctrine/infrastructure/cicl.md#startup-ordering-is-not-a-doctrine-feature).
 The protection is real but invisible, so nobody knows to distrust it.
 
 It also inverts the principle that motivated the change. 12-factor's dev/prod

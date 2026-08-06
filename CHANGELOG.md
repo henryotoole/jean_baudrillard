@@ -17,7 +17,57 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+"Process type solidification" (advance 005, mods 111-120) — finishes what CICL v2
+started. The two central nouns trade places (a *core service* becomes a
+**codebase**; a *process type* becomes a **core service**), the two service
+relations collapse into one named **`uses`**, and `role: scheduler` — a process
+type that was not a process — is retired for **`role: clock`**, an ordinary
+long-running singleton that defers work onto its own codebase's queue. One
+behavioural change rides along: the elastic Service Connect reconcile now
+triggers off durable AWS state rather than an in-process snapshot, and every
+`aws_ecs_service` carries `wait_for_steady_state = true`. **This is a breaking
+format change:** `cicl_version: "3"` is required and `"2"` is rejected rather
+than shimmed, and for exactly one release cycle after 1.7.0 prod has no rollback
+path (the v2→v3 boundary is refused at pre-flight, with a fix-forward message).
+Downstream projects upgrade per
+[`upgrades/upgrade_1.7.0.md`](./upgrades/upgrade_1.7.0.md) — a repin plus an
+`infra.yml` rewrite, and, for any project with a scheduler, application-code work.
+
 ### Changed
+
+- **A codebase is a `codebase`; a process type is a `core service`.** The two
+  central nouns of the doctrine's service vocabulary trade places. What 1.6.0
+  called a *core service* — one source tree, one build artifact, one image — is
+  now a **codebase**; what it called a *process type* — one named,
+  independently-scaled deployment of that artifact — is now a **core service**.
+  Nothing structural moves: still one image per codebase, still N invocations of
+  it, each with its own role, `command`, port, networks, and resources.
+
+  1.6.0 introduced process types because `web` and `worker` needed to share a
+  build artifact. That was the right structural move but left the vocabulary a
+  notch out of alignment, load-bearingly so: the doctrine's "core service" had no
+  port, no command, no replica count, and nothing ever routed to it, so a reader
+  who knew what a service *is* had to unlearn it to read `infra.yml`. The
+  clearest symptom was already written down — `cicl.md § Magic Refs` had to
+  explain that "a **bare** core service name is illegal rather than shorthand",
+  which is the doctrine noticing its own noun was wrong. A service you cannot
+  address is not a service.
+
+  **Breaking — every `infra.yml` must be rewritten.** Top-level `core_services:`
+  → `codebases:`; nested `processes:` → `core_services:`;
+  `domain_default_process` → `domain_default_service`; core magic refs go from
+  four segments to five (`${codebases.<cb>.core_services.<svc>.<part>}`).
+  Backing refs and `schema_owned_by` are unchanged. This rename is one of three
+  changes sharing the `cicl_version` `"2"` → `"3"` bump in this cut.
+
+  On the emitted surface, **no name, label, or path changes** — the two elastic
+  env-tier tag *keys* move (`service` → `codebase`, `process` → `service`) while
+  their values stay put, so OpenTofu updates tags in place rather than recreating
+  resources. Two changes do reach consumers: the OTel resource attributes
+  `docex.core_service` / `docex.process_type` become `docex.codebase` /
+  `docex.service` (**this splits existing telemetry time series** — dashboards
+  and alerts need updating), and `docex describe --format llm` renames its
+  `core_service` JSON key to `codebase`.
 
 - **`depends_on` and `consumes` merge into one relation, `uses`.** An author
   asked one question — *what does this core service talk to?* — and had to answer
@@ -71,8 +121,9 @@ first post-`0.4.0` overhaul.
   **bare 5-field UTC cron string**. With EventBridge gone there is **no dialect
   translation anywhere**: no 6-field forms, no `?`-day substitution, no
   provider-specific day-of-week renumbering. The compiled table reaches the
-  container by the OTel sidecar's two already-proven paths (compose top-level
-  `configs:` on fixed; a literal task-definition env entry on elastic).
+  container as **one literal env var, `DOCEX_SCHEDULES_YAML`, identical on both
+  foundations** — a compose `environment:` entry on fixed, a task-definition env
+  entry on elastic. No mount, no path, no per-foundation branch.
 
   **Every carve-out dies.** The clock serves `GET /health` off a monotonic tick
   like any loop-owning service, gets an OTel sidecar so job telemetry stops being
@@ -96,41 +147,6 @@ first post-`0.4.0` overhaul.
   One consequence worth knowing: a clock is consumer-only, so nothing `uses` it
   and no `web` core service fans out to it. Its liveness is enforced by its
   container healthcheck, but **staging tests do not see it**.
-
-- **A codebase is a `codebase`; a process type is a `core service`.** The two
-  central nouns of the doctrine's service vocabulary trade places. What 1.6.0
-  called a *core service* — one source tree, one build artifact, one image — is
-  now a **codebase**; what it called a *process type* — one named,
-  independently-scaled deployment of that artifact — is now a **core service**.
-  Nothing structural moves: still one image per codebase, still N invocations of
-  it, each with its own role, `command`, port, networks, and resources.
-
-  1.6.0 introduced process types because `web` and `worker` needed to share a
-  build artifact. That was the right structural move but left the vocabulary a
-  notch out of alignment, load-bearingly so: the doctrine's "core service" had no
-  port, no command, no replica count, and nothing ever routed to it, so a reader
-  who knew what a service *is* had to unlearn it to read `infra.yml`. The
-  clearest symptom was already written down — `cicl.md § Magic Refs` had to
-  explain that "a **bare** core service name is illegal rather than shorthand",
-  which is the doctrine noticing its own noun was wrong. A service you cannot
-  address is not a service.
-
-  **Breaking — every `infra.yml` must be rewritten.** Top-level `core_services:`
-  → `codebases:`; nested `processes:` → `core_services:`;
-  `domain_default_process` → `domain_default_service`; core magic refs go from
-  four segments to five (`${codebases.<cb>.core_services.<svc>.<part>}`).
-  Backing refs, `consumes:`, and `schema_owned_by` are unchanged.
-  `cicl_version` stays `"2"` — the 2 → 3 bump ships with the `uses` relation
-  merge in the same cut.
-
-  On the emitted surface, **no name, label, or path changes** — the two elastic
-  env-tier tag *keys* move (`service` → `codebase`, `process` → `service`) while
-  their values stay put, so OpenTofu updates tags in place rather than recreating
-  resources. Two changes do reach consumers: the OTel resource attributes
-  `docex.core_service` / `docex.process_type` become `docex.codebase` /
-  `docex.service` (**this splits existing telemetry time series** — dashboards
-  and alerts need updating), and `docex describe --format llm` renames its
-  `core_service` JSON key to `codebase`.
 
 ### Fixed
 
@@ -260,6 +276,19 @@ first post-`0.4.0` overhaul.
   double-fire a tick. This trades a possible double fire for a possible missed
   fire — the right trade, since missed fires are already an accepted caveat and
   jobs must be idempotent regardless.
+
+- **`specifics/clock.md`, and a worked reference implementation of a clock**
+  (mods 117, 120). `specifics/clock.md` replaces `specifics/scheduler.md` as the
+  one document answering *"how do I schedule work"*, and every inbound pointer
+  moved with it — a project author still finds exactly one document. Alongside it,
+  the two smoke projects' `api` codebase is now the clock's **reference
+  implementation**: `entrypoints/clock.py` → `ContJobsCron` → a driving port →
+  a `Queue` driven port, with the **defer-side** dispatch table (job name → the
+  port method that enqueues) and the **perform-side** table (job name → the work)
+  kept deliberately separate. Collapsing them would couple the clock to the
+  worker's implementation and destroy the deferral architecture. Downstream
+  projects copy that tree, which is why it is announced rather than left to be
+  found.
 
 ### Removed
 
