@@ -15,7 +15,9 @@ create/   authoring/packaging tooling
 
 eval/     evaluation tooling + data
   run_suite.py          suite-level trigger eval (all doctrine skills installed; recall/precision/confusion)
-  queries.json          labeled trigger query set (the single source of truth for queries)
+  queries.json          labeled trigger query set (the single source of truth for queries);
+                        `note` carries each query's rationale, including any that
+                        deliberately use retired vocabulary — read it before "fixing" one
   run_loop.py           single-skill description optimizer (eval + improve loop, train/test split)
   run_eval.py           single-skill trigger eval (used by run_loop)
   improve_description.py proposes a better description from eval feedback

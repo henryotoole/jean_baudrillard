@@ -100,10 +100,10 @@ objects, one per [core service](../../../doctrine/infrastructure/cicl.md#core-se
 a codebase invoked several ways from one image.
 
 ```
-Codebase(api) × {web, worker, nightly_cleanup}
+Codebase(api) × {web, worker, clock}
     -> CompiledService(name="api-web",    codebase="api", service="web")
     -> CompiledService(name="api-worker", codebase="api", service="worker")
-    -> CompiledService(name="api-nightly_cleanup", …)
+    -> CompiledService(name="api-clock",  codebase="api", service="clock")
 ```
 
 The governing principle, and the reason the emit layer barely changed:
@@ -153,8 +153,9 @@ So `docex.service` is present **iff** the emitter is a declared core
 service, and its absence is what identifies a per-codebase artifact rather than
 something to be filled in. Stamping it before the split gave the exec container
 and the migrate task definition the compiled identity of whichever core service
-`group_by_codebase` sorted first — a migration reporting the name of a cron job,
-and an identity that moved when an unrelated core service was renamed. Note the
+`group_by_codebase` sorted first — a migration reporting the name of the
+codebase's `clock`, and an identity that moved when an unrelated core service
+was renamed. Note the
 shape: this and the migration's *resources* (below) were the same defect — a
 per-codebase artifact reading a core-service-scoped value — and both are fixed
 structurally, by removing the choice rather than by choosing better.
@@ -348,9 +349,11 @@ table with **empty per-foundation translation bodies** and carried verbatim onto
 alone does real work: it is what makes rule 4 reject `schedules:` on every other
 role, which is how the doctrine's "required on a `clock` and rejected on every
 other role" gets its second half with no new rule. **No cron translation exists
-anywhere** — `clock.md § Cron format` passes the expression through unchanged,
-so the dialect-mismatch bug class that `cicl/cron.py` exists to manage has no
-counterpart here.
+anywhere** — `clock.md § Cron format` passes the expression through unchanged.
+The retired scheduler role did need a cron-dialect translation layer, and that
+layer was the source of a whole bug class; the doctrine deleted the role and the
+translation together, so nothing in the current compiler can reproduce it.
+`cicl/cron_expr.py` validates the 5-field expression and does nothing else.
 
 **Two artifacts, two jobs — and only one of them is read.**
 
@@ -391,13 +394,6 @@ already an accepted caveat and jobs must be idempotent regardless. It composes
 with mod 114's `wait_for_steady_state`: 0/100 is an ordinary recreate deployment,
 and the zero-running-tasks window is a state *during* the deployment rather than
 a terminal state the waiter can settle on.
-
-> **Transient duplication, self-resolving at mod 116.** `cicl/cron_expr.py`
-> (5-field validation, no translation) duplicates the validating half of
-> `cicl/cron.py` on purpose. `cron.py` is on mod 116's delete-outright list, and
-> importing from it would force that mod to disentangle a live dependency
-> mid-deletion — exactly the coupling the 115/116 split exists to avoid. Mod 116
-> resolves this by deleting `cron.py`; it is not something to reconcile.
 
 ### The union view
 

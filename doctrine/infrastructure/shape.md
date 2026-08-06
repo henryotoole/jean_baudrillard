@@ -98,7 +98,7 @@ It always helps to round off abstract discussion with a concrete example.
 Consider a project with the following minimal `infra.yml`:
 
 ```yml
-cicl_version: "2"
+cicl_version: "3"
 foundation: elastic
 apex_domain: "example.com"
 domain_default_service: api.web

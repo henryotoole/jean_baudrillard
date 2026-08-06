@@ -60,11 +60,11 @@ One image per **codebase**, so all three run the same tag started three differen
 
 #### `api` — the application codebase
 
-See [`api/api.md`](./api/api.md). Two core services on one artifact; they were two separate core services until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
+See [`api/api.md`](./api/api.md). Three core services on one artifact; `web` and `worker` were two separate codebases until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
 
 - **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`), [`processor`](./api/hex/processor.md) (driven by `api.worker`), [`jobs`](./api/hex/jobs.md) (deferred by `api.clock`, performed by `api.worker`), and [`retention`](./api/hex/retention.md) (reached only through the `prune_pings` job). They share a codebase but not a module boundary; the sole cross-module import is `jobs`' runner taking `retention`'s **driving port**, which is the one the doctrine permits.
 - **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI). Two boundaries, two contracts; the path is keyed on the core service.
-- **`uses`**: `api.web` uses `api.worker`, one direction only. `api.web` holds four-segment magic refs to `${codebases.api.core_services.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
+- **`uses`**: `api.web` uses `api.worker`, one direction only. `api.web` holds five-segment magic refs to `${codebases.api.core_services.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
 - **Schema owner**: `schema_owned_by: api`. `migrate.sh` runs once for the codebase, not once per core service.
 
 `api.web` is the `domain_default_service`, so prod's web edge answers at three hosts: `api-web.prod.docex-smoke-fixed.luxrnd.tech`, `prod.docex-smoke-fixed.luxrnd.tech` (bare-env), and `docex-smoke-fixed.luxrnd.tech` (bare-project).

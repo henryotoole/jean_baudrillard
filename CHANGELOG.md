@@ -239,6 +239,45 @@ Downstream projects upgrade per
   Dead `service_name` parameters and three impossible `where=` error paths
   (`codebases.<compiled-identity>.resources`, a path rule 22 forbids) are gone.
 
+- **The six-artifact alignment sweep** (mod 118), closing out the advance. Two
+  doctrine examples the compiler would have **rejected** are fixed:
+  `shape.md`'s otherwise-v3 example still declared `cicl_version: "2"`, and
+  `transfer_tables.md`'s two worked examples named an undeclared `appdb` in
+  their `uses:` lists. Both are now proven by compiling rather than by reading.
+  `doctrine_excerpts/secrets.md` cited
+  `specifics/release_mechanism.md § Secrets` — a file and a heading that have
+  **never existed**, dangling since the original bulk commit because nothing
+  link-checks that artifact; found by a mechanical check that is now
+  repeatable. `doctrine_excerpts/service_discovery.md` gained the Service
+  Connect task-start name freeze, the property advance 005 made load-bearing
+  and measured, which it had described elastic discovery without.
+  `release_flow.md` was stale in six places at the v2→v3 bump — including a
+  failure-mode row using `cicl_version '3'` as the *rejected* generation when
+  it is the only accepted one, teaching the exact inverse of the truth. That
+  message is parameterized in `rollback.py::_boundary_message` **specifically
+  so it could not go stale**; the doc drifted because it restated the message
+  instead of quoting its rendered output, and that lesson is now written into
+  the doc. `masterplan.md` documented `bootstrap`, `up`, and `down` as
+  commands — none exist — while omitting `preinfra`, `projinfra`, `envinfra`,
+  `roles`, and `role`; its repo-structure block named packages (`compile/`,
+  `bootstrap/`) that are not there. `skill_iter`'s `infra-compile` outcome eval
+  graded a correct answer wrong by hard-coding `depends_on` as expected output
+  — invisible to both pytest suites, failing only at the skills release gate.
+  Both smoke projects shed prose residue: five stale "four-segment" magic-ref
+  descriptions beside correct five-segment refs, and six sentences where a
+  blind `service` → `core service` rename had been applied where **codebase**
+  was meant, leaving "`web` and `worker` were separate core services until CICL
+  v2" self-contradicting a correct sentence twelve lines above it.
+
+- **`doctrine_excerpts/` now records what earns an entry** (mod 118).
+  The artifact with no automated consumer had no stated inclusion criterion, so
+  every advance re-litigated it and a "no" was indistinguishable from an
+  oversight. `docex_process.md § Additional Artifacts` now states the rule — it
+  indexes **infrastructural resources**, not CICL fields and not roles — and
+  records that `uses` and `clock` were considered and deliberately excluded:
+  `uses` is a relation whose two predecessors never had entries, and `clock` is
+  a role already served correctly by the generated `docex role` surface.
+
 ### Added
 
 - **`docex why codebase`** (mod 111). The doctrine's now-primary noun had no

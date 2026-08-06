@@ -44,7 +44,7 @@ def test_health_endpoint() -> None:
 def test_health_fanout_reports_worker_liveness() -> None:
     """The doctrine-required `uses` fan-out (contracts.md § Fan-out).
 
-    A 200 here means three separate things worked: the four-segment magic
+    A 200 here means three separate things worked: the five-segment magic
     refs resolved to a reachable address, `api.web` could reach a non-`web`
     sibling core service over Service Connect, and the worker's poll loop
     has bumped its monotonic tick within the 30s staleness window. A wedged

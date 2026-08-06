@@ -15,7 +15,7 @@ The compile phase that release reads is covered separately in [`compiler.md`](./
 
 and converges the target environment to the declared desired state. Push-initiated, idempotent — re-running on a converged target produces zero changes.
 
-`<env>` is `stage` or `prod`. The command refuses other values; `dev` and `test` are local-only via `docex up`.
+`<env>` is `stage` or `prod`. The command refuses other values; `dev` and `test` are local-only via `docex envinfra up`.
 
 ## Foundation branches at the top
 
@@ -202,11 +202,13 @@ Step 8 is the only fail-aggregated check. `_missing_images` probes every codebas
 
 ### The CICL-generation precondition (step 7)
 
-Step 3 of the process recompiles the target's `infra.yml` with the **current** `docex`. So a target written in a CICL generation the current compiler rejects cannot be rolled back to at all — the recompile inside the worktree would fail. `cicl.md § CICL Version` states the consequence: rollback across the v1 → v2 boundary aborts at pre-flight, before anything is applied, with a fix-forward message.
+Step 3 of the process recompiles the target's `infra.yml` with the **current** `docex`. So a target written in a CICL generation the current compiler rejects cannot be rolled back to at all — the recompile inside the worktree would fail. `cicl.md § CICL Version` states the consequence: rollback across the v2 → v3 boundary aborts at pre-flight, before anything is applied, with a fix-forward message.
 
-`_target_cicl_version` reads `infra/infra.yml` out of the target tag via `GitClient.show` (no worktree, no checkout), `yaml.safe_load`s it, and returns the one top-level `cicl_version` key. Deliberately **not** a `CICLDocument` validation: a pre-v2 `infra.yml` fails full validation for several unrelated reasons at once (no `core_services:`, a bare rather than dotted `domain_default_service`, codebase-level `resources:` under `extra="forbid"`), and which one pydantic reports first would decide what the operator sees. "You are across the v1 boundary" is the only fact that matters, and it is the one a single-key read cannot get wrong — it also has to work on a file that is not a valid CICL document at all.
+`_target_cicl_version` reads `infra/infra.yml` out of the target tag via `GitClient.show` (no worktree, no checkout), `yaml.safe_load`s it, and returns the one top-level `cicl_version` key. Deliberately **not** a `CICLDocument` validation: a pre-v3 `infra.yml` fails full validation for several unrelated reasons at once (no `codebases:` — mod 112 traded the nouns, so a v2 document's top-level `core_services:` is now itself a forbidden extra under `extra="forbid"` (`model.py:327`, `:361`) — a bare rather than dotted `domain_default_service`, codebase-level `resources:`), and which one pydantic reports first would decide what the operator sees. "You are across the boundary" is the only fact that matters, and it is the one a single-key read cannot get wrong — it also has to work on a file that is not a valid CICL document at all.
 
-Five outcomes, all raising `RollbackPreconditionFailed` so no branch can surface as a traceback: `"2"` proceeds; `"1"` and *absent* both get the v1 → v2 boundary message (a document predating the field is by definition pre-v2, and is reported as such rather than as declaring `"1"`); any other value gets a distinct unrecognized-generation message; and an `infra.yml` that is unreadable, unparseable, or not a mapping aborts naming the tag and the path.
+Five outcomes, all raising `RollbackPreconditionFailed` so no branch can surface as a traceback: `"3"` proceeds; `"1"`, `"2"`, and *absent* all take the boundary branch (`_RECOGNIZED_OLDER_CICL = ("1", "2")` at `rollback.py:290`, plus the `None` test at `:307`) — a document predating the field is reported as predating it rather than as declaring `"1"`, though the message renders it as generation 1; any other value gets a distinct unrecognized-generation message; and an `infra.yml` that is unreadable, unparseable, or not a mapping aborts naming the tag and the path.
+
+The boundary message is **not** a fixed `v1→v2` string. It renders `f"v{generation}→v{CURRENT_CICL_VERSION}"` (`rollback.py:315-316`), parameterized on the target's own declared generation by design — the `WHY` on `_boundary_message` says so explicitly: a message naming a fixed pair goes stale in the same instant the constant moves, which is exactly when the operator is reading it. This document went stale at the v2→v3 bump anyway, because it **restated** that message rather than quoting its rendered output; `upgrade_1.7.0.md § Rollback is unavailable across the boundary` quotes it, and that is the pattern to copy.
 
 Two ordering constraints, both load-bearing:
 
@@ -215,7 +217,7 @@ Two ordering constraints, both load-bearing:
 
 `CURRENT_CICL_VERSION` (`src/docex/cicl/model.py`) is the single source of the accepted generation, shared with rule 21's validator so the two cannot drift at the next CICL bump.
 
-**The one-cycle window.** For exactly one release cycle after the CICL v2 break shipped (doctrine 1.6.0), `prod` has **no rollback path** — every extant older tag is v1. This is accepted and documented, not a defect: the alternative was a read-only flat-form parser maintained permanently to serve one code path. Once a second v2 version exists, rollback within v2 works normally.
+**The one-cycle window.** For exactly one release cycle after the CICL v3 break shipped (doctrine 1.7.0), `prod` has **no rollback path** — every extant older tag declares `cicl_version: "2"`. This is accepted and documented, not a defect: the alternative was a read-only flat-form parser maintained permanently to serve one code path. Once a second v3 version exists, rollback within v3 works normally. The window is a recurring property of a CICL bump, not a one-off — 1.6.0 carried the identical trap at its own v1→v2 boundary. `upgrade_1.7.0.md § Rollback is unavailable across the boundary` states this same condition for the operator, sourced by quoting `_boundary_message`'s rendered output; the two are one statement and must stay that way.
 
 ### Worktree mechanism
 
@@ -258,8 +260,8 @@ Both return clean booleans so the precondition aggregator (`_missing_images` in 
 | -------------- | -------------- | ------------- |
 | `target version 'X' is more than one minor version behind ...` | Operator tried to go further back than doctrine permits | by design — recover via fix-forward |
 | `rollback aborted — image(s) missing in registry: ...` | Target version was never containerized, or registry retention dropped the tag | check containerize history; rebuild from the target tag if needed |
-| `rollback aborted — cannot roll back across the CICL v1→v2 boundary` | Target predates the CICL v2 break, so the current compiler cannot recompile its `infra.yml`. Expected for every target older than doctrine 1.6.0 | by design — nothing was touched; fix forward. See [the CICL-generation precondition](#the-cicl-generation-precondition-step-7) and its one-cycle window |
-| `rollback aborted — target v... declares cicl_version '3'` | Target declares a generation this `docex` does not compile — usually a `docex` older than the target, i.e. the operator is rolling *forward* by mistake | check `project.yml`'s `docex_version` pin against the target tag's |
+| `rollback aborted — cannot roll back across the CICL v<n>→v3 boundary` (rendered `v1→v3` or `v2→v3` depending on what the target declares — the pair is parameterized, not literal) | Target predates the CICL v3 break, so the current compiler cannot recompile its `infra.yml`. Expected for every target older than doctrine 1.7.0 | by design — nothing was touched; fix forward. See [the CICL-generation precondition](#the-cicl-generation-precondition-step-7) and its one-cycle window |
+| `rollback aborted — target v... declares cicl_version '4'` | Target declares a generation this `docex` does not compile — usually a `docex` older than the target, i.e. the operator is rolling *forward* by mistake | check `project.yml`'s `docex_version` pin against the target tag's |
 | `rollback aborted — could not read infra/infra.yml at tag '...'` | The tag exists but carries no `infra/infra.yml` (pre-doctrine tag, or a repo restructure since) | confirm the tag is a real release; fix forward if it predates the current layout |
 | `tofu apply` destroys an RDS / stateful backing service during rollback | Target version's `infra.yml` lacked that backing service; doctrine's narrow-window destroy risk | `deletion_protection: true` on stateful engines should gate; if not, the rollback was outside the narrow window — fix-forward instead |
 | Dry-run on elastic shows an unexpectedly empty diff | Plan ran against current SSM (rollback doesn't push in dry-run), and other resources didn't drift either | confirm target version is actually older than current via `/health` on the deployed env |

@@ -69,7 +69,7 @@
     {
       "query": "what's the correct way to declare a new core service in infra.yml with its resources, networks, and depends_on?",
       "expect": "infra-compile",
-      "note": "CICL authoring"
+      "note": "CICL authoring. DELIBERATE LEGACY VOCABULARY — `depends_on` was retired in doctrine 1.7.0 and replaced by `uses`. This query is NOT stale: it simulates a user on a not-yet-upgraded project, which is exactly when infra-compile most needs to fire. Do not 'correct' it to `uses`."
     },
     {
       "query": "why does the doctrine give every project its own reverse proxy instead of one shared load balancer? i want to understand the ingress model before defending it to my team",

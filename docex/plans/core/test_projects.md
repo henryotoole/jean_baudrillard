@@ -7,7 +7,7 @@ Two minimal, doctrine-faithful projects (`fixed/` and `elastic/`) that live insi
 The doctrine commits to two foundations. Bugs hit each foundation differently — first-time release on elastic exposed eight bugs in v0.7.0 that `fixed`-only testing would have missed. Each project exercises its own foundation's full release path:
 
 - [`fixed/`](../../test_projects/fixed/README.md) — `foundation: fixed`. Runs entirely on the dev machine via docker-compose + Traefik + Let's Encrypt. Domain: `doctrine-fixed.luxrnd.tech`.
-- [`elastic/`](../../test_projects/elastic/README.md) — `foundation: elastic`. Runs against real AWS in `us-east-1`. Domain: `doctrine-elastic.luxrnd.tech` (Route53 zone created by `docex bootstrap`).
+- [`elastic/`](../../test_projects/elastic/README.md) — `foundation: elastic`. Runs against real AWS in `us-east-1`. Domain: `doctrine-elastic.luxrnd.tech` (Route53 zone created by `docex projinfra up production`).
 
 ## Shape
 

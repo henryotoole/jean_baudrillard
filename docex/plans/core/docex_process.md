@@ -33,6 +33,9 @@ The interiors of `modifications` and `references` are also the same. `core`, how
 
 - [`masterplan.md`](./masterplan.md) — the toplevel architecture / design proposal. Note the framing at the top of that file explaining why a `docex` masterplan reads differently from a standard one.
 - [`docex_process.md`](./docex_process.md) — this file. The development process for `docex` itself.
+- [`compiler.md`](./compiler.md) — the CICL compiler: service expansion, magic refs, validation, and the emit layer.
+- [`release_flow.md`](./release_flow.md) — the release and rollback paths: preconditions, the ephemeral worktree, and the per-foundation apply.
+- [`test_projects.md`](./test_projects.md) — the two nested smoke-test projects: why two foundations, their shape, git structure, and commit cadence.
 
 ### Additional Artifacts
 
@@ -48,6 +51,25 @@ Unfortunately, the unique nature of `docex` means that it has six successive lay
 | `doctrine_excerpts/*.md` + `index.yml` | The prose `docex why <resource>` serves. A *restatement* of the doctrine, so it drifts silently — nothing compiles or tests it. |
 
 The sixth is the one most easily forgotten, precisely because nothing fails when it goes stale: it is the only artifact in the list with no automated consumer. When a doctrine change introduces, retires, or renames a **resource**, `index.yml` needs the corresponding entry added, removed, or moved in the same mod. Mod 110 drifted here; mod 111 added the missing `codebase` entry and wrote this row.
+
+**What earns an entry.** `doctrine_excerpts/` indexes **infrastructural
+resources** — the nouns a deployed stack is physically made of, tracking
+`shape.md`'s `[resource]` notation. It does **not** index CICL *fields*, and it
+does **not** index *roles*. Fields are specified by `cicl.md § Service Fields`;
+roles are served by `docex role <name>`, which reads `tables/roles/*.yml` and is
+therefore generated rather than restated — it cannot drift the way this artifact
+can. Adding a hand-maintained third restatement of something two artifacts
+already serve correctly buys nothing and creates a new silent-drift surface.
+
+Applying that criterion at advance 005 (mod 118): **`uses` gets no entry** — it
+is a relation between resources, not a resource, and its two predecessors
+`depends_on` and `consumes` had no entries across their entire lifetimes, so
+merging two non-entries yields a non-entry. **`clock` gets no entry** — it is a
+role; `docex role clock` already serves it correctly, and no other role
+(`web`, `worker`, `cache`, `relational_db`, `object_store`) has an entry either.
+The retired `scheduler` role had none, so its deletion removed nothing. Both
+decisions are recorded here rather than left implicit, because on this artifact
+a silent "no" is indistinguishable from an oversight.
 
 Keep them aligned. Fixing the code while leaving the rule stale (or vice versa) is the failure mode this process guards against.
 
@@ -85,6 +107,6 @@ and how the rest of this repo is maintained.
 
 ## Test Project Tests
 
-Two doctrine-faithful smoke-test projects live at [`docex/test_projects/`](../../test_projects/): one per foundation. Before cutting a minor or major version, the operator walks both through their full release paths (`bootstrap → compile → containerize → release stage → stagetest → release prod → teardown`) against real infrastructure. The procedure — including the pre-walk doctrine-conformance audit — is in [`docex/test_projects/PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md). Patch cuts skip this; minor and major cuts require it green.
+Two doctrine-faithful smoke-test projects live at [`docex/test_projects/`](../../test_projects/): one per foundation. Before cutting a minor or major version, the operator walks both through their full release paths (`compile → containerize → release stage → stagetest → release prod → teardown`) against real infrastructure. The procedure — including the pre-walk doctrine-conformance audit — is in [`docex/test_projects/PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md). Patch cuts skip this; minor and major cuts require it green.
 
 For the architecture and design of those projects (why two foundations, code identity, git structure, commit cadence, cut lifecycle), see [`test_projects.md`](./test_projects.md).

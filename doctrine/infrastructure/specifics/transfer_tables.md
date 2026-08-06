@@ -612,7 +612,7 @@ codebases:
         role: web
         port: 8080
         networks: [web, internal]
-        uses: [probe, appdb]
+        uses: [probe]
         env:
           SIDECAR_HOST: ${backing_services.probe.host}
           SIDECAR_PORT: ${backing_services.probe.port}
@@ -684,7 +684,7 @@ codebases:
         role: web
         port: 8080
         networks: [web, internal]
-        uses: [events, appdb]
+        uses: [events]
         env:
           CLICKHOUSE_HOST: ${backing_services.events.host}
           CLICKHOUSE_PORT: ${backing_services.events.port}

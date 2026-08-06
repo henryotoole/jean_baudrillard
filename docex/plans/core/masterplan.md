@@ -110,9 +110,11 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `config <scaffold\|status\|set\|get\|copy> <env>` | both | `infra/config/<env>.env` | `infra/config/<env>.env` (values visible: `set` takes a positional value, `get`/`status` print them) |
 | `describe [<env>] [--format <format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
 | `why <resource>` | both | bundled doctrine excerpts | stdout |
-| `bootstrap` | elastic only (no-op on fixed) | `project.yml`, AWS creds | AWS: S3 bucket + DynamoDB table for tofu state |
-| `up <env>` | fixed envs only (`dev`/`test`) | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env` | host docker (compose up; runs migrations after) |
-| `down <env>` | fixed envs only | running compose stack | host docker (compose down; keeps named volumes) |
+| `roles [--format]` | both | bundled + project-local transfer tables | stdout (role list with descriptions) |
+| `role <name> [--format]` | both | the named role's `tables/roles/<name>.yml` | stdout (engines, provided parts, env vars, fields) |
+| `preinfra <side>` | both, branches internally | `project.yml`, `infra.yml`; docker daemon, DNS; AWS (elastic + production), SSH (fixed + production) | nothing — read-only probe of prerequisite infrastructure; exit code |
+| `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (four `-web` networks + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup — S3 bucket + DynamoDB table for tofu state |
+| `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env`; for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
 | `test` | fresh `test` env | full project | host docker (ephemeral test stack), exit code |
 | `migrate <env>` | both | service images at current version, `infra/secrets/<env>.env` | target env's database(s) via `migrate.sh` |
@@ -132,7 +134,7 @@ A few commands compose others rather than duplicate logic:
 - `check` invokes `compile` (to verify it succeeds), `build` (via `docker build` during test), and `test`.
 - `up` and `test` cause `docker build` to run as needed, which in turn runs each codebase's `build.sh` inside the `build` stage. Two gaps in that sentence are closed explicitly, both because **`compose up --build` does not build a `profiles:`-gated service** and `compose run` builds only when an image is *absent* (never when a present one is stale):
   - **`test`-env one-offs pass `--build`.** In `test` the image *is* the artifact under test, and for a codebase with no non-gated compose service nothing else ever refreshes its tag. `dev` deliberately does not: there the source arrives by bind mount and the `dev` stage exists precisely so `build.sh` can be re-invoked *without* an image rebuild, so `docex build` — the hot iteration loop — must not pay for one.
-  - **`up dev` pre-populates each codebase's host `dist/`** before bringing the stack up, since the bind mount shadows the `dev` stage's in-image `dist/` and the container's command would otherwise have nothing to execute. Every codebase gets this; mod 116 retired the one exception, a codebase whose core services were all the old cron role and which therefore had no bind-mounted compose service at all. That shape can no longer be constructed — every core-service role is long-running — so `compose up --build` builds every codebase's tag and `docex` builds none of them itself.
+  - **`up dev` pre-populates each codebase's host `dist/`** before bringing the stack up, since the bind mount shadows the `dev` stage's in-image `dist/` and the container's command would otherwise have nothing to execute. Every codebase gets this; mod 116 retired the one exception, a codebase whose core services were all the old cron role and which therefore had no bind-mounted compose service at all. That shape can no longer be constructed — every core-service role is long-running — so `compose up --build` builds every codebase's *compose* tag and `docex` builds none of those itself. It does issue one build of its own here: `orchestrate/up.py:58` runs `docker build --target build` under the throwaway tag `docex-initial-build-<cb>:latest` purely to copy the artifact out into the host `dist/`. That image is never run as a service and never becomes a codebase's tag.
 - `release` invokes `migrate` against the target env before applying new application state.
 - The manual CI/CD chain — `docex merge && docex containerize && docex release stage && docex stagetest && docex release prod` — is a documented sequence, not a megacommand. Keeping it explicit preserves the doctrine's "developer can drive the pipeline by hand" property.
 
@@ -187,7 +189,7 @@ Several commands branch internally on `foundation:` from `infra.yml`. The shim a
 
 | Command | Fixed | Elastic |
 | ------- | ----- | ------- |
-| `bootstrap` | no-op | creates `<project>-tofu-state` S3 bucket + `<project>-tofu-locks` DynamoDB table (idempotent) |
+| `projinfra` | brings the project-tier compose stack (four `-web` networks + per-project traefik) up or down | `up production` creates `<project>-tofu-state` S3 bucket + `<project>-tofu-locks` DynamoDB table (idempotent) |
 | `compile` | emits `docker-compose.yml` per env, plus `playbook.yml` / `inventory.yml` / `ansible.cfg` for stage/prod | emits `main.tf` per env (stage/prod); `dev`/`test` still get compose |
 | `containerize` | pushes to project-configured `container_registry` | pushes to project's auto-provisioned ECR (or override) |
 | `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` |
@@ -202,7 +204,7 @@ The `dev` and `test` environments are always fixed regardless of declared founda
 | Need | Source | Used by |
 | ---- | ------ | ------- |
 | Container registry push/pull | `~/.docker/config.json` | `containerize`, `release` (fixed pull side is the *target host*'s config, not the operator's) |
-| AWS API access | `~/.aws/credentials` (or env vars / OIDC if present) | `bootstrap`, `release` (elastic), `containerize` (when ECR) |
+| AWS API access | `~/.aws/credentials` (or env vars / OIDC if present) | `projinfra`, `release` (elastic), `containerize` (when ECR) |
 | SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts` | `release` (fixed); `preinfra production` (fixed — probes the target host for registry creds) |
 | Git identity & remote push | `~/.gitconfig`, `~/.ssh/` | `merge`, `check` (worktree creation) |
 | Git remote auth via a host credential helper (opt-in) | host `git credential fill` for `origin`, brokered per-op via a forwarding socket — see [The Shim](#the-shim) | `merge`, `check`, `rollback` when `DOCEX_GIT_CREDENTIAL_PASSTHROUGH` is set |
@@ -216,7 +218,7 @@ If a required credential is missing, `docex` fails loudly with a message pointin
 
 Four consequences worth being explicit about:
 
-1. **Containers `docex` spawns are siblings, not children.** When `docex up dev` runs `docker compose up`, the resulting containers attach to the host's docker, not to docex. They outlive the docex invocation, which is exactly what we want — `docex up` returns immediately and the dev stack keeps running.
+1. **Containers `docex` spawns are siblings, not children.** When `docex envinfra up dev` runs `docker compose up`, the resulting containers attach to the host's docker, not to docex. They outlive the docex invocation, which is exactly what we want — `docex envinfra up` returns immediately and the dev stack keeps running.
 2. **Paths are host-relative for spawned containers.** When `docex` runs `docker compose -f .../dev/docker-compose.yml up`, the compose file references project paths (build contexts, bind-mount sources for `src/` and `dist/`); those paths must resolve to something the host's docker daemon can find. The shim solves this by mirroring the host project path inside the container — `$PROJECT_ROOT` is mounted at `$PROJECT_ROOT` (not at a fixed `/project`), so any path docex emits is simultaneously a valid in-container path (for compose's client-side reads) and a valid host path (for the daemon's bind-mount resolution). Compose itself receives the project directory via `--project-directory` on the CLI rather than via env var — docker compose v2 does NOT honor `COMPOSE_PROJECT_DIR`.
 3. **The in-container user matches the host user.** The shim passes `--user "$(id -u):$(id -g)"`, mounts `/etc/passwd`/`/etc/group` from the host, and mirrors `$HOME` inside the container. The result: files docex writes to the project tree are operator-owned on the host (no `sudo chown -R` after every compile), `git` doesn't trip on dubious-ownership, and tools that resolve the running user via `getpwuid()` (ssh) find a coherent home directory matching the credential mounts.
 4. **The compose project name is pinned explicitly, not derived.** `--project-directory` (point 2) governs *path resolution* only; it does **not** decide the Compose **project name** (the `com.docker.compose.project` label Compose uses to track which resources belong to a stack across `up`/`down`). docex passes an explicit `--project-name` on every compose invocation — `<project_dns_label>-<env>` for env stacks, `<project_dns_label>-projinfra` for the project tier — rather than letting Compose derive one from the project directory's basename. The project-tier name is deliberately side-independent so that on a single-machine fixed host the dev and prod sides converge on one Compose project (per projinfra.md §35): `up production` after `up development` adopts the existing resources and reconciles to a no-op instead of colliding on the shared traefik container. It remains an explicit, project-scoped name (mod 053) rather than the path-derived `infra`. The derived name was project-unscoped (every project's projinfra stack resolved to the literal `infra`, since project-tier compose lives at `infra/output/project/<side>/`) and unstable across docex versions, which broke idempotent re-runs and left `-web` networks unremoved on `down`. Pinning the name makes Compose's adopt-on-rerun and teardown deterministic and project-scoped (mod 053; side-independent since mod 087).
@@ -260,17 +262,35 @@ jean_baudrillard/docex/
 ├── plans/                   (doctrine-shaped planning tree — see docex_process.md for the divergences)
 │   ├── core/                (flat; no per-module subfolders since docex isn't hexagonal)
 │   │   ├── masterplan.md    (this file)
-│   │   └── docex_process.md (how docex itself is changed; read before editing docex)
+│   │   ├── docex_process.md (how docex itself is changed; read before editing docex)
+│   │   ├── compiler.md      (the CICL compiler: expansion, magic refs, emit)
+│   │   ├── release_flow.md  (release + rollback: preconditions, worktree, apply)
+│   │   └── test_projects.md (the two nested smoke projects: why, shape, cadence)
 │   ├── modifications/       (one folder per mod; same shape as the doctrine prescribes)
 │   └── references/          (external API / spec docs the project relies on)
 ├── src/
 │   └── docex/               (Python package; CLI entrypoint + all subcommands)
 │       ├── __main__.py      (argparse dispatcher)
-│       ├── compile/         (CICL compiler)
-│       ├── orchestrate/     (up, down, build, test, migrate, …)
-│       ├── pipeline/        (check, merge, containerize, release, stagetest)
-│       ├── bootstrap/       (elastic state-backend setup)
-│       └── describe/        (describe + why)
+│       ├── cicl/            (CICL parse, validate, expand, magic refs)
+│       ├── emit/            (compose / HCL rendering from compiled objects)
+│       ├── orchestrate/     (up, down, build, test, migrate, aggregate)
+│       ├── pipeline/        (preinfra, projinfra, bootstrap, check, merge,
+│       │                     containerize, release, stagetest, rollback)
+│       ├── describe/        (describe)
+│       ├── why/             (why — serves doctrine_excerpts/)
+│       ├── roles/           (roles + role)
+│       ├── aws/             (boto3 adapter)
+│       ├── docker/          (docker CLI adapter)
+│       ├── git/             (git CLI adapter)
+│       ├── ssh/             (ssh adapter)
+│       ├── dns/             (resolver adapter)
+│       ├── ansible/         (ansible adapter)
+│       ├── opentofu/        (tofu CLI adapter)
+│       ├── secretsmgmt/     (SSM / .env secret backends)
+│       ├── context.py       (project context load)
+│       ├── naming.py        (name policies)
+│       ├── errors.py        (error taxonomy)
+│       └── envfile.py       (.env read/write)
 ├── tables/                  (canonical transfer tables, copied to /opt/docex/tables/)
 ├── doctrine_excerpts/       (data feeding `docex why`)
 ├── bin/                     (the project-installed shim, sourced from here)

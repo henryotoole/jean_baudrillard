@@ -3,9 +3,10 @@
 These run in the `test` stage container against the live test-env stack
 (real postgres). They verify the wiring docex composes works end-to-end.
 
-One image, two core services: `test.sh` runs this file and
-`test_processor_smoke.py` together, because tests are keyed on the
-codebase, not on the invocation.
+One image, three core services: `test.sh` globs the whole tests/ folder,
+so this file runs alongside `test_processor_smoke.py`, `test_jobs_smoke.py`,
+`test_jobs_concurrency.py`, and `test_clock_smoke.py`, because tests are
+keyed on the codebase, not on the invocation.
 """
 
 from __future__ import annotations

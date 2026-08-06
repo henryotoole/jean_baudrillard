@@ -18,4 +18,4 @@ Materialization at release:
 - **Fixed:** Ansible renders `<env>.env` onto the host as `/opt/<project>/<env>/.env`; docker-compose reads it at container start.
 - **Elastic:** `docex release` pushes each key to SSM Parameter Store at `/<project>/<env>/<KEY>` as a `SecureString`; ECS task definitions reference those SSM paths via `secrets[]`.
 
-The `.env` wins on every release — manual edits to the deployed copy are clobbered. This keeps the deterministic doctrine intact but means rotation requires editing the `.env`. See `infrastructure/specifics/release_mechanism.md § Secrets`.
+The `.env` wins on every release — manual edits to the deployed copy are clobbered. This keeps the deterministic doctrine intact but means rotation requires editing the `.env`. See `infrastructure/specifics/release.md`.

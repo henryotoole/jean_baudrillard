@@ -17,7 +17,7 @@ observability_backend_url: "https://hyperdx.luxrnd.tech"
 
 codebases:
   # One codebase, one image, three core services. `web` and `worker` were two
-  # separate core services before CICL v2, purely because there was no way
+  # separate codebases before CICL v2, purely because there was no way
   # to say "one artifact, two invocations" — they always shared a database,
   # a table, and six identical DATABASE_* refs. `clock` is the third
   # invocation of that same artifact and the reason the `reaper` codebase
@@ -66,7 +66,7 @@ codebases:
           SIDECAR_PORT: ${backing_services.probe.port}
           CLICKHOUSE_HOST: ${backing_services.events.host}
           CLICKHOUSE_PORT: ${backing_services.events.port}
-          # Four-segment core magic refs — the worker's docker-DNS address
+          # Five-segment core magic refs — the worker's docker-DNS address
           # (ECS Service Connect on elastic), used by the /health/api/worker
           # fan-out. Holding these refs is what obliges the `api.worker`
           # entry in `uses:` above.

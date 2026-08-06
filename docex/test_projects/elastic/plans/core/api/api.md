@@ -18,9 +18,9 @@ One codebase, one image, **three core services**. `api` is the project's applica
 
 ### Why one codebase and not two
 
-`web` and `worker` were two separate *core services* until CICL v2, and that split was an artifact of the limitation v2 removes: they always shared a database, a table, and six identical magic refs, but pre-v2 CICL had no way to express "one artifact, two invocations". They are now what they always were.
+`web` and `worker` were two separate *codebases* until CICL v2, and that split was an artifact of the limitation v2 removes: they always shared a database, a table, and six identical magic refs, but pre-v2 CICL had no way to express "one artifact, two invocations". They are now what they always were.
 
-`api.clock` arrived by a different route and is worth recording, because the shape it replaced looked reasonable. Scheduled pruning used to be its own codebase, `reaper`, running as a `role: scheduler` — a process type that was not a process. When `scheduler` was retired in favour of `role: clock`, `reaper` **could not simply become a clock**: a clock defers onto its own codebase's queue, only the codebase that owns a schema may enqueue, and `reaper` owned no schema, no worker, and no queue. `api` owns all three. So the clock folded in here as a third invocation of an artifact that already existed, `reaper` was deleted, and its retention rule became the [`retention`](./hex/retention.md) module.
+`api.clock` arrived by a different route and is worth recording, because the shape it replaced looked reasonable. Scheduled pruning used to be its own codebase, `reaper`, running as a `role: scheduler` — a **core service** that was not a process. When `scheduler` was retired in favour of `role: clock`, `reaper` **could not simply become a clock**: a clock defers onto its own codebase's queue, only the codebase that owns a schema may enqueue, and `reaper` owned no schema, no worker, and no queue. `api` owns all three. So the clock folded in here as a third invocation of an artifact that already existed, `reaper` was deleted, and its retention rule became the [`retention`](./hex/retention.md) module.
 
 ## Hex modules
 
