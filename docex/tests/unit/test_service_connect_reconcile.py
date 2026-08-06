@@ -68,6 +68,21 @@ _SCHEDULER = {
     "resources": {"cpu": 0.25, "memory": "512MB"},
 }
 
+# Mod 115. A clock is an ORDINARY long-running core service on elastic — it
+# emits an `aws_ecs_service` like any other, so the reconcile must treat it
+# on the same terms as `web` and `worker`. The stop-then-start deployment
+# percentages are an emitter concern and change nothing here.
+_CLOCK = {
+    "role": "clock",
+    "command": ["python", "-m", "entrypoints.clock"],
+    "port": 8082,
+    "health_check_path": "/health",
+    "networks": ["internal"],
+    "uses": ["appdb", "api.worker"],
+    "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
+    "schedules": {"nightly_cleanup": "0 3 * * *"},
+}
+
 
 def _t(minute: int, second: int = 0) -> datetime:
     """A timestamp on the walk's clock. Aware, as boto3's always are."""
@@ -348,6 +363,65 @@ def test_scheduler_consumer_is_never_redeployed(
     rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
     assert rc == 0
     assert "sample-prod-api-nightly" not in _redeployed(fake_aws)
+
+
+def test_clock_consumer_is_redeployed_on_the_same_terms(
+    tmp_path: Path, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """Mod 115: a clock is an ORDINARY service to the release path.
+
+    It emits an `aws_ecs_service`, so unlike the scheduler above it *can* be
+    redeployed — and it must be, on exactly the same predicate as `web`. Here
+    both consumers' tasks predate the worker's registration, so both are
+    replaced; no role test anywhere singles the clock out.
+    """
+    def mutate(doc):
+        svcs = doc["codebases"]["api"]["core_services"]
+        svcs["worker"] = dict(_WORKER)
+        svcs["clock"] = dict(_CLOCK)
+        svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
+    ctx = _project(tmp_path, mutate)
+
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": _t(46),
+        "sample-prod-api-worker": _t(46),
+        "sample-prod-api-clock": _t(46),
+    }
+    fake_aws.ecs_task_start_times = {
+        "sample-prod-api-web": [_t(40)],
+        "sample-prod-api-clock": [_t(40)],
+    }
+    rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert sorted(_redeployed(fake_aws)) == [
+        "sample-prod-api-clock", "sample-prod-api-web",
+    ]
+
+
+def test_converged_clock_is_left_alone(
+    tmp_path: Path, fake_aws, fake_tofu_init, fake_tofu_apply,
+):
+    """The other half of "ordinary": the cheap path is emergent for a clock
+    too. Its task postdates the name it `uses`, so nothing is touched."""
+    def mutate(doc):
+        svcs = doc["codebases"]["api"]["core_services"]
+        svcs["worker"] = dict(_WORKER)
+        svcs["clock"] = dict(_CLOCK)
+    ctx = _project(tmp_path, mutate)
+
+    fake_aws.service_connect_endpoint_ages = {
+        "sample-prod-api-web": _t(40),
+        "sample-prod-api-worker": _t(40),
+        "sample-prod-api-clock": _t(40),
+    }
+    fake_aws.ecs_task_start_times = {
+        "sample-prod-api-web": [_t(46)],
+        "sample-prod-api-worker": [_t(46)],
+        "sample-prod-api-clock": [_t(46)],
+    }
+    rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
+    assert rc == 0
+    assert _redeployed(fake_aws) == []
 
 
 def test_slow_rollout_warns_but_does_not_fail_the_release(

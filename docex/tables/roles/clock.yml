@@ -1,0 +1,78 @@
+# Role: clock
+#
+# Core-service role — the singleton cron loop that defers work onto its
+# codebase's queue. An ORDINARY long-running core service on both
+# foundations, modelled on `worker`, NOT on `scheduler`:
+#
+#   - fixed:   one compose service on the codebase's image with the core
+#              service's `command`.
+#   - elastic: task_definition + ecs_service. NO target_group — a clock
+#              takes no ingress (rule 27 forbids `web` in its networks).
+#
+# `provides.{host,port}` mirrors `worker` DELIBERATELY. A clock is
+# consumer-only in practice, but it gets NO exemptions: a magic ref naming
+# `api.clock.host` must resolve like any other core service's.
+#
+# `schedules` is declared below with EMPTY per-foundation translation
+# bodies, exactly as `scheduler`'s `schedule` marker is. The declaration is
+# what makes rule 4 (`tt_rule_4_undeclared_field`) reject `schedules:` on
+# every other role — that is how clock.md's "rejected on every other role"
+# is enforced, with no new rule. The VALUE is handled procedurally by the
+# emitters and is carried directly onto `CompiledService` (see compile.py),
+# reaching the container as the `DOCEX_SCHEDULES_YAML` literal on both
+# foundations (see emit/schedules.py).
+#
+# See doctrine/infrastructure/specifics/clock.md for the full spec.
+#
+# `cpu:`, `memory:`, `tmpfs:` are derived per-core-service by the
+# compiler, exactly as for `web`; `image:` is derived per codebase, so
+# every core service of a codebase runs one tag.
+
+roles:
+  clock:
+    description: "Core-service role — the singleton cron loop that defers work onto its codebase's queue."
+    container:
+      foundation: both
+      emits:
+        fixed: [compose_service]
+        elastic: [task_definition, ecs_service, container_definition]
+      defaults:
+        fixed: {}
+        elastic:
+          launch_type: FARGATE
+          network_mode: awsvpc
+      fields:
+        health_check_path:
+          fixed:
+            healthcheck:
+              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
+              interval: 30s
+              timeout: 5s
+              retries: 3
+          elastic:
+            # NOT target_group — a clock has none. Routes to the ECS
+            # container-level healthCheck, so a wedged cron loop gets the
+            # task killed and replaced by the service.
+            target: container_definition
+            healthCheck:
+              command: ["CMD-SHELL", "curl -f http://localhost:${port}${field_value} || exit 1"]
+              interval: 30
+              timeout: 5
+              retries: 3
+              startPeriod: 10
+        schedules:
+          fixed: {}      # consumed procedurally by emit/schedules.py
+          elastic: {}    # ditto — one delivery mechanism, both foundations
+      provides:
+        # A clock that declares a `port` registers as Service-Connect-
+        # discoverable on elastic (shape.md § service_discovery), the same as
+        # `worker`. Nothing is expected to `uses:` a clock, but nothing
+        # structurally prevents it either — no exemptions.
+        host:
+          fixed: "${global_service_name}"
+          elastic: "${global_service_name}"
+        port:
+          fixed: "${port}"
+          elastic: "${port}"
+      env: {}
+      naming: ecs

@@ -346,6 +346,75 @@ other block of that codebase to build — so `up dev` builds that tag itself
 `scheduler_only_services`). A mixed codebase needs nothing: `compose up --build`
 builds the same tag at the same target.
 
+### The clock
+
+Mod 115. A `clock` core service is the opposite of a scheduler in every
+structural respect: an **ordinary long-running core service** with a sidecar, a
+health probe, and no exemptions anywhere. Its role table is modelled on `worker`
+— `compose_service` on fixed, `task_definition` + `ecs_service` +
+`container_definition` on elastic, no target group — and it needs no special
+case in the emitters' service loops, which is the point. See
+[`clock.md`](../../../doctrine/infrastructure/specifics/clock.md).
+
+Three things are clock-specific.
+
+**`schedules:` is carried, not translated.** Like `scheduler`'s `schedule`, the
+field is declared in the role table with **empty per-foundation translation
+bodies** and carried verbatim onto `CompiledService.schedules`. The declaration
+alone does real work: it is what makes rule 4 reject `schedules:` on every other
+role, which is how the doctrine's "required on a `clock` and rejected on every
+other role" gets its second half with no new rule. **No cron translation exists
+anywhere** — `clock.md § Cron format` passes the expression through unchanged,
+so the dialect-mismatch bug class that `cicl/cron.py` exists to manage has no
+counterpart here.
+
+**Two artifacts, two jobs — and only one of them is read.**
+
+| Artifact | Purpose | Shape |
+| --- | --- | --- |
+| `infra/output/<env>/schedules.yml` | **visibility** — git-tracked and diff-visible per [`cicl.md § Compiler Output`](../../../doctrine/infrastructure/cicl.md#compiler-output) | aggregate, keyed `<codebase>.<service>` |
+| `DOCEX_SCHEDULES_YAML` | **delivery** — the literal rendered YAML, one variable, both foundations | that clock's bare job map |
+
+**Nothing reads `schedules.yml` at runtime, and that is not an oversight.** It
+exists so a schedule change shows up in review as an infrastructure change,
+which is one of the reasons schedules live in `infra.yml` at all. Do not delete
+it for being unmounted.
+
+**File shape ≠ payload shape, deliberately.** Byte-identity between the two is
+only purchasable by injecting the clock's own identity as an env var so it can
+find its own section — charging the cost in the one place that matters most, the
+entrypoint every downstream project copies, for a property only the compiler
+cares about. An application must not need to know its own name to find its own
+schedules. Since the doctrine caps clocks at one per codebase-with-schedules,
+the aggregate is a single-entry file in nearly every real project.
+
+Delivery is one seam, `emit/schedules.py::schedule_env`, called by both
+emitters, which carry no foundation test of their own. On fixed the value is
+`$`-doubled: compose interpolates `environment:` values exactly as it does
+`configs.content`, and the payload is *always* a compose env value there. On
+elastic nothing is pre-escaped — `_hcl_value` already handles `$` and `\n` for
+literals, as it does for the sidecar's `OTEL_CONFIG_YAML`. Note that `docker
+compose config` **re-escapes** `$` on output so its result stays a valid compose
+file, so it cannot verify the round-trip; only a running container's own
+environment can, which is what the integration test does.
+
+**Stop-then-start on elastic.** `render_ecs_service` emits
+`deployment_minimum_healthy_percent = 0` / `deployment_maximum_percent = 100`
+for `role: clock` and nothing else. ECS's defaults (100/200) briefly run two
+tasks and a tick in that window fires twice; this trades a possible double fire
+for a possible missed fire, which is the right trade because missed fires are
+already an accepted caveat and jobs must be idempotent regardless. It composes
+with mod 114's `wait_for_steady_state`: 0/100 is an ordinary recreate deployment,
+and the zero-running-tasks window is a state *during* the deployment rather than
+a terminal state the waiter can settle on.
+
+> **Transient duplication, self-resolving at mod 116.** `cicl/cron_expr.py`
+> (5-field validation, no translation) duplicates the validating half of
+> `cicl/cron.py` on purpose. `cron.py` is on mod 116's delete-outright list, and
+> importing from it would force that mod to disentangle a live dependency
+> mid-deletion — exactly the coupling the 115/116 split exists to avoid. Mod 116
+> resolves this by deleting `cron.py`; it is not something to reconcile.
+
 ### The union view
 
 Mod 104, and since mod 113 the graph the *authoring model* carries too. `describe`
@@ -448,7 +517,8 @@ infra/output/
 │       ├── docker-compose.yml     fixed-foundation only — same shape as development side
 │       └── main.tf                elastic-foundation only — emit/hcl.py::emit_hcl_project; state backend ref, VPC, Route53 zone, ACM cert, ECR repos, IAM
 ├── dev/
-│   └── docker-compose.yml         emit/compose.py (dev is always fixed)
+│   ├── docker-compose.yml         emit/compose.py (dev is always fixed)
+│   └── schedules.yml              emit/schedules.py — iff the env has a clock; both foundations, all four envs (mod 115)
 ├── test/
 │   └── docker-compose.yml         emit/compose.py (test is always fixed)
 ├── stage/
@@ -500,7 +570,8 @@ Validation lives at two layers:
 - `uses` names **either** a backing service, bare, **or** a core service fully qualified as `<codebase>.<service>`; a bare *codebase* name is an error, not shorthand for "all its core services", and a core service may not use itself (rule 25). Classification is **by form**, which is total and unambiguous because `_SERVICE_NAME_RE` forbids a dot in any service name — so bare/dotted partitions the entries with no overlap and no gap, and rule 25 makes that partition *mean* target kind. A bare entry naming a *codebase* is dispatched on the namespace first, because that is the mistake the merged field invites. A **`scheduler` core service may not be a target** (mod 101): cron invokes a scheduler and nobody else does, so it exposes no boundary to use, and it is exempt from both the health fan-out and the contract requirement that `uses` drives. That clause is kept knowingly out of step with committed rule 25, which carries no scheduler clause — `role: scheduler` is not retired until mod 116, and deleting the guard early would leave a live role unguarded. Separately, `uses` on a **backing service** is rejected as `rule_uses_on_backing_service` — not a numbered rule, but the Service Fields scope column plus the standing "fails loudly when a field is in the wrong scope" sentence. `ServiceRef.parse` is the parser, so the bare-name rule lives in one place. Every reporting branch of the rule-25 loop `continue`s, so one malformed entry never yields two issues; a test pins it.
 - `uses` drives CI (contracts, health fan-out, rule 7), the elastic release's Service Connect reconcile, one *view* (`describe`), and **one emission**: the per-codebase exec block's readiness gate. Nothing else in the compiled output reads it, and that it *cannot* be read is structural rather than incidental — it is a declared pydantic field on the authoring model and a declared dataclass field on `CompiledService`, so it never appears in `model_extra` and cannot reach field translation. A test asserts that the word `uses` appears in no emitted artifact.
 - The `uses` **parse lives on the model**, as `CoreService.core_uses()` / `backing_uses()`, both routing through the shared `names_core_service` classifier so the split is written exactly once. `core_uses()` normalizes to dotted form and drops entries that do not parse — rule 25 reports each malformed entry once, and a malformed entry must not *also* surface downstream as a mystifying rule-7 miss or as a missing contract for a target the author plainly named. Rule 7, `check.py`'s contract / health gates, and the compiler all read through it: "a second parser would be a second place for that rule to drift". A dropped entry therefore cannot reappear as a phantom node in `describe`, which matters more than it looks — `compile_env` does not validate, so the renderer sees whatever the compiler kept.
-- `replicas` is not declared on a `scheduler`, and `worker` / `scheduler` core services do not declare `web` in `networks` (rules 26 + 27, mod 096) — the latter replaces a prose-only, unenforced note.
+- `replicas` is not declared on a `scheduler` or a `clock`, and `worker` / `scheduler` / `clock` core services do not declare `web` in `networks` (rules 26 + 27, mods 096 + 115) — the latter replaces a prose-only, unenforced note. The two rule-26 arms are **separate branches for separate reasons**: on a scheduler a replica count is *inert* (Ofelia fires one job), on a clock it is *actively wrong* (N replicas means N ticks and N enqueues per fire). Keeping them apart is also what lets mod 116 delete the scheduler arm rather than rewrite a fused condition.
+- A `clock` declares a non-empty `schedules:` mapping of job name → 5-field cron (`rule_clock_schedules_required`), job names are valid identifiers because they are the dispatch keys the clock's controller looks up (`rule_clock_job_name_invalid`), and every value parses as a 5-field expression (`rule_clock_cron_invalid`, mod 115). Issues are reported **per offending job**, not per service. The half of the doctrine's rule that rejects `schedules:` on every *other* role needs no code: rule 4 already rejects a role-specific field the engine does not declare. `DOCEX_SCHEDULES_YAML` joins the reserved doctrine-injected env keys, so rule 20 rejects a project declaring it.
 - Per-service re-scoping of rules 10, 11, 12, 14, 15 and 28 (mod 096): resources, GPU-on-elastic, `domain_default_service`, the reserved-name blacklist (now covering core service names), the web-network port requirement, and `health_check_path`-obliges-`port`.
 
 A compile-time error is always preferable to a tofu/AWS-side error. A load-time error is preferable to a compile-time error. When in doubt, add validation at the earliest layer where the problem is detectable.
@@ -525,6 +596,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
 | What the scaffold manifest render looks like | `src/docex/emit/secrets.py::render_manifest_env` |
 | What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
+| What a clock's schedule table looks like, and how it reaches the container | `src/docex/emit/schedules.py` — `render_schedule_table` (the delivered payload), `render_schedules_file` (the `schedules.yml` visibility artifact), `schedule_env` (the one delivery seam both emitters call). See [The clock](#the-clock) |
 | How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed — one per *emitted container*, so one per replica; its `paired_key` is the container it shares a netns with) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
 | How `replicas` becomes containers or tasks | `src/docex/cicl/compile.py::effective_replicas` (the `prod`-only clamp) + `emit/compose.py` (the fixed unroll) + `emit/hcl.py::render_ecs_service` (`desired_count`) |
 | An engine env var's `kind` / a fixed literal / a minted policy | `tables/roles/<role>.yml` `env:` + `tables/generation_policies.yml`; loader in `cicl/transfer.py` |

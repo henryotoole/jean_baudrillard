@@ -48,6 +48,7 @@ from docex.cicl.compile import (
 )
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
+from docex.emit.schedules import schedule_env
 
 
 # Runtime-ref pattern matches $[VAR_NAME].
@@ -593,6 +594,26 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
                 block["environment"] = d
             else:
                 block["environment"] = env_translated
+
+        # Mod 115: the clock's schedule table, delivered as one literal env
+        # var (clock.md § How the schedule reaches the container). Merged
+        # AFTER the project's own `env:` above so a project key cannot shadow
+        # it — rule 20 already forbids the collision, and this makes the
+        # emission order unambiguous rather than relying on that.
+        #
+        # WHY `$` -> `$$`: compose interpolates `environment:` values exactly
+        # as it interpolates `configs.content` (see the otelcol note below),
+        # and on this foundation the payload is ALWAYS a compose env value —
+        # so an unescaped `$` would reach the container mangled. Only the
+        # DELIVERED value is doubled; `infra/output/<env>/schedules.yml` keeps
+        # the true content.
+        sched_env = schedule_env(svc)
+        if sched_env:
+            existing_env = block.get("environment")
+            merged_env = dict(existing_env) if isinstance(existing_env, dict) else {}
+            for k, v in sched_env.items():
+                merged_env[k] = v.replace("$", "$$")
+            block["environment"] = merged_env
 
         # Network-driven routing: any web-network service (core or backing
         # container) gets Traefik discovery labels with its per-service

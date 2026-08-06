@@ -42,6 +42,7 @@ from docex.cicl.compile import (
 from docex.cicl.fargate import fargate_pair_from_units
 from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
+from docex.emit.schedules import schedule_env
 from docex.emit.tags import render_hcl_tags, standard_tags
 from docex.naming import NamingPolicies, NamingPolicy, apply_policy
 
@@ -329,6 +330,23 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     ephemeral = body.get("ephemeral_storage")
 
     env_entries, secret_entries = _container_env_entries(svc.env, ctx.project, ctx.env)
+
+    # Mod 115: the clock's schedule table, delivered as one literal env var —
+    # the SAME variable name as on fixed, which is the point of the ruling
+    # (clock.md § How the schedule reaches the container). Appended here and
+    # re-sorted by name so the entry list stays deterministically ordered, as
+    # `_container_env_entries` leaves it.
+    #
+    # NO pre-escaping: `_hcl_value` already does `$` -> `$$` and `\n` -> `\\n`
+    # for literal strings (module docstring above), which is exactly how the
+    # otelcol YAML literal on the sidecar survives today. Pre-escaping here
+    # would double-escape.
+    sched_env = schedule_env(svc)
+    if sched_env:
+        env_entries = sorted(
+            [*env_entries, *({"name": k, "value": v} for k, v in sched_env.items())],
+            key=lambda e: e["name"],
+        )
 
     container_def: dict[str, Any] = {
         "name": svc.name,
@@ -707,10 +725,10 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     out.append(f'  cluster         = data.terraform_remote_state.project.outputs.ecs_cluster_{ctx.env}_arn')
     out.append(f'  task_definition = aws_ecs_task_definition.{svc.name}.arn')
     out.append( '  launch_type     = "FARGATE"')
-    # Mod 100: `replicas`, clamped to 1 outside prod. No deployment_
-    # configuration block is emitted, so ECS's defaults
-    # (minimum_healthy_percent = 100, maximum_percent = 200) apply — correct
-    # for a static count. Sidecars need no thought: the collector is a
+    # Mod 100: `replicas`, clamped to 1 outside prod. For every role but
+    # `clock` (see below) no deployment percentages are emitted, so ECS's
+    # defaults (minimum_healthy_percent = 100, maximum_percent = 200) apply —
+    # correct for a static count. Sidecars need no thought: the collector is a
     # container INSIDE the task definition, so N tasks give N sidecars.
     out.append(f'  desired_count   = {effective_replicas(svc, ctx.env)}')
     # WHY: the release's Service Connect consumer reconcile reads task start
@@ -720,6 +738,21 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
     # way out. Also means a service that cannot converge fails the apply rather
     # than letting the release exit 0 over a broken env. Mod 114.
     out.append("  wait_for_steady_state = true")
+    # Mod 115: stop-then-start, for `role: clock` and nothing else. ECS's
+    # rolling-deploy defaults (minimum healthy 100%, maximum 200%) briefly run
+    # two tasks, and a tick landing in that window FIRES TWICE. Forcing
+    # stop-then-start trades a possible double fire for a possible MISSED fire
+    # — the right trade, because missed fires are already an accepted caveat
+    # (clock.md § Caveats) and jobs must be idempotent regardless.
+    #
+    # WHY this composes with `wait_for_steady_state` above rather than
+    # deadlocking against it: 0/100 is an ordinary "recreate" deployment that
+    # converges normally, and the zero-running-tasks window is a state DURING
+    # the deployment, not a terminal state the waiter can settle on. The two
+    # are adjacent, independent attributes.
+    if svc.role == "clock":
+        out.append("  deployment_minimum_healthy_percent = 0")
+        out.append("  deployment_maximum_percent         = 100")
     out.append("  network_configuration {")
     # WHY: single-element subnet list pins ECS task placement to the primary
     # AZ per cicl.md § Simplifications. ALB+RDS+EFS still span both AZs to

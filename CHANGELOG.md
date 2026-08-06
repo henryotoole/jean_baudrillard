@@ -200,6 +200,36 @@ first post-`0.4.0` overhaul.
   `doctrine_excerpts/` — the only aligned artifact with no automated consumer,
   and therefore the one that drifts silently.
 
+- **`role: clock` compiles** (mod 115). A `clock` core service — the singleton
+  cron loop that defers work onto its own codebase's queue — is an **ordinary
+  long-running core service** with a sidecar, a health probe, and **no
+  exemptions**: a compose service on fixed, `task_definition` + `ecs_service` on
+  elastic. Its role table is modelled on `worker`, not on the `scheduler` it will
+  replace. `role: scheduler` is untouched by this change and still compiles; it
+  is retired separately.
+
+  A clock declares `schedules:`, a map of job name → **bare 5-field UTC cron
+  string**, required on a clock and rejected on every other role. There is **no
+  cron dialect translation anywhere** — the expression passes through to the
+  clock unchanged, which deletes the 6-field / `?`-day / Sunday-is-1 class of
+  bug outright. Validation rejects an absent or empty map, a job name that is not
+  a valid identifier (job names are dispatch keys), and a malformed expression,
+  reporting one issue per offending job.
+
+  The compiler renders `infra/output/<env>/schedules.yml` for **visibility** —
+  git-tracked and diff-visible, so a schedule change reviews as an
+  infrastructure change — and delivers each clock its own job map through
+  **`DOCEX_SCHEDULES_YAML`**, one literal env var, identical on both
+  foundations. No mount, no path variable, no per-foundation branch in a project's
+  clock entrypoint. The variable is reserved: a project may not declare it.
+
+  On elastic a clock alone is emitted with
+  `deployment_minimum_healthy_percent = 0` / `deployment_maximum_percent = 100`,
+  forcing stop-then-start so a rolling deploy cannot briefly run two clocks and
+  double-fire a tick. This trades a possible double fire for a possible missed
+  fire — the right trade, since missed fires are already an accepted caveat and
+  jobs must be idempotent regardless.
+
 ## [1.6.1] - 2026-08-03
 
 ### Fixed

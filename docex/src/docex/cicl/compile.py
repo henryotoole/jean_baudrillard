@@ -511,6 +511,15 @@ class CompiledService:
     # than routed through a transfer-table translation body. The fixed
     # (ofelia) and elastic (scheduled_task) emitters translate it.
     schedule: str | None = None
+    # Mod 115: the clock role's `schedules` map (job name -> 5-field cron),
+    # carried VERBATIM from infra.yml. None for every non-clock service.
+    # Its transfer-table body is an empty marker, so — like `schedule`
+    # above — it is carried directly rather than routed through a
+    # translation body; the emitters deliver it procedurally as the
+    # `DOCEX_SCHEDULES_YAML` literal (see emit/schedules.py). No cron
+    # translation is applied anywhere: clock.md § Cron format passes the
+    # expression through to the schedule table unchanged.
+    schedules: dict[str, str] | None = None
     # --- Service expansion (Mod 096) -------------------------------------
     # The codebase this compiled service belongs to. None for backing
     # services. `name` is the two-segment compiled identity (`api-web`);
@@ -641,6 +650,25 @@ def effective_replicas(svc: CompiledService, env: str) -> int:
     if not svc.is_core or env != "prod":
         return 1
     return max(1, svc.replicas)
+
+
+def _clock_schedules(raw: Any) -> dict[str, str] | None:
+    """Mod 115: the `schedules:` value, accepted only in its declared
+    shape — a non-empty mapping of ``str -> str``.
+
+    Validation (`rule_clock_schedules_required` / `rule_clock_cron_invalid`)
+    has already rejected anything else and raised before compilation reaches
+    here, so this is a belt-and-braces gate, not a second opinion: it exists
+    so a malformed value can never be rendered into a container's env by an
+    emitter.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return None
+    if not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in raw.items()
+    ):
+        return None
+    return dict(raw)
 
 
 def compile_env(
@@ -808,6 +836,15 @@ def compile_env(
                 # the compiled service (below) and translated procedurally
                 # by the emitters; its transfer-table translation body is
                 # an empty marker, so routing it here is a no-op. Skip it.
+                continue
+            if fname == "schedules":
+                # Mod 115: the clock `schedules` map, likewise carried onto
+                # the compiled service (below) and delivered procedurally by
+                # the emitters; its translation bodies are empty markers on
+                # both foundations, so routing it here is a no-op. Kept as
+                # its OWN branch rather than fused with `schedule` above:
+                # Mod 116 removes that arm, and a fused condition would make
+                # that a rewrite instead of a deletion.
                 continue
             translated = engine.field_translation(fname, foundation)
             if translated is None:
@@ -1093,6 +1130,11 @@ def compile_env(
                 if (sched := (svc.model_extra or {}).get("schedule")) is not None
                 else None
             ),
+            # Mod 115. Passed through only when it is a `str -> str` mapping:
+            # validation has already rejected anything else, and a malformed
+            # value must never reach an emitter (which would render it into a
+            # container's env).
+            schedules=_clock_schedules((svc.model_extra or {}).get("schedules")),
             codebase=cb_name,
             service=svc_name,
             codebase_global_name=(
@@ -1241,6 +1283,7 @@ def run_compile(ctx: Any) -> int:
     from docex.emit.compose import emit_compose, emit_project_compose
     from docex.emit.hcl import emit_hcl, emit_hcl_project
     from docex.emit.ansible import emit_ansible
+    from docex.emit.schedules import has_clock, render_schedules_file
     from docex.errors import InfraFileError
 
     if ctx.infra is None:
@@ -1277,6 +1320,26 @@ def run_compile(ctx: Any) -> int:
             notes_seen=notes_seen,
         )
         compiled_envs.append(compiled)
+
+        # Mod 115: the clock schedules artifact. OUTSIDE the fixed/elastic
+        # branch below — it is written on both foundations and in ALL FOUR
+        # envs, even though NOTHING mounts or reads it. It is the *visibility*
+        # half of clock.md § How the schedule reaches the container, and
+        # `DOCEX_SCHEDULES_YAML` (emit/schedules.py) is the *delivery* half.
+        # Do not skip the write on the grounds that the env var already
+        # carries the payload, and do not add a `test`-env guard of the kind
+        # the ofelia emitter needs: clock.md says nothing about a clock is
+        # suppressed anywhere.
+        #
+        # No stale-file cleanup when an env has no clock: no emitter in this
+        # compiler removes its own prior outputs (a fixed->elastic flip leaves
+        # a stale docker-compose.yml today), so inventing the behaviour here
+        # would make schedules.yml the odd one out.
+        if has_clock(compiled):
+            (env_dir / "schedules.yml").write_text(
+                render_schedules_file(compiled)
+            )
+            files_written += 1
 
         if compiled.foundation == "fixed":
             compose_path = env_dir / "docker-compose.yml"

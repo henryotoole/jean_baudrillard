@@ -1,0 +1,66 @@
+cicl_version: "3"
+foundation: elastic
+apex_domain: "example.com"
+observability_backend_url: "https://hyperdx.example.com"
+domain_default_service: api.web
+
+# One codebase, three core services — the elastic twin of
+# `sample_project_clock_fixed`. The `web` and `worker` siblings are what make
+# "the deployment percentages are clock-only" checkable in a single compile.
+#
+# The clock block mirrors `clock.md § What a clock core service is`.
+codebases:
+  api:
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_PORT: ${backing_services.appdb.port}
+      DATABASE_NAME: ${backing_services.appdb.db}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+    core_services:
+      web:
+        role: web
+        command: ["python", "/service/dist/app.py"]
+        port: 8080
+        networks: [web, internal]
+        uses: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+          disk: 25GB
+
+      worker:
+        role: worker
+        command: ["python", "-m", "entrypoints.worker"]
+        port: 8081
+        networks: [internal]
+        health_check_path: /health
+        uses: [appdb]
+        resources:
+          cpu: 0.25
+          memory: 512MB
+          disk: 25GB
+
+      clock:
+        role: clock
+        command: ["python", "-m", "entrypoints.clock"]
+        port: 8082
+        networks: [internal]
+        health_check_path: /health
+        resources:
+          cpu: 0.25
+          memory: 512MB
+          disk: 25GB
+        uses: [appdb, api.worker]
+        schedules:
+          nightly_cleanup: "0 3 * * *"
+          hourly_rollup: "0 * * * *"
+
+backing_services:
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    port: 5432
+    networks: [internal]
+    schema_owned_by: api

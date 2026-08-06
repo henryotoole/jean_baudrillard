@@ -32,6 +32,7 @@ so the developer can fix multiple problems per compile cycle.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from docex.cicl.magic_refs import (
@@ -91,12 +92,19 @@ def _effective_env(cb: Codebase, svc: CoreService) -> dict[str, Any]:
 # at compile time. See transfer_tables.md § Per-core-service env
 # (both foundations). Mods 011 (PROJECT_VERSION) + 017 (the OTEL_*
 # quartet).
+#
+# Mod 115 adds DOCEX_SCHEDULES_YAML, the clock's schedule-table delivery
+# variable. `emit/schedules.py`'s SCHEDULES_ENV_KEY is the source of truth
+# for that contract; the literal is duplicated here exactly as the OTEL_*
+# literals are duplicated from compile.py. See clock.md § How the schedule
+# reaches the container.
 _RESERVED_CORE_ENV_KEYS = frozenset({
     "PROJECT_VERSION",
     "OTEL_SERVICE_NAME",
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_EXPORTER_OTLP_PROTOCOL",
     "OTEL_RESOURCE_ATTRIBUTES",
+    "DOCEX_SCHEDULES_YAML",
 })
 
 
@@ -130,6 +138,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_reverse_proxy_field(doc))
     issues.extend(_validate_reverse_proxy_role_removed(doc))
     issues.extend(_validate_scheduler_services(doc))
+    issues.extend(_validate_clock_services(doc))
     issues.extend(_validate_health_check_path_port(doc))
     return issues
 
@@ -1489,13 +1498,93 @@ def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 # ---------------------------------------------------------------------------
+# Mod 115 — the `clock` role's `schedules:` map.
+# ---------------------------------------------------------------------------
+
+
+# Job names are the dispatch keys the clock's controller looks up, so they
+# must be valid identifiers. clock.md § Cron format.
+_JOB_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_clock_services(doc: CICLDocument) -> list[ValidationIssue]:
+    """Mod 115: a ``clock`` core service must declare a non-empty
+    ``schedules:`` map of job name -> well-formed 5-field cron expression.
+
+    ``schedules`` on a *non*-clock core service is already rejected by rule 4
+    (``tt_rule_4_undeclared_field``) since only ``clock/container`` declares
+    it as a role-specific field — that is how clock.md's "required on a
+    `clock` and rejected on every other role" is enforced, with no new rule
+    for the second half.
+
+    Issues are reported **per offending job**, not per service: an author who
+    writes three bad cron expressions should see three messages.
+    """
+    from docex.cicl.cron_expr import cron_expr_issue
+
+    issues: list[ValidationIssue] = []
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        if svc.role != "clock":
+            continue
+        label = ServiceRef(cb_name, svc_name).dotted
+        base = _service_where(cb_name, svc_name)
+        schedules = (svc.model_extra or {}).get("schedules")
+        if not isinstance(schedules, dict) or not schedules:
+            issues.append(ValidationIssue(
+                rule="rule_clock_schedules_required",
+                message=(
+                    f"clock core service {label!r} must declare a non-empty "
+                    f"`schedules:` mapping of job name -> 5-field cron "
+                    f"expression. See clock.md § What a clock core service is."
+                ),
+                where=f"{base}.schedules",
+            ))
+            continue
+        # `key=str`: YAML happily produces a non-string key (`2024:` parses as
+        # an int), and a mixed-type key set makes a bare `sorted()` raise
+        # rather than report the very issue that mixture IS.
+        for job in sorted(schedules, key=str):
+            where = f"{base}.schedules.{job}"
+            if not isinstance(job, str) or not _JOB_NAME_RE.match(job):
+                issues.append(ValidationIssue(
+                    rule="rule_clock_job_name_invalid",
+                    message=(
+                        f"clock core service {label!r} declares job name "
+                        f"{job!r}. Job names are the dispatch keys the clock's "
+                        f"controller looks up, so they must be valid "
+                        f"identifiers (`[A-Za-z_][A-Za-z0-9_]*`). See "
+                        f"clock.md § Cron format."
+                    ),
+                    where=where,
+                ))
+            expr = schedules[job]
+            if not isinstance(expr, str):
+                issues.append(ValidationIssue(
+                    rule="rule_clock_cron_invalid",
+                    message=(
+                        f"clock core service {label!r} job {job!r} must be a "
+                        f"5-field cron expression string; got "
+                        f"{type(expr).__name__}. See clock.md § Cron format."
+                    ),
+                    where=where,
+                ))
+                continue
+            issue = cron_expr_issue(
+                expr, where=where, rule="rule_clock_cron_invalid"
+            )
+            if issue is not None:
+                issues.append(issue)
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Rules 26 + 27 (Mod 096) — fields and networks that a role forbids.
 # ---------------------------------------------------------------------------
 
 
 # Roles that never take public ingress. A core service wanting it *is* a web
 # core service and should say so with `role: web`.
-_NON_WEB_ROLES = frozenset({"worker", "scheduler"})
+_NON_WEB_ROLES = frozenset({"worker", "scheduler", "clock"})
 
 
 def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
@@ -1504,12 +1593,14 @@ def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
     Rule 26: `replicas` on a scheduler is a compile error. Ofelia fires one
     job; a replica count is meaningless. Consistent with how `schedule:` is
     rejected on every non-scheduler role — inert fields fail rather than being
-    silently ignored.
+    silently ignored. Mod 115 adds a clock arm for a different reason: a clock
+    is a *singleton*, and a replica count there is not inert but actively
+    wrong (N ticks, N enqueues per fire — clock.md § Deployment).
 
-    Rule 27: a `worker` or `scheduler` core service may not declare `web` in
-    `networks`. A core service wanting public ingress *is* a web core service
-    and should say so with `role: web`. Replaces the prose-only, unenforced
-    note this file carried for scheduler.
+    Rule 27: a `worker`, `scheduler` or `clock` core service may not declare
+    `web` in `networks`. A core service wanting public ingress *is* a web core
+    service and should say so with `role: web`. Replaces the prose-only,
+    unenforced note this file carried for scheduler.
     """
     issues: list[ValidationIssue] = []
     for cb_name, svc_name, _cb, svc in doc.all_core_services():
@@ -1525,6 +1616,21 @@ def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
                     f"{svc.replicas}`. A scheduler fires one job per tick, so "
                     f"a replica count is inert — remove it. See cicl.md § "
                     f"Validation Rules rule 26."
+                ),
+                where=f"{where}.replicas",
+            ))
+        # Rule 26, clock arm (Mod 115). A SEPARATE branch from the scheduler
+        # one above on purpose: Mod 116 deletes that branch outright, and a
+        # fused condition would turn that deletion into a rewrite.
+        if svc.role == "clock" and "replicas" in svc.model_fields_set:
+            issues.append(ValidationIssue(
+                rule="rule_26_replicas_on_clock",
+                message=(
+                    f"clock core service {label!r} declares `replicas: "
+                    f"{svc.replicas}`. A clock is a singleton — N replicas "
+                    f"means N ticks and N enqueues per fire (clock.md § "
+                    f"Deployment). Remove it. See cicl.md § Validation Rules "
+                    f"rule 26."
                 ),
                 where=f"{where}.replicas",
             ))
