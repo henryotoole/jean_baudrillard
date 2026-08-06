@@ -17,7 +17,7 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
-"Process type solidification" (advance 005, mods 111-121) — finishes what CICL v2
+"Process type solidification" (advance 005, mods 111-124) — finishes what CICL v2
 started. The two central nouns trade places (a *core service* becomes a
 **codebase**; a *process type* becomes a **core service**), the two service
 relations collapse into one named **`uses`**, and `role: scheduler` — a process
@@ -149,6 +149,26 @@ Downstream projects upgrade per
   container healthcheck, but **staging tests do not see it**.
 
 ### Fixed
+
+- **The pre-cut checklist named the wrong Service Connect consumers** (mod 124).
+  `PRE_CUT_CHECKLIST.md` D.9 and D.11 told the walker to record reconcile
+  operands for "`api-web` and `api-worker` — they form a `uses` cycle", and the
+  prescribed `describe-services` command queried that pair. Neither half was
+  true: the elastic seed gives `api.worker` `uses: [appdb]` only, so it is a
+  target and never a consumer, and there is no cycle anywhere in the project.
+  The actual consumers are **`api-web` and `api-clock`**, both targeting
+  `api.worker`, exactly as `release` reported during the 1.7.0 walk. A walker
+  following the box literally would have looked for an `api-worker` reconcile
+  line, not found one, and read a correct release as a regression.
+
+  **The repair is shaped to detect its own rot.** The defect existed because a
+  static claim about `infra.yml` was written into the checklist and drifted
+  silently when `infra.yml` moved; correcting the pair alone would leave that
+  mechanism fully intact. Both boxes now derive the consumer set from the rule
+  (a **core-targeted** `uses` entry) rather than asserting a pair, and add a
+  clause keyed on the executor's own output — `release` prints
+  `N consumer(s) checked`, and `N ≠ 2` means the box is stale. An assertion
+  keyed on what the tool reports cannot drift away from what the tool does.
 
 - **The smoke seeds' cleanup checks could not fail** (mod 122). `verify_clean.sh`
   exited 0 reporting `OK: registry images` while thirty image tags remained in
@@ -388,6 +408,24 @@ Downstream projects upgrade per
   a role already served correctly by the generated `docex role` surface.
 
 ### Added
+
+- **A job must tolerate a cold schema** (mod 124). `clock.md § Caveats` gains a
+  fourth bullet stating an obligation the doctrine had never written down.
+  Nothing gates a core service's startup on its backing services, and
+  migrations run *after* the stack is up — in `dev`/`test` on both foundations,
+  and after `tofu apply` on an elastic env's first release, where a clock is
+  **guaranteed** to meet the window. Because a clock fires on its own schedule
+  rather than in response to a request, it is the service that reaches a cold
+  schema first: the 1.7.0 elastic walk watched `api-clock` fire `heartbeat`
+  against a schema that did not exist yet and log
+  `relation "jobs" does not exist`. That is the documented ordering working as
+  designed, not a fault — it self-heals on the next slot with no operator
+  action and no effect on the clock's health probe — but it obliges a job to be
+  safe to attempt again after failing before it did anything at all.
+  `migrations.md § First-Time Release of an Env` names the clock as the service
+  guaranteed to exercise that window, and the elastic walk's D.11 clock group
+  now says the stack trace is expected, with the inverse tell stated: a clock
+  still failing two ticks after the migration completed *is* a finding.
 
 - **The `cohere` skill checks examples by compiling them** (mod 121). New
   executor `skills/cohere/executor/verify_examples.py` extracts every `yml`

@@ -76,6 +76,14 @@ The `fixed` and `elastic` seeds carried a second codebase, `reaper`, until `role
 
 **This is not drift, and restoring a second codebase is not the fix.** If the multi-codebase fan-out coverage is wanted back, it needs a second codebase with a genuine reason to exist — not a resurrected `reaper`, whose reason for existing was retired along with `role: scheduler`.
 
+### A checklist box should assert against what the tool prints
+
+The newest lesson the seeds teach by example. For two releases [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md) told the walker that the elastic project's Service Connect consumers were `api-web` and `api-worker` and that they formed a `uses` cycle, and its prescribed `describe-services` command queried that pair. Both halves were false: `api.worker` declares `uses: [appdb]`, so it is a target and never a consumer, there is no cycle anywhere in the project, and the real consumers are `api-web` and `api-clock`. The claim had been true when written and went stale when `infra.yml` moved — silently, because nothing connected the two.
+
+**A static claim about the seed's configuration is a copy of that configuration, and copies drift.** So the repair was not to correct the pair; that leaves the drift mechanism fully intact for the next `infra.yml` change. Both boxes now derive the consumer set from the *rule* — a **core-targeted** `uses` entry — and then check themselves against the executor's own output: `release` prints `N consumer(s) checked`, and `N ≠ 2` tells the walker the box is stale before they record anything.
+
+Generalized: **where a box can be keyed on something the tool reports, key it there.** A box that restates configuration can rot with no signal at all; a box that compares the tool's output against an expected value announces its own staleness the first time it is run. This is the [`verify_clean.sh`](#verify_cleansh-a-check-that-cannot-answer-must-fail) rule from the other direction — there, a check that cannot answer must fail rather than report zero; here, a check that has gone stale must say so rather than mislead. Both are instances of advance 005's recurring defect: *something that could not have detected the failure reported success.*
+
 ## Inception-flow divergences
 
 These projects were created by walking [`doctrine/practices/inception.md`](../../../doctrine/practices/inception.md) PARTs I–IV, with two carve-outs:

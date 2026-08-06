@@ -3,8 +3,10 @@
 The last mod of advance 005. Two findings from the completed 1.7.0 elastic
 smoke walk, neither of which is a `docex` defect.
 
-> **Scope.** One checklist file (`docex/test_projects/PRE_CUT_CHECKLIST.md`),
-> two doctrine files (`specifics/clock.md`, `specifics/migrations.md`).
+> **Scope.** Implementation: one checklist file
+> (`docex/test_projects/PRE_CUT_CHECKLIST.md`) and two doctrine files
+> (`specifics/clock.md`, `specifics/migrations.md`). Documentation step:
+> `CHANGELOG.md` and `docex/plans/core/test_projects.md`.
 > **No `docex` source change, no test change, no emitted-output change, no
 > `cicl_version` implication.** `pytest tests/unit` (1009) and
 > `pytest -m integration` (20/0) must be unmoved by this mod; any movement is
@@ -262,6 +264,39 @@ arrived" box.**
    makes its links *into* `doctrine/` anchor-verified rather than fail-open.
 5. `git status` shows no modification under `docex/test_projects/{fixed,elastic}/`;
    both inner repos remain clean at `v0.0.23`.
+
+## Verification notes — two corrections to this document's own predictions
+
+Both surfaced during execution. Neither is a drift in the landed prose; both are
+errors in the *expected values* written above and in `implementation.md`, and
+they are recorded rather than quietly patched.
+
+1. **`grep -c 'N consumer(s) checked'` returns 4, not 2.** The string already
+   occurred twice at HEAD, inside the `| **skip** |` row of each verdict
+   table — text that sits in the region this mod required to stay
+   byte-identical. The two new clauses land at `:383` and `:441`, giving
+   2 pre-existing + 2 new. The substantive requirement (the clause present
+   exactly once in D.9 and once in D.11) is met and was verified by line
+   number. **The check was written as though the grep would see only the new
+   text; the implementor was right to report the mismatch rather than adjust
+   prose to chase the number.**
+
+2. **The widened-root `linkcheck` run cannot exit 0, and this sharpens the
+   advance-006 gap.** `linkcheck.py doctrine skills docex/test_projects` exits 1
+   on **check 3 (identical filenames)** — the `fixed/` and `elastic/` seeds
+   mirror each other by design, so `masterplan.md`, `api.md`, `CHANGELOG.md` and
+   nine others are duplicated structurally and permanently. **Check 1
+   (links/anchors) is green**, which is the half this step exists to obtain, and
+   it is what proves the two new `../../doctrine/…` links in the D.11 box
+   resolve with anchors verified.
+
+   So the gap logged for advance 006 is not merely *"`PRE_CUT_CHECKLIST.md`
+   sits outside the default scan root."* It is: **widening the root to reach it
+   necessarily drags in two deliberately-mirrored repos, which makes check 3
+   unusable at that scope.** Any fix must let the two checks be scoped
+   independently, or exclude the seed trees from check 3 — a plain root
+   widening will not do. Recorded here for whoever picks it up; minting the
+   advance-006 stub is an advance-scoping act and not this mod's to take.
 
 ## Non-goals
 

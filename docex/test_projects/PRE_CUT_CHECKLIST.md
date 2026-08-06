@@ -366,15 +366,24 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 - [ ] `./bin/docex release stage` — first-time-release path detected (ECS cluster absent); ordering swaps to `SSM push → tofu apply → migrate`. ALB listener rules, ECS cluster, ECS services for `api-web`/`api-worker`/`api-clock`/`probe`/`events`, RDS instance, EFS filesystem + mount targets for `events`, all come up. `https://stage.docex-smoke-elastic.luxrnd.tech/health` returns 200.
 - [ ] `api-clock` came up as an **ordinary ECS service** — an `aws_ecs_task_definition` **and** an `aws_ecs_service`, its own CloudWatch log group, a paired otelcol sidecar, and a container-level `healthCheck`. It is a long-running singleton, not an invocation. Confirm `aws ecs list-services` shows exactly **five**: `api-web`, `api-worker`, `api-clock`, `probe`, `events`.
-- [ ] **Record both reconcile operands, and the verdict.** For each consumer
-  (`api-web` and `api-worker` — they form a `uses` cycle):
+- [ ] **Record both reconcile operands, and the verdict.** The consumers are the
+  core services that declare a **core-targeted** `uses` entry — here `api-web`
+  and `api-clock`, both targeting `api.worker`. `api.worker` itself declares
+  `uses: [appdb]` only, and a backing-targeted entry never makes a consumer, so
+  the worker is a target and never a consumer; **there is no `uses` cycle in
+  this project.** For each consumer:
   ```bash
   aws ecs describe-services --cluster docex-smoke-elastic-stage \
-    --services api-web api-worker \
+    --services api-web api-clock \
     --query "services[].[serviceName,deployments[?status=='PRIMARY']|[0].createdAt]"
   aws servicediscovery list-services \
     --query "Services[].[Name,CreateDate]"
   ```
+
+  `release`'s own output states the count it used — `N consumer(s) checked`.
+  **If `N` is not 2, the consumer set has changed and this box is stale**;
+  re-derive it from `infra.yml` before recording anything.
+
   Write both timestamps into the walk log. **Expected verdict: `fire` on this
   first `stage` release** — deployment and name are created seconds apart — and
   **`skip` on the code-only 0.0.21 release**, where the gap is days.
@@ -415,15 +424,24 @@ Elastic production-side projinfra applies in two phases separated by an operator
   - `https://prod.docex-smoke-elastic.luxrnd.tech/health` (bare-env → `domain_default_service`)
   - `https://docex-smoke-elastic.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_service`)
 - [ ] `https://docex-smoke-elastic.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. On elastic this additionally proves Service Connect resolved the sibling core service — the `api.worker` `port` is exactly what makes it discoverable, so a missing port surfaces here and nowhere else.
-- [ ] **Record both reconcile operands, and the verdict.** For each consumer
-  (`api-web` and `api-worker` — they form a `uses` cycle):
+- [ ] **Record both reconcile operands, and the verdict.** The consumers are the
+  core services that declare a **core-targeted** `uses` entry — here `api-web`
+  and `api-clock`, both targeting `api.worker`. `api.worker` itself declares
+  `uses: [appdb]` only, and a backing-targeted entry never makes a consumer, so
+  the worker is a target and never a consumer; **there is no `uses` cycle in
+  this project.** For each consumer:
   ```bash
   aws ecs describe-services --cluster docex-smoke-elastic-prod \
-    --services api-web api-worker \
+    --services api-web api-clock \
     --query "services[].[serviceName,deployments[?status=='PRIMARY']|[0].createdAt]"
   aws servicediscovery list-services \
     --query "Services[].[Name,CreateDate]"
   ```
+
+  `release`'s own output states the count it used — `N consumer(s) checked`.
+  **If `N` is not 2, the consumer set has changed and this box is stale**;
+  re-derive it from `infra.yml` before recording anything.
+
   Write both timestamps into the walk log. **Expected verdict: `fire` on this
   first `prod` release** — deployment and name are created seconds apart — and
   **`skip` on the code-only 0.0.21 release**, where the gap is days.
@@ -457,6 +475,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 > **Clock — fire → defer → drain.** Same group as [C.9](#c9-release-prod), translated to elastic. The minutely `heartbeat` job exists solely so this path is observable inside a walk window; `prune_pings` is `0 3 * * *` and will **not** fire during the walk, so do not wait for it.
 
+- [ ] **Expect one failed fire before the migration lands, and do not read it as a regression.** The first-release ordering is `SSM → tofu apply → migrate`, so `api-clock` starts before the schema exists; its first `heartbeat` logs `psycopg2.errors.UndefinedTable: relation "jobs" does not exist`. This is the documented ordering ([`migrations.md § First-Time Release of an Env`](../../doctrine/infrastructure/specifics/migrations.md#first-time-release-of-an-env)) and it self-heals ([`clock.md § Caveats`](../../doctrine/infrastructure/specifics/clock.md#caveats)); the next tick ~60 s later succeeds. The same happens on the D.9 `stage` release, where no box reads the clock's log. **A clock still failing two ticks after the migration completed is a genuine finding.**
 - [ ] The clock started and its schedule arrived. The `/docex_smoke_elastic/prod/api-clock` CloudWatch log group shows `clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: …`. This line is still the evidence the schedule **arrived**, so read it — but the comparison itself is now **asserted by the clock at startup** ([`clock.md § How the schedule reaches the container`](../../doctrine/infrastructure/specifics/clock.md#how-the-schedule-reaches-the-container)): a scheduled name with no binding makes the task exit non-zero before entering its loop. So the symptom of a mismatch is an **ECS task that never reaches RUNNING steady state**, not a silently-wrong clock — and if the clock is logging this line, the binding check has already passed.
 - [ ] A fire deferred. Within ~65 s the same log group shows `jobs: 'heartbeat' fired` followed by `jobs: 'heartbeat' deferred as job <uuid>`. **Both lines, not one** — "fired" without "deferred" is the clock reaching the queue and failing.
 - [ ] The worker drained it. The `/docex_smoke_elastic/prod/api-worker` log group shows `jobs: 'heartbeat' performed (job <uuid> …)` carrying the **same uuid**. Matching the uuid is what makes this a proof of the deferral path rather than of two unrelated log lines.
