@@ -340,3 +340,59 @@ The mapping is clean: `bootstrap` → internal, reached via `projinfra`
 <env>` (`__main__.py:179-186`). The `Reads` / `Writes` cells for the added rows
 are descriptive transcription of what the handlers do, in the same register as
 every existing row.
+
+---
+
+## Post-implementation: what the compile-don't-read bar caught
+
+The verification bar for this mod was *"every example `infra.yml` in the
+doctrine actually validates — prove it by compiling, not by reading."*
+
+**It caught its own author.** § 1.3 of this document lists
+`cicl.md:376-382` under "verified compilable and correct, needing no change".
+It is neither. It declares `uses: [database, cache, bucket, api.worker]` with
+`database` undeclared — `rule_25_unresolved_uses`, **the same defect class as
+the `appdb` fix four lines above it in the same table**. I reached that verdict
+by reading the fence. Compiling it took seconds and returned the opposite
+answer.
+
+Recorded deliberately rather than quietly corrected. The rule stated abstractly
+is forgettable; a worked example of the bar catching the person who wrote the
+bar is not. Two specific lessons:
+
+1. **Reading finds the defect you are already looking for.** I was scanning
+   that fence for retired vocabulary and pre-`processes:` shape — the advance's
+   residue classes. It had neither, so it read as clean. An undeclared `uses`
+   target was not on the list I was matching against, so I did not see it,
+   *while fixing exactly that defect elsewhere in the same file*.
+2. **A verdict of "verified" must name its instrument.** "Verified correct" in
+   § 1.3 meant "I read it and it looked right", which is indistinguishable in
+   the written record from "I compiled it and it passed". The verdict table in
+   the final report was made to carry evidence per row for this reason.
+
+## Findings carried forward — inputs to `cohere`, not surprises
+
+Found by the Part F harness, verified independently, **not fixed**: all four
+predate advance 005, and the `database` rename ripples through Mod 112's
+protected output. Root causes dated so a later pass need not re-establish
+provenance.
+
+| Finding | Where | Root cause |
+| ------- | ----- | ---------- |
+| Postgres backing named `database` is a **reserved engine identifier** — `rule_engine_reserved_name`, *"AWS RDS would reject this at apply time"* (`tables/roles/relational_db.yml:43`) | `cicl.md:22-107`, `shape.md:100-134` | Rule landed `991b76d` (docex 0.7.0 cut); the examples predate it |
+| **Literal TAB indentation** — YAML forbids tabs, so the canonical example is unparseable | `cicl.md:103, :105` and throughout | `307d47a` (original bulk commit) |
+| **Rule 7 violated by the canonical example itself** — `api.clock` and `api.worker` magic-ref `${backing_services.bucket.bucket_name}` without `bucket` in `uses:` | `cicl.md:22-107` | `307d47a` |
+| **Undeclared `database` in `uses:`** — `rule_25_unresolved_uses` | `cicl.md:376-382` | `307d47a` |
+
+Two things to carry with them:
+
+**The `cicl.md` canonical example is the fence every project author copies
+first**, and `upgrade_1.7.0.md` sends readers to it. Being simultaneously
+unparseable *and* self-rejecting matters more in the release whose entire
+subject is how to author `infra.yml` than its age would suggest. Long-standing
+is not the same as low-priority.
+
+**16 of 42 `yml` fences under `doctrine/` + `skills/` indent with tabs.** This
+looks like a formatting-convention question and is not one: YAML forbids tabs
+for indentation, so those fences are not examples — they are text shaped like
+examples. None is copy-pasteable into a working `infra.yml`.
