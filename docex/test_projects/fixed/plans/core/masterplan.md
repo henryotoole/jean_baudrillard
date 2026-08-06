@@ -17,7 +17,8 @@ The companion project at `docex/test_projects/elastic/` exercises the `elastic`-
 | Term | Meaning |
 | ---- | ------- |
 | Ping | A small unit of work created by the `api.web` core service and consumed (processed) by the `api.worker` core service. Postgres-mediated; no real queue. |
-| Codebase | A core service: one source tree, one build artifact, one image. `api` and `reaper` are the two codebases here. |
+| Job | A named unit of deferred work. `api.clock` enqueues one when a schedule fires; `api.worker` claims and performs it. Carries a name and no payload. |
+| Codebase | One source tree, one build artifact, one image. `api` is the only codebase here. |
 | Core service | One named way of invoking a codebase's artifact — its own role, command, port, networks, and resources. Emitted as `<codebase>-<service>`. |
 | Smoke test | The operator-driven manual walk through `PRE_CUT_CHECKLIST.md` against this project before a `docex` cut. |
 
@@ -47,21 +48,21 @@ The two project-local backings exercise the project-local transfer-table feature
 
 ### Core Services
 
-**Two codebases, three core services.** Both codebases are hexagonally-architectured per `doctrine/hexagonal_architecture/` and written in Python.
+**One codebase, three core services.** It is hexagonally-architectured per `doctrine/hexagonal_architecture/` and written in Python.
 
 | Codebase | Core service | Role | Networks | Port | Trigger |
 | -------- | ------------ | ---- | -------- | ---- | ------- |
 | `api` | `web` | `web` | `web`, `internal` | 8080 | long-running |
 | `api` | `worker` | `worker` | `internal` | 8081 (health only) | long-running |
-| `reaper` | `prune` | `scheduler` | `internal` | — | cron `0 3 * * *` |
+| `api` | `clock` | `clock` | `internal` | 8082 (health only) | long-running |
 
-One image per **codebase**, so `api-web` and `api-worker` run the same tag started two different ways, and `reaper-prune` runs its own.
+One image per **codebase**, so all three run the same tag started three different ways — one build, one registry repo, one `-exec` container, one `migrate.sh` run per release, three sidecars.
 
 #### `api` — the application codebase
 
 See [`api/api.md`](./api/api.md). Two core services on one artifact; they were two separate core services until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
 
-- **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`) and [`processor`](./api/hex/processor.md) (driven by `api.worker`). They share a codebase but not a module boundary — no imports cross between them.
+- **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`), [`processor`](./api/hex/processor.md) (driven by `api.worker`), [`jobs`](./api/hex/jobs.md) (deferred by `api.clock`, performed by `api.worker`), and [`retention`](./api/hex/retention.md) (reached only through the `prune_pings` job). They share a codebase but not a module boundary; the sole cross-module import is `jobs`' runner taking `retention`'s **driving port**, which is the one the doctrine permits.
 - **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI). Two boundaries, two contracts; the path is keyed on the core service.
 - **`uses`**: `api.web` uses `api.worker`, one direction only. `api.web` holds four-segment magic refs to `${codebases.api.core_services.worker.host}` / `.port`, which is what obliges the edge (rule 7); the worker never calls the web edge, so the reverse edge would be a false declaration.
 - **Schema owner**: `schema_owned_by: api`. `migrate.sh` runs once for the codebase, not once per core service.
@@ -72,18 +73,22 @@ See [`api/api.md`](./api/api.md). Two core services on one artifact; they were t
 
 `api.web` exposes `/health` (doctrine-mandated), `/health/api/worker` (doctrine-mandated — the `uses` fan-out, one hop, short hard timeout), and `/health/probe` + `/health/events` (**not** doctrine-mandated — probe and events are *backing services*, not core services; they let the stage tests catch wiring regressions in Service Connect, SG self-ingress, and EFS mount-target setup on the elastic counterpart).
 
-#### `reaper` — the scheduler codebase
+#### `api.clock` — the scheduler that is an ordinary core service
 
-One core service, `prune`, named after the **job** rather than the role, per `cicl.md § Naming convention` — a scheduler codebase commonly carries several jobs. That is what makes the emitted name `reaper-prune` rather than the `reaper-reaper` a mechanical nesting would have produced.
+`api.clock` is a **long-running singleton container**, not a triggered job. That is the whole point of `role: clock`: a schedule is a property of an invocation, not of a deployment, so the clock is simply the invocation that owns the cron loop.
 
-- **Role**: `scheduler` — a cron-triggered, run-to-completion job, not a long-running server. On fixed, an Ofelia container launches it as a one-off container per fire; on the elastic counterpart, an EventBridge Scheduler invokes an ECS `RunTask` (no `ecs_service`). Suppressed entirely in the `test` env (the trigger is dropped so a job never fires inside the test window).
-- **Schedule**: `0 3 * * *` (03:00 UTC daily).
-- **Contract**: none. `scheduler` core services are exempt from both the contract and the health model — cron invokes them and nobody else does, so a scheduler is never a `uses` target.
-- **Driving adapters**: `ContReaperCli` (translates the job trigger into a single `reap()` call, then exits 0).
-- **Driven adapters**: `RepoPingsPostgres` (its own minimal repo — a single `delete_processed_before` method; no code shared with `api` per the cross-module rule).
-- **Hex modules**: **`reaper`** — domain value `RetentionWindow` (a positive-day window with a `cutoff(now)`); alogic `ReaperService.reap()` deletes processed pings older than the cutoff.
+- **Schedules**: declared in `infra.yml` as bare 5-field UTC cron — `prune_pings: "0 3 * * *"` and `heartbeat: "* * * * *"`. The compiler delivers this clock's own job map to the container in **`DOCEX_SCHEDULES_YAML`**, whose value is the *literal rendered YAML* and not a path, identically on both foundations. It also renders `infra/output/<env>/schedules.yml` — a visibility artifact nothing reads at runtime, which is what makes a schedule change show up in review as an infrastructure change.
+- **No dialect translation anywhere.** The expression reaches the container verbatim and the codebase's cron library parses it, which deletes a whole class of bug that a cloud scheduling primitive forces.
+- **It defers; it does not work.** Each fire enqueues onto the `jobs` table and returns. The work is `api.worker`'s.
+- **No exemptions.** It serves `/health` off its loop tick, gets an OTel sidecar like any other core service, and gets a container healthcheck. `replicas` is forbidden on a clock — it is a singleton — and on elastic it deploys stop-then-start (`deployment_minimum_healthy_percent = 0` / `maximum = 100`) so a rolling deploy cannot double-fire.
+- **Contract**: none, and that is the ordinary rule rather than an exemption. The provider set is (core-service `uses` targets) ∪ (`web`-network core services), and the clock is neither.
+- **`uses: [appdb, api.worker]`** — with **no** magic ref to the worker. The clock reaches it through the `jobs` table rather than the mesh, so there is nothing to reference; the edge declares the interface. A ref implies an edge, never the reverse.
 
-`reaper-prune` is the only end-to-end scheduler coverage that exists anywhere: no integration test covers a scheduler, so the fixed smoke walk is it.
+#### Why there is only one codebase
+
+Until the clock advance there were two: `api`, and a scheduler-only codebase named `reaper` whose single core service pruned expired pings on a nightly cron. When `role: scheduler` was retired, **`reaper` could not become a clock.** A clock defers onto its own codebase's queue, only the codebase that owns a schema may enqueue, and `reaper` owned no schema (it reached into `api`'s `pings` table), no worker, and no queue. `api` owns all three, so the clock folded in here and `reaper` was deleted; its retention rule became the [`retention`](./api/hex/retention.md) module.
+
+The walk therefore stopped covering the two-codebase shape. That loss is deliberate and is recorded in `docex/plans/core/test_projects.md § Shape`, which is where a reader who finds one codebase should look before concluding the doc is stale.
 
 ### Composition Roots and Entrypoints
 
@@ -94,8 +99,10 @@ Activation lives in `src/entrypoints/`, one module per core service, and each co
 | Core service | `command` | Entrypoint owns |
 | ------------ | --------- | --------------- |
 | `api.web` | `entrypoints/web.py` | uvicorn |
-| `api.worker` | `entrypoints/worker.py` | poll loop, SIGTERM handling, liveness tick + health server |
-| `reaper.prune` | `entrypoints/prune.py` | one pass, then `sys.exit` |
+| `api.worker` | `entrypoints/worker.py` | poll loop (pings **and** the job queue), SIGTERM handling, liveness tick + health server |
+| `api.clock` | `entrypoints/clock.py` | cron loop on a bounded 5 s wait, SIGTERM handling, liveness tick + health server |
+
+`clock.py` is the doctrine's **reference implementation** of a clock runtime host, and `worker.py` of a loop-owning consumer. Downstream projects copy both, so changes there are made deliberately.
 
 The Dockerfile `CMD` is deliberately irrelevant for core services: `command` is required on every core service and supersedes it.
 
@@ -106,11 +113,14 @@ The Dockerfile `CMD` is deliberately irrelevant for core services: `command` is 
 3. **Self health.** `GET /health` on `api.web` returns `{"version": "<project version>"}`, straight from the process. `GET /health` on `api.worker` returns the same shape but is gated on the tick from flow 2: stale by more than 30 s and it 503s, which is what makes a wedged loop fail its own probe rather than a liveness thread reporting health while nothing moves.
 4. **Health fan-out.** `GET /health/api/worker` on `api.web` proxies the worker's own `/health` over the internal network with a hard 3 s timeout — one hop, never the target's fan-out, because the `uses` graph may legally cycle. Doctrine-required, because `api.web` declares `api.worker` in `uses:` and the worker is not on the `web` network. This is the only externally-visible view of the worker's liveness.
 5. **Project-local-backing reachability.** `GET /health/probe` confirms `api.web` can resolve and reach the `probe` nginx sidecar by service name; `GET /health/events` confirms it can open a TCP connection to ClickHouse. Both exercise Service Connect / docker network DNS at the smoke-test layer.
-6. **Ping reaping.** Nightly (`0 3 * * *`), the `reaper.prune` job fires → `ReaperService.reap()` computes the cutoff from a 30-day `RetentionWindow` → `RepoPings.delete_processed_before(cutoff)` deletes expired *processed* pings (unprocessed and recently-processed rows survive) → the job exits 0. Suppressed in `test`.
+6. **Scheduled deferral.** `entrypoints/clock.py`'s loop wakes at most every 5 s, finds a job whose cron expression is due, and calls `ContJobsCron.fire(name)` → the shared driving port `ContJobs` → `JobService` inserts a row into `jobs` → the fire returns. **That is the whole of the clock's involvement.** It performs no work, because a clock is a singleton with no replicas and no queue-level retry, and because only the codebase that owns a schema may write to it. Two jobs are scheduled: `prune_pings` at `0 3 * * *`, and `heartbeat` every minute so this flow is observable inside a smoke walk rather than only at 03:00.
+7. **Job draining.** The same `api.worker` pass as flow 2 calls `ContJobRunnerCli.run_once()` → `JobRunnerService` claims a batch `FOR UPDATE SKIP LOCKED` (exclusive against the second replica), looks each row's `name` up in its **perform-side** table, and runs the handler → `prune_pings` calls `retention`'s driving port, computing a cutoff from a 30-day `RetentionWindow` and deleting expired *processed* pings (unprocessed and recently-processed rows survive); `heartbeat` logs and returns. Each row is stamped `finished_at`, with `error` set on failure and the drain continuing past it.
+8. **Clock self health.** `GET /health` on `api.clock` reports the cron loop's monotonic tick, 503ing at 30 s stale, exactly as flow 3 does for the worker. Nothing external reaches it: no fan-out proxies it and the stage tester cannot see it, so this probe is consumed by the **container healthcheck alone**, which restarts a wedged clock. Local enforcement, but real.
 
 ## Hard Boundaries
 
 - This project does **not** solve a real problem. The flows are minimal-by-design.
 - This project does **not** carry custom transfer tables beyond `sidecar.yml` and `clickhouse.yml`. Those two exist specifically to keep the project-local-transfer-table surface exercised every cut; if a smoke walk surfaces an ambiguity in the doctrine's project-local mechanism, the fix lands in doctrine, not in additional tables here.
-- This project does **not** consume a real broker. Its "queue" is the `pings` table, because the doctrine ships no `queue` role — the most visible loose end the CICL-v2 advance leaves, and recorded in `api.worker.asyncapi.yml`'s header rather than hidden.
+- This project does **not** consume a real broker. Both its queues are postgres tables — `pings` for ping work and `jobs` for deferred jobs — because the doctrine ships no `queue` backing-service role. That is the most visible loose end the CICL-v2 advance leaves, and it is recorded in `api.worker.asyncapi.yml`'s header rather than hidden.
+- This project has **one codebase**, deliberately. It carried two until the clock advance: `reaper`, a scheduler-only codebase, was deleted when `role: scheduler` was retired. It could not become a clock — a clock defers onto its own codebase's queue, only the schema-owning codebase may enqueue, and `reaper` owned no schema, no worker, and no queue. **This is not drift and it must not be "restored".** What the second codebase used to cover, and what its loss costs the smoke walk, is recorded in `docex/plans/core/test_projects.md § Shape`.
 - This project does **not** ship with custom observability, alerting, or anything in the Deferred section of `doctrine/infrastructure/infrastructure.md`. If the smoke test surfaces a need for one of those, that's a Deferred item being un-deferred.

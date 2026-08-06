@@ -203,11 +203,6 @@ else
   report_ok "ECS task-definition families"
 fi
 
-schedules="$(aws scheduler list-schedules \
-  --query "Schedules[?starts_with(Name, '${PROJECT_AWS_PREFIX}')].Name" \
-  --output text 2>/dev/null | tr '\t' '\n' | grep . || true)"
-if [[ -n "$schedules" ]]; then mark_fail "EventBridge schedules" "$schedules"; else report_ok "EventBridge schedules"; fi
-
 if [[ "$remaining" != "0" ]]; then
   echo
   echo "verify_clean: $remaining resource type(s) still present. teardown did not fully complete."

@@ -16,12 +16,16 @@ repo_url: "https://github.com/luxedo/jean_baudrillard"
 observability_backend_url: "https://hyperdx.luxrnd.tech"
 
 codebases:
-  # One codebase, one image, two core services. `web` and `worker` were two
+  # One codebase, one image, three core services. `web` and `worker` were two
   # separate core services before CICL v2, purely because there was no way
   # to say "one artifact, two invocations" — they always shared a database,
-  # a table, and six identical DATABASE_* refs.
+  # a table, and six identical DATABASE_* refs. `clock` is the third
+  # invocation of that same artifact and the reason the `reaper` codebase
+  # no longer exists: a clock may only defer onto its OWN codebase's queue,
+  # and `api` is the codebase that owns the schema
+  # (clock.md § The clock defers; it does not work).
   api:
-    # Codebase-scoped: both core services run the same artifact and both
+    # Codebase-scoped: all three core services run the same artifact and all
     # need a database, so these live once at the codebase level and merge
     # into every core service. (cicl.md § Field scoping.)
     env:
@@ -91,30 +95,40 @@ codebases:
           cpu: 0.25
           memory: 512MB
 
-  # A scheduler codebase: prunes processed pings older than the retention
-  # window on a nightly cron. Runs the project's own image as a
-  # run-to-completion job (Ofelia on fixed, EventBridge RunTask on
-  # elastic), never a long-running container. Suppressed in `test` (mod
-  # 073). Same code + env parts as the elastic project (code identity).
-  reaper:
-    env:
-      DATABASE_HOST: ${backing_services.appdb.host}
-      DATABASE_PORT: ${backing_services.appdb.port}
-      DATABASE_NAME: ${backing_services.appdb.db}
-      DATABASE_USER: ${backing_services.appdb.user}
-      DATABASE_PASSWORD: ${backing_services.appdb.password}
-      DATABASE_SSLMODE: ${backing_services.appdb.sslmode}
-    core_services:
-      # Named after the job, not the role — a scheduler codebase commonly
-      # carries several jobs (cicl.md § Naming convention). The codebase
-      # keeps its own noun, so this emits `reaper-prune` rather than the
-      # `reaper-reaper` a mechanical nesting would have produced.
-      prune:
-        role: scheduler
-        schedule: "0 3 * * *"          # 03:00 UTC daily
-        command: ["python", "/service/dist/entrypoints/prune.py"]
+      # The clock: an ordinary long-running singleton core service whose
+      # `command` invokes the cron loop. It DEFERS and does not work — each
+      # fire enqueues a row onto the `jobs` table that `api.worker` drains
+      # (clock.md § The clock defers; it does not work).
+      clock:
+        role: clock
+        command: ["python", "/service/dist/entrypoints/clock.py"]
+        # `port` + `health_check_path` with NOTHING routed to it. A clock
+        # takes no ingress (rule 27 forbids `web` in its networks) and
+        # nothing `uses` it, so no health fan-out reaches it either — its
+        # /health is enforced by the CONTAINER HEALTHCHECK alone (docker
+        # `healthcheck:` here, ECS container health on elastic). That is
+        # real enforcement — a wedged clock gets restarted — but it is
+        # local: staging tests cannot reach it. (clock.md § Caveats.)
+        port: 8082
+        health_check_path: /health
         networks: [internal]
-        uses: [appdb]
+        # `api.worker` holds NO magic ref. The clock reaches the worker
+        # through the `jobs` table, not the mesh, so there is no host to
+        # reference; the edge exists to declare the interface. A ref implies
+        # an edge, never the reverse (cicl.md § Three clarifications).
+        uses: [appdb, api.worker]
+        # Bare 5-field UTC cron, passed through to the clock verbatim — no
+        # dialect translation anywhere, because the clock is project code
+        # rather than a cloud primitive (clock.md § Cron format).
+        schedules:
+          # The retired `reaper.prune`'s work, on its original schedule.
+          prune_pings: "0 3 * * *"
+          # Minutely SO THE WALK CAN OBSERVE the fire → defer → drain path
+          # inside a realistic window. Without it that path is unobservable
+          # and the cron loop is never seen firing anything.
+          heartbeat:   "* * * * *"
+        # No `replicas` — forbidden on a clock (rule 26). It is a singleton:
+        # N replicas would mean N ticks and N enqueues per fire.
         resources:
           cpu: 0.25
           memory: 512MB

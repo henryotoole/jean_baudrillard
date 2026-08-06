@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-08-06
+
+This entry covers **four doctrine changes at once**, because the seed was carried
+through the whole `1.7.0` advance before being committed. They landed in the
+doctrine as separate mods; they reach this project together.
+
+### Changed
+
+- **Vocabulary rename (`cicl_version` 2 → 3).** What was a *core service* is now a
+  **codebase**; what was a *process type* is now a **core service**. In
+  `infra.yml`: top-level `core_services:` → `codebases:`, nested `processes:` →
+  `core_services:`. Core magic refs gain the collection segment and are now five
+  segments — `${codebases.api.core_services.worker.host}`.
+- **`depends_on:` and `consumes:` merged into one `uses:` field.** A bare entry
+  names a backing service, a dotted one names a core service. Backing services
+  declare no outbound edges at all — they are graph sinks. No core-service block
+  carries a compose `depends_on:` any more; the per-codebase `-exec` block is the
+  only surviving ordering emission, and it still gates `migrate.sh` on a cold
+  database.
+- **`cicl_version` is `"3"`.** Generation `"2"` is rejected, not shimmed.
+- `api.worker`'s AsyncAPI contract now declares two consumed boundaries: unclaimed
+  `pings` rows and deferred `jobs` rows.
+
+### Added
+
+- **`api.clock` — a `clock` core service, the third invocation of the `api`
+  image.** A long-running singleton cron loop that reads its schedule from
+  `DOCEX_SCHEDULES_YAML` (the *literal* rendered YAML, identical on both
+  foundations — not a path) and **defers** each fired job onto the `jobs` table.
+  Emits a compose service with a docker `healthcheck:` on `:8082/health` and a paired otelcol sidecar. Two jobs: `prune_pings` at `0 3 * * *`, and `heartbeat`
+  every minute so the fire → defer → drain path is observable inside a smoke walk.
+- **`jobs` hex module** — the deferred-work queue, holding both halves of the
+  deferral contract. `QueueJobsPostgres.claim()` uses `FOR UPDATE SKIP LOCKED`:
+  exclusivity against `api.worker`'s two prod replicas, plus liveness so the
+  second replica does not block behind the first's batch.
+- **`retention` hex module** — the retired `reaper` codebase's rule, unchanged,
+  now reached only as the `prune_pings` job's handler.
+- `jobs` table migration; `POST /jobs/prune_pings` and `POST /jobs/heartbeat` on
+  `api.web` (the same driving port the clock fires, so firing a scheduled job by
+  hand is no longer a special path); `tests/test_jobs_concurrency.py`, which
+  drives the two-consumer race in `test` rather than leaving it to first occur in
+  the prod release.
+
+### Removed
+
+- **The `reaper` codebase, entirely** — tree, `infra.yml` block, scripts,
+  Dockerfile, tests, and the Ofelia trigger container and its generated INI.
+
+  It could not simply become a clock. A clock defers onto its **own** codebase's
+  queue, only the codebase that owns a schema may enqueue, and `reaper` owned no
+  schema (it reached into `api`'s `pings` table), no worker, and no queue. `api`
+  owns all three.
+
+  Before this change the emitted set was compose services `…-api-web` / `…-api-worker`, plus the `reaper-prune` Ofelia trigger. **This project now has one
+  codebase on purpose.** What that costs the smoke walk is recorded in
+  `docex/plans/core/test_projects.md § Shape` — a future reader who finds one
+  codebase where two are expected should read that before assuming drift.
+- `role: scheduler` no longer exists anywhere in the doctrine.
+
 ## [0.0.16] - 2026-07-29
 
 ### Changed

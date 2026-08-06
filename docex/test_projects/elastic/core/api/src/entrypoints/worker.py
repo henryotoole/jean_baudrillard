@@ -20,7 +20,7 @@ import time
 import uvicorn
 from fastapi import FastAPI, HTTPException
 
-from root import VERSION, build_processor
+from root import VERSION, build_job_runner, build_processor
 
 
 logging.basicConfig(
@@ -104,13 +104,21 @@ def main() -> None:
     threading.Thread(target=server.run, name="health", daemon=True).start()
 
     cli = build_processor()
+    job_runner = build_job_runner()
     logger.info(
-        "processor: starting loop (interval=%.2fs, health on :%d)",
+        "processor: starting loop (interval=%.2fs, health on :%d); "
+        "each pass processes pings and drains the deferred-job queue",
         _POLL_INTERVAL_SECONDS, _HEALTH_PORT,
     )
     while not _stop.is_set():
         try:
             cli.run_once()
+            # The perform side of the clock's queue. Same `try`, same
+            # interval, and ONE tick for the pair below — a failure in
+            # either half must withhold the tick, because a worker that
+            # cannot drain the queue is not doing its job even if pings
+            # still move.
+            job_runner.run_once()
         except Exception:
             # A transient database error must not take the worker down; the
             # next iteration retries. Real projects would alert here.

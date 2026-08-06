@@ -42,12 +42,12 @@ fi
 
 # Registry images
 registry_remaining=0
-# One repo per CODEBASE, not per core service: `api` carries both the
-# `web` and `worker` core services on one image, so it is one repo. Keep
-# this list in sync with infra.yml's `core_services:` keys — the next
-# codebase added must be added here or its registry repo survives
-# teardown, exactly as `reaper` did before mod 107.
-for service in api reaper; do
+# One repo per CODEBASE, not per core service: `api` carries the `web`,
+# `worker` and `clock` core services on one image, so it is one repo. This
+# loop covers every codebase in the project, and there is currently one.
+# Keep it in sync with infra.yml's `codebases:` keys — a codebase added
+# without being added here has its registry repo survive teardown.
+for service in api; do
   repo="${PROJECT_NAME}/${service}"
   tags="$(curl -fsS "https://${REGISTRY_HOST}/v2/${repo}/tags/list" 2>/dev/null \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print('\n'.join(d.get('tags') or []))" 2>/dev/null || true)"

@@ -78,5 +78,61 @@ channels:
               format: date-time
               description: >
                 Null while unprocessed; stamped by this core service on a
-                successful pass. Also the retention key the `reaper.prune`
-                scheduler reaps against.
+                successful pass. Also the retention key that `api.clock`'s
+                `prune_pings` job prunes against — deferred by the clock,
+                performed by this core service.
+
+  jobs:
+    description: |
+      The deferred-job queue, which like `pings` above is a postgres TABLE
+      rather than a broker topic (see the header). `api.clock` appends one
+      row per cron fire — it defers and never performs
+      (clock.md § The clock defers; it does not work) — and this core
+      service claims rows where `started_at IS NULL`, oldest first, in
+      batches of 8.
+
+      Claimed with `SELECT ... FOR UPDATE SKIP LOCKED` inside one
+      transaction, which is what makes `replicas: 2` safe: no job is ever
+      claimed twice. The same jobs can also be deferred by hand over HTTP on
+      `api.web` (`POST /jobs/*`), because the clock and the HTTP edge share
+      one driving port.
+    subscribe:
+      operationId: performJob
+      summary: Claim and perform one deferred job.
+      message:
+        name: Job
+        title: A job awaiting performance
+        contentType: application/json
+        payload:
+          type: object
+          required: [id, name, enqueued_at]
+          properties:
+            id:
+              type: string
+              format: uuid
+              description: Primary key, assigned on enqueue.
+            name:
+              type: string
+              description: >
+                The dispatch key. Must match an entry in this core
+                service's perform-side handler table; an unknown name is
+                recorded as a failure on the row rather than crashing the
+                drain.
+              enum: [prune_pings, heartbeat]
+            enqueued_at:
+              type: string
+              format: date-time
+              description: Defer time, UTC. Claim order is oldest first.
+            started_at:
+              type: ["string", "null"]
+              format: date-time
+              description: Null until claimed; stamped by the claim itself.
+            finished_at:
+              type: ["string", "null"]
+              format: date-time
+              description: Null until the handler returns or raises.
+            error:
+              type: ["string", "null"]
+              description: >
+                Null on success; the handler's failure message otherwise. A
+                failed job does not stall the ones behind it.

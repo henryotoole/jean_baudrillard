@@ -154,3 +154,62 @@ paths:
                     format: uuid
         "400":
           description: Invalid payload
+
+  # The two job-deferral routes. They call the SAME `ContJobs` driving port
+  # that `api.clock` fires on a cron tick, which is the side effect
+  # clock.md § Architecture calls out: firing a scheduled job by hand in
+  # `dev` is an ordinary HTTP call rather than a special path.
+  #
+  # ONE ROUTE PER JOB, deliberately. `POST /jobs/{name}` would be shorter
+  # and would make this contract meaningless — "some job, named at
+  # runtime" describes nothing a consumer can rely on and nothing docex
+  # check's contract gate can verify.
+  #
+  # 202, not 201: nothing has happened yet. The response is a receipt for
+  # a queued row, and `api.worker` performs the work on a later pass.
+  /jobs/prune_pings:
+    post:
+      summary: Defer a prune of expired processed pings.
+      description: |
+        Enqueues the `prune_pings` job onto the `jobs` table and returns
+        immediately. `api.worker` claims it on its next pass and performs
+        the retention delete. Also fired by `api.clock` at 03:00 UTC daily.
+      operationId: deferPrunePings
+      responses:
+        "202":
+          description: Accepted — the job was enqueued, not performed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+        "503":
+          description: the queue could not be written; nothing was deferred
+
+  /jobs/heartbeat:
+    post:
+      summary: Defer a no-op liveness job.
+      description: |
+        Enqueues the `heartbeat` job onto the `jobs` table and returns
+        immediately. The job performs nothing; it exists so the
+        fire -> defer -> drain path is observable. Also fired by
+        `api.clock` every minute.
+      operationId: deferHeartbeat
+      responses:
+        "202":
+          description: Accepted — the job was enqueued, not performed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id]
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+        "503":
+          description: the queue could not be written; nothing was deferred

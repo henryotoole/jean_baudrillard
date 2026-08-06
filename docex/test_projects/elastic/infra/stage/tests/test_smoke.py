@@ -10,8 +10,12 @@ on `[internal]` alone, so its liveness is observed through the
 doctrine-required fan-out endpoint /health/api/worker — which is the only
 place these tests can see the worker's monotonic loop tick end to end. Its
 *work* is verified indirectly: POST /pings → row exists → worker
-processes it. `reaper.prune` is a scheduler and has no health surface at
-all (contracts.md § Self health exempts it).
+processes it. `api.clock` gets NO exemption from the health model — it
+serves /health like any core service — but nothing `uses` it and it is not
+on the `web` network, so no route reaches it from out here. Its liveness
+is enforced by the container healthcheck alone, which restarts a wedged
+clock (clock.md § Caveats). That enforcement is real but local: these
+tests cannot assert it.
 
 /health/probe and /health/events exercise the new project-local
 container backings (sidecar/nginx + analytics_db/clickhouse) introduced
