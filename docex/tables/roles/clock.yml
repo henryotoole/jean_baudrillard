@@ -2,7 +2,7 @@
 #
 # Core-service role — the singleton cron loop that defers work onto its
 # codebase's queue. An ORDINARY long-running core service on both
-# foundations, modelled on `worker`, NOT on `scheduler`:
+# foundations, modelled on `worker`:
 #
 #   - fixed:   one compose service on the codebase's image with the core
 #              service's `command`.
@@ -14,9 +14,9 @@
 # `api.clock.host` must resolve like any other core service's.
 #
 # `schedules` is declared below with EMPTY per-foundation translation
-# bodies, exactly as `scheduler`'s `schedule` marker is. The declaration is
-# what makes rule 4 (`tt_rule_4_undeclared_field`) reject `schedules:` on
-# every other role — that is how clock.md's "rejected on every other role"
+# bodies. The declaration is what makes rule 4
+# (`tt_rule_4_undeclared_field`) reject `schedules:` on every other role —
+# that is how clock.md's "rejected on every other role"
 # is enforced, with no new rule. The VALUE is handled procedurally by the
 # emitters and is carried directly onto `CompiledService` (see compile.py),
 # reaching the container as the `DOCEX_SCHEDULES_YAML` literal on both

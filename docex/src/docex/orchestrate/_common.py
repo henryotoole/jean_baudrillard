@@ -107,36 +107,6 @@ def codebases(ctx: ProjectContext) -> list[str]:
     return sorted(ctx.infra.codebases or {})
 
 
-def scheduler_only_services(ctx: ProjectContext) -> list[str]:
-    """Codebase keys with NO long-running core services, sorted.
-
-    Every core service of such a codebase is a ``scheduler``, so the
-    codebase contributes no ordinary compose service block at all — only
-    Ofelia triggers in ``dev``, and in ``test`` nothing but its exec
-    service (mod 073 drops the trigger there). That makes it the one
-    codebase shape whose image **no compose service builds**: ``up --build``
-    has no non-gated block of that codebase to build, and the
-    ``profiles: [exec]`` exec service is only ever reached through
-    ``compose run``, which builds solely when the image is absent.
-
-    Hence the two consumers: ``up``'s ``_ensure_codebase_image`` (docex
-    builds the tag itself) and ``up``'s host-``dist/`` pre-populate skip
-    (there is no bind-mounted long-running container to populate for).
-
-    A *mixed* web+scheduler codebase is deliberately excluded from both —
-    it has a container to build into and its tag is built by
-    ``compose up --build``.
-    """
-    if ctx.infra is None:
-        return []
-    return sorted(
-        name
-        for name, svc in (ctx.infra.codebases or {}).items()
-        if svc.core_services
-        and all(p.role == "scheduler" for p in svc.core_services.values())
-    )
-
-
 def codebases_with_schema(ctx: ProjectContext) -> list[str]:
     """Return the codebases that own a backing-service schema.
 
@@ -227,7 +197,7 @@ def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
     operations container ``migrate``, ``test`` and ``build`` run one-off inside
     (Mod 099). This replaced a codebase → app-container resolver that scanned
     the emitted compose file for a key ending in the codebase's lowest-sorted
-    non-scheduler core service, and could resolve to the wrong container
+    core service, and could resolve to the wrong container
     outright: a codebase literally named ``web`` matched a *sibling*
     codebase's ``…-api-web``, silently, with no error.
 

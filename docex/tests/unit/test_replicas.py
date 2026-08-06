@@ -45,7 +45,7 @@ _WEB_REPLICAS = 2
 _WORKER_REPLICAS = 4
 
 # The three-service project from `test_service_expansion_emit.py`: one
-# codebase, one web core service, one worker, one scheduler. The worker is
+# codebase, one web core service and two workers. The workers are
 # single-network (`internal`) and the web core service is multi-network
 # (`web` + `internal`) — which is what lets test 3 pin "the alias goes on
 # EVERY network" rather than on the only network there happens to be.
@@ -56,9 +56,11 @@ _WORKER = {
     "uses": ["appdb"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
+# A second `worker`: `role: worker` is the only correct choice here — rule 26
+# forbids `replicas` on a `clock`, and `replicas` is this module's whole
+# subject.
 _NIGHTLY = {
-    "role": "scheduler",
-    "schedule": "0 3 * * *",
+    "role": "worker",
     "command": ["python", "-m", "jobs.cleanup"],
     "networks": ["internal"],
     "uses": ["appdb"],
@@ -145,6 +147,10 @@ _WORKER_KEYS = [
     f"sample-prod-api-worker-{i}" for i in range(1, _WORKER_REPLICAS + 1)
 ]
 _WEB_KEYS = [f"sample-prod-api-web-{i}" for i in range(1, _WEB_REPLICAS + 1)]
+# The third core service declares no `replicas`, so it is NOT unrolled — it
+# keeps its bare compiled key. That contrast is the point: the unroll touches
+# only the core services that asked for it.
+_NIGHTLY_KEY = "sample-prod-api-nightly-cleanup"
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +204,7 @@ def test_4_one_sidecar_per_replica_paired_by_netns(fixed_root: Path):
     services = _compose(fixed_root, "prod")["services"]
     sidecars = sorted(k for k in services if k.endswith("-otelcol"))
     assert sidecars == sorted(
-        f"{k}-otelcol" for k in _WORKER_KEYS + _WEB_KEYS
+        f"{k}-otelcol" for k in [*_WORKER_KEYS, *_WEB_KEYS, _NIGHTLY_KEY]
     )
     for key in _WORKER_KEYS + _WEB_KEYS:
         sidecar = services[f"{key}-otelcol"]
@@ -318,7 +324,9 @@ def test_11_prod_desired_count_is_the_declared_replicas(elastic_root: Path):
     )
     # No unroll on elastic: one service and one task definition per core service
     # type, exactly as before the mod.
-    assert sorted(_resources(hcl, "aws_ecs_service")) == ["api-web", "api-worker"]
+    assert sorted(_resources(hcl, "aws_ecs_service")) == [
+        "api-nightly_cleanup", "api-web", "api-worker",
+    ]
     assert sorted(
         n for n in _resources(hcl, "aws_ecs_task_definition")
         if not n.endswith("_migrate")

@@ -504,18 +504,11 @@ class CompiledService:
     # ``{"mount_path": "/var/lib/clickhouse"}``). None when the engine
     # doesn't declare it. Mod 015.
     persistent_storage: dict[str, Any] | None = None
-    # Mod 055: the scheduler role's 5-field cron expression, carried
-    # verbatim from infra.yml. None for every non-scheduler service. The
-    # value needs procedural cron translation (see docex.cicl.cron), so —
-    # unlike ordinary role-specific fields — it is carried directly rather
-    # than routed through a transfer-table translation body. The fixed
-    # (ofelia) and elastic (scheduled_task) emitters translate it.
-    schedule: str | None = None
     # Mod 115: the clock role's `schedules` map (job name -> 5-field cron),
     # carried VERBATIM from infra.yml. None for every non-clock service.
-    # Its transfer-table body is an empty marker, so — like `schedule`
-    # above — it is carried directly rather than routed through a
-    # translation body; the emitters deliver it procedurally as the
+    # Its transfer-table body is an empty marker, so it is carried directly
+    # rather than routed through a transfer-table translation body; the
+    # emitters deliver it procedurally as the
     # `DOCEX_SCHEDULES_YAML` literal (see emit/schedules.py). No cron
     # translation is applied anywhere: clock.md § Cron format passes the
     # expression through to the schedule table unchanged.
@@ -619,10 +612,9 @@ def group_by_codebase(
     rather than picking a representative core service. Mod 099 deleted the
     "pick one core service" bridge; this is what replaced it.
 
-    Backing services are excluded (they have no codebase). ``scheduler``
-    core services are INCLUDED: a scheduler-only codebase contributes no
-    long-running compose service, but it still has a source tree to build,
-    test, and migrate, so it still gets an exec service.
+    Backing services are excluded (they have no codebase). Every core
+    service's codebase appears, whatever its role: a codebase has a source
+    tree to build, test and migrate, so it gets an exec service.
     """
     groups: dict[str, list[CompiledService]] = {}
     for name in sorted(compiled.services):
@@ -831,20 +823,11 @@ def compile_env(
             if fname in ("version", "schema_owned_by"):
                 # `version` is a field; `schema_owned_by` is structural.
                 pass
-            if fname == "schedule":
-                # Mod 055: the scheduler `schedule` field is carried onto
-                # the compiled service (below) and translated procedurally
-                # by the emitters; its transfer-table translation body is
-                # an empty marker, so routing it here is a no-op. Skip it.
-                continue
             if fname == "schedules":
-                # Mod 115: the clock `schedules` map, likewise carried onto
-                # the compiled service (below) and delivered procedurally by
-                # the emitters; its translation bodies are empty markers on
-                # both foundations, so routing it here is a no-op. Kept as
-                # its OWN branch rather than fused with `schedule` above:
-                # Mod 116 removes that arm, and a fused condition would make
-                # that a rewrite instead of a deletion.
+                # Mod 115: the clock `schedules` map is carried onto the
+                # compiled service (below) and delivered procedurally by the
+                # emitters; its translation bodies are empty markers on both
+                # foundations, so routing it here is a no-op. Skip it.
                 continue
             translated = engine.field_translation(fname, foundation)
             if translated is None:
@@ -915,9 +898,9 @@ def compile_env(
                 # Mod 055: only long-running services (those that emit an
                 # `ecs_service`) carry a paired OTel sidecar, so only they
                 # need the sidecar's resource overhead folded into the
-                # task-level totals. A one-shot scheduler RunTask has no
-                # sidecar — accounting for one would over-allocate Fargate
-                # and emit a misleading rounding note.
+                # task-level totals. Accounting for one where there is none
+                # would over-allocate Fargate and emit a misleading
+                # rounding note.
                 has_sidecar = "ecs_service" in (engine.emits or {}).get(
                     "elastic", []
                 )
@@ -1125,11 +1108,6 @@ def compile_env(
                 if engine.persistent_storage
                 else None
             ),
-            schedule=(
-                str(sched)
-                if (sched := (svc.model_extra or {}).get("schedule")) is not None
-                else None
-            ),
             # Mod 115. Passed through only when it is a `str -> str` mapping:
             # validation has already rejected anything else, and a malformed
             # value must never reach an emitter (which would render it into a
@@ -1327,9 +1305,8 @@ def run_compile(ctx: Any) -> int:
         # half of clock.md § How the schedule reaches the container, and
         # `DOCEX_SCHEDULES_YAML` (emit/schedules.py) is the *delivery* half.
         # Do not skip the write on the grounds that the env var already
-        # carries the payload, and do not add a `test`-env guard of the kind
-        # the ofelia emitter needs: clock.md says nothing about a clock is
-        # suppressed anywhere.
+        # carries the payload, and do not add a `test`-env guard: clock.md
+        # says nothing about a clock is suppressed anywhere.
         #
         # No stale-file cleanup when an env has no clock: no emitter in this
         # compiler removes its own prior outputs (a fixed->elastic flip leaves

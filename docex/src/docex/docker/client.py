@@ -38,7 +38,6 @@ class DockerClient(Protocol):
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
-        extra_env: dict[str, str] | None = None,
     ) -> int:
         """Run ``docker compose up`` for the given file.
 
@@ -101,11 +100,9 @@ class DockerClient(Protocol):
 
         ``build=True`` adds ``--build``. Without it ``compose run`` reuses a
         **stale** image: it builds only when the image is *absent*, never when
-        the build context has changed since. For a codebase with no non-gated
-        compose service (a scheduler-only one) that means nothing ever
-        refreshes the tag — ``up --build`` has no block of that codebase to
-        build. Callers pass True exactly where the image *is* the artifact
-        under test, i.e. in the ``test`` env (Mod 103).
+        the build context has changed since. Callers pass True exactly where
+        the image *is* the artifact under test, i.e. in the ``test`` env
+        (Mod 103).
         """
         ...
 

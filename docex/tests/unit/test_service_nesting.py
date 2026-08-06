@@ -334,40 +334,6 @@ def test_rule_5_rejects_collision_with_a_siblings_collector_sidecar():
     assert "the collector sidecar" in rule5[0].message, rule5[0].message
 
 
-def test_rule_5_rejects_collision_with_a_siblings_scheduler_trigger():
-    """The same shape for the Ofelia trigger: a `scheduler`-role core service
-    gets `-scheduler` instead of `-otelcol` (it has no long-running container
-    to pair a collector with), so codebase `api` core service `job` yields
-    `api-job-scheduler` and a sibling codebase `api-job` with a core service named
-    `scheduler` collides with it."""
-    src = _HEAD + """
-codebases:
-  api:
-    core_services:
-      job:
-        role: scheduler
-        schedule: "0 3 * * *"
-        command: ["python", "-m", "jobs.cleanup"]
-        networks: [internal]
-        resources:
-          cpu: 0.25
-          memory: 512MB
-  api-job:
-    core_services:
-      scheduler:
-        role: worker
-        command: ["python", "-m", "x"]
-        networks: [internal]
-        resources:
-          cpu: 0.5
-          memory: 512MB
-"""
-    issues = validate_document(_doc(src), _tables())
-    rule5 = [i for i in issues if i.rule == "rule_5_rendered_identity_collision"]
-    assert rule5, [i.rule for i in issues]
-    assert "the scheduler trigger" in rule5[0].message, rule5[0].message
-
-
 def test_rule_5_derivatives_do_not_over_reject():
     """Not over-eager: codebase `api-exec` with a core service `x` renders
     `api-exec-x`, which does not collide with codebase `api`'s `api-exec`.
@@ -407,36 +373,7 @@ def test_rule_5_derivatives_do_not_over_reject():
 # ---------------------------------------------------------------------------
 
 
-_SCHEDULER = _HEAD + """
-codebases:
-  job:
-    core_services:
-      nightly:
-        role: scheduler
-        schedule: "0 3 * * *"
-        command: ["python", "-m", "jobs.cleanup"]
-        networks: [internal]
-        resources:
-          cpu: 0.25
-          memory: 512MB
-"""
-
-
-def test_15_replicas_on_scheduler_rejected():
-    src = _SCHEDULER.replace(
-        "        networks: [internal]\n",
-        "        networks: [internal]\n        replicas: 2\n",
-    )
-    assert "rule_26_replicas_on_scheduler" in _issues(src)
-
-
-def test_15_replicas_unset_on_scheduler_clean():
-    """`replicas` defaults to 1, so the check must key off
-    `model_fields_set` — an undeclared default is not a declaration."""
-    assert _issues(_SCHEDULER) == []
-
-
-@pytest.mark.parametrize("role", ["worker", "scheduler"])
+@pytest.mark.parametrize("role", ["worker", "clock"])
 def test_16_web_network_on_non_web_role_rejected(role):
     src = _HEAD + f"""
 codebases:
@@ -444,7 +381,6 @@ codebases:
     core_services:
       p:
         role: {role}
-        schedule: "0 3 * * *"
         command: ["python", "-m", "x"]
         networks: [web, internal]
         port: 8080

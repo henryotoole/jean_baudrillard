@@ -304,53 +304,13 @@ Outside the compiler, two identities are reconstructed from
 codebase's naming policy through `_codebase_naming_policy`, which resolves every
 core service's policy and requires agreement rather than reading one.
 
-### The scheduler trigger
-
-A `scheduler` core service has no long-running container in any env. What it
-emits is a **trigger**, one per core service, keyed on the two-segment identity:
-
-- **fixed** — one Ofelia container `{project}-{env}-{cb}-{svc}-scheduler` plus
-  its rendered INI, delivered through compose's top-level `configs:` block. The
-  INI's single `[job-run "<codebase>-<service>"]` section carries the two-segment
-  identity, and its `image =` is the **codebase's** image ref — the same tag
-  every sibling core service runs. `test` drops the trigger entirely (mod 073),
-  so in `test` a scheduler core service contributes nothing at all and its
-  codebase's only compose block is the exec service.
-- **elastic** — `task_definition` + `scheduled_task` + a scheduler-invocation
-  IAM role. No `ecs_service`, no target group, no sidecar.
-
-**No sidecar for a `scheduler` core service.** Per-service is strictly better
-than the codebase-level phrasing it replaces: a codebase with `web` +
-`nightly_cleanup` gets one sidecar for the web service and none for the job,
-which a codebase-level rule could not express — it needed the scheduler to be its
-own service to say anything at all.
-
-**In `dev`, the codebase tag is the Dockerfile `dev` stage — for every core
-service, including a cron job** (mod 103). Mod 074 built a separate, self-contained
-`prod`-stage image for a scheduler, on the correct observation that Ofelia spawns
-the job through the Docker API with **no bind mounts**. That stopped being viable
-once the image became codebase-keyed (mod 096) and the exec service began
-building the same tag at `target: dev` (mod 099): `compose run` builds only when
-the image is *absent*, so a `prod`-stage image sitting on that tag was reused by
-`build` / `test` / `migrate`, and the doctrinal `prod` stage carries neither
-`build.sh` nor `test.sh` — which broke `docex build dev` outright for any project
-with a scheduler-only codebase. Two consumers of one tag have to agree about what
-is inside it. The accepted consequence: a `dev` job runs the artifact the `dev`
-stage baked (`RUN ./build.sh`), refreshed on each `docex up dev`, rather than the
-host's current `dist/`.
-
-A **scheduler-only codebase** is the one shape whose image *no compose service
-builds* — `up --build` skips the `profiles: [exec]` exec service and there is no
-other block of that codebase to build — so `up dev` builds that tag itself
-(`orchestrate/up.py::_ensure_codebase_image`, scoped to
-`scheduler_only_services`). A mixed codebase needs nothing: `compose up --build`
-builds the same tag at the same target.
-
 ### The clock
 
-Mod 115. A `clock` core service is the opposite of a scheduler in every
-structural respect: an **ordinary long-running core service** with a sidecar, a
-health probe, and no exemptions anywhere. Its role table is modelled on `worker`
+Mods 115-116. A `clock` core service is an **ordinary long-running core
+service** with a sidecar, a health probe, and no exemptions anywhere — which is
+the whole point of it, and the reason the retired cron role that preceded it
+needed a carve-out at nearly every emission site. Its role table is modelled on
+`worker`
 — `compose_service` on fixed, `task_definition` + `ecs_service` +
 `container_definition` on elastic, no target group — and it needs no special
 case in the emitters' service loops, which is the point. See
@@ -358,9 +318,9 @@ case in the emitters' service loops, which is the point. See
 
 Three things are clock-specific.
 
-**`schedules:` is carried, not translated.** Like `scheduler`'s `schedule`, the
-field is declared in the role table with **empty per-foundation translation
-bodies** and carried verbatim onto `CompiledService.schedules`. The declaration
+**`schedules:` is carried, not translated.** The field is declared in the role
+table with **empty per-foundation translation bodies** and carried verbatim onto
+`CompiledService.schedules`. The declaration
 alone does real work: it is what makes rule 4 reject `schedules:` on every other
 role, which is how the doctrine's "required on a `clock` and rejected on every
 other role" gets its second half with no new rule. **No cron translation exists
@@ -460,8 +420,8 @@ The compiler always joins parts with `_` internally; the policy decides what rea
 Two policies feel the fourth segment. The `alb` policy (32 chars,
 `hash_truncate`) starts truncating target-group names that previously fit — the
 descriptive form survives in the `Name` tag. The `iam` policy (64 chars,
-`overflow: error`) can now *hard-fail* a compile on
-`{global_name}_scheduler`; that is the doctrine's stated preference for loud
+`overflow: error`) can *hard-fail* a compile on `{project}_task_execution`
+under a long project name; that is the doctrine's stated preference for loud
 failure over silent truncation, and it fails at the earliest layer.
 
 The same internal form passed through the `iam` policy (a doctrine record-key identifier) would stay `docex_smoke_elastic_stage_web` (underscores preserved). This decouples docex's internal join convention from each AWS resource type's identifier convention — without this layer, a policy's choice of `_` vs `-` would leak across every emit site.
@@ -565,12 +525,12 @@ Validation lives at two layers:
 - Per core service, the *effective* `env` (codebase-level merged under core-service-level) does not overlap the service's `secrets` / `config` (rule 16, mods 079 + 096).
 - Project-wide, source keys are cross-category disjoint — no key is a secret in one service and config in another (rule 20, via `classify_source_keys`); doctrine-injected keys are reserved in every category (mod 079).
 - `cicl_version` is `"3"` (mod 113); earlier generations are rejected with a message naming the upgrade guides in chain order, not shimmed (rule 21, mod 096). The constant `CURRENT_CICL_VERSION` is the single literal — rule 21's validator and `rollback`'s pre-flight precondition both compare against it, because two literals for one fact would drift at the worst possible moment.
-- Rendered data-plane identities are unique after naming-policy normalization, across core services, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core service rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar) and `-scheduler` (Ofelia trigger), per core service, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a core service named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Three of the four holes predate mod 099. Mod 100 added a fifth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the core service declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
+- Rendered data-plane identities are unique after naming-policy normalization, across core services, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core service rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar), per core service, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a core service named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Two of the three holes predate mod 099. Mod 100 added a fourth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the core service declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
 - **Rules 6 and 24 are retired (1.7.0) and their numbers tombstoned**, never reused. Rule 24 restricted `depends_on` to backing services; there is one relation now and its shape rule is rule 25. Rule 6's cycle DFS is gone because **only core services declare `uses`**, which makes a backing service a graph **sink** — no path leaves one, so a backing-targeted cycle cannot be *constructed*, let alone detected. Acyclicity therefore falls out of the graph's shape rather than being enforced against it. A cycle among **core** targets is legal — `web ↔ worker` is the most common topology there is — and its legality is asserted rather than merely unchecked. The unknown-**target** check that lived under rule 6's id survives as the bare-name arm of `rule_25_unresolved_uses`: a typo'd target must still fail at compile time.
-- `uses` names **either** a backing service, bare, **or** a core service fully qualified as `<codebase>.<service>`; a bare *codebase* name is an error, not shorthand for "all its core services", and a core service may not use itself (rule 25). Classification is **by form**, which is total and unambiguous because `_SERVICE_NAME_RE` forbids a dot in any service name — so bare/dotted partitions the entries with no overlap and no gap, and rule 25 makes that partition *mean* target kind. A bare entry naming a *codebase* is dispatched on the namespace first, because that is the mistake the merged field invites. A **`scheduler` core service may not be a target** (mod 101): cron invokes a scheduler and nobody else does, so it exposes no boundary to use, and it is exempt from both the health fan-out and the contract requirement that `uses` drives. That clause is kept knowingly out of step with committed rule 25, which carries no scheduler clause — `role: scheduler` is not retired until mod 116, and deleting the guard early would leave a live role unguarded. Separately, `uses` on a **backing service** is rejected as `rule_uses_on_backing_service` — not a numbered rule, but the Service Fields scope column plus the standing "fails loudly when a field is in the wrong scope" sentence. `ServiceRef.parse` is the parser, so the bare-name rule lives in one place. Every reporting branch of the rule-25 loop `continue`s, so one malformed entry never yields two issues; a test pins it.
+- `uses` names **either** a backing service, bare, **or** a core service fully qualified as `<codebase>.<service>`; a bare *codebase* name is an error, not shorthand for "all its core services", and a core service may not use itself (rule 25). Classification is **by form**, which is total and unambiguous because `_SERVICE_NAME_RE` forbids a dot in any service name — so bare/dotted partitions the entries with no overlap and no gap, and rule 25 makes that partition *mean* target kind. A bare entry naming a *codebase* is dispatched on the namespace first, because that is the mistake the merged field invites. Mod 101 added a clause forbidding the retired cron role as a target — it exposed no boundary to use and was exempt from the health fan-out and contract requirement that `uses` drives — and mod 116 deleted that clause with the role, bringing the implementation back into step with committed rule 25, which never carried it. **Every core service is now a legal target**, so the rule is shape-only. Separately, `uses` on a **backing service** is rejected as `rule_uses_on_backing_service` — not a numbered rule, but the Service Fields scope column plus the standing "fails loudly when a field is in the wrong scope" sentence. `ServiceRef.parse` is the parser, so the bare-name rule lives in one place. Every reporting branch of the rule-25 loop `continue`s, so one malformed entry never yields two issues; a test pins it.
 - `uses` drives CI (contracts, health fan-out, rule 7), the elastic release's Service Connect reconcile, one *view* (`describe`), and **one emission**: the per-codebase exec block's readiness gate. Nothing else in the compiled output reads it, and that it *cannot* be read is structural rather than incidental — it is a declared pydantic field on the authoring model and a declared dataclass field on `CompiledService`, so it never appears in `model_extra` and cannot reach field translation. A test asserts that the word `uses` appears in no emitted artifact.
 - The `uses` **parse lives on the model**, as `CoreService.core_uses()` / `backing_uses()`, both routing through the shared `names_core_service` classifier so the split is written exactly once. `core_uses()` normalizes to dotted form and drops entries that do not parse — rule 25 reports each malformed entry once, and a malformed entry must not *also* surface downstream as a mystifying rule-7 miss or as a missing contract for a target the author plainly named. Rule 7, `check.py`'s contract / health gates, and the compiler all read through it: "a second parser would be a second place for that rule to drift". A dropped entry therefore cannot reappear as a phantom node in `describe`, which matters more than it looks — `compile_env` does not validate, so the renderer sees whatever the compiler kept.
-- `replicas` is not declared on a `scheduler` or a `clock`, and `worker` / `scheduler` / `clock` core services do not declare `web` in `networks` (rules 26 + 27, mods 096 + 115) — the latter replaces a prose-only, unenforced note. The two rule-26 arms are **separate branches for separate reasons**: on a scheduler a replica count is *inert* (Ofelia fires one job), on a clock it is *actively wrong* (N replicas means N ticks and N enqueues per fire). Keeping them apart is also what lets mod 116 delete the scheduler arm rather than rewrite a fused condition.
+- `replicas` is not declared on a `clock`, and `worker` / `clock` core services do not declare `web` in `networks` (rules 26 + 27, mods 096 + 115 + 116) — the latter replaces a prose-only, unenforced note. Rule 26 originally forbade `replicas` on the retired cron role, where a replica count was merely *inert*; mod 115 added a clock arm as a **separate branch**, because on a clock the count is not inert but *actively wrong* (N replicas means N ticks and N enqueues per fire). Keeping the two apart is what let mod 116 delete the old arm rather than rewrite a fused condition — and the clock rule is now rule 26 entire.
 - A `clock` declares a non-empty `schedules:` mapping of job name → 5-field cron (`rule_clock_schedules_required`), job names are valid identifiers because they are the dispatch keys the clock's controller looks up (`rule_clock_job_name_invalid`), and every value parses as a 5-field expression (`rule_clock_cron_invalid`, mod 115). Issues are reported **per offending job**, not per service. The half of the doctrine's rule that rejects `schedules:` on every *other* role needs no code: rule 4 already rejects a role-specific field the engine does not declare. `DOCEX_SCHEDULES_YAML` joins the reserved doctrine-injected env keys, so rule 20 rejects a project declaring it.
 - Per-service re-scoping of rules 10, 11, 12, 14, 15 and 28 (mod 096): resources, GPU-on-elastic, `domain_default_service`, the reserved-name blacklist (now covering core service names), the web-network port requirement, and `health_check_path`-obliges-`port`.
 

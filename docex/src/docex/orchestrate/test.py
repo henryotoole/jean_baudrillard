@@ -115,11 +115,9 @@ def run_test(
                 return rc
 
         # 3. test.sh for each codebase, in the codebase's exec service.
-        # Mod 103: no scheduler carve-out. The exec service is emitted for
-        # every codebase — scheduler-only ones included — so a codebase with no
-        # long-running container in the `test` stack still has somewhere to run
-        # test.sh. (Mod 099's `test_8_scheduler_only_codebase_gets_an_exec_service`
-        # pins the emission this depends on.)
+        # Every codebase runs `test.sh` exactly one way: `compose run --rm`
+        # against its own exec service, which the compiler emits for every
+        # codebase whatever its core services' roles are.
         #
         # WHY build=True: see step 2 above — same `test`-env freshness rule.
         for svc in codebases(ctx):

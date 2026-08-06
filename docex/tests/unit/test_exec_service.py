@@ -24,7 +24,6 @@ from docex.context import load_project_context
 
 _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _FIXED = _FIXTURES / "sample_project"
-_SCHEDULER_FIXED = _FIXTURES / "sample_project_scheduler_fixed"
 
 # Planted on ONE core service. The whole point of the exec service is that
 # this key cannot reach `migrate.sh` / `test.sh` / `build.sh`.
@@ -58,15 +57,6 @@ def _multi_service_project(fixture: Path, dest: Path) -> Path:
 @pytest.fixture(scope="module")
 def fixed_root(tmp_path_factory) -> Path:
     root = _multi_service_project(_FIXED, tmp_path_factory.mktemp("exec_fixed"))
-    assert run_compile(load_project_context(root)) == 0
-    return root
-
-
-@pytest.fixture(scope="module")
-def scheduler_root(tmp_path_factory) -> Path:
-    root = tmp_path_factory.mktemp("exec_sched") / "project"
-    shutil.copytree(_SCHEDULER_FIXED, root, dirs_exist_ok=False)
-    shutil.rmtree(root / "infra" / "output", ignore_errors=True)
     assert run_compile(load_project_context(root)) == 0
     return root
 
@@ -272,46 +262,6 @@ def test_7c_exec_service_sets_no_container_name_logging_or_command(
 
 
 # ---------------------------------------------------------------------------
-# 8 — the seam Mod 103 depends on.
-# ---------------------------------------------------------------------------
-
-
-def test_8_scheduler_only_codebase_gets_an_exec_service(scheduler_root: Path):
-    """A scheduler-only codebase contributes no long-running container, and
-    in `test` contributes nothing at all today (mod 073 drops the Ofelia
-    trigger there) — so `docex test` needed a scheduler carve-out
-    (`_run_scheduler_tests`) to have anything to run `test.sh` in.
-
-    The exec pass groups compiled services by codebase *before* compose.py's
-    `if svc.role == "scheduler": continue` skip, so a scheduler-only codebase
-    gets its exec block regardless. **Mod 103 has removed that carve-out** on
-    the strength of this seam: `docex test` now routes every codebase through
-    its exec service, and `test_orchestrate_test.py::
-    test_run_test_scheduler_only_codebase_uses_its_exec_service` exercises the
-    seam from the orchestrate side. This test remains the emission-side pin —
-    if it regresses, `docex test` loses its only foothold in a scheduler-only
-    codebase.
-    """
-    dev = _services(scheduler_root, "dev")
-    assert "sample-dev-nightly-cleanup-exec" in dev
-
-    test = _services(scheduler_root, "test")
-    key = "sample-test-nightly-cleanup-exec"
-    assert key in test
-    # In `test` it is the ONLY thing the codebase contributes.
-    contributed = [
-        k for k in test if "nightly" in k or "nightly_cleanup" in k
-    ]
-    assert contributed == [key], sorted(test)
-    # It still builds against the codebase's own source tree and still gets
-    # the codebase's readiness edge, both of which `docex test` needs.
-    assert test[key]["build"]["context"] == "./core/nightly_cleanup"
-    assert test[key]["depends_on"] == {
-        "sample-test-appdb": {"condition": "service_healthy"}
-    }
-
-
-# ---------------------------------------------------------------------------
 # 21 — every bundled fixture still compiles under the widened rule 5.
 # ---------------------------------------------------------------------------
 
@@ -321,14 +271,16 @@ def test_8_scheduler_only_codebase_gets_an_exec_service(scheduler_root: Path):
     [
         "sample_project",
         "sample_project_elastic",
-        "sample_project_scheduler_fixed",
-        "sample_project_scheduler_elastic",
+        "sample_project_clock_fixed",
+        "sample_project_clock_elastic",
+        "sample_project_multi_fixed",
     ],
 )
 def test_21_all_fixtures_still_compile(fixture: str, tmp_path: Path):
     """Rule 5's domain grew to the compiler-emitted derivatives. A collision
-    sweep was run at design time and found all four fixtures clean; this is
-    what keeps them clean."""
+    sweep was run at design time and found every bundled fixture clean; this
+    is what keeps them clean. The list is EVERY fixture the suite ships — a
+    new fixture belongs here."""
     root = tmp_path / "project"
     shutil.copytree(_FIXTURES / fixture, root, dirs_exist_ok=False)
     shutil.rmtree(root / "infra" / "output", ignore_errors=True)

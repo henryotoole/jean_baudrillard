@@ -1059,37 +1059,10 @@ def test_mod108_each_core_service_emits_its_own_command(
     )
 
 
-def test_mod108_scheduler_run_task_emits_its_command(tmp_path: Path):
-    """A scheduler core service is a RunTask, and `aws_scheduler_schedule`'s
-    target carries no containerOverrides — so if the task definition omits
-    `command`, a scheduled job has no second chance to supply one."""
-    dest = tmp_path / "project"
-    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
-    shutil.rmtree(dest / "infra" / "output", ignore_errors=True)
-    infra_path = dest / "infra" / "infra.yml"
-    doc = yaml.safe_load(infra_path.read_text())
-    doc["codebases"]["api"]["core_services"]["nightly"] = {
-        "role": "scheduler",
-        "schedule": "0 3 * * *",
-        "command": ["python", "-m", "jobs.cleanup"],
-        "networks": ["internal"],
-        "uses": ["appdb"],
-        "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
-    }
-    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
-    assert run_compile(load_project_context(dest)) == 0
-    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
-
-    block = _block(tf, 'resource "aws_ecs_task_definition" "api-nightly"')
-    assert _container_command(block, "api-nightly") == [
-        "python", "-m", "jobs.cleanup",
-    ]
-
-
 def test_mod108_string_command_normalizes_to_list(tmp_path: Path):
-    """`CoreService.command` is `str | list[str]`; ECS requires a list. A
-    string must split the same way the fixed side's scheduler wrapper splits
-    it, so one declaration means one thing on both foundations."""
+    """`CoreService.command` is `str | list[str]`; ECS requires a list, so a
+    string is shell-split — one declaration means one thing on both
+    foundations."""
     dest = tmp_path / "project"
     shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
     shutil.rmtree(dest / "infra" / "output", ignore_errors=True)

@@ -230,6 +230,37 @@ first post-`0.4.0` overhaul.
   fire — the right trade, since missed fires are already an accepted caveat and
   jobs must be idempotent regardless.
 
+### Removed
+
+- **`role: scheduler` and every carve-out it forced are deleted from the
+  compiler** (mod 116). Not deprecated — removed. `docex roles` now lists six
+  roles and `scheduler` is not among them.
+
+  Gone with it: the **Ofelia** trigger container, its INI renderer and the
+  secret-sourcing job-command wrapper on fixed; the **EventBridge** path on
+  elastic (`aws_scheduler_schedule`, the per-service
+  `scheduler.amazonaws.com` invocation IAM role and its policy); the
+  `scheduled_task` emit destination; the `scheduler` role table; and the
+  **cron dialect translation** module entirely (`to_aws_cron`,
+  `to_ofelia_cron`, the Sunday-is-1 day-of-week remap). A clock reads a plain
+  5-field UTC expression, so no dialect-mismatch bug class remains to
+  translate for.
+
+  Three quieter removals ride along, each dead once the role went. The
+  `-scheduler` **reserved suffix** leaves rule 5's derivative set, which now
+  matches the doctrine's list exactly (`-otelcol`, `-exec`, `-migrate`,
+  `-1`…`-N`); the rule stays keyed on *collision* rather than on a
+  reserved-name list, so nothing is permitted by fiat — a name simply stops
+  colliding with a derivative the compiler no longer emits.
+  `scheduler_only_services` and `up`'s `_ensure_codebase_image` go with the
+  "codebase whose image no compose service builds" shape, which can no longer
+  be constructed. And `DOCEX_SECRETS_ENV_FILE` — which existed solely so
+  Compose could interpolate a path into the Ofelia INI — leaves along with the
+  `extra_env` parameter that carried it, narrowing the docker port.
+
+  **`role: clock` is unaffected and is the replacement.** See the `Added`
+  entry above for what it does and the `Changed` entry for the doctrine.
+
 ## [1.6.1] - 2026-08-03
 
 ### Fixed

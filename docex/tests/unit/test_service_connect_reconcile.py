@@ -59,15 +59,6 @@ _WORKER = {
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
 }
 
-_SCHEDULER = {
-    "role": "scheduler",
-    "schedule": "0 3 * * *",
-    "command": ["python", "-m", "jobs.cleanup"],
-    "networks": ["internal"],
-    "uses": ["appdb"],
-    "resources": {"cpu": 0.25, "memory": "512MB"},
-}
-
 # Mod 115. A clock is an ORDINARY long-running core service on elastic — it
 # emits an `aws_ecs_service` like any other, so the reconcile must treat it
 # on the same terms as `web` and `worker`. The stop-then-start deployment
@@ -339,41 +330,15 @@ def test_consumer_with_no_running_tasks_is_not_redeployed(
     assert _redeployed(fake_aws) == []
 
 
-def test_scheduler_consumer_is_never_redeployed(
-    tmp_path: Path, fake_aws, fake_tofu_init, fake_tofu_apply,
-):
-    """A scheduler emits no `ecs_service`, so there is nothing to redeploy —
-    and `update_service` against a non-existent service is an error, not a
-    no-op. Even holding a `uses` edge, it must be skipped."""
-    def mutate(doc):
-        svcs = doc["codebases"]["api"]["core_services"]
-        svcs["worker"] = dict(_WORKER)
-        svcs["nightly"] = dict(_SCHEDULER)
-        svcs["nightly"]["uses"] = [*svcs["nightly"].get("uses", []), "api.worker"]
-    ctx = _project(tmp_path, mutate)
-
-    fake_aws.service_connect_endpoint_ages = {
-        "sample-prod-api-web": _t(46),
-        "sample-prod-api-worker": _t(46),
-    }
-    fake_aws.ecs_task_start_times = {
-        "sample-prod-api-nightly": [_t(40)],
-        "sample-prod-api-web": [_t(40)],
-    }
-    rc = _run(ctx, fake_aws, fake_tofu_init, fake_tofu_apply)
-    assert rc == 0
-    assert "sample-prod-api-nightly" not in _redeployed(fake_aws)
-
-
 def test_clock_consumer_is_redeployed_on_the_same_terms(
     tmp_path: Path, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
     """Mod 115: a clock is an ORDINARY service to the release path.
 
-    It emits an `aws_ecs_service`, so unlike the scheduler above it *can* be
-    redeployed — and it must be, on exactly the same predicate as `web`. Here
-    both consumers' tasks predate the worker's registration, so both are
-    replaced; no role test anywhere singles the clock out.
+    It emits an `aws_ecs_service`, so it *can* be redeployed — and it must
+    be, on exactly the same predicate as `web`. Here both consumers' tasks
+    predate the worker's registration, so both are replaced; no role test
+    anywhere singles the clock out.
     """
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]

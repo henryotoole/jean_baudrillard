@@ -66,9 +66,13 @@ def _engines() -> dict[str, EngineEntry]:
         "my-db": _db_engine_like(db_engine),
         "api-web": _container("web", dict(host_part)),
         "api-worker": _container("worker", dict(host_part)),
-        # Rule-of-record free behavior: `scheduler` publishes no discovery
-        # surface at all, so it can never be a magic-ref target.
-        "api-nightly_cleanup": _container("scheduler", {}),
+        # Rule-of-record free behavior: an engine declaring `provides: {}`
+        # publishes no discovery surface at all, so it can never be a
+        # magic-ref target. The role here is DELIBERATELY SYNTHETIC: after
+        # Mod 116 no bundled core role declares `provides: {}` — `web`,
+        # `worker` and `clock` all publish parts — so a hand-built role is
+        # the only way this behaviour keeps a pin at all.
+        "api-nightly_cleanup": _container("opaque", {}),
         "my-api-web": _container("web", dict(host_part)),
     }
 
@@ -106,7 +110,7 @@ def _make_doc(foundation: str = "fixed") -> CICLDocument:
                         uses=["db"], port=8080,
                     ),
                     "worker": _proc("worker", networks=["internal"]),
-                    "nightly_cleanup": _proc("scheduler", networks=["internal"]),
+                    "nightly_cleanup": _proc("opaque", networks=["internal"]),
                 },
             ),
             # Hyphenated names are legal and must round-trip through both
@@ -147,7 +151,7 @@ def _make_tables(engines: dict[str, EngineEntry]) -> TransferTables:
             "relational_db": {"postgres": engines["db"]},
             "web": {"container": engines["api-web"]},
             "worker": {"container": engines["api-worker"]},
-            "scheduler": {"container": engines["api-nightly_cleanup"]},
+            "opaque": {"container": engines["api-nightly_cleanup"]},
         }
     )
 
@@ -179,7 +183,7 @@ def _make_resolver(foundation: str = "fixed") -> tuple[MagicRefResolver, EngineE
             # Mod 096: keyed on the compiled identity, matching the compiler.
             "api-web": _ctx("api-web", 8080, "web"),
             "api-worker": _ctx("api-worker", 8080, "worker"),
-            "api-nightly_cleanup": _ctx("api-nightly_cleanup", 8080, "scheduler"),
+            "api-nightly_cleanup": _ctx("api-nightly_cleanup", 8080, "opaque"),
             "my-api-web": _ctx("my-api-web", 8080, "web"),
             "db": _ctx("db", 5432, "relational_db"),
             "my-db": _ctx("my-db", 5432, "relational_db"),
@@ -403,11 +407,12 @@ def test_cycle_through_two_processes_of_one_codebase():
     assert "cyclic magic-ref chain" in str(exc.value)
 
 
-def test_scheduler_service_ref_rejected():
-    """Free behavior, pinned deliberately: `scheduler` engines declare
-    `provides: {}`, so a scheduler core service publishes no discovery
-    surface and cannot be a magic-ref target. This test exists so that a
-    future change to tables/roles/scheduler.yml cannot silently open it."""
+def test_service_ref_to_a_provides_nothing_role_rejected():
+    """Free behavior, pinned deliberately: an engine declaring `provides: {}`
+    publishes no discovery surface, so a core service of that role cannot be
+    a magic-ref target. The role is synthetic because no bundled role declares
+    `provides: {}` any more; the guard is against a future role table gaining
+    one and silently opening a discovery surface nobody designed."""
     resolver, _ = _make_resolver()
     with pytest.raises(SubstitutionError) as exc:
         resolver.resolve_in_string(

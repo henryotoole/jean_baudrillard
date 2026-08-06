@@ -24,7 +24,6 @@ from docex.orchestrate._common import (
     ensure_compiled,
     env_compose_project,
     exec_service_key,
-    scheduler_only_services,
     codebases_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
@@ -72,58 +71,6 @@ def _ensure_initial_dev_build(
         raise BuildFailed(
             f"failed to copy initial build artifacts for {svc!r} "
             f"into host dist/ (docker run exit {rc})."
-        )
-
-
-def _ensure_codebase_image(
-    ctx: ProjectContext, docker: DockerClient, svc: str
-) -> None:
-    """Build a codebase's dev-local image tag, for dev.
-
-    In ``dev``, the codebase tag is the Dockerfile ``dev`` stage — for every
-    core service, including a cron job. Two facts make that invariant
-    load-bearing rather than arbitrary (Mod 103):
-
-    1. Ofelia spawns the job through the Docker API with **no bind mounts**,
-       so the job runs whatever ``/service/dist`` the image carries. The
-       doctrinal ``dev`` stage bakes it (``RUN ./build.sh``), which is the
-       same assumption :func:`_ensure_initial_dev_build` already documents.
-    2. The tag is **codebase**-keyed (Mod 096) and Mod 099's exec service
-       builds the same tag at ``target: dev``. ``compose run`` only builds
-       when the image is *absent*, so a ``prod``-stage image sitting on that
-       tag is reused by ``docex build`` / ``test`` / ``migrate`` — and the
-       doctrinal ``prod`` stage carries no ``build.sh`` and no ``test.sh``.
-       Mod 074's ``prod`` build therefore **broke ``docex build dev``** for
-       any project with a scheduler-only codebase. Two consumers of one tag
-       must agree on what is inside it.
-
-    The tag is derived through the same ``_image_ref`` the compiler uses, so
-    it is byte-identical to what was written into the Ofelia INI's
-    ``image =`` and to what the exec service's ``image:`` names.
-
-    A missing ``core/<codebase>/Dockerfile`` is a real error here (nothing else
-    builds this tag), so — unlike :func:`_ensure_initial_dev_build`, which
-    tolerates non-conformant fixtures — we let ``docker build`` surface it
-    loudly.
-    """
-    from docex.cicl.compile import _image_ref
-
-    svc_dir = ctx.project_root / "core" / svc
-    image_ref = _image_ref(
-        ctx.infra.container_registry if ctx.infra else None,
-        ctx.project.name,
-        svc,
-        ctx.project.version,
-        env="dev",
-        foundation="fixed",
-    )
-    rc = docker.build_image(svc_dir, target="dev", tag=str(image_ref))
-    if rc != 0:
-        raise BuildFailed(
-            f"docker build --target dev for core service {svc!r} "
-            f"exited {rc}. In dev, the codebase's image tag is the "
-            f"Dockerfile `dev` stage — every consumer of that tag (the "
-            f"exec service, an Ofelia job) expects that stage."
         )
 
 
@@ -208,40 +155,14 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
     # Test env intentionally skips this — its images carry artifacts
     # baked in by the build stage and aren't bind-mounted.
     if env == "dev":
-        # Scheduler-ONLY codebases are the ones with no bind-mounted compose
-        # service at all; a codebase that also declares a long-running
-        # core service still needs its host-side dist/ pre-populated.
-        schedulers = set(scheduler_only_services(ctx))
         for svc in codebases(ctx):
-            # Scheduler-only codebases aren't bind-mounted and never run as
-            # a compose service, so the host-dist/ pre-populate is
-            # meaningless for them. They instead need their codebase image
-            # built below by `_ensure_codebase_image`.
-            if svc in schedulers:
-                continue
             _ensure_initial_dev_build(ctx, docker, svc)
-        # Mod 103: a scheduler-only codebase has no non-gated compose service,
-        # so nothing in the compose graph builds its image — `up --build` skips
-        # the `profiles: [exec]` exec service, and `compose run` builds only when
-        # the image is absent. docex builds it here. A codebase that also
-        # declares a long-running core service needs nothing: `compose up
-        # --build` below builds that same tag, at the same `dev` target.
-        for svc in scheduler_only_services(ctx):
-            _ensure_codebase_image(ctx, docker, svc)
 
     # 1b. Compose up. Compose itself handles "rebuild if Dockerfile or
     # context changed" so we don't add caching on top.
-    #
-    # Mod 075: pass the ABSOLUTE env-file path as DOCEX_SECRETS_ENV_FILE so
-    # Compose interpolates it into any scheduler's ofelia INI `volume`
-    # source. A relative source fails at the Docker API (ofelia spawns the
-    # job outside Compose). Harmless when the stack has no scheduler.
-    # Mod 080: this is the aggregate — the scheduler job needs TTE + secrets
-    # + config, not just the raw secrets file (which no longer holds TTE).
     rc = docker.compose_up(
         compose_file, build=True, detach=True, env_file=env_file,
         project_dir=ctx.project_root, project_name=project_name,
-        extra_env={"DOCEX_SECRETS_ENV_FILE": str(env_file)},
     )
     if rc != 0:
         print(

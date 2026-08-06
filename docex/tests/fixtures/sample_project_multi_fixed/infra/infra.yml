@@ -1,0 +1,67 @@
+# THE SUITE'S TWO-CODEBASE FIXTURE. Not tied to any one role.
+#
+# Every other bundled fixture is single-codebase: `sample_project` and
+# `sample_project_elastic` declare one codebase, and the clock fixtures are
+# one codebase with three core services. This one exists so that
+# **per-codebase fan-out** has coverage at all:
+#
+#   - `group_by_codebase` returning more than one group,
+#   - one `-exec` service emitted per codebase,
+#   - `migrate.sh` / `test.sh` iterating codebase-by-codebase,
+#   - first-failure short-circuit BEFORE a *later* codebase is reached —
+#     an assertion that cannot even be written against one codebase.
+#
+# The second codebase is an ordinary `worker` for no reason other than that
+# a worker is the plainest long-running role available. Nothing here is
+# about `worker` specifically. If you are deleting or reworking a role, this
+# fixture is NOT yours to remove — repoint it at whatever plain role
+# survives instead.
+cicl_version: "3"
+foundation: fixed
+apex_domain: "example.com"
+observability_backend_url: "https://hyperdx.example.com"
+container_registry: registry.example.com
+domain_default_service: api.web
+
+codebases:
+  api:
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+    core_services:
+      web:
+        role: web
+        command: ["python", "/service/dist/app.py"]
+        port: 8080
+        networks: [web, internal]
+        uses: [appdb]
+        resources:
+          cpu: 1.0
+          memory: 2GB
+
+  reporter:
+    env:
+      DATABASE_HOST: ${backing_services.appdb.host}
+      DATABASE_USER: ${backing_services.appdb.user}
+      DATABASE_PASSWORD: ${backing_services.appdb.password}
+    core_services:
+      worker:
+        role: worker
+        command: ["python", "-m", "entrypoints.worker"]
+        port: 8081
+        health_check_path: /health
+        networks: [internal]
+        uses: [appdb]
+        resources:
+          cpu: 0.25
+          memory: 512MB
+
+backing_services:
+  appdb:
+    role: relational_db
+    engine: postgres
+    version: "15"
+    port: 5432
+    networks: [internal]
+    schema_owned_by: api

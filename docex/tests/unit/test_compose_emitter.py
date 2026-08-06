@@ -243,7 +243,7 @@ def test_non_web_only_service_is_not_egress_isolated(tmp_path: Path):
     only attachment is that network. Two concrete breakages that caused
     (mod 110):
 
-    1. A ``worker``/``scheduler`` core service's paired OTel sidecar shares
+    1. A ``worker``/``clock`` core service's paired OTel sidecar shares
        its partner's netns via ``network_mode: service:<container>``, so a
        ``[internal]``-only partner stranded the sidecar with no route to
        ``OBSERVABILITY_BACKEND_URL`` — Class-1 telemetry silently dead in

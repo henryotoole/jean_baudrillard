@@ -137,7 +137,6 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_service_name_blacklist(doc))
     issues.extend(_validate_reverse_proxy_field(doc))
     issues.extend(_validate_reverse_proxy_role_removed(doc))
-    issues.extend(_validate_scheduler_services(doc))
     issues.extend(_validate_clock_services(doc))
     issues.extend(_validate_health_check_path_port(doc))
     return issues
@@ -651,24 +650,6 @@ def _validate_uses(doc: CICLDocument) -> list[ValidationIssue]:
                     where=where,
                 ))
                 continue
-            # KEPT knowingly out of step with committed rule 25, which carries
-            # no scheduler clause: `role: scheduler` is not retired until Mod
-            # 116, and deleting this guard here would leave a live role
-            # unguarded across three mod boundaries.
-            if target.core_services[ref.service].role == "scheduler":
-                issues.append(ValidationIssue(
-                    rule="rule_25_uses_scheduler",
-                    message=(
-                        f"core service {label!r} lists {raw!r} in `uses:`, but "
-                        f"{raw!r} is a `scheduler` core service. Cron invokes a "
-                        f"scheduler and nobody else does, so it exposes no boundary "
-                        f"to use — and it is exempt from the health fan-out that "
-                        f"`uses` drives. See cicl.md rule 25 and "
-                        f"contracts.md § Health Checks."
-                    ),
-                    where=where,
-                ))
-                continue
 
     # `uses` is core-service-scoped. Not a numbered rule — cicl.md's Service
     # Fields scope column plus the standing "`./bin/docex compile` will always
@@ -800,17 +781,17 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
     ``my`` + ``api_web``.
 
     Mod 099 widened the domain a second time, to the derivatives the
-    *compiler* appends — ``-otelcol`` (collector sidecar), ``-scheduler``
-    (Ofelia trigger), ``-exec`` (per-codebase operations container) and
-    ``-migrate`` (migration task definition). They render into the same
-    namespace as the services the author wrote, so a core service named
-    ``exec`` on codebase ``api`` produces ``api-exec``, byte-identical to
-    ``api``'s exec container — one compose key, one silently clobbering the
-    other. Three of the four holes predate Mod 099; the rule is keyed on
-    COLLISION rather than on a reserved-name list precisely so it covers
-    every suffix the compiler learns in future with no further edit.
+    *compiler* appends — ``-otelcol`` (collector sidecar), ``-exec``
+    (per-codebase operations container) and ``-migrate`` (migration task
+    definition). They render into the same namespace as the services the
+    author wrote, so a core service named ``exec`` on codebase ``api``
+    produces ``api-exec``, byte-identical to ``api``'s exec container — one
+    compose key, one silently clobbering the other. Two of the three holes
+    predate Mod 099; the rule is keyed on COLLISION rather than on a
+    reserved-name list precisely so it covers every suffix the compiler
+    learns in future with no further edit.
 
-    Mod 100 added the fifth such derivative — the ``-1``…``-N`` replica index
+    Mod 100 added the fourth such derivative — the ``-1``…``-N`` replica index
     the fixed-prod compose unroll appends — seeded only where the core service
     declares ``replicas > 1``. See the comment at its seeding site.
     """
@@ -820,17 +801,10 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
         buckets.setdefault(_normalized_identity(ref.compiled), []).append(
             f"core service {ref.dotted!r}"
         )
-        # Compiler-emitted, per core service. A scheduler has no long-running
-        # container to pair a collector with; it gets an Ofelia trigger
-        # instead. Exactly one of the two suffixes exists per core service.
-        if svc.role == "scheduler":
-            buckets.setdefault(
-                _normalized_identity(f"{ref.compiled}-scheduler"), []
-            ).append(f"the scheduler trigger for core service {ref.dotted!r}")
-        else:
-            buckets.setdefault(
-                _normalized_identity(f"{ref.compiled}-otelcol"), []
-            ).append(f"the collector sidecar for core service {ref.dotted!r}")
+        # Compiler-emitted, per core service: the paired collector sidecar.
+        buckets.setdefault(
+            _normalized_identity(f"{ref.compiled}-otelcol"), []
+        ).append(f"the collector sidecar for core service {ref.dotted!r}")
         # Mod 100: the replica index. On fixed-prod the compiler unrolls a
         # core service with `replicas: N` into N compose services keyed
         # `{compiled}-{i}`, so `api` with core service `web` (replicas: 3)
@@ -886,7 +860,7 @@ def _validate_rendered_identity(doc: CICLDocument) -> list[ValidationIssue]:
                 f"shares the {{project}}_{{env}} prefix, so the suffix must be "
                 f"unique across core services, backing services, and the "
                 f"derivatives the compiler appends to them (-otelcol, "
-                f"-scheduler, -exec, -migrate, and the -1..-N replica index) "
+                f"-exec, -migrate, and the -1..-N replica index) "
                 f"after naming-policy normalization (hyphenate + lowercase). "
                 f"Rename one of them. "
                 f"See cicl.md § Validation Rules rule 5."
@@ -1454,50 +1428,6 @@ def _validate_reverse_proxy_field(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 # ---------------------------------------------------------------------------
-# Mod 055 — scheduler role field rules.
-# ---------------------------------------------------------------------------
-
-
-def _validate_scheduler_services(doc: CICLDocument) -> list[ValidationIssue]:
-    """Mod 055: a ``scheduler`` core service must declare a
-    well-formed 5-field cron ``schedule``.
-
-    ``schedule`` on a *non*-scheduler core service is already rejected by
-    rule 4 (``tt_rule_4_undeclared_field``) since only ``scheduler/
-    container`` declares it as a role-specific field. Here we add the
-    scheduler-side requirement and surface a malformed cron at compile
-    time rather than at apply / job-run time.
-
-    The command-required half is gone: ``CoreService.command`` is required
-    and non-empty on EVERY core service (rule 23), so the check would be
-    unreachable.
-    """
-    from docex.cicl.cron import cron_validation_issue
-
-    issues: list[ValidationIssue] = []
-    for cb_name, svc_name, _cb, svc in doc.all_core_services():
-        if svc.role != "scheduler":
-            continue
-        where = f"{_service_where(cb_name, svc_name)}.schedule"
-        schedule = (svc.model_extra or {}).get("schedule")
-        if not isinstance(schedule, str) or not schedule.strip():
-            issues.append(ValidationIssue(
-                rule="rule_scheduler_schedule_required",
-                message=(
-                    f"scheduler core service "
-                    f"{ServiceRef(cb_name, svc_name).dotted!r} must declare "
-                    f"a non-empty `schedule` (a 5-field cron expression)"
-                ),
-                where=where,
-            ))
-        else:
-            issue = cron_validation_issue(schedule, where=where)
-            if issue is not None:
-                issues.append(issue)
-    return issues
-
-
-# ---------------------------------------------------------------------------
 # Mod 115 — the `clock` role's `schedules:` map.
 # ---------------------------------------------------------------------------
 
@@ -1584,23 +1514,19 @@ def _validate_clock_services(doc: CICLDocument) -> list[ValidationIssue]:
 
 # Roles that never take public ingress. A core service wanting it *is* a web
 # core service and should say so with `role: web`.
-_NON_WEB_ROLES = frozenset({"worker", "scheduler", "clock"})
+_NON_WEB_ROLES = frozenset({"worker", "clock"})
 
 
 def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
     """Rules 26 + 27 — fields and networks that a role forbids.
 
-    Rule 26: `replicas` on a scheduler is a compile error. Ofelia fires one
-    job; a replica count is meaningless. Consistent with how `schedule:` is
-    rejected on every non-scheduler role — inert fields fail rather than being
-    silently ignored. Mod 115 adds a clock arm for a different reason: a clock
-    is a *singleton*, and a replica count there is not inert but actively
-    wrong (N ticks, N enqueues per fire — clock.md § Deployment).
+    Rule 26: `replicas` on a clock is a compile error. A clock is a
+    *singleton* — N replicas means N ticks and N enqueues per fire
+    (clock.md § Deployment), so the count is not inert but actively wrong.
 
-    Rule 27: a `worker`, `scheduler` or `clock` core service may not declare
-    `web` in `networks`. A core service wanting public ingress *is* a web core
-    service and should say so with `role: web`. Replaces the prose-only,
-    unenforced note this file carried for scheduler.
+    Rule 27: a `worker` or `clock` core service may not declare `web` in
+    `networks`. A core service wanting public ingress *is* a web core service
+    and should say so with `role: web`.
     """
     issues: list[ValidationIssue] = []
     for cb_name, svc_name, _cb, svc in doc.all_core_services():
@@ -1608,20 +1534,6 @@ def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
         label = ServiceRef(cb_name, svc_name).dotted
         # Rule 26. `replicas` defaults to 1, so "declared" is the only
         # meaningful test — model_fields_set distinguishes it from the default.
-        if svc.role == "scheduler" and "replicas" in svc.model_fields_set:
-            issues.append(ValidationIssue(
-                rule="rule_26_replicas_on_scheduler",
-                message=(
-                    f"scheduler core service {label!r} declares `replicas: "
-                    f"{svc.replicas}`. A scheduler fires one job per tick, so "
-                    f"a replica count is inert — remove it. See cicl.md § "
-                    f"Validation Rules rule 26."
-                ),
-                where=f"{where}.replicas",
-            ))
-        # Rule 26, clock arm (Mod 115). A SEPARATE branch from the scheduler
-        # one above on purpose: Mod 116 deletes that branch outright, and a
-        # fused condition would turn that deletion into a rewrite.
         if svc.role == "clock" and "replicas" in svc.model_fields_set:
             issues.append(ValidationIssue(
                 rule="rule_26_replicas_on_clock",

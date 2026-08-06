@@ -8,7 +8,7 @@ Three things land here:
    from the day it was written, which is why no test in this codebase's history
    ever produced an AsyncAPI provider.
 2. The provider set is (CORE-targeted `uses` entries) ∪ (`web`-network core
-   service), minus schedulers.
+   service).
 3. The health fan-out keys on CORE `uses` targets specifically: it proxies a
    target's own `/health` at a `<codebase>/<service>` path, and a BACKING
    target has no such form to proxy.
@@ -227,66 +227,6 @@ def test_two_web_processes_each_get_a_contract(tmp_path):
         assert not res.passed, res.detail
         assert dropped in res.detail
         assert kept not in res.detail
-
-
-def test_scheduler_is_never_a_provider(tmp_path):
-    """§ Health Checks: `scheduler` core services are exempt. Cron invokes one
-    and nobody else does, so it exposes no boundary to contract."""
-    src = (
-        _codebase(
-            "api",
-            _proc("web", "web", networks=["web", "internal"], port=8080, hcp=True),
-        )
-        + _codebase(
-            "jobs",
-            _proc(
-                "nightly",
-                "scheduler",
-                networks=["internal"],
-                extra=['        schedule: "0 3 * * *"'],
-            ),
-        )
-    )
-    ctx, root = _project(
-        tmp_path, src, {"api.web.openapi.yml": _openapi("/health")}
-    )
-    res, _contracts, providers = _contracts_result(ctx, root)
-    assert res.passed, res.detail
-    assert providers == ["api.web"]
-    assert "jobs.nightly" not in res.detail
-
-    # And it is exempt from the fan-out and the probeability assertion even when
-    # something (illegally, per rule 25) uses it.
-    src_consumed = (
-        _codebase(
-            "api",
-            _proc(
-                "web",
-                "web",
-                networks=["web", "internal"],
-                port=8080,
-                hcp=True,
-                uses=["jobs.nightly"],
-            ),
-        )
-        + _codebase(
-            "jobs",
-            _proc(
-                "nightly",
-                "scheduler",
-                networks=["internal"],
-                extra=['        schedule: "0 3 * * *"'],
-            ),
-        )
-    )
-    ctx, root = _project(
-        tmp_path / "consumed",
-        src_consumed,
-        {"api.web.openapi.yml": _openapi("/health")},
-    )
-    res, _c, _p = _contracts_result(ctx, root)
-    assert res.passed, res.detail
-    assert _health_result(ctx, root).passed
 
 
 def test_unknown_role_fallback_is_reported(tmp_path):

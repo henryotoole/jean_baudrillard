@@ -31,9 +31,9 @@ _FIXED = _FIXTURES / "sample_project"
 _ELASTIC = _FIXTURES / "sample_project_elastic"
 
 
-# A core-service-level `env:` key on the schema carrier (`web`, the lowest-sorted
-# non-scheduler core service). It must appear in the app container's env and NOT
-# in the migrate task definition's — that is the codebase-scoped-env rule.
+# A core-service-level `env:` key on the schema carrier (`web`, the
+# lowest-sorted core service). It must appear in the app container's env and
+# NOT in the migrate task definition's — that is the codebase-scoped-env rule.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 
 # `uses: [appdb]` on EVERY core service: the fixture declares its DATABASE_*
@@ -50,9 +50,14 @@ _WORKER = {
     "uses": ["appdb", "api.web"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
+# A SECOND `worker`, deliberately. This module is about service *expansion*,
+# not about any one role: the third core service exists to make the codebase
+# three-wide, and its distinct `resources` are what make `test_33b`'s
+# per-dimension max non-vacuous. Keeping it a plain `worker` keeps
+# role-specific machinery (a clock's `schedules:`, its deployment
+# percentages) out of a module that has nothing to say about it.
 _NIGHTLY = {
-    "role": "scheduler",
-    "schedule": "0 3 * * *",
+    "role": "worker",
     "command": ["python", "-m", "jobs.cleanup"],
     "networks": ["internal"],
     "uses": ["appdb"],
@@ -120,26 +125,31 @@ def test_26_fixed_emits_one_service_per_long_running_process(fixed_root: Path):
     services = _compose(fixed_root, "dev")["services"]
     assert "sample-dev-api-web" in services
     assert "sample-dev-api-worker" in services
-    # A scheduler runs nothing continuously — no long-running service block,
-    # just the paired ofelia container that fires it.
-    assert "sample-dev-api-nightly_cleanup" not in services
-    assert "sample-dev-api-nightly_cleanup-scheduler" in services
+    # All three core services are long-running, so all three get a block —
+    # one per core service, keyed on the compiled two-segment identity.
+    assert "sample-dev-api-nightly-cleanup" in services
 
 
 def test_27_fixed_emits_one_sidecar_per_long_running_process(fixed_root: Path):
     services = _compose(fixed_root, "dev")["services"]
     sidecars = sorted(k for k in services if k.endswith("-otelcol"))
-    assert sidecars == ["sample-dev-api-web-otelcol", "sample-dev-api-worker-otelcol"]
+    assert sidecars == [
+        "sample-dev-api-nightly-cleanup-otelcol",
+        "sample-dev-api-web-otelcol",
+        "sample-dev-api-worker-otelcol",
+    ]
 
 
 def test_28_fixed_all_services_share_one_image(fixed_root: Path):
     services = _compose(fixed_root, "dev")["services"]
-    core = [services[k] for k in ("sample-dev-api-web", "sample-dev-api-worker")]
+    core = [
+        services[k] for k in (
+            "sample-dev-api-web",
+            "sample-dev-api-worker",
+            "sample-dev-api-nightly-cleanup",
+        )
+    ]
     assert {b["image"] for b in core} == {"sample/api:0.1.0"}
-    # The ofelia job image is the same one — the scheduler runs the same
-    # artifact through a different command.
-    ini = _compose(fixed_root, "dev")["configs"]["ofelia_api-nightly_cleanup"]["content"]
-    assert "image = sample/api:0.1.0" in ini
 
 
 def test_29_fixed_one_build_context_and_codebase_bind_mounts(fixed_root: Path):
@@ -147,10 +157,15 @@ def test_29_fixed_one_build_context_and_codebase_bind_mounts(fixed_root: Path):
     contexts = [
         b["build"]["context"] for b in services.values() if isinstance(b.get("build"), dict)
     ]
-    # web + worker + the mod-099 exec service — one codebase, one context.
-    assert contexts.count("./core/api") == 3
+    # web + worker + nightly_cleanup + the mod-099 exec service — one
+    # codebase, one context.
+    assert contexts.count("./core/api") == 4
     assert set(contexts) == {"./core/api"}
-    for key in ("sample-dev-api-web", "sample-dev-api-worker"):
+    for key in (
+        "sample-dev-api-web",
+        "sample-dev-api-worker",
+        "sample-dev-api-nightly-cleanup",
+    ):
         vols = services[key]["volumes"]
         assert "./core/api/src:/service/src" in vols
         assert "./core/api/dist:/service/dist" in vols
@@ -160,7 +175,11 @@ def test_30_fixed_core_processes_publish_no_host_ports(fixed_root: Path):
     """Ruling 5: a core service never publishes. Two codebases' workers
     sharing a health port would otherwise collide in `dev` on day one."""
     services = _compose(fixed_root, "dev")["services"]
-    for key in ("sample-dev-api-web", "sample-dev-api-worker"):
+    for key in (
+        "sample-dev-api-web",
+        "sample-dev-api-worker",
+        "sample-dev-api-nightly-cleanup",
+    ):
         assert "ports" not in services[key]
 
 
@@ -176,8 +195,10 @@ def test_31_elastic_resource_counts(elastic_root: Path):
     assert sorted(n for n in tds if not n.endswith("_migrate")) == [
         "api-nightly_cleanup", "api-web", "api-worker",
     ]
-    # No ECS service for the scheduler; no target group for anything but web.
-    assert sorted(_resources(hcl, "aws_ecs_service")) == ["api-web", "api-worker"]
+    # One ECS service per core service; no target group for anything but web.
+    assert sorted(_resources(hcl, "aws_ecs_service")) == [
+        "api-nightly_cleanup", "api-web", "api-worker",
+    ]
     assert _resources(hcl, "aws_lb_target_group") == ["api-web"]
 
 
@@ -209,10 +230,9 @@ def test_33b_elastic_migrate_resources_are_the_per_dimension_max(
     codebase's core service, taken over the already-Fargate-tiered values.
 
     `max` is commutative, so — unlike the Mod 096 bridge, which picked the
-    lowest-sorted non-scheduler core service — the migration's size cannot move
-    because a sibling core service was renamed or added. It also never
-    under-provisions, which is what lets the rule drop the scheduler
-    carve-out and have no exceptions at all.
+    lowest-sorted core service — the migration's size cannot move because a
+    sibling core service was renamed or added. It also never under-provisions,
+    which is what lets the rule have no exceptions at all.
     """
     hcl = _hcl(elastic_root, "stage")
     body = _slice(hcl, "aws_ecs_task_definition", "api_migrate")
@@ -401,26 +421,26 @@ def test_uses_reaches_no_emitted_artifact(fixed_root: Path, elastic_root: Path):
 
 
 def test_25_iam_overflow_fails_compile_with_the_policys_message(tmp_path: Path):
-    """`iam` is `max_len: 64, overflow: error`, and the scheduler role name
-    is `apply_policy(f"{global_name}_scheduler", iam)`. With a fourth
-    segment that can now hard-fail at compile — the doctrine's stated
-    preference over silent truncation."""
+    """`iam` is `max_len: 64, overflow: error`. Its surviving consumer is the
+    project-tier task-execution role, `apply_policy(f"{project}_task_execution",
+    iam)`, so a project name over 49 characters (64 minus `_task_execution`)
+    breaches it. The value of this test over `test_naming.py`'s unit coverage
+    of `apply_policy` is that the breach surfaces THROUGH A COMPILE — a hard
+    failure, which is the doctrine's stated preference over silent
+    truncation."""
     root = _three_service_project(_ELASTIC, tmp_path)
+    # 50 chars: over `iam`'s 64 - len("_task_execution") = 49 budget, and
+    # still inside `rds`'s 63 for `{project}-stage-appdb`, so the `iam`
+    # breach is the one that surfaces rather than a neighbouring policy's.
+    long_name = "tactical_lifecycle_testbed_alpha_reconcile_sweeper"
+    assert len(long_name) > 64 - len("_task_execution")
     project_yml = root / "project.yml"
     project_yml.write_text(
-        project_yml.read_text().replace(
-            "name: sample", "name: tactical_lifecycle_testbed_alpha", 1
-        )
+        project_yml.read_text().replace("name: sample", f"name: {long_name}", 1)
     )
-    infra_path = root / "infra" / "infra.yml"
-    doc = yaml.safe_load(infra_path.read_text())
-    doc["codebases"]["api"]["core_services"]["nightly_reconciliation_sweep"] = (
-        doc["codebases"]["api"]["core_services"].pop("nightly_cleanup")
-    )
-    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
 
     with pytest.raises(TransferTableError) as exc:
         run_compile(load_project_context(root))
     msg = str(exc.value)
     assert "policy 'iam' max_len 64" in msg
-    assert "nightly_reconciliation_sweep_scheduler" in msg
+    assert f"{long_name}_task_execution" in msg

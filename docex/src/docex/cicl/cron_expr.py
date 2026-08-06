@@ -5,19 +5,10 @@ expressions (``minute hour day-of-month month day-of-week``) in UTC. This
 module checks that shape at compile time so a malformed expression is an
 infra.yml error rather than a runtime surprise inside a clock entrypoint.
 
-There is **no translation of any kind** here — no ``to_aws_cron``, no
-``to_ofelia_cron``, no day-of-week remap. Per
-``doctrine/infrastructure/specifics/clock.md`` § Cron format the compiler
-passes the expression through to the schedule table unchanged; whatever
-cron library the codebase uses parses it directly.
-
-WHY a second cron validator while ``cicl/cron.py`` still exists: ``cron.py``
-is on Mod 116's delete-outright list. Importing its validator would force
-that mod to disentangle a live dependency mid-deletion, which is exactly the
-coupling the 115/116 split exists to avoid. The duplication is **transient
-and self-resolving** — it spans one mod boundary and ``cron.py``'s deletion
-ends it. ``cron.py``'s translation half (``to_aws_cron``, ``to_ofelia_cron``,
-the Sunday-is-1 remap) has no counterpart here and is never resurrected.
+There is **no translation of any kind** here — no dialect conversion, no
+day-of-week remap. Per ``doctrine/infrastructure/specifics/clock.md``
+§ Cron format the compiler passes the expression through to the schedule
+table unchanged; whatever cron library the codebase uses parses it directly.
 """
 
 from __future__ import annotations

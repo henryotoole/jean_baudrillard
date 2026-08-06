@@ -274,9 +274,18 @@ def _consumer_reconcile_set(
         svc = compiled.services[name]
         if not svc.is_core or not svc.uses_core:
             continue
-        # WHY: a `scheduler` core service emits no `ecs_service`, so there is
-        # nothing to redeploy — and `update_service` against a service that
-        # does not exist is an error, not a no-op.
+        # WHY: `update_service` against an ECS service that does not exist is
+        # an error, not a no-op, so a core service that emits no `ecs_service`
+        # must be skipped rather than redeployed.
+        #
+        # DO NOT DELETE THIS AS DEAD. After Mod 116 no *bundled* core role can
+        # reach this branch — `web`, `worker` and `clock` all emit an
+        # `ecs_service`. It is reachable only through a PROJECT-LOCAL transfer
+        # table declaring a core role whose elastic `emits` omits
+        # `ecs_service`. That makes the branch untestable from the bundled
+        # tables and permanently load-bearing: without it the failure appears
+        # as a release aborting mid-flight in a downstream project with a
+        # custom role table, which is the hardest place to diagnose it.
         if "ecs_service" not in svc.emits.get("elastic", []):
             continue
 

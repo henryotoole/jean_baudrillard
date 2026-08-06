@@ -15,14 +15,14 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @pytest.fixture
-def scheduler_ctx(tmp_path):
-    """A fixed-foundation project fixture that includes a scheduler
-    (``nightly_cleanup``, alongside web service ``api``; project ``sample``
-    v0.1.0)."""
+def multi_ctx(tmp_path):
+    """A fixed-foundation TWO-CODEBASE project (``api`` + ``reporter``;
+    project ``sample`` v0.1.0). The suite's only multi-codebase fixture —
+    see its `infra.yml` header."""
     fixture = (
-        _REPO_ROOT / "tests" / "fixtures" / "sample_project_scheduler_fixed"
+        _REPO_ROOT / "tests" / "fixtures" / "sample_project_multi_fixed"
     )
-    dest = tmp_path / "sched"
+    dest = tmp_path / "multi"
     shutil.copytree(fixture, dest, dirs_exist_ok=False)
     out = dest / "infra" / "output"
     if out.exists():
@@ -125,57 +125,43 @@ def test_test_short_circuits_on_migration_failure(sample_ctx, fake_docker):
     assert "compose_down" in methods
 
 
-def test_run_test_scheduler_only_codebase_uses_its_exec_service(
-    scheduler_ctx, fake_docker
+def test_run_test_every_codebase_uses_its_own_exec_service(
+    multi_ctx, fake_docker
 ):
-    """Mod 103: EVERY codebase runs test.sh one way — ``compose run --rm``
-    against its own exec service. A scheduler-only codebase included.
-
-    Replaces ``test_run_test_scheduler_uses_one_off``, whose subject was
-    ``orchestrate/test.py::_run_scheduler_tests`` — the mod-088 carve-out that
-    built the codebase's Dockerfile ``test`` stage directly
-    (``build_image(target="test")``) and ran ``test.sh`` through a bare
-    ``run_one_shot``, entirely outside compose. It existed because a
-    scheduler-only codebase had no exec-able container in the ``test`` stack
-    (mod 073 drops the Ofelia trigger there). Mod 099's exec service is emitted
-    for every codebase, so the carve-out had nothing left to solve and is
-    deleted. Consequence worth naming: the job's tests now get the codebase's
-    ``depends_on`` readiness gate and its networks, which the bare one-off had
-    neither of. (``git log -S_run_scheduler_tests``.)
+    """EVERY codebase runs ``test.sh`` exactly one way — ``compose run --rm``
+    against its OWN exec service — so the fan-out is one one-off per codebase
+    and nothing else.
     """
-    rc = run_test(scheduler_ctx, fake_docker)
+    rc = run_test(multi_ctx, fake_docker)
     assert rc == 0
 
     test_services = [
         c[2] for c in fake_docker.calls
         if c[0] == "compose_run_one_off" and c[3] == ("./test.sh",)
     ]
-    # `codebases` is sorted, so `api` precedes `nightly_cleanup`.
+    # `codebases` is sorted, so `api` precedes `reporter`.
     assert test_services == [
-        "sample-test-api-exec", "sample-test-nightly-cleanup-exec",
+        "sample-test-api-exec", "sample-test-reporter-exec",
     ]
 
-    # The deleted helper's two docker verbs are now unreachable from run_test:
-    # no direct stage build, no bare `docker run`.
+    # No other docker verb is reachable from `run_test`: no direct stage
+    # build, no bare `docker run`.
     assert [c for c in fake_docker.calls if c[0] == "build_image"] == []
     assert [c for c in fake_docker.calls if c[0] == "run_one_shot"] == []
 
 
 def test_run_test_short_circuits_before_later_codebase(
-    scheduler_ctx, fake_docker
+    multi_ctx, fake_docker
 ):
-    """Repurposed from ``test_run_test_scheduler_build_failure_short_circuits``,
-    whose literal subject (a failed scheduler test-STAGE build) no longer
-    exists. Its real subject — first-failure short-circuit semantics — does,
-    so the coverage moves to the surviving path: a failing ``test.sh`` in the
-    first codebase must stop the loop before the next codebase's exec service
-    is ever run, and teardown must still happen.
+    """First-failure short-circuit: a failing ``test.sh`` in the FIRST
+    codebase stops the loop before the next codebase's exec service is ever
+    run, and teardown still happens. Needs two codebases to state at all.
     """
     fake_docker.exit_codes[
         ("exit", "compose_run_one_off", "sample-test-api-exec", ("./test.sh",))
     ] = 9
 
-    rc = run_test(scheduler_ctx, fake_docker)
+    rc = run_test(multi_ctx, fake_docker)
     assert rc == 9
 
     test_services = [
@@ -187,21 +173,20 @@ def test_run_test_short_circuits_before_later_codebase(
     assert "compose_down" in [c[0] for c in fake_docker.calls]
 
 
-def test_run_test_scheduler_run_failure_returns_code(
-    scheduler_ctx, fake_docker
+def test_run_test_second_codebase_failure_returns_its_code(
+    multi_ctx, fake_docker
 ):
-    """A failing ``test.sh`` in the scheduler-only codebase's exec service
-    surfaces its exit code and still tears down. Same guarantee as before Mod
-    103; the failure is keyed on the exec-service one-off rather than on the
-    deleted helper's ``run_one_shot``."""
+    """A failing ``test.sh`` in the SECOND codebase's exec service surfaces
+    its exit code and still tears down — the loop's exit code is the failing
+    codebase's, not the last one's."""
     fake_docker.exit_codes[
         (
             "exit", "compose_run_one_off",
-            "sample-test-nightly-cleanup-exec", ("./test.sh",),
+            "sample-test-reporter-exec", ("./test.sh",),
         )
     ] = 3
 
-    rc = run_test(scheduler_ctx, fake_docker)
+    rc = run_test(multi_ctx, fake_docker)
     assert rc == 3
     assert "compose_down" in [c[0] for c in fake_docker.calls]
 

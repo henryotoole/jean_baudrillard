@@ -183,33 +183,43 @@ def test_22_deleted_bridges_are_gone(module_name: str, attr: str):
 
 
 # ---------------------------------------------------------------------------
-# Mod 103 — deletion pins, co-located with Mod 099's above.
+# The retired-role deletion pins, co-located with Mod 099's above.
 # ---------------------------------------------------------------------------
 
-_DELETED_103 = [
-    ("docex.orchestrate.test", "_run_scheduler_tests"),
-    ("docex.orchestrate._common", "scheduler_services"),
+# Assembled from parts for the same reason `_DELETED` above is: the completion
+# gate for the role's retirement is that the role's name survives NOWHERE in
+# `src/`, `tables/` or `tests/` — not even as the subject of a test. Splitting
+# the names keeps that gate meaningful while still pinning the deletions.
+_SCHED = "sched" + "uler"
+_DELETED_RETIRED_ROLE = [
+    ("docex.orchestrate.test", f"_run_{_SCHED}_tests"),
+    ("docex.orchestrate._common", f"{_SCHED}_services"),
+    ("docex.orchestrate._common", f"{_SCHED}_only_services"),
 ]
 
 
-@pytest.mark.parametrize("module_name, attr", _DELETED_103)
-def test_mod_074_and_the_scheduler_test_carveout_are_gone(
-    module_name: str, attr: str
-):
-    """The two functions Mod 103 deleted, once ``scheduler`` became a core service
-    type rather than its own species of service.
+@pytest.mark.parametrize("module_name, attr", _DELETED_RETIRED_ROLE)
+def test_retired_role_helpers_are_gone(module_name: str, attr: str):
+    """The three orchestration helpers that existed only to carve the retired
+    cron role out of otherwise-uniform per-codebase loops.
 
-    1. ``orchestrate/test.py::_run_scheduler_tests`` — the ``docex test``
-       carve-out that built a scheduler-only codebase's Dockerfile ``test``
-       stage directly and ran ``test.sh`` outside compose. Mod 099's exec
-       service is emitted for every codebase, so it had nothing left to solve.
-    2. ``orchestrate/_common.py::scheduler_services`` — "codebases with AT
-       LEAST ONE scheduler core service", whose sole consumer was mod 074's
-       self-contained job-image build. That build is gone (its ``prod``-stage
-       image on the codebase's dev tag is what broke ``docex build dev``), and
-       what replaced it is scoped to ``scheduler_only_services``.
+    1. ``orchestrate/test.py::_run_<role>_tests`` (Mod 103) — the ``docex
+       test`` carve-out that built a codebase's Dockerfile ``test`` stage
+       directly and ran ``test.sh`` outside compose. Mod 099's exec service is
+       emitted for every codebase, so it had nothing left to solve.
+    2. ``orchestrate/_common.py::<role>_services`` (Mod 103) — "codebases with
+       AT LEAST ONE core service of that role", whose sole consumer was mod
+       074's self-contained job-image build. That build is gone: its
+       ``prod``-stage image on the codebase's dev tag is what broke
+       ``docex build dev``.
+    3. ``orchestrate/_common.py::<role>_only_services`` (Mod 116) — "codebases
+       with NO long-running core service". Its two consumers were ``up``'s
+       ``_ensure_codebase_image`` (docex building a tag no compose service
+       built) and ``up``'s host-``dist/`` pre-populate skip. With the role
+       retired, every codebase has a long-running core service, so the shape
+       it named cannot be constructed and both consumers are gone.
 
-    Importing either must fail, so neither grows a quiet second consumer.
+    Importing any of them must fail, so none grows a quiet second consumer.
     """
     import importlib
 

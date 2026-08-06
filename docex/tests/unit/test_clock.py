@@ -230,8 +230,8 @@ def _compose(root: Path, env: str = "dev") -> dict:
 
 
 def test_fixed_clock_is_an_ordinary_compose_service(fixed_project: Path):
-    """A clock is NOT skipped the way a scheduler is — it is a long-running
-    container with every ordinary attribute."""
+    """A clock is a long-running container with every ordinary attribute —
+    command, image, build context and healthcheck, exactly as a `worker`."""
     doc = _compose(fixed_project)
     block = doc["services"]["sample-dev-api-clock"]
     assert block["command"] == ["python", "-m", "entrypoints.clock"]
@@ -270,8 +270,8 @@ def test_fixed_schedule_table_reaches_the_container(fixed_project: Path):
 def test_fixed_schedule_table_delivered_in_every_env(
     fixed_project: Path, env: str
 ):
-    """Nothing about a clock is suppressed anywhere (clock.md) — there is no
-    `test`-env carve-out of the kind ofelia needed."""
+    """Nothing about a clock is suppressed anywhere (clock.md): the schedule
+    table is delivered in all four envs, `test` included."""
     doc = _compose(fixed_project, env)
     block = doc["services"][f"sample-{env}-api-clock"]
     assert yaml.safe_load(
@@ -339,7 +339,6 @@ def test_elastic_clock_emits_a_service_not_a_schedule(elastic_project: Path):
     hcl = _hcl(elastic_project)
     assert 'resource "aws_ecs_task_definition" "api-clock" {' in hcl
     assert 'resource "aws_ecs_service" "api-clock" {' in hcl
-    assert 'resource "aws_scheduler_schedule" "api-clock"' not in hcl
     assert 'resource "aws_lb_target_group" "api-clock"' not in hcl
 
 

@@ -107,8 +107,6 @@ def _aggregate_check_report(report: CheckReport) -> str:
 
 # contracts.md § Standards: the format follows from the PROVIDER'S ROLE, not from
 # the shape of the graph — the role is what fixes the communication mechanism, so
-# it is the honest source. `scheduler` is absent because a scheduler is never a
-# provider (see `_gate_contracts`).
 _CONTRACT_FORMAT_BY_ROLE = {
     "web": "openapi",
     "worker": "asyncapi",
@@ -350,7 +348,7 @@ def _gate_contracts(
     """Verify every required contract file is present.
 
     Per contracts.md, **the provider set is (CORE-targeted `uses` entries) ∪
-    (`web`-network core service)**, minus `scheduler` core service. Both arms
+    (`web`-network core service)**. Both arms
     are load-bearing: the first is the declared interface graph; the second
     catches every publicly reachable boundary even when nothing inside the
     project uses it, which is what gives the health-endpoint gate something to
@@ -384,12 +382,6 @@ def _gate_contracts(
     missing: list[str] = []
     fallbacks: list[str] = []
     for cb_name, svc_name, _cb, svc in infra.all_core_services():
-        # contracts.md § Health Checks: `scheduler` core services are exempt.
-        # Rule 25 now forbids consuming one and rule 27 forbids `web` in its
-        # networks, so neither arm can reach a scheduler — the gate states the
-        # exemption anyway so it does not depend on the validator to be correct.
-        if svc.role == "scheduler":
-            continue
         label = ServiceRef(cb_name, svc_name).dotted
         on_web = "web" in (svc.networks or [])
         if not (on_web or label in consumed):
@@ -459,7 +451,6 @@ def _gate_health_endpoints(
        constrains a core service that *has* `health_check_path`; this requires a
        core `uses` target to have it at all.
 
-    `scheduler` core services are exempt throughout.
     """
     infra = ctx.infra
     if infra is None:
@@ -478,8 +469,6 @@ def _gate_health_endpoints(
         if resolved is None:
             continue  # contract for an unknown core service — skip
         _cbn, _svcn, svc = resolved
-        if svc.role == "scheduler":
-            continue
 
         try:
             doc = yaml.safe_load(path.read_text()) or {}
@@ -505,8 +494,6 @@ def _gate_health_endpoints(
             if target is None:
                 continue
             t_cb, t_svc_name, t_svc = target
-            if t_svc.role == "scheduler":
-                continue
             if "web" in (t_svc.networks or []):
                 continue  # publicly reachable; nothing to proxy
             key = f"/health/{t_cb}/{t_svc_name}"
@@ -526,8 +513,6 @@ def _gate_health_endpoints(
             if target is None:
                 continue
             _t_cb, _t_svc_name, t_svc = target
-            if t_svc.role == "scheduler":
-                continue
             absent = []
             if t_svc.port is None:
                 absent.append("port")
