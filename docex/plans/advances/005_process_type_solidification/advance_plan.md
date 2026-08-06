@@ -104,8 +104,12 @@ singleton core service reading a compiler-delivered schedule table — replaces 
    `deployment_minimum_healthy_percent = 0` / `deployment_maximum_percent = 100`
    so a rolling deploy cannot double-fire.
 3. `schedules:` on a clock core service renders `infra/output/<env>/schedules.yml`
-   and is delivered by the OTel sidecar's two existing paths — compose top-level
-   `configs:` on fixed, a literal task-definition env entry on elastic.
+   **for operator visibility**, and is delivered to the container as the literal
+   YAML in **`DOCEX_SCHEDULES_YAML`, identical on both foundations** — one
+   variable, one code path in every project's clock entrypoint, no mount and no
+   path variable. *(Operator ruling during Mod 115, superseding this criterion's
+   original per-foundation split, which mirrored the OTel sidecar. Nothing reads
+   the emitted file at runtime and that is not an oversight.)*
 4. Rules 25/26/27 lose their scheduler clauses; rule 26 is *replaced* by "a
    `clock` may not declare `replicas`" rather than added to. The `contracts.md`
    scheduler health exemption deletes.
@@ -560,7 +564,8 @@ are found, because the mod that finds them is never the mod that owns them.
 | `skill_iter/eval/outcome/infra-compile/evals.json` hard-codes *"adds `cache` to web's `depends_on`"* as expected output. **Invisible to both pytest suites** — it fails only at the skills release gate, or never. | Mod 113 | Close-out, before the trigger/outcome eval question is settled |
 | `transfer_tables.md` ~615/~687 still carry pre-`processes:` flat-form examples that `cicl_version: "3"` rejects. Field renamed only, per Mod 112's scope. | Mod 112 | Mod 118 |
 | `doctrine_excerpts/index.yml` still has **zero entries** for either relation field or the scheduler. Whether `uses` and `clock` earn entries is an explicit decision, not an omission. | Mod 112 | Mod 118 |
-| `test_projects/fixed` has no committed `infra/output/`, so "grep the compiled output" needs a fresh compile there rather than a grep of the tree. | Mod 113 | Both smoke walks |
+| ~~`test_projects/fixed` has no committed `infra/output/`~~ — **stale as of Mod 117**: it is now tracked (16 files), so compiled output is greppable on both foundations without a fresh compile. This is what makes audit items B.16/B.17 cheap. | Mod 113 | *Resolved* |
+| **HELD — the job-name binding gate.** `clock.md:96` says `docex check` "can assert that every declared job name has a binding in the clock's dispatch table". Nothing implements it, and `docex` cannot read a project's dispatch table unless the project exposes it. Three live outcomes: build a `--list-jobs` gate (needs a follow-on mod), clock-side startup validation, or drop it and soften the sentence (each a one-line edit). **No marker goes in the doctrine file** — a visible open question in a shipped doctrine file invites readers to resolve it themselves. `ContJobsCron.JOB_NAMES` is exposed as a class-level tuple behind a classmethod, which every outcome needs, so no outcome is prejudiced. | Mod 117 | **Operator — with the radio** |
 | **`docex build` is broken by its own dev container.** `orchestrate/build.py:131` clears `dist/` host-side with `shutil.rmtree`; the dev container runs as **root** and writes `dist/__pycache__/*.pyc` owned by root on import, which the host uid cannot unlink → `PermissionError`. **Self-regenerating within a single run** — `run_up` creates the residue its own `run_build` then cannot delete, which is why clearing it by hand buys exactly one green run. Affects every doctrine project, not just the smoke seeds; `PRE_CUT_CHECKLIST.md` D.6 already documents a `sudo rm -rf` workaround, which is the tell that this has been a product bug hiding as an environment quirk. Currently the **only** integration failure (17/18). | Mod 114 | **Mod 119** — see below |
 
 ### 2b. Mod 119 — `docex build` bytecode residue (unplanned, required)
