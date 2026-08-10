@@ -347,10 +347,12 @@ roles:
           network_mode: awsvpc
           #
           # The same probe, in the task definition's container health check. The
-          # doctrine emits it on both foundations, so it appears in both blocks;
-          # `startPeriod` is elastic-only because ECS *kills* a task that fails
-          # its check while docker only reports, so the start grace guards a real
-          # consequence here and a cosmetic one there.
+          # doctrine emits it on both foundations, so it appears in both blocks.
+          # `startPeriod` is elastic-only because ECS *kills* a task whose check
+          # fails, so a slow boot without the grace period is a crash loop. On
+          # fixed nothing acts destructively during boot, and the one thing that
+          # reads container health there — `docex stagetest` — runs long after
+          # any start period would have expired.
           healthCheck:
             command: ["CMD", "./health.sh", "${service}"]
             interval: 30
@@ -359,10 +361,12 @@ roles:
             startPeriod: 10
       fields:
         health_check_path:
-          # No fixed translation. On fixed, traefik takes target health from
-          # the container healthcheck in `defaults` above, so the path has no
-          # consumer; it is still declared in infra.yml on both foundations so
-          # a project stays portable. See cicl.md rule 33.
+          # No fixed translation, and on fixed the field has no consumer at
+          # all — the compiler emits no health-aware traefik labels, so
+          # nothing probes this path there. It is still declared in infra.yml
+          # on both foundations so a project stays portable. See cicl.md
+          # rule 33, which also records what does and does not read the
+          # container probe on fixed.
           elastic:
             target: target_group
             health_check:
