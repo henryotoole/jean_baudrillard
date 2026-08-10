@@ -69,6 +69,8 @@ Note the path is absolute here (`/service/migrate.sh`) while `dev`/`test` use th
 
 If any migration fails, the playbook aborts before `docker compose up -d` runs the new stack. Old containers continue serving, the release fails loudly with a clear error, and the operator can fix and re-run.
 
+> **⚠ Known divergence — the emitted playbook does not currently do this.** The task that pulls images uses a compose module argument that also *starts* the stack, so the real fixed ordering is **up → migrate**, and the abort guarantee above does not hold: a failed migration leaves the new code up against an unmigrated schema. Found by advance 006's fixed smoke walk; longstanding rather than new. This paragraph states the **intended** contract and is left standing as the target, because the fix belongs with a walk that can verify it — see [`fixed_release_migrates_after_up.md`](../../../docex/plans/advances/007_small_edges/fixed_release_migrates_after_up.md). Until then, treat a fixed `stage`/`prod` release as **not** protected against a failing migration.
+
 ## Stage and Prod on Elastic Foundation
 
 For `stage`/`prod` on elastic projects, the compiler emits one "migration" ECS task definition per schema-owning **codebase** — family `${project}-${env}-${codebase}-migrate`, not one per core service, since `migrate.sh` runs once per codebase. Its sizing is the per-dimension **maximum** across the codebase's core services, which is order-independent (so the migration cannot be resized by renaming or adding an unrelated core service) and never under-provisions. Its environment is the codebase-scoped surface only, matching the fixed path. The migration and the application task definitions reference the same image — the difference is the command:
