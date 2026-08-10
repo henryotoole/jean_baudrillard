@@ -848,6 +848,73 @@ manifest-delete probe (mod 133).
   `uses` is a relation whose two predecessors never had entries, and `clock` is
   a role already served correctly by the generated `docex role` surface.
 
+- **The trigger eval was measuring the harness, not the descriptions** (mod 135).
+  `run_suite.py::detect_triggered_skill` called `subprocess.Popen` with no
+  `cwd=`, so the child `claude -p` inherited the runner's cwd — this repo, where
+  `doctrine/` sits in the working directory. The model under test could
+  `grep doctrine/` instead of loading a skill; observed as a first tool call.
+  No downstream operator has that shortcut, and a trigger eval is only valid
+  when loading the skill is the **only** route to the doctrine. Each query now
+  runs in its own `tempfile.mkdtemp()` sandbox. The confound did not add noise:
+  it **systematically converted precision failures into recall failures**, since
+  a query that would have been mis-routed was instead answered from the
+  filesystem and scored ∅, which reads as under-triggering. That is the one
+  direction that makes a trigger surface look healthier than it is, and it
+  invalidated this advance's skills gate in both directions at once — the gate's
+  *"precision 1.00 for every skill, no poaching"* is withdrawn, because on the
+  corrected harness `contracts` poaches `infra-compile`'s surfaces-authoring
+  query 5/5. Two descriptions had already been edited off the bad numbers; one
+  survived re-measurement and one was reverted. `run_eval.py` carries the same
+  confound but its `cwd` is load-bearing (it installs the skill under test into
+  `<project_root>/.claude/commands`), so that fix is a restructure and is booked
+  rather than absorbed. `RELEASING.md`'s skills gate now names which of the two
+  runners is trustworthy.
+
+- **A timed-out trigger run scored as "no skill fired"** (mod 135).
+  `detect_triggered_skill` fell through to `return None` when its deadline
+  expired, and `None` is also how it reports that the model acted and reached for
+  no skill — so saturation was recorded as a **recall failure**. Found by
+  disbelieving a number: the first full-suite run returned 17% accuracy with
+  near-universal ∅, including two queries measured at 5/5 twenty minutes earlier,
+  at load average 31 with `--num-workers 8`. The same queries at 2 workers passed
+  3/3. This is the cwd confound's twin and worse for being **load-dependent** —
+  the same command on the same tree yields different "findings" depending on what
+  else the box is doing — and it fails in the same flattering direction, inventing
+  holes rather than revealing them. There is now a `TIMEOUT` sentinel distinct
+  from `None`, timed-out runs are excluded from the modal vote, a query whose
+  every run timed out is reported `unscored` rather than wrong, accuracy reads
+  `n/a` instead of a fabricated figure when nothing scored, and a loud warning
+  names the remedy. All three of this mod's instrument defects share one shape:
+  each reported a condition unrelated to the measurement *as* the measurement,
+  and each did so in the direction that looks like an actionable finding rather
+  than a broken tool.
+
+- **`infra-compile` was unreachable for the concept advance 006 gave it** (mod 135).
+  The advance handed it the surfaces-**authoring** role in its body and never
+  touched its `description`, which is the entire trigger interface. Asking where
+  the `surfaces:` block goes in `infra.yml` routed to `contracts` every time —
+  a sibling that owns contract *contents*, not CICL authoring. The description
+  now names the `surfaces:` / `uses:` blocks alongside `secrets:` / `config:`,
+  anchored to authoring a block in `infra.yml` so it does not reach back into
+  `contracts`' territory. Measured 5/5 to `infra-compile` after, on the
+  corrected harness. `contracts`' description is deliberately **unchanged**: its
+  reported hole did not reproduce once the confound was removed.
+
+- **Two outcome-eval cases graded a correct answer wrong** (mod 135).
+  The same defect class as the `depends_on` case above, and it cost this advance
+  twice more. `outcome/contracts/evals.json` drove its delta off the
+  `/health/worker` downstream fan-out and a three-segment contract path — both
+  doctrine this advance **deleted** — so a correct answer failed both drivers and
+  the gate could report only a false negative. `outcome/testing/evals.json`
+  asserted as confirmatory that staging tests include liveness probes, which this
+  advance reversed. Both are current, and drivers were re-chosen by grepping each
+  candidate against the 13 `stratum: resident` files: surfaces, the five-segment
+  path, the style→format mapping, `health.sh`'s existence **and** the
+  loop-liveness tick are all Resident-supplied and therefore measure leakage
+  rather than value — they are demoted to confirmatory, leaving the 10s/30s
+  thresholds, `web`-only HTTP health, the `{version}` body shape, the no-fan-out
+  rule and staging's liveness exclusion as the real drivers.
+
 ### Added
 
 - **`docex preinfra development` probes the container registry's manifest-delete

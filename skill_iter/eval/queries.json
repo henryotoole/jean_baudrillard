@@ -1,20 +1,5 @@
 {
   "purpose": "Suite-level trigger eval seed. Each query is labeled with the skill that SHOULD win (expect), or null when no doctrine skill should fire (Resident-stratum-covered, general knowledge, or out of scope). Derive a per-skill run_loop set for skill X as should_trigger = (expect == X); every other query is a should-not-trigger near-miss for X. This is a seed set (~2-3 should-trigger per skill plus boundary near-misses); expand to 8-10 should-trigger per skill before optimizing descriptions.",
-  "competing_skills": [
-    "cicd-pipeline",
-    "contracts",
-    "inception",
-    "infra-compile",
-    "network-design",
-    "preinfra-setup",
-    "projinfra-setup",
-    "telemetry-design",
-    "testing",
-    "docex-edit",
-    "doctrine-update",
-    "project-upgrade",
-    "configurable-vars"
-  ],
   "queries": [
     {
       "query": "ok i think my feature branch is finally ready — what's the actual process to get it merged to main and out to staging?",
@@ -295,6 +280,91 @@
       "query": "how do i declare which secrets my web service requires in infra.yml?",
       "expect": "infra-compile",
       "note": "near-miss for configurable-vars: declaring the schema (secrets: block) not filling the values"
+    },
+    {
+      "query": "where in infra.yml does the surfaces block go for a core service, and what actually changes in the compiled output once i declare one?",
+      "expect": "infra-compile",
+      "note": "The surfaces-AUTHORING half: block placement + compile effect. Boundary with contracts, which owns format choice, splitting, and contract contents. Added mod 135: advance 006 gave infra-compile this role in its body and never touched its description, and this query fired NO skill at all (0/5) before that description was fixed."
+    },
+    {
+      "query": "i'm adding a uses edge from my frontend core service to the api in infra.yml — what's the syntax, and what does the api side have to declare for the compile to accept it?",
+      "expect": "infra-compile",
+      "note": "Authoring the `uses:` block. Boundary with contracts, whose description claims 'adding a provider/consumer relationship' — the tell here is infra.yml syntax and compile acceptance, not the contract between them. Added mod 135 as the condition on naming `uses:` in infra-compile's description: unmeasured vocabulary in a durable artifact is a guess."
+    },
+    {
+      "query": "i'm adding health_check_path to a core service in infra.yml — where in the service block does it belong, and is it validated against anything else i declare there?",
+      "expect": "infra-compile",
+      "note": "Deliberate pair with the contracts-side health_check_path query below: field PLACEMENT and validation (cicl.md rule 33) is infra-compile; whether a service NEEDS the field and what consumes it is contracts. Splitting the seam this way is what let both label cleanly."
+    },
+    {
+      "query": "my queue consumer doesn't listen on any port and someone told me every service has to expose a /health route — is that actually true, and if it isn't, how does anything find out the consumer has stopped working?",
+      "expect": "contracts",
+      "note": "THE DIAGNOSTIC YES/NO FORM. Added mod 135: authoring-shaped health queries fired 5/5 and 3/3 while this form fired 0/5, and the unloaded answer ('yes, expose /health') is doctrine-wrong and confidently delivered. Deliberately carries no 'web-network' tell — the canonical set's other health query passes only because it has one, which masked this hole."
+    },
+    {
+      "query": "my background worker has no port and nothing routes to it — do i still have to give it a health_check_path, and what actually reads that field?",
+      "expect": "contracts",
+      "note": "The field-shaped twin of the query above, and the contracts half of the health_check_path seam. Answered by healthchecks.md: a non-routed core service declares none, and the field has exactly one consumer (elastic with reverse_proxy: alb). Deliberate near-duplicate of the previous query on subject but not on vocabulary — phrasing robustness on this exact boundary is the defect class mod 135 exists to fix, so the pair is the measurement, not redundancy."
+    },
+    {
+      "query": "my api service serves a rest api and also fires webhook callbacks at customers — is that one surface or two, and how many contract files do i end up with?",
+      "expect": "contracts",
+      "note": "api_styles combining into one surface: styles sharing a format share a surface. Advance 006 vocabulary, previously unrepresented."
+    },
+    {
+      "query": "i want a public api and an internal admin api out of the same codebase — should that be one surface with two styles, two surfaces on one core service, or two core services?",
+      "expect": "contracts",
+      "note": "The split-decision table (cicl.md § Surfaces, reached via contracts' Specific Information). Boundary with infra-compile, which authors core services — the tell is that the question is which shape is correct, not where to type it."
+    },
+    {
+      "query": "writing health.sh for a stream processor — the process stays up even when its loop wedges, so what should the probe actually look at, and how stale is too stale?",
+      "expect": "contracts",
+      "note": "health.sh authoring for a loop-owning service: the tick mechanism and the doctrine-fixed 10s/30s thresholds. `health.sh` appeared in no query before mod 135."
+    },
+    {
+      "query": "i'm adding an MCP endpoint to the api codebase — what contract file does that need, and which format is it written in?",
+      "expect": "contracts",
+      "note": "rpc → asyncapi, the non-obvious row of the api_styles table (MCP reads as HTTP-ish but resolves to asyncapi). Mirrors cicl.md's worked api.mcp example."
+    },
+    {
+      "query": "i'm writing our staging suite — should it hit each service's health endpoint to confirm everything is up, or is that checked somewhere else?",
+      "expect": "testing",
+      "note": "Diagnostic yes/no form applied to the staging tier. Advance 006 reversed this: staging tests do NOT assert liveness; docex reads health from the orchestrator before the tester is built. The same reversal made outcome/testing/evals.json stale, so it is now measured from both the trigger and outcome ends."
+    },
+    {
+      "query": "where do contract tests actually run — inside the service's own test container in the test env, or against the deployed stage environment?",
+      "expect": "testing",
+      "note": "Tier placement: contract tests are a codebase-level concern run in the test env via the codebase's own test.sh, not part of staging. testing had only 2 queries before mod 135."
+    },
+    {
+      "query": "i want to write a new skill for our deploy runbook and then actually measure whether its description fires on the right prompts and not on its neighbours' — how do i do both?",
+      "expect": "skill-iteration",
+      "note": "Authoring + trigger measurement, the two ends of one activity. First query for this skill: it was omitted from the pinned competing_skills list, so the suite could not score it at all before mod 135."
+    },
+    {
+      "query": "go over the doctrine corpus and find the internal contradictions, the broken links, and the sections that disagree with each other",
+      "expect": "cohere",
+      "note": "Static soundness of the DOCTRINE corpus. Boundary with project-cohere (a project's docs vs its code) and skill-iteration (behavioral measurement). Newly scoreable in mod 135."
+    },
+    {
+      "query": "this project's core planning docs have drifted from what the code actually does — go through them and reconcile the two",
+      "expect": "project-cohere",
+      "note": "A PROJECT's docs against its code, in place. Boundary with cohere, which does the doctrine corpus. Newly scoreable in mod 135."
+    },
+    {
+      "query": "the dev environment is up — open the app in a real browser, click through the signup flow and screenshot what the dashboard looks like afterwards",
+      "expect": "browser-investigate",
+      "note": "Manual browser exercise of a running dev stack. Boundary with testing, which owns automated suites — the tell is looking at it by hand. Newly scoreable in mod 135."
+    },
+    {
+      "query": "i'm about to fan this work out across several subagents — how do i decide which rank owns which piece, and what should an agent do when it hits a decision above its authority?",
+      "expect": "chain-of-command",
+      "note": "Rank placement + decision-ripple escalation. Newly scoreable in mod 135."
+    },
+    {
+      "query": "summarize what happened across this agent session including every subagent run, and tell me what the whole thing cost in tokens",
+      "expect": "transcript-summary",
+      "note": "Session/subagent transcript accounting. Newly scoreable in mod 135."
     }
   ]
 }

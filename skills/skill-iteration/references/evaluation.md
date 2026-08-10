@@ -61,11 +61,40 @@ A good case targets doctrine that **diverges from a capable model's priors** —
 
 ### The run pattern
 
-Triggering is already proven by the trigger eval, so an outcome run *ensures* the skill is used and compares results (spawned from a context restarted with the on-disk strata active, per Isolation):
+Triggering is already proven by the trigger eval, so an outcome run *ensures* the skill is used and compares results (spawned from a context restarted with the on-disk strata active, per [Isolation](#isolation)):
 
 1. **with-skill:** a subagent given the prompt plus "read `./skills/<skill>/SKILL.md` and the doctrine it points to".
 2. **baseline:** a subagent given the same prompt plus "work only from general knowledge, do not read doctrine files".
 3. **Grade** the outputs (below). The **delta on delta-driver expectations is the skill's measured value.**
+
+### Isolation
+
+The parenthetical above names a real constraint, and it is a bounded one. State the bound
+rather than assume it away.
+
+**What cannot be isolated.** A subagent's system prompt loads the Resident stratum. The
+baseline arm cannot un-read it — "work only from general knowledge, do not read doctrine files"
+withholds only what is on disk waiting to be opened. There is no arm with zero doctrine, and
+none can be constructed without running the eval outside this harness entirely.
+
+**What the delta therefore measures.** *Navigation into the conditional stratum* — did the
+thread route to the right files — and nothing beyond that. [The System](#the-system) makes this
+point about router+thread skills generally; here it becomes an operational ceiling on what a
+case may claim.
+
+**The consequence for authoring cases.** Before promoting an expectation to a **delta driver**,
+grep it against the files carrying `stratum: resident`. A driver the Resident stratum already
+supplies measures leakage rather than value: both arms pass it, the delta reads ≈0, and the
+skill looks worthless at precisely the expectation that was mislabeled. Demote such entries to
+confirmatory. Worked example, from the `contracts` cases: the Resident stratum supplies surfaces
+themselves, the five-segment contract path, the style→format mapping, `health.sh`'s existence,
+*and* the loop-liveness tick — while the doctrine-fixed 10s/30s thresholds, `web`-network-only
+HTTP health, the `{version}` body shape, and the no-fan-out rule appear nowhere in it. Only the
+second group can drive a delta.
+
+**Both arms read the working tree.** Restart the context after any doctrine edit before running
+them. The Resident stratum is loaded at session start, so an arm spawned from a stale session
+measures the previous revision of the very file under test.
 
 Case files live at `outcome/<skill>/evals.json` — add one per skill you evaluate; see `schemas.md` for the shape.
 

@@ -19,17 +19,35 @@ The competing set comes from `competing_skills` in the queries file when present
 it is auto-discovered from `<plugin_dir>/skills/*/SKILL.md`, so a subset/focused query file
 need not restate the list.
 
-Confound to keep in mind: personal skills under ~/.claude/skills are visible to `claude -p`
-regardless of cwd and can shadow a plugin skill that shares its bare name. Keep that
-directory clear of doctrine-skill copies before a run.
+Confounds to keep in mind:
+
+1. Personal skills under ~/.claude/skills are visible to `claude -p` regardless of cwd and can
+   shadow a plugin skill that shares its bare name. Keep that directory clear of doctrine-skill
+   copies before a run.
+2. The child's cwd decides whether the doctrine is *greppable*. Run from this repo and the model
+   can `grep doctrine/` or open `cicl.md` directly — a filesystem shortcut no downstream
+   operator has, which makes a skill look unnecessary and scores as ∅. Each query therefore runs
+   in its own empty temp dir (`cwd=` below), so the only route to the conditional stratum is a
+   skill. Never drop that argument: without it the child inherits the runner's cwd, and a
+   doctrine-file-shaped query measures the harness rather than the description.
+3. A timed-out run is NOT a no-fire, and conflating the two makes saturation look like a
+   trigger defect. Each `claude -p` is a whole CLI plus model round-trips, so a high
+   `--num-workers` on one box drives load average past the point where queries exceed
+   `--timeout` wholesale; every one of them would otherwise score ∅, i.e. as a recall failure.
+   Timeouts are therefore tracked separately, excluded from the modal vote, and reported loudly.
+   **If the report shows any timeouts, lower `--num-workers` and re-run before believing a
+   single number in it.** Measured: 8 workers on a 73-query set produced 17% accuracy, while the
+   same queries at 2-3 workers passed 3/3.
 """
 
 import argparse
 import json
 import os
 import select
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -39,6 +57,10 @@ from utils import parse_skill_md
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # …/jean_baudrillard
 QUERIES = Path(__file__).resolve().parent / "queries.json"
+
+# WHY: distinct from None so a run killed by the deadline is never scored as "no skill fired" —
+# see confound 3 in the module docstring. None means "the model acted and reached for no skill".
+TIMEOUT = "__TIMEOUT__"
 
 
 def discover_competing_skills(plugin_dir: str) -> list[str]:
@@ -81,8 +103,10 @@ def detect_triggered_skill(
     # The CLAUDECODE guard blocks nesting claude -p inside a session; safe to drop here.
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
+    # WHY: an empty cwd is part of the measurement — see confound 2 in the module docstring.
+    sandbox = tempfile.mkdtemp(prefix="trigger_eval_")
     process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=sandbox
     )
     start = time.time()
     buffer = ""
@@ -156,11 +180,15 @@ def detect_triggered_skill(
 
             if process.poll() is not None and "\n" not in buffer:
                 break
+        else:
+            # while-loop fell through on its condition → the deadline expired, not a decision.
+            return TIMEOUT
         return None
     finally:
         if process.poll() is None:
             process.kill()
             process.wait()
+        shutil.rmtree(sandbox, ignore_errors=True)
 
 
 def main():
@@ -222,22 +250,33 @@ def main():
     # Aggregate each query to its modal detected skill.
     by_query = {q["query"]: q for q in queries}
     results = []
+    unscored = []
     for query, gots in runs.items():
-        norm = [g if g is not None else "∅" for g in gots]
-        modal = Counter(norm).most_common(1)[0][0]
-        got = None if modal == "∅" else modal
+        # Timeouts are not evidence about the description; drop them before the vote.
+        scored = [g for g in gots if g != TIMEOUT]
+        n_timeout = len(gots) - len(scored)
         expect = by_query[query]["expect"]
-        results.append({
+        row = {
             "query": query,
             "expect": expect,
-            "got": got,
             "runs": gots,
-            "correct": got == expect,
+            "timeouts": n_timeout,
             "note": by_query[query].get("note", ""),
-        })
+        }
+        if not scored:
+            # Every run died on the deadline — this query produced no measurement at all.
+            row.update({"got": None, "correct": None, "unscored": True})
+            unscored.append(row)
+            continue
+        norm = [g if g is not None else "∅" for g in scored]
+        modal = Counter(norm).most_common(1)[0][0]
+        got = None if modal == "∅" else modal
+        row.update({"got": got, "correct": got == expect})
+        results.append(row)
 
     total = len(results)
     correct = sum(1 for r in results if r["correct"])
+    total_timeouts = sum(r["timeouts"] for r in results) + sum(r["timeouts"] for r in unscored)
 
     labels = skills + [None]
     recall, precision = {}, {}
@@ -252,7 +291,14 @@ def main():
         confusion[r["expect"] if r["expect"] else "∅"][r["got"] if r["got"] else "∅"] += 1
 
     report = {
-        "summary": {"total": total, "correct": correct, "accuracy": round(correct / total, 3)},
+        "summary": {
+            "total": total,
+            "correct": correct,
+            "accuracy": round(correct / total, 3) if total else None,
+            "timed_out_runs": total_timeouts,
+            "unscored_queries": len(unscored),
+        },
+        "unscored": unscored,
         "recall": {("none" if k is None else k): v for k, v in recall.items()},
         "precision": {("none" if k is None else k): v for k, v in precision.items()},
         "confusion": {k: dict(v) for k, v in confusion.items()},
@@ -260,7 +306,18 @@ def main():
     }
 
     # Human-readable summary to stderr.
-    print(f"\nRouting accuracy: {correct}/{total} ({report['summary']['accuracy']:.0%})", file=sys.stderr)
+    acc = report["summary"]["accuracy"]
+    print(f"\nRouting accuracy: {correct}/{total} ({acc:.0%})" if acc is not None
+          else "\nRouting accuracy: n/a — nothing was scored", file=sys.stderr)
+    if total_timeouts:
+        # Loud on purpose: saturation is the one failure that mimics a trigger defect.
+        print(
+            f"\n*** WARNING: {total_timeouts} run(s) hit the {args.timeout}s deadline"
+            f"{f', and {len(unscored)} quer(y/ies) produced NO measurement at all' if unscored else ''}."
+            f"\n*** A timeout is not a no-fire. Lower --num-workers (currently {args.num_workers})"
+            f" or raise --timeout and re-run;\n*** do not trust the numbers above until this reads 0.",
+            file=sys.stderr,
+        )
     print("\nMisroutes:", file=sys.stderr)
     any_miss = False
     for r in results:

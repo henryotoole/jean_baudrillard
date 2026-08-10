@@ -17,6 +17,13 @@ Every claim below was reproduced by a suite-level trigger eval run as this advan
 skill in both runs**. The four changed doctrine-facing skills each scored full recall. The
 surface is healthy; what follows are holes, not regressions.
 
+> **AMENDED MID-CYCLE — read [The instrument was broken](#the-instrument-was-broken) before the
+> scopes below.** The gate numbers in the paragraph above were measured with a confounded
+> harness, and one of them is false. `precision 1.00 for every skill` does not hold: on a
+> corrected harness `contracts` poaches `infra-compile` **5/5**. The scopes below are preserved
+> as designed and approved; where the corrected measurement overruled them, the amendment says
+> so and the amendment governs.
+
 ## Scope 1 — Two trigger descriptions
 
 ### 1a. `infra-compile` — the word "surface" never appears
@@ -256,13 +263,119 @@ than an aspiration. Content:
    the working tree, so run them from a context restarted after any doctrine edit, or the arms
    measure the previous revision.
 
+## The instrument was broken
+
+Found while verifying scope 1 and it changed the mod. Recorded at length because the lesson
+outlives every description edit here.
+
+### The confound
+
+`run_suite.py::detect_triggered_skill` called `subprocess.Popen(cmd, ...)` with **no `cwd=`**, so
+the child `claude -p` inherited the runner's cwd — this repo, where `doctrine/` sits in the
+working directory. Observed directly: for the `surfaces` query the model's **first tool call** was
+
+```
+Bash  grep -rn "surfaces" doctrine/ --include=*.md | head -50
+```
+
+No downstream operator has that shortcut. A trigger eval claims to measure whether a description
+routes a query to a skill; that claim is only valid when loading the skill is the **only** route
+to the doctrine. Cwd is a route.
+
+### It corrupted the measurement in one specific, flattering direction
+
+| Query | repo cwd (gate run) | empty cwd (corrected) |
+| ----- | ------------------- | --------------------- |
+| `infra-compile` surfaces-authoring, **old** description | 0/5 → ∅ | **5/5 → `contracts`** |
+| `infra-compile` surfaces-authoring, **new** description | — | **5/5 → `infra-compile`** |
+| `contracts` health diagnostic, **old** description | 0/5 → ∅ | **4/5 → `contracts`** (passes) |
+| `contracts` health diagnostic, **new** description | — | 5/5 |
+
+The confound did not add noise. It **systematically converted precision failures into recall
+failures**: with a grep available, a query that would have been *mis-routed* was instead answered
+from the filesystem and recorded as ∅, which reads as *under*-triggering. That is the one
+direction that makes a trigger surface look **healthier** than it is — a hole is a gap, while
+poaching is an active defect in a neighbouring description.
+
+So the gate's reassuring headline — *"precision 1.00 for every skill in both runs — no poaching,
+no mis-triggering introduced"* — was itself the artifact. It is withdrawn.
+
+### Two corrections to the mod's own premises
+
+1. **`infra-compile`'s hole was real, but this mod's diagnosis of it was wrong.** "The description
+   never says surface" stands. "The query fires no skill at all" was the instrument: it fires
+   `contracts`, every time. Being poached by a sibling and falling to ∅ are different defects
+   with different fixes.
+2. **The `contracts` description edit is reverted.** Its hole was mostly artifact — the old
+   wording already passes 4/5 — and the corrected instrument shows `contracts` is the *aggressor*
+   in this pair. Widening it further would have worsened the real defect while appearing to fix a
+   phantom. `infra-compile`'s edit stands, measured 5/5.
+
+This is the failure `skill-iteration` exists to prevent, committed by the gate that exists to
+prevent it: a durable trigger surface edited on the strength of an unvalidated measurement. Twice.
+One edit survives because it was re-measured; the other does not.
+
+### A third defect, found by disbelieving a number
+
+The first full-suite run on the corrected harness returned **accuracy 0.178**, with near-universal
+∅ — including the two queries measured at **5/5** twenty minutes earlier. That is not a trigger
+result. Load average was **31** with `--num-workers 8`, and each `claude -p` is an entire CLI plus
+model round-trips.
+
+The defect: `detect_triggered_skill` fell through to `return None` when its deadline expired, and
+`None` is also how it reports "the model acted and reached for no skill." **A timed-out run was
+therefore scored as a recall failure.** Re-running two of the ∅ queries at `--num-workers 2` with
+a 240s timeout: both **3/3**.
+
+This is the cwd confound's twin — infrastructure masquerading as a finding — and it is arguably
+worse, because it is *load-dependent*, so the same command on the same tree yields different
+"findings" depending on what else the box is doing. It also fails in the flattering-looking
+direction again: it manufactures recall failures, which read as holes to be fixed.
+
+Fixed here: a `TIMEOUT` sentinel distinct from `None`; timed-out runs excluded from the modal
+vote; a query whose every run timed out is recorded as `unscored` rather than incorrect; the
+report carries `timed_out_runs` and `unscored_queries`; accuracy is reported as `n/a` rather than
+fabricated when nothing was scored; and a loud stderr warning names the fix (lower
+`--num-workers`) and says not to trust the numbers until it reads zero. Confound 3 in the
+docstring. Both branches were verified by forcing a 5s timeout.
+
+**The lesson these three defects share** is not about cwd, or deadlines, or descriptions. Each one
+took a condition that had nothing to do with the thing being measured and reported it *as* the
+measurement — and all three did so in the direction that looks like an actionable finding rather
+than like a broken tool. An instrument that cannot say "I failed to measure" will say something
+else instead, and that something else gets acted on.
+
+### What was fixed, and what was deliberately not
+
+**Fixed here** — `run_suite.py` runs each query in its own `tempfile.mkdtemp()` sandbox
+(`cwd=sandbox`, removed in the `finally`), and the module docstring's "Confound to keep in mind"
+note became a numbered list carrying this as confound 2 with an instruction never to drop the
+argument. `RELEASING.md`'s Skills gate row now directs the gate at `run_suite.py` and names
+`run_eval.py`'s outstanding confound, so the next operator learns which instrument is trustworthy
+*and* which is not.
+
+**Booked, not absorbed** — `run_eval.py:89` passes `cwd=project_root` **deliberately**: unlike
+`run_suite.py` it installs the skill under test by writing `<project_root>/.claude/commands`
+(line 53) and needs the cwd to find it. Sandboxing it means switching to `--plugin-dir` or
+scaffolding the sandbox — a restructure, and restructuring a second harness inside a mod whose
+subject is the first is how a scope stops holding. Filed at
+`docex/plans/advances/007_small_edges/trigger_eval_cwd_confound_run_eval.md`.
+
+**Stated, not coded** — the outcome-eval path has the same exposure but enforces isolation by
+*instruction* rather than cwd. The honest statement of that ceiling is the fix, and it is what
+scope 4's new `### Isolation` section says.
+
 ## Out of scope — booked, not fixed
 
-`project-upgrade`'s recall regressed **1.00 → 0.50**, reproduced at 1/5 and 0/5. Its
-description was untouched by this advance and both misses land in ∅ rather than being poached,
-so it is model/CLI drift since the last recorded run (2026-07-11), not ours. Both failures
-name an *old pin* without an action verb the description carries. Booked to
-`docex/plans/advances/007_small_edges/`.
+`project-upgrade`'s recall was reported as regressing **1.00 → 0.50**, reproduced at 1/5 and 0/5.
+Its description was untouched by this advance, so it is not ours. Booked to
+`docex/plans/advances/007_small_edges/project_upgrade_recall_regression.md`.
+
+**But that number is suspect for the reason above, and the brief says so as its first line.** Both
+misses land in ∅ — the exact bucket the cwd confound manufactures. It may not be a regression at
+all; it may be the same artifact running the other way. Anyone editing that description off the
+0.50 would repeat this mod's mistake with a different skill. The brief's first instruction is
+therefore *re-measure on the corrected harness, then decide whether there is anything to fix.*
 
 ## Verification
 
