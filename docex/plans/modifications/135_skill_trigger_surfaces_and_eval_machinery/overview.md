@@ -398,6 +398,28 @@ reports nothing.
 The trigger eval is the load-bearing verifier, and it is run by the mod owner rather than the
 implementor — interpreting a precision trade is a design call, not an execution step.
 
+### The integration suite was deliberately NOT run — it was never this mod's gate
+
+Recorded for the same reason as the trigger figure below: outstanding-and-documented is fine,
+quietly skipped is not.
+
+`RELEASING.md` requires `pytest` plus `-m integration` as the gate for **`docex` behavior
+(code/tables)**. This mod touched `skills/`, `skill_iter/`, `RELEASING.md`, `CHANGELOG.md`, and its
+own mod folder — **nothing under `docex/src` or `docex/tables`**. So the integration suite is not
+this mod's gate. Its result could only have been "unchanged", and the unit suite at **1199 passed,
+21 deselected** already establishes that nothing leaked out of this mod's territory.
+
+It was started, then killed at ~60% because it is docker-heavy and **smoke walk C was executing
+against live infrastructure at the time**. Walk C's health-check assertions are timing-sensitive, so
+a loaded daemon risks a **false FAIL on a real walk** — burning provisioned infrastructure to learn
+something untrue. That is defect 3's lesson applied to a different instrument: a measurement taken
+under starvation is not a measurement, and here the starved instrument would have been the *more*
+important one.
+
+Last measured integration figure on this tree: **21 passed** at `e026f34`. No `docex/src` change has
+landed since — mods 134b and 135 were doc/skill/eval work. A current number should be taken on an
+idle machine after the walks, alongside the trigger suite below.
+
 ### The full-suite trigger figure was deliberately NOT taken — it is outstanding
 
 Stated plainly because a measurement documented as unrun is fine and one quietly skipped is
