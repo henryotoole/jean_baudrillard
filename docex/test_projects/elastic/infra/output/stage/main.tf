@@ -432,7 +432,7 @@ resource "aws_ecs_task_definition" "api-clock" {
         }]
       essential = true
       healthCheck = {
-        command = ["CMD-SHELL", "curl -f http://localhost:8082/health || exit 1"]
+        command = ["CMD", "./health.sh", "clock"]
         interval = 30
         retries = 3
         startPeriod = 10
@@ -448,11 +448,6 @@ resource "aws_ecs_task_definition" "api-clock" {
         }
       }
       name = "api-clock"
-      portMappings = [{
-          containerPort = 8082
-          name = "api-clock"
-          protocol = "tcp"
-        }]
       secrets = [{
           name = "DATABASE_PASSWORD"
           valueFrom = "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter/docex_smoke_elastic/stage/POSTGRES_PASSWORD"
@@ -505,14 +500,6 @@ resource "aws_ecs_service" "api-clock" {
   service_connect_configuration {
     enabled   = true
     namespace = aws_service_discovery_private_dns_namespace.env.arn
-    service {
-      port_name      = "api-clock"
-      discovery_name = "docex-smoke-elastic-stage-api-clock"
-      client_alias {
-        port     = 8082
-        dns_name = "docex-smoke-elastic-stage-api-clock"
-      }
-    }
   }
   tags = { managed_by = "doctrine", infra_tier = "environment", shape_name = "core_service", descriptor = "ecs-svc", project = "docex_smoke_elastic", env = "stage", codebase = "api", role = "clock", service = "clock", Name = "docex_smoke_elastic_stage_api_clock" }
 }
@@ -591,6 +578,13 @@ resource "aws_ecs_task_definition" "api-web" {
           value = "8081"
         }]
       essential = true
+      healthCheck = {
+        command = ["CMD", "./health.sh", "web"]
+        interval = 30
+        retries = 3
+        startPeriod = 10
+        timeout = 5
+      }
       image = "${data.terraform_remote_state.project.outputs.ecr_repository_api_url}:0.0.23"
       logConfiguration = {
         logDriver = "awslogs"
@@ -760,7 +754,7 @@ resource "aws_ecs_task_definition" "api-worker" {
         }]
       essential = true
       healthCheck = {
-        command = ["CMD-SHELL", "curl -f http://localhost:8081/health || exit 1"]
+        command = ["CMD", "./health.sh", "worker"]
         interval = 30
         retries = 3
         startPeriod = 10

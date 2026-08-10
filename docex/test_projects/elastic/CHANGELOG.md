@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Health left HTTP. Every core service now supplies a **container probe**,
+`./health.sh <service>`, and the orchestrator is the only thing that reads it.
+On this foundation that has teeth: ECS **kills and replaces** a task whose
+essential container fails its probe, which is why the role tables also emit
+`startPeriod: 10` — elastic-only, and there to give a loop time to complete its
+first iteration before an absent tick file can kill the task.
+
+### Changed
+
+- **The container probe is `./health.sh <service>` on both foundations.** It is
+  emitted by the role transfer tables as a `defaults` entry rather than derived
+  from any authored field, so a core service gets a probe by being a core
+  service. `interval: 30s`, `timeout: 5s`, `retries: 3`, `startPeriod: 10`.
+- **`api-web`'s task definition gains a container `healthCheck` it never had.**
+  Before this change the `web` role routed `health_check_path` to the ALB target
+  group *only*, so the task definition carried no `healthCheck` at all and a
+  wedged web process was visible only to the load balancer. It is now visible to
+  ECS as well.
+- **`api.worker` and `api.clock` liveness is a tick file, not an HTTP route.**
+  The loop touches `/tmp/<service>.tick` at the end of each successful
+  iteration and `./health.sh` stats it from a separate process, failing when the
+  file is absent or more than 30 s old. An absent file fails deliberately: a loop
+  that never completed an iteration was never alive. The 30 s threshold lives in
+  `health.sh` and the ≤10 s tick cadence in the entrypoints, and the two only
+  mean anything as a pair — 30 is three times 10, so a healthy loop misses two
+  consecutive ticks before it is called stale.
+- **`api.web`'s two backing probes moved to `/diagnostics/*`.**
+  `GET /health/probe` → `GET /diagnostics/probe` and `GET /health/events` →
+  `GET /diagnostics/events`. They probe *backing* services — the nginx sidecar
+  and the EFS-backed ClickHouse task — and remain the project's only exercise of
+  Service Connect resolution and security-group reachability to them. Under
+  `/health/*` a reader would reasonably conclude the deleted fan-out survived
+  under a narrower name.
+- **Contract filenames gained a surface segment.** The path is now
+  `<codebase>.<service>.<surface>.<format>.<ext>`, so `api.web.openapi.yml` →
+  `api.web.rest.openapi.yml` and `api.worker.asyncapi.yml` →
+  `api.worker.events.asyncapi.yml`. The format follows from the surface's
+  `api_styles`, never from the core service's `role`.
+- **Contract spec floors raised** to OpenAPI 3.2 and AsyncAPI 3.0.
+- **`api.clock` dropped its `port`, and with it leaves the Service Connect
+  registry.** Its `service_connect_configuration` keeps `enabled` and the
+  namespace but no longer emits a `service {}` block, so it is now a **client-only**
+  member: it resolves its peers and nothing can resolve it. That is correct —
+  nothing addresses a clock. Its `portMappings` block is gone too. It binds no
+  application socket at all; its entrypoint imports neither uvicorn nor fastapi.
+- **`api.worker` and `api.clock` dropped `health_check_path`.** That field is
+  confined to `web`-network core services, where it compiles to the ALB target
+  group's health check. `api.web` keeps it, and it remains the one consumer the
+  field has.
+
+### Added
+
+- **`core/api/health.sh`** — the codebase's fourth shim, beside `build.sh`,
+  `test.sh`, and `migrate.sh`, and the only one invoked *per core service*. Its
+  exit code is its entire contract; nothing reads its stdout, and ECS does not
+  even capture it. Three arms: `web` curls its own `/health`, `worker` and
+  `clock` stat their tick file, and an unrecognised argument exits 2 loudly
+  rather than falling through to 0.
+- **An `rpc` surface on `api.worker`** — `POST /drain`, returning
+  `{"performed": N}` — and **`api.web`'s consumer side of it**, exposed as
+  `POST /jobs/drain`. The perform side of the deferred-job queue belongs to the
+  worker, so the edge asks rather than performs. This is the codebase's only
+  cross-core-service call, the reason `api.worker` carries a `port` at all, and
+  now the reason its Service Connect registration is load-bearing.
+- **`infra/contracts/api.worker.rpc.asyncapi.yml`** — the worker now declares two
+  surfaces, `rpc` and `events`, both resolving to `asyncapi`. Two rather than one
+  because their consumer sets are unrelated.
+- **`test_defer_and_drain_round_trip`** in the stage suite — defers a heartbeat
+  through the public edge, then drains it and asserts a `200` with an integer
+  `performed`. The `200` is the load-bearing part: it cannot be answered without
+  `api.web` resolving `api.worker` over Service Connect and reaching it through
+  the `internal` security group. Deliberately not a count — the worker drains on
+  its own interval, so `{"performed": 0}` is an honest reply.
+- **Three codebase tests** in `core/api/tests/test_jobs_drain.py` covering the
+  drain service's delegation and the provider adapter's success and failure
+  translations.
+
+### Removed
+
+- **`GET /health/api/worker` and the health fan-out.** No core service reports on
+  another's health any more, and none may: liveness is read from the ECS API
+  rather than proxied through a peer or fetched through the ALB.
+- **`GET /health` on `api.worker` and `api.clock`.** The route survives on
+  `api.web` alone, because the ALB target group reads it over the network and has
+  no way to run a command inside a container.
+- **The clock's uvicorn/fastapi listener**, entirely. `entrypoints/clock.py` now
+  runs a cron loop and nothing else.
+- **The stage suite's fan-out test**, with the endpoint it exercised.
+
 ## [0.0.20] - 2026-08-06
 
 Repairs found by the `1.7.0` pre-cut **fixed**-foundation smoke walk, applied

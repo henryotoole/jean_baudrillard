@@ -62,9 +62,8 @@ services:
       retries: 3
       test:
       - CMD
-      - curl
-      - -f
-      - http://localhost:8082/health
+      - ./health.sh
+      - clock
       timeout: 5s
     image: docex_smoke_elastic/api:0.0.23
     labels:
@@ -170,9 +169,8 @@ services:
       retries: 3
       test:
       - CMD
-      - curl
-      - -f
-      - http://localhost:8080/health
+      - ./health.sh
+      - web
       timeout: 5s
     image: docex_smoke_elastic/api:0.0.23
     labels:
@@ -247,9 +245,8 @@ services:
       retries: 3
       test:
       - CMD
-      - curl
-      - -f
-      - http://localhost:8081/health
+      - ./health.sh
+      - worker
       timeout: 5s
     image: docex_smoke_elastic/api:0.0.23
     labels:

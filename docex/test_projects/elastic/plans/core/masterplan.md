@@ -6,7 +6,7 @@ This is one of two **doctrine smoke-test projects** that ship inside the `docex/
 
 The companion project at `docex/test_projects/fixed/` exercises the `fixed`-foundation path. Together they cover the two foundations the doctrine commits to.
 
-The architectural shape, services, and flows are **deliberately identical** to the fixed-foundation companion — same one codebase and three core services, same one schema-owning backing service, same two project-local container backings, same `Ping` domain, same health surface, same composition-root-plus-entrypoints layout. The only intended differences are:
+The architectural shape, services, and flows are **deliberately identical** to the fixed-foundation companion — same one codebase and three core services, same one schema-owning backing service, same two project-local container backings, same `Ping` domain, same health model (one `health.sh` per codebase, invoked per core service), same composition-root-plus-entrypoints layout. The only intended differences are:
 
 1. `foundation: elastic` in `infra.yml` (and the AWS-resource shape that compiles from it).
 2. `reverse_proxy: alb` declared explicitly (the doctrine default, also the operator-chosen smoke variant — see mod 044's neutral-on-ALB-vs-EC2-traefik stance).
@@ -60,7 +60,7 @@ Same **one codebase and three core services** as the fixed companion: `api`, wit
 | -------- | ------------ | ---- | -------- | ---- | ---------- |
 | `api` | `web` | `web` | `web`, `internal` | 8080 | task_definition + ecs_service + ALB target group |
 | `api` | `worker` | `worker` | `internal` | 8081 | task_definition + ecs_service, **no** target group |
-| `api` | `clock` | `clock` | `internal` | 8082 | task_definition + ecs_service, **no** target group, stop-then-start deployment |
+| `api` | `clock` | `clock` | `internal` | — | task_definition + ecs_service, **no** target group, **not** Service-Connect-registered, stop-then-start deployment |
 
 One ECR repo and one image tag per **codebase** — so with one codebase there is exactly **one** of each, and all three core services share that tag started three different ways. Likewise **one** `…-migrate` task-definition family.
 
@@ -69,13 +69,13 @@ One ECR repo and one image tag per **codebase** — so with one codebase there i
 See [`api/api.md`](./api/api.md). Three core services on one artifact; `web` and `worker` were two separate codebases until CICL v2, purely because pre-v2 CICL could not express "one artifact, two invocations".
 
 - **Hex modules**: [`pings`](./api/hex/pings.md) (driven by `api.web`), [`processor`](./api/hex/processor.md) (driven by `api.worker`), [`jobs`](./api/hex/jobs.md) (deferred by `api.clock`, performed by `api.worker`), and [`retention`](./api/hex/retention.md). They share a codebase but not a module boundary; the sole cross-module import is `jobs`' runner taking `retention`'s **driving port**.
-- **Contracts**: `api.web.openapi.yml` (role `web` → OpenAPI) and `api.worker.asyncapi.yml` (role `worker` → AsyncAPI).
+- **Contracts**: three, one per declared **surface** — `api.web.rest.openapi.yml`, `api.worker.rpc.asyncapi.yml`, and `api.worker.events.asyncapi.yml`. The path is `<codebase>.<service>.<surface>.<format>.<ext>`, keyed on the surface rather than on the core service, and the format follows from that surface's `api_styles` rather than from the core service's `role` (`cicl.md § Surfaces`). **Declaring a surface is what makes a core service a provider**, and one that declares none cannot be a `uses` target at all — which is why `api.clock` has no contract.
 - **`uses`**: `api.web` uses `api.worker`, one direction only, obliged by the five-segment magic refs `${codebases.api.core_services.worker.{host,port}}` on the web edge.
 - **Schema owner**: `schema_owned_by: api`.
 
 `api.web`: a Fargate task in the `web` + `internal` security groups; ALB target group registered with a listener rule matching its per-env hosts. It is the `domain_default_service`, so prod's edge also answers at the bare-env and bare-project hosts.
 
-`api.worker`: a Fargate task in the `internal` security group only — never an ALB target. Its `port` is what makes it **Service-Connect-discoverable**, which is exactly what lets the sibling `api.web` task reach its `/health` one hop away for the fan-out. `health_check_path` routes to the container-level ECS `healthCheck` rather than a target group, so a wedged poll loop gets the task killed and replaced by the service. `desired_count = 2` in prod (from `replicas: 2`), 1 in stage.
+`api.worker`: a Fargate task in the `internal` security group only — never an ALB target. It declares **no `health_check_path`** (rule 33 confines that field to `web`-network core services) and **serves no `/health`**; its liveness is a **tick file** at `/tmp/worker.tick`, touched by the poll loop and stat'd by `./health.sh worker` from a separate process, emitted as the task definition's container `healthCheck`. A wedged poll loop therefore gets the task killed and replaced by the service. It carries `port: 8081` because `api.web` **addresses its `rpc` surface directly** (`POST /drain`) — rule 32's positive arm — and it declares **two surfaces**, `rpc` and `events`, both resolving to `asyncapi`; two rather than one because their consumer sets are unrelated (`api.web` calls `rpc` synchronously; `events` is produced onto by `api.web` and `api.clock` and consumed here). On elastic that same `port` is also what registers the worker's **Service Connect** name, which is what lets `api.web` resolve it — and since both `api.web` and `api.clock` `uses` this worker, its registration is the single thing keeping `release`'s Service Connect consumer reconcile exercised with a non-empty consumer set. `desired_count = 2` in prod (from `replicas: 2`), 1 in stage.
 
 #### `api.clock` — the scheduler that is an ordinary core service
 
@@ -83,10 +83,12 @@ See [`api/api.md`](./api/api.md). Three core services on one artifact; `web` and
 
 - **Schedules**: `prune_pings: "0 3 * * *"` and `heartbeat: "* * * * *"`, bare 5-field UTC cron with no dialect translation. Delivered as a **literal task-definition env entry**, `DOCEX_SCHEDULES_YAML` — the same variable, carrying the same literal YAML, as on the fixed companion. One mechanism, both foundations.
 - **It validates its own schedule at startup.** Before entering the loop, the clock compares every scheduled name against `ContJobsCron`'s dispatch table and **exits non-zero** if any has no binding, naming both the offending job and the implemented set. On elastic this means the task fails to stay up and the deploy does not converge — a typo in `schedules:` fails the *release*, rather than surfacing at 03:00 as a logged failure. The reverse — a bound job with no schedule — is legitimate and deliberately unchecked, because `ContJobs` is shared and a job reachable only over HTTP or CLI is a design choice.
-- On elastic: `task_definition` + `ecs_service`, **no** target group, and `health_check_path` routing to the container-level ECS `healthCheck` so a wedged cron loop gets the task killed and replaced.
+- On elastic: `task_definition` + `ecs_service`, **no** target group. Its probe is not routed by any declared field — it arrives as a transfer-table **default** on `role: clock`, `["CMD", "./health.sh", "clock"]`, and a `defaults` probe lands on the engine's default target, which for a core service is the task definition's container. So `./health.sh clock` runs inside the task, stats the cron loop's tick file, and a wedged loop gets the task **killed and replaced** by the service — ECS acts on a failed essential container, which is why the role tables also carry `startPeriod: 10` and why that field is elastic-only.
+- **It joins Service Connect as a client-only member.** Its `service_connect_configuration` carries `enabled = true` and the namespace but **no** `service {}` block, because a `service {}` block is emitted only for a core service that declares a `port`. It therefore resolves its peers — `api-worker`, the sidecars — and nothing can resolve *it*, which is exactly right: nothing addresses a clock.
+- **It binds no application socket.** Not "listens where nothing reaches it" — nothing at all. Inside the running container `/proc/net/tcp` carries exactly one `LISTEN` entry, docker's embedded DNS resolver at `127.0.0.11`, which every container has. It declares no `port`, no `health_check_path`, and no `surfaces`, and `entrypoints/clock.py` imports neither uvicorn nor fastapi. That is the strongest single piece of evidence that liveness left HTTP, so it is recorded as observed fact rather than as an intention.
 - **`deployment_minimum_healthy_percent = 0` / `deployment_maximum_percent = 100`**, emitted for `role: clock` alone. ECS rolling-deploy defaults briefly run two tasks, and a tick landing in that window fires twice; stop-then-start trades a possible **double fire** for a possible **missed fire** — the right trade, since missed fires are already an accepted caveat and jobs must be idempotent regardless.
-- **What is gone**: no `aws_scheduler_schedule`, no EventBridge Scheduler, no per-service scheduler-invocation IAM role, and one fewer AWS resource type `verify_clean.sh` has to check for leaks. EventBridge was not merely surplus — it lives outside the VPC and could not have invoked a Service-Connect-discoverable in-VPC target at all.
-- **Contract**: none, and that is the ordinary rule rather than an exemption — the clock is neither a `uses` target nor on `web`.
+- **What is gone**: no `aws_scheduler_schedule`, no EventBridge Scheduler, no per-service scheduler-invocation IAM role, and one fewer AWS resource type `verify_clean.sh` has to check for leaks. EventBridge was not merely surplus — it lives outside the VPC and could not have invoked an in-VPC Fargate target at all.
+- **Contract**: none, and that is the ordinary rule rather than an exemption. **It declares no surface, and that is what makes it not a provider** (`cicl.md § Surfaces`).
 - **It defers; it does not work.** Each fire inserts onto the `jobs` table in RDS; `api.worker` drains it.
 
 #### Why there is only one codebase
@@ -97,7 +99,7 @@ The walk therefore stopped covering the two-codebase shape — notably the two-E
 
 ### Composition Roots and Entrypoints
 
-Identical to the fixed companion: one `root.py` per **codebase** that constructs without activating, and one module per core service under `src/entrypoints/` that each core service's `command` invokes. See [`api/api.md`](./api/api.md) § Entrypoints for the worker's loop, signal handling, and monotonic liveness tick.
+Identical to the fixed companion: one `root.py` per **codebase** that constructs without activating, and one module per core service under `src/entrypoints/` that each core service's `command` invokes. See [`api/api.md`](./api/api.md) § Entrypoints for the worker's loop, signal handling, and liveness tick file, and § Health for the probe that reads it.
 
 ### Code duplication between fixed and elastic test projects
 
@@ -107,7 +109,9 @@ Per the kickoff brief: "Two separate projects, one per foundation. Cleaner than 
 
 ## Flows
 
-Identical to the fixed companion — Ping creation, Ping processing, Self health (`/health` on all three `api` core services, the worker's and the clock's each gated on their own loop tick), Health fan-out (`/health/api/worker`), backing reachability (`/health/probe`, `/health/events`), scheduled deferral, job draining, and clock self health. On elastic they exercise RDS (postgres), Service Connect (peer resolution between core services and the nginx sidecar — including the sibling hop the fan-out depends on), and a TCP connection to ClickHouse on its native port through the EFS-backed Fargate task.
+Identical to the fixed companion, by name: Ping creation, Ping processing, **Self health** (`GET /health` on `api.web` alone, because the ALB reads it; the worker's and the clock's liveness is a tick file at `/tmp/<svc>.tick` that `./health.sh <svc>` stats from a separate process), **Deferred-job drain** (`POST /jobs/drain` on `api.web` → the worker's `rpc` surface → `{"performed": N}` back out through the edge), backing reachability (`/diagnostics/probe`, `/diagnostics/events`), scheduled deferral, job draining, and clock self health. There is no health fan-out anywhere and none is possible — `healthchecks.md § What this doctrine does not do` forbids one service reporting on another.
+
+On elastic these exercise RDS (postgres), **Service Connect** (peer resolution between core services and the nginx sidecar — and it is the drain flow, not a health hop, that now depends on the sibling `api.web` → `api.worker` resolution), and a TCP connection to ClickHouse on its native port through the EFS-backed Fargate task. Liveness is read from the orchestrator, never over the network: ECS carries every core service's container-health verdict and `docex stagetest` reads it from there.
 
 The deferral flow is where the foundations **converge** rather than diverge: the clock is a plain `ecs_service` reading the same `DOCEX_SCHEDULES_YAML` literal it reads on fixed, enqueueing into RDS instead of a container postgres. Nothing about it is foundation-shaped — which is the point of retiring `role: scheduler`, whose fixed (Ofelia + DooD) and elastic (EventBridge + IAM role) halves shared no mechanism at all.
 
@@ -115,6 +119,7 @@ The deferral flow is where the foundations **converge** rather than diverge: the
 
 Same as fixed companion — including the deliberate **one-codebase** shape, which is not drift and must not be "restored" — plus:
 
+- This project has **no health fan-out**, and no core service reports on another's health. It had a `/health/api/worker` endpoint and deliberately does not any more (`healthchecks.md § What this doctrine does not do`). On elastic that absence is load-bearing rather than cosmetic: liveness is read from the ECS API, not fetched through the ALB, so nothing ever needs an in-network proxy to reach `api.worker` or `api.clock`. `POST /jobs/drain` is not a counter-example — it commands work and returns a count of it, and carries no verdict about whether the worker is well.
 - This project does **not** use any AWS resource outside what the elastic transfer tables prescribe. If a real elastic project would need (say) SQS or SNS, that's beyond the smoke test's scope.
 - This project does **not** carry IAM roles outside what `docex projinfra up production` provisions at the project tier. If a service-specific *task* role is needed, that's a doctrine gap or a docex bug — flag it.
 - This project does **not** opt into the `ec2_traefik_*` reverse-proxy variants. ALB is the doctrine default and the operator-chosen smoke variant. Walking EC2-traefik is a future smoke-walk variant covered by a different setup.

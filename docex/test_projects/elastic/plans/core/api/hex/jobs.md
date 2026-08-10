@@ -14,6 +14,12 @@ its *own* codebase's queue, since only the codebase that owns a schema may write
 to it — which is precisely why the retired `reaper` codebase could not simply
 become a clock, and why the clock folded into `api`.
 
+It also carries a third, smaller half that neither of the two above describes: a
+**consumer** side living in `api.web`'s process, which asks the worker to drain
+the queue on demand rather than waiting for its next poll. That makes this the one
+module in the codebase that spans a process boundary — see
+[One module, two processes](#one-module-two-processes).
+
 ## Domain
 
 **`Job`** — a *name* plus its lifecycle timestamps (`id`, `name`,
@@ -41,7 +47,8 @@ on every pass.
 | Port | Operations | Driven by |
 | ---- | ---------- | --------- |
 | `ContJobs` | `prune_pings()`, `heartbeat()` — **one method per job**, each returning the enqueued job's id | `api.clock` (cron), `api.web` (HTTP), CLI |
-| `ContJobRunner` | `run_once() -> int` — claim a batch, perform each, return the count | `api.worker` |
+| `ContJobRunner` | `run_once() -> int` — claim a batch, perform each, return the count | `api.worker` (its poll loop, and its `rpc` surface) |
+| `ContJobDrain` | `drain_now() -> int` — ask the worker to drain now, return the count it performed | `api.web`, over HTTP |
 
 **One method per job, not `fire(name)`.** That is what lets the HTTP adapter
 expose one route per operation — a route an OpenAPI contract can actually
@@ -52,6 +59,7 @@ describe — instead of a single opaque `POST /jobs/{name}`.
 | Port | Pattern | Operations |
 | ---- | ------- | ---------- |
 | `QueueJobs` | `Queue` (canonical) | `enqueue(name)`, `claim(limit)`, `complete(id, at)`, `fail(id, at, error)` |
+| `GwyJobRunner` | `Gateway` (canonical) | `drain_now() -> int` — ask `api.worker` to drain the queue in its own process |
 
 ## Adapters Included
 
@@ -61,6 +69,9 @@ describe — instead of a single opaque `POST /jobs/{name}`.
 | `ContJobsHttp` | driving, `Http` | One route per job: `POST /jobs/prune_pings`, `POST /jobs/heartbeat`, both `202` with `{job_id}` |
 | `ContJobsCli` | driving, `Cli` | Fires one job by name. Constructed by the composition root and invoked by no entrypoint — the root builds every mechanism, including ones the running core service never uses |
 | `ContJobRunnerCli` | driving, `Cli` | Translation only: one `run_once()` in, a performed count out. The loop that drives it belongs to `entrypoints/worker.py` |
+| `ContJobRunnerHttp` | driving, `Http` | The **provider** side of `api.worker`'s `rpc` surface: `POST /drain` → `{"performed": N}`, `503` if the batch could not be claimed. Mounted by `entrypoints/worker.py` on the app it hands to uvicorn |
+| `ContJobDrainHttp` | driving, `Http` | The **consumer** side: `POST /jobs/drain` on `api.web`, mounted in `build_app()`. Translates the request into a `ContJobDrain` call and a gateway failure into `503` |
+| `GwyJobRunnerHttp` | driven, `Gateway` | Calls the worker's `rpc` surface over stdlib `urllib`, addressing it with the injected `WORKER_HOST` / `WORKER_PORT` and a hard 5 s timeout |
 | `QueueJobsPostgres` | driven | The `jobs` table in `appdb` |
 
 ## The two dispatch tables are not duplication
@@ -97,6 +108,48 @@ and at that point nothing stops it performing the job itself. That is exactly
 what `clock.md § The clock defers; it does not work` forbids, and the whole
 reason `api.clock` is a singleton with no replicas and no queue-level retry
 while `api.worker` runs two replicas with both.
+
+## One module, two processes
+
+This module now **spans a process boundary**, and that is the second most
+misreadable thing in it — so it sits beside the section above, because it is the
+same argument arriving at a third place.
+
+`api.worker`'s process holds the **perform** half: `ContJobRunner`, its two
+mechanisms (`ContJobRunnerCli` for the poll loop, `ContJobRunnerHttp` for the
+`rpc` surface), and `JobRunnerService`. `api.web`'s process holds a **consumer**
+half — `ContJobDrain` in front, `JobDrainService` between, `GwyJobRunner` behind
+— that reaches the perform half through a **driven gateway**.
+
+**The worker is an external system from the consumer's point of view.** It shares
+this module's source, this image, and this database, and it is still a different
+process reached over the network. A port is drawn around what the module has to
+reach *across*, not around what happens to be compiled into the same artifact —
+which is why the seam is a `Gwy` and emphatically **not** an import. Nothing here
+licenses a cross-module import; the doctrine still permits exactly one, and it is
+`jobs`' runner taking `retention`'s driving port.
+
+**Why five consumer-side files** — `GwyJobRunner`, `GwyJobRunnerHttp`,
+`ContJobDrain`, `JobDrainService`, `ContJobDrainHttp` — for what is ultimately
+one HTTP POST. The alternative is an application HTTP call written directly in
+`root.py`, which is exactly what the deleted health fan-out was, and the reason
+it was deletable was that nothing named it, tested it, or bounded it. Five files
+are the doctrine's honest tax for a clean hexagon, and they are this project's
+**only** demonstration of a consumer-side gateway onto a sibling core service
+across a declared surface — the shape rule 32's positive arm exists to govern.
+
+**Why `drain_now()` is not a method on `ContJobs`.** That is the port **the clock
+holds**. Adding a drain method to it would hand the clock the ability to trigger
+performance, and a clock that can trigger performance is one refactor away from
+performing — the exact architecture this document's longest section exists to
+protect. A separate port is the cheaper mistake to avoid. The two are two use
+cases with two consumers, not one use case seen twice, which is the same
+reasoning that already separates `ContJobs` (defer) from `ContJobRunner`
+(perform).
+
+**Why it is not a health check.** The reply is a count of work performed. It
+carries no liveness verdict and no staleness judgement, and it cannot be mistaken
+for the fan-out that was deleted.
 
 ## Concurrency
 
@@ -137,6 +190,26 @@ requires the whole stack to be up, so an integration test may assert on outcomes
 in shared state, never on being the only actor. Assertions that need sole agency
 belong in `tests/test_jobs_alogic.py`, where the queue is a stub.
 
+**And there is now a fourth claimer.** `POST /drain` on the `rpc` surface is
+served from a daemon thread in `entrypoints/worker.py` while that same process's
+poll loop drains on its own interval, so two callers inside one process can be
+mid-drain at once — on top of the two `prod` replicas and the live `test`-env
+container above. It is safe for a reason already written down rather than a new
+one: `QueueJobsPostgres` opens a connection per call and `claim` takes its batch
+`FOR UPDATE SKIP LOCKED`, which is the same guarantee that makes `replicas: 2`
+safe against itself. A second in-process caller is that identical race under a
+shorter name. **Do not add a lock** — it would serialize the drain without making
+it any more correct.
+
+The consequence reaches the tests. `infra/stage/tests/test_smoke.py`'s
+`test_defer_and_drain_round_trip` asserts that `performed` is a non-negative
+**integer** and deliberately **not a count**: the worker drains every second on
+its own, so a heartbeat the test just queued may legitimately already be gone and
+`{"performed": 0}` is the honest reply. The load-bearing assertion is the `200`
+itself, on a route that cannot answer without reaching the worker across the
+internal network. An order-dependent count would pass on a dev machine and fail
+on the walk, which is the worst signature a smoke test can have.
+
 ## Failure handling
 
 A poisoned job is recorded on its own row and the drain **continues**. One job
@@ -150,6 +223,12 @@ is a data problem in one row rather than a reason to crash the worker.
   the name means.
 - **The clock never claims.** `api.clock` drives `ContJobs` only. Claiming and
   performing belong to `api.worker`.
+- **The drain boundary commands *performance*, never deferral.** `ContJobDrain`
+  and the `rpc` surface behind it ask for the queue to be worked now. Nothing may
+  enqueue through them. Deferral is the clock's, over `ContJobs`.
+- **The reply's integer is not a promise about which rows moved.** It is a count
+  of work *this call* performed, and concurrent claimers may have taken any of the
+  rest. Nothing may be built on it as though it identified a set.
 - **Not a broker.** The transport is a postgres table, because the doctrine
   ships no `queue` backing-service role. The AsyncAPI channel addresses a table
   for that reason.
