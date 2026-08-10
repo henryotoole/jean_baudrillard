@@ -43,11 +43,15 @@ _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 # The `api.web` entry (paired with `web`'s `api.worker` below) gives the
 # fixture the legal web ↔ worker cycle, so every assertion in this module
 # doubles as a witness that the field changes no emitted output.
+# Mod 125: it is a `uses` target, so rule 31 requires a surface. It declares no
+# `port` — `api.web` reaches it through a queue and holds no magic ref to it,
+# which is rule 32's negative arm.
 _WORKER = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
     "networks": ["internal"],
     "uses": ["appdb", "api.web"],
+    "surfaces": {"events": {"api_styles": ["events"]}},
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
 # A SECOND `worker`, deliberately. This module is about service *expansion*,
@@ -75,6 +79,10 @@ def _three_service_project(fixture: Path, tmp_path: Path) -> Path:
     svcs = doc["codebases"]["api"]["core_services"]
     svcs["web"]["env"] = {_WEB_ONLY_KEY: "yes"}
     svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
+    # The worker's half of the cycle makes `api.web` a `uses` target too, so
+    # rule 31 asks it for a surface. Its `port` / `health_check_path` come from
+    # the fixture and satisfy rules 15 / 33 already.
+    svcs["web"]["surfaces"] = {"rest": {"api_styles": ["rest"]}}
     svcs["worker"] = dict(_WORKER)
     svcs["nightly_cleanup"] = dict(_NIGHTLY)
     infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))

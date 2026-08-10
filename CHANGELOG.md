@@ -33,7 +33,39 @@ Downstream projects upgrade per
 [`upgrades/upgrade_1.7.0.md`](./upgrades/upgrade_1.7.0.md) — a repin plus an
 `infra.yml` rewrite, and, for any project with a scheduler, application-code work.
 
+"Surfaces and health" (advance 006, mods 125-133) ships in the same cut. A core
+service declares its API boundaries explicitly as `surfaces:` instead of having a
+contract format inferred from its `role`, and HTTP stops being the doctrine's
+mandated health substrate. Both halves are breaking for `infra.yml`, and both
+ride the **same `cicl_version: "3"`** rather than manufacturing a second
+rollback-unavailable boundary inside one cut.
+
 ### Changed
+
+- **A core service declares `surfaces:`; rules 29-33 join the CICL rule set
+  (mod 125).** A surface is a named boundary with one or more `api_styles`, and
+  it compiles to exactly one contract file. Format follows the styles the
+  surface declares, replacing selection keyed on `role` — a proxy for
+  *transport*, not for interaction style. Five new rules: a surface's
+  `api_styles` must resolve to exactly one contract format, **derived** from the
+  style table rather than tabulated against it, so `[rest, stream, webhook]`
+  passes and `[rest, rpc]` fails telling the author to split (29); surface names
+  take the codebase/core-service name pattern, because a surface name is one
+  segment of a contract filename parsed right-anchored into four fields (30);
+  every core-service `uses` target declares at least one surface, since
+  declaring one is what makes a core service a provider (31); a `uses` target
+  its consumer addresses **directly** declares a `port`, and one reached only
+  through a queue or broker declares none (32); and `health_check_path` is
+  declared by exactly the `web`-network core services — required on them,
+  forbidden off them, keyed on **network membership rather than role** (33).
+  `graphql` and `proto` are defined language but unimplemented formats, and a
+  surface resolving to either fails at compile with a named "format not yet
+  implemented" rather than a silent gap.
+
+  **Rule 28 is retired and its number tombstoned** (as 6 and 24 are). It
+  required a `port` beside `health_check_path`; rule 33 confines that field to
+  `web`-network core services and rule 15 already requires a port on those, so
+  the obligation is *redundant* rather than merely obsolete.
 
 - **A codebase is a `codebase`; a process type is a `core service`.** The two
   central nouns of the doctrine's service vocabulary trade places. What 1.6.0

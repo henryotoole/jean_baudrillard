@@ -79,8 +79,21 @@ def _proc(
         "        networks: [web, internal]" if role == "web"
         else "        networks: [internal]",
     ]
+    # Mod 125. Every core service here is a potential `uses` target, so each
+    # declares the surface rule 31 requires; a web one additionally declares the
+    # `health_check_path` rule 33 requires of every web-network core service. A
+    # non-web core service declares NO port — rule 32's negative arm forbids a
+    # decorative one on a target reached through a queue.
     if role == "web":
         lines.append("        port: 8080")
+        lines.append("        health_check_path: /health")
+        lines.append("        surfaces:")
+        lines.append("          rest:")
+        lines.append("            api_styles: [rest]")
+    else:
+        lines.append("        surfaces:")
+        lines.append("          events:")
+        lines.append("            api_styles: [events]")
     if uses is not None:
         lines.append(f"        uses: {json.dumps(uses)}")
     lines.extend(extra or [])

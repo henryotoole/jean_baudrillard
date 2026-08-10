@@ -21,6 +21,18 @@ infra.yml plus the transfer tables and the foundation context:
              and its shape rule is rule 25.
     Rule 25: `uses` names either a backing service, bare, or a core service
              fully qualified as `<codebase>.<service>`, and never itself.
+    Rule 28: RETIRED in 1.7.0 (number tombstoned). Formerly required a `port`
+             alongside `health_check_path`. Rule 33 confines that field to
+             `web`-network core services and rule 15 already requires a `port`
+             on those, so the obligation is REDUNDANT rather than merely
+             obsolete.
+    Rule 29: every surface's `api_styles` resolve to exactly one contract
+             format.
+    Rule 31: every core-service `uses` target declares at least one surface.
+    Rule 32: a `uses` target its consumer addresses DIRECTLY declares a `port`;
+             one reached only through a queue or broker declares none.
+    Rule 33: `health_check_path` is declared by exactly the `web`-network core
+             services — required on them, forbidden off them.
 
 Field validation (rule 4 in transfer_tables.md: every role-specific
 field on a service is declared in the engine's ``fields:`` block) is
@@ -43,6 +55,8 @@ from docex.cicl.magic_refs import (
     walk_strings,
 )
 from docex.cicl.model import (
+    API_STYLE_FORMATS,
+    IMPLEMENTED_CONTRACT_FORMATS,
     BackingService,
     CICLDocument,
     Codebase,
@@ -63,7 +77,7 @@ _STANDARD_CODEBASE_FIELDS = {"core_services", "secrets", "config", "env"}
 # Anything else must be declared in the engine's `fields:` block (tt rule 4).
 _STANDARD_SERVICE_FIELDS = {
     "role", "command", "networks", "uses", "port", "env",
-    "resources", "replicas",
+    "resources", "replicas", "surfaces",
 }
 # `uses` is listed here NOT because a backing service may declare it — it may
 # not — but so the extras walk stays quiet and `rule_uses_on_backing_service`
@@ -138,7 +152,9 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues.extend(_validate_reverse_proxy_field(doc))
     issues.extend(_validate_reverse_proxy_role_removed(doc))
     issues.extend(_validate_clock_services(doc))
-    issues.extend(_validate_health_check_path_port(doc))
+    issues.extend(_validate_surfaces(doc))
+    issues.extend(_validate_uses_addressing(doc))
+    issues.extend(_validate_health_check_declaration(doc))
     return issues
 
 
@@ -284,8 +300,121 @@ def _validate_role_specific_fields(
 
 
 # ---------------------------------------------------------------------------
+# Rule 29 (Mod 125) — a surface's api_styles resolve to one contract format.
+# ---------------------------------------------------------------------------
+
+
+def _validate_surfaces(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 29: a surface's `api_styles` resolve to exactly one contract format.
+
+    DERIVED from `API_STYLE_FORMATS`, never tabulated against it: the check is
+    `len(surface.formats()) == 1`, so adding a style to the table cannot leave a
+    stale pair-legality list behind. `[rest, stream, webhook]` passes — all
+    three are openapi. `[rest, rpc]` fails, and the message says to split.
+
+    Also enforces the implemented-format boundary here, at COMPILE, rather than
+    leaving it to a later gate: a `graphql`/`proto` surface is a compile error
+    per surfaces_and_health.md resolved decision 3, and the point of a separate
+    `IMPLEMENTED_CONTRACT_FORMATS` set is that the author hears "not yet
+    implemented" instead of "unknown style".
+    """
+    issues: list[ValidationIssue] = []
+    for cb_name, svc_name, _cb, svc in doc.all_core_services():
+        label = ServiceRef(cb_name, svc_name).dotted
+        for surface_name in sorted(svc.surfaces):
+            surface = svc.surfaces[surface_name]
+            where = (
+                f"{_service_where(cb_name, svc_name)}.surfaces.{surface_name}"
+            )
+            for style in surface.api_styles:
+                if style in API_STYLE_FORMATS:
+                    continue
+                issues.append(ValidationIssue(
+                    rule="rule_29_unknown_api_style",
+                    message=(
+                        f"core service {label!r} surface {surface_name!r} "
+                        f"declares unknown api_style {style!r}; known styles: "
+                        f"{sorted(API_STYLE_FORMATS)}. "
+                        f"See cicl.md § Surfaces."
+                    ),
+                    where=where,
+                ))
+            formats = surface.formats()
+            if len(formats) > 1:
+                # Group the offending styles by the format each resolves to, so
+                # the author reads the split they must make rather than having
+                # to re-derive it from the doctrine table.
+                grouped = {
+                    fmt: sorted(
+                        s for s in surface.api_styles
+                        if API_STYLE_FORMATS.get(s) == fmt
+                    )
+                    for fmt in sorted(formats)
+                }
+                rendered = "; ".join(
+                    f"{fmt} <- {styles}" for fmt, styles in grouped.items()
+                )
+                issues.append(ValidationIssue(
+                    rule="rule_29_mixed_contract_formats",
+                    message=(
+                        f"core service {label!r} surface {surface_name!r} mixes "
+                        f"api_styles of differing contract formats "
+                        f"({rendered}). Split these into two surfaces — a "
+                        f"surface compiles to exactly one contract file. "
+                        f"See cicl.md § Validation Rules rule 29."
+                    ),
+                    where=where,
+                ))
+            for fmt in sorted(formats):
+                if fmt in IMPLEMENTED_CONTRACT_FORMATS:
+                    continue
+                styles = sorted(
+                    s for s in surface.api_styles
+                    if API_STYLE_FORMATS.get(s) == fmt
+                )
+                issues.append(ValidationIssue(
+                    rule="rule_contract_format_not_implemented",
+                    message=(
+                        f"core service {label!r} surface {surface_name!r} "
+                        f"declares api_style(s) {styles} which resolve to "
+                        f"contract format {fmt!r}. The style is defined "
+                        f"language, but the {fmt!r} contract format is not yet "
+                        f"implemented in the doctrine; docex can currently "
+                        f"carry {sorted(IMPLEMENTED_CONTRACT_FORMATS)}. "
+                        f"See contracts.md § Standards."
+                    ),
+                    where=where,
+                ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
 # Rule 3 + 7: magic refs resolve, and imply a `uses` entry.
 # ---------------------------------------------------------------------------
+
+
+def _ref_templates(cb: Codebase, svc: CoreService) -> list[str]:
+    """Every string on one core service that may carry a magic ref.
+
+    Its EFFECTIVE env (codebase-level merged under its own), its `command`, and
+    every string reachable inside a role-specific field. Extracted so rule 7 and
+    rule 32 read the same set — two template walks would drift, and rule 32's
+    whole detection rests on seeing the same refs rule 7 sees.
+    """
+    templates: list[str] = []
+    for v in _effective_env(cb, svc).values():
+        if isinstance(v, str):
+            templates.append(v)
+    cmd = svc.command
+    if isinstance(cmd, str):
+        templates.append(cmd)
+    elif isinstance(cmd, list):
+        for c in cmd:
+            if isinstance(c, str):
+                templates.append(c)
+    for v in (svc.model_extra or {}).values():
+        templates.extend(walk_strings(v))
+    return templates
 
 
 def _validate_magic_refs(
@@ -486,19 +615,7 @@ def _validate_magic_refs(
     # obliges EVERY core service of that codebase to declare the edge —
     # cicl.md § Uses Relationships § Three clarifications.
     for cb_name, svc_name, cb, svc in doc.all_core_services():
-        templates: list[str] = []
-        for v in _effective_env(cb, svc).values():
-            if isinstance(v, str):
-                templates.append(v)
-        cmd = svc.command
-        if isinstance(cmd, str):
-            templates.append(cmd)
-        elif isinstance(cmd, list):
-            for c in cmd:
-                if isinstance(c, str):
-                    templates.append(c)
-        for v in (svc.model_extra or {}).values():
-            templates.extend(walk_strings(v))
+        templates = _ref_templates(cb, svc)
         scan(
             ServiceRef(cb_name, svc_name).dotted,
             _service_where(cb_name, svc_name),
@@ -510,7 +627,10 @@ def _validate_magic_refs(
         )
 
     for name, svc in sorted(doc.backing_services.items()):
-        templates = []
+        # NOT `_ref_templates`: that helper takes a Codebase + CoreService and
+        # reads declared attributes. `_ServiceBase` declares neither `env` nor
+        # `command`, which is why this collection stays a `getattr` walk.
+        templates: list[str] = []
         env_block = getattr(svc, "env", None) or {}
         if isinstance(env_block, dict):
             for v in env_block.values():
@@ -651,6 +771,31 @@ def _validate_uses(doc: CICLDocument) -> list[ValidationIssue]:
                 ))
                 continue
 
+            # Rule 31. Declaring a surface is what makes a core service a
+            # provider; a target declaring none has no boundary to be used
+            # across, so the EDGE is the error rather than a missing contract.
+            #
+            # WHY nested here rather than a sibling function: this branch has
+            # already parsed the ref and resolved the target, and has already
+            # decided which malformed entries to stop reporting on. A sibling
+            # would duplicate both, and would make a typo'd `uses:` entry report
+            # twice — once as rule 25, once as a mystifying "declares no
+            # surface" for a target that does not exist. The self-uses and
+            # unresolved-target `continue`s above are what buy that.
+            if not target.core_services[ref.service].surfaces:
+                issues.append(ValidationIssue(
+                    rule="rule_31_uses_target_declares_no_surface",
+                    message=(
+                        f"core service {label!r} lists {raw!r} in `uses:`, but "
+                        f"{raw!r} declares no `surfaces:`. Declaring a surface "
+                        f"is what makes a core service a provider — one that "
+                        f"declares none has no boundary to be used across. "
+                        f"Either give {raw!r} a surface or drop the edge. "
+                        f"See cicl.md § Validation Rules rule 31."
+                    ),
+                    where=where,
+                ))
+
     # `uses` is core-service-scoped. Not a numbered rule — cicl.md's Service
     # Fields scope column plus the standing "`./bin/docex compile` will always
     # fail loudly when a field is placed in the wrong scope" sentence. Read off
@@ -671,6 +816,132 @@ def _validate_uses(doc: CICLDocument) -> list[ValidationIssue]:
                     f"infra.yml."
                 ),
                 where=f"backing_services.{name}",
+            ))
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Rule 32 (Mod 125) — a directly-addressed `uses` target declares a `port`.
+# ---------------------------------------------------------------------------
+
+
+def _core_ref_targets(cb: Codebase, svc: CoreService) -> set[str]:
+    """Dotted core-service targets this core service holds a magic ref to.
+
+    Malformed refs are dropped — rule 3 reports them once, and a bad ref must
+    not also become a rule-32 verdict.
+    """
+    out: set[str] = set()
+    for template in _ref_templates(cb, svc):
+        for match in find_magic_refs(template):
+            try:
+                ref = match.parse()
+            except MagicRefArityError:
+                continue
+            if ref.kind != "codebases":
+                continue
+            out.add(ServiceRef(ref.target, ref.service).dotted)
+    return out
+
+
+def _validate_uses_addressing(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 32: a `uses` target its consumer addresses DIRECTLY declares a
+    `port`; one reached only through a queue or broker declares none.
+
+    HOW "directly addressed" is detected: the consumer holds a magic ref to the
+    target — ${codebases.<cb>.core_services.<svc>.<part>} — in its effective
+    `env:`, its `command`, or a role-specific field.
+
+    WHY that signal and not one derived from the target's `api_styles`: rule 32's
+    unit is the EDGE, not the target. Its own wording is "a `uses` target that
+    ITS CONSUMER addresses directly", and two consumers can legitimately reach
+    one target differently — `api.web` calling a worker's rpc surface while
+    `api.clock` enqueues to it through a broker. A per-target derivation
+    structurally cannot express that and must collapse the two edges into one
+    answer. A style-derived mapping is also not available to us honestly: no
+    doctrine file states one, so deriving from styles would mean inventing
+    doctrine. (Secondary: the refs cost nothing to see — rule 7 already walks
+    exactly this set.) cicl.md § Rules item 2 is what makes the magic ref the
+    doctrine-sanctioned way to address an in-project service at all: "when
+    services communicate over URLs, those URLs are built from provided fields
+    at startup."
+
+    SCOPE, deliberately not widened: both arms are keyed on being a `uses`
+    TARGET, because that is the scope of the doctrine's sentence — a core
+    service nobody uses may declare a decorative `port` and this rule stays
+    silent. Extending past that sentence would be a doctrine edit wearing a
+    validator's clothes; the question is filed as
+    007_small_edges/rule_32_unused_target_port.md.
+    """
+    issues: list[ValidationIssue] = []
+    # dotted target -> the dotted consumers holding a magic ref to it.
+    direct: dict[str, set[str]] = {}
+    # dotted target -> its dotted `uses` consumers.
+    used: dict[str, set[str]] = {}
+    for cb_name, svc_name, cb, svc in doc.all_core_services():
+        consumer = ServiceRef(cb_name, svc_name).dotted
+        for dotted in _core_ref_targets(cb, svc):
+            direct.setdefault(dotted, set()).add(consumer)
+        for dotted in svc.core_uses():
+            # Self-uses is rule 25's; it must not also produce a rule-32
+            # verdict against the service on itself.
+            if dotted == consumer:
+                continue
+            used.setdefault(dotted, set()).add(consumer)
+
+    for dotted, consumers in sorted(used.items()):
+        # `ServiceRef.parse` is THE parser for the dotted form — a second split
+        # here would be a second place for the dots-for-reference rule to drift,
+        # which is the reasoning `_validate_uses`'s own docstring states. The
+        # keys came from `core_uses()`, so this cannot raise.
+        target_ref = ServiceRef.parse(dotted)
+        t_cb, t_svc = target_ref.codebase, target_ref.service
+        target_cb = doc.codebases.get(t_cb)
+        if target_cb is None:
+            continue  # rule 25 owns the unresolved target
+        target = target_cb.core_services.get(t_svc)
+        if target is None:
+            continue  # rule 25 owns the unresolved target
+        addressers = consumers & direct.get(dotted, set())
+        where = f"{_service_where(t_cb, t_svc)}.port"
+        if addressers and target.port is None:
+            issues.append(ValidationIssue(
+                rule="rule_32_direct_target_needs_port",
+                message=(
+                    f"core service {dotted!r} is addressed directly by "
+                    f"{sorted(addressers)} — each holds a magic ref to it — but "
+                    f"declares no `port`. A consumer builds the address it "
+                    f"connects to from the target's provided parts at startup, "
+                    f"so the target must declare the port they build it from. "
+                    f"See cicl.md § Validation Rules rule 32."
+                ),
+                where=where,
+            ))
+        # WHY the `web`-network carve-out, which is NOT laxity: rule 15
+        # requires a `port` on every web-network core service. A
+        # `frontend.web` declaring `uses: [api.web]` reaches it by public
+        # URL out of `config:` — a browser cannot resolve an internal
+        # hostname — so it holds no magic ref, and an uncarved negative arm
+        # would demand `api.web` drop the very port rule 15 requires. The
+        # two rules would contradict each other on the doctrine's most
+        # common two-codebase topology. Pinned by
+        # test_surfaces.py::test_rule_32_web_target_reached_by_public_url_is_exempt.
+        if (
+            not addressers
+            and target.port is not None
+            and "web" not in (target.networks or [])
+        ):
+            issues.append(ValidationIssue(
+                rule="rule_32_unaddressed_target_declares_port",
+                message=(
+                    f"core service {dotted!r} declares `port: {target.port}`, "
+                    f"but none of its consumers {sorted(consumers)} hold a magic "
+                    f"ref to it — they reach it through a queue or broker, so "
+                    f"there is no address at which they connect and the port is "
+                    f"decoration. Delete it. "
+                    f"See cicl.md § Validation Rules rule 32."
+                ),
+                where=where,
             ))
     return issues
 
@@ -1563,43 +1834,67 @@ def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
 
 
 # ---------------------------------------------------------------------------
-# Rule 28 (Mod 095) — health_check_path obliges a port.
+# Rule 33 (Mod 125) — `health_check_path` is a web-network field.
+#
+# Rule 28 is RETIRED (1.7.0) and its number tombstoned, never reused. It
+# required a `port` alongside `health_check_path`. Rule 33 confines the field to
+# `web`-network core services and rule 15 already requires a `port` on those, so
+# the old obligation is REDUNDANT rather than merely obsolete — there is no
+# document left in which it could fire.
 # ---------------------------------------------------------------------------
 
 
-def _validate_health_check_path_port(doc: CICLDocument) -> list[ValidationIssue]:
-    """Rule 28 (Mod 095): declaring ``health_check_path`` obliges a ``port``.
+def _validate_health_check_declaration(doc: CICLDocument) -> list[ValidationIssue]:
+    """Rule 33: every `web`-network core service declares `health_check_path`,
+    and no core service off the `web` network declares one.
 
-    The path is only meaningful against a port — every role's translation
-    probes ``http://localhost:${port}${field_value}``. No role declares a
-    ``default_port`` (deliberately: an implicit health port would silently
-    oblige the application to bind it), so an omitted ``port`` substitutes
-    to the empty string and emits a malformed probe that surfaces as a
-    container which never becomes healthy instead of as a compile error.
-
-    Role-agnostic on purpose. It is vacuous for ``web``, whose port is
-    already required by rule 15 for any web-network service, and it must
-    stay that way rather than being special-cased per role.
+    Keyed on NETWORK MEMBERSHIP, not on role. A `role: web` core service off
+    the `web` network declares none: the field is what the reverse proxy probes
+    (the ALB target group on elastic; on fixed traefik takes target health from
+    the container healthcheck), and it is meaningless with nothing in front of
+    the service. Required on both foundations regardless, so a project stays
+    portable between them. See healthchecks.md § `web` services also serve
+    GET /health.
     """
     issues: list[ValidationIssue] = []
-    # Both the field and the port are core-service-scoped in CICL v2 — reading
-    # them off the Codebase would see permanently empty extras and pass
-    # while checking nothing.
+    # The field is role-specific, so it lands in model_extra rather than on a
+    # declared attribute — and it is core-service-scoped in CICL v2, so reading
+    # it off the Codebase would see permanently empty extras and pass while
+    # checking nothing.
     for cb_name, svc_name, _cb, svc in doc.all_core_services():
-        if (svc.model_extra or {}).get("health_check_path") is None:
-            continue
-        if svc.port is None:
+        label = ServiceRef(cb_name, svc_name).dotted
+        where = _service_where(cb_name, svc_name)
+        declared = (svc.model_extra or {}).get("health_check_path")
+        on_web = "web" in (svc.networks or [])
+        if on_web and declared is None:
             issues.append(ValidationIssue(
-                rule="rule_28_health_check_path_needs_port",
+                rule="rule_33_web_service_needs_health_check_path",
                 message=(
-                    f"core service "
-                    f"{ServiceRef(cb_name, svc_name).dotted!r} declares "
-                    f"`health_check_path` but no `port`. The health probe is "
-                    f"issued at http://localhost:<port><path>, so the path is "
-                    f"meaningless without one, and no role supplies a default "
-                    f"health port. See cicl.md § Validation Rules rule 28."
+                    f"core service {label!r} is on the 'web' network but "
+                    f"declares no `health_check_path`. The reverse proxy has no "
+                    f"path to probe: on elastic the ALB target group reads this "
+                    f"field directly, and it is required on fixed too so the "
+                    f"project stays portable between foundations. Every "
+                    f"web-network core service serves GET /health on its "
+                    f"declared port. See cicl.md § Validation Rules rule 33 and "
+                    f"healthchecks.md."
                 ),
-                where=f"{_service_where(cb_name, svc_name)}.port",
+                where=where,
+            ))
+        elif not on_web and declared is not None:
+            issues.append(ValidationIssue(
+                rule="rule_33_health_check_path_off_web",
+                message=(
+                    f"core service {label!r} declares `health_check_path` but is "
+                    f"not on the 'web' network. Nothing routes to this core "
+                    f"service, so there is no reverse-proxy probe to declare a "
+                    f"path for — a non-web core service's liveness is its "
+                    f"container probe (`./health.sh {svc_name}`), and a queue "
+                    f"consumer built under this doctrine listens on nothing. "
+                    f"Delete the field. See cicl.md § Validation Rules rule 33 "
+                    f"and healthchecks.md."
+                ),
+                where=f"{where}.health_check_path",
             ))
     return issues
 

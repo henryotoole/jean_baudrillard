@@ -3,8 +3,16 @@
 
 Covers the role table's shape, the fixed (compose) healthcheck emit, the
 elastic (ECS container-level healthCheck) emit and its deliberate absence of
-a target group, the no-op `container_definition` renderer, and validation
-rule 28 (`health_check_path` obliges a `port`).
+a target group, and the no-op `container_definition` renderer.
+
+Mod 125: rule 28 (`health_check_path` obliges a `port`) is RETIRED and its
+three tests are gone with it, along with `_WORKER_DOC`. Rule 33 confines
+`health_check_path` to `web`-network core services and rule 15 already requires
+a `port` on those, so there is no document left in which rule 28 could fire;
+rule 33's own coverage lives in `test_validate.py`. The same change means the
+injected worker declares no `health_check_path`, so the two probe-emit tests
+below assert its ABSENCE until mod 127 moves the probe into the role tables'
+`defaults`.
 
 Unit tests only — nothing here crosses docker, AWS, or git.
 
@@ -46,9 +54,12 @@ _ELASTIC = _FIXTURES / "sample_project_elastic"
 _WORKER: dict[str, Any] = {
     "role": "worker",
     "command": ["python", "-m", "entrypoints.worker"],
+    # Rule 33 forbids `health_check_path` off the `web` network, so the injected
+    # worker declares none. `port: 8090` stays: the injected worker is nobody's
+    # `uses` target, so rule 32 is silent on it (the declined asymmetry, filed as
+    # 007_small_edges/rule_32_unused_target_port.md).
     "port": 8090,
     "networks": ["internal"],
-    "health_check_path": "/health",
     "uses": ["appdb"],
     "resources": {"cpu": 0.5, "memory": "1GB", "disk": "25GB"},
 }
@@ -167,13 +178,23 @@ def test_worker_role_table_shape():
 
 
 def test_worker_fixed_compose_healthcheck(tmp_path: Path):
+    """A non-`web` worker gets NO compose probe at all (interim state).
+
+    Rule 33 forbids `health_check_path` off the `web` network, and the compose
+    healthcheck is emitted only from that field, so nothing is emitted.
+
+    # MOD 127: this asserts the interim state. When the probe moves into the
+    # role tables' `defaults`, this becomes
+    #   block["healthcheck"]["test"] == ["CMD", "./health.sh", "worker"]
+    # (compose) / the container definition's healthCheck command (elastic).
+    # The assertion is deliberately left FAILING-ON-CHANGE rather than
+    # deleted: a deletion loses the coverage silently, and an xfail would flip
+    # to XPASS, which reads as noise. This stops the suite at exactly the
+    # moment attention is warranted.
+    """
     doc = _dev_compose(_compile_with_worker(_FIXED, tmp_path))
     svc = doc["services"]["sample-dev-api-worker"]
-    assert svc["healthcheck"]["test"] == [
-        "CMD", "curl", "-f", "http://localhost:8090/health",
-    ]
-    assert svc["healthcheck"]["interval"] == "30s"
-    assert svc["healthcheck"]["retries"] == 3
+    assert "healthcheck" not in svc
     # One codebase, one image: the worker runs `api`'s artifact.
     assert svc["image"] == "sample/api:0.1.0"
     assert svc["command"] == ["python", "-m", "entrypoints.worker"]
@@ -194,20 +215,26 @@ def test_worker_fixed_no_traefik_labels(tmp_path: Path):
 
 
 def test_worker_elastic_container_healthcheck(tmp_path: Path):
+    """A non-`web` worker gets NO container probe at all (interim state).
+
+    Rule 33 forbids `health_check_path` off the `web` network, and the ECS
+    container-level `healthCheck` is merged in only from that field.
+
+    # MOD 127: this asserts the interim state. When the probe moves into the
+    # role tables' `defaults`, this becomes
+    #   block["healthcheck"]["test"] == ["CMD", "./health.sh", "worker"]
+    # (compose) / the container definition's healthCheck command (elastic).
+    # The assertion is deliberately left FAILING-ON-CHANGE rather than
+    # deleted: a deletion loses the coverage silently, and an xfail would flip
+    # to XPASS, which reads as noise. This stops the suite at exactly the
+    # moment attention is warranted.
+    """
     hcl = _stage_hcl(_compile_with_worker(_ELASTIC, tmp_path))
     assert 'resource "aws_ecs_task_definition" "api-worker" {' in hcl
     assert 'resource "aws_ecs_service" "api-worker" {' in hcl
 
     app = _container_block(hcl, "api-worker", "api-worker")
-    assert "healthCheck = {" in app
-    assert (
-        'command = ["CMD-SHELL", "curl -f http://localhost:8090/health '
-        '|| exit 1"]' in app
-    )
-    assert "interval = 30" in app
-    assert "timeout = 5" in app
-    assert "retries = 3" in app
-    assert "startPeriod = 10" in app
+    assert "healthCheck" not in app
 
 
 def test_worker_elastic_no_target_group(tmp_path: Path):
@@ -324,50 +351,3 @@ def test_field_target_container_definition_undeclared_rejected(tmp_path: Path):
     tables = load_transfer_tables(project_root=proj)
     issues = validate_document(_doc(_ELASTIC_DOC), tables)
     assert "FIELD_TARGET_UNDECLARED" in [i.rule for i in issues]
-
-
-# ---------------------------------------------------------------------------
-# 9-11. Rule 28 — health_check_path obliges a port
-# ---------------------------------------------------------------------------
-
-
-_WORKER_DOC = """
-cicl_version: "3"
-foundation: fixed
-apex_domain: example.com
-observability_backend_url: "https://obs.example.com"
-container_registry: registry.example.com
-codebases:
-  consumer:
-    core_services:
-      worker:
-        role: worker
-        command: ["python", "-m", "entrypoints.worker"]
-        networks: [internal]
-        health_check_path: /health
-        resources:
-          cpu: 0.5
-          memory: 1GB
-"""
-
-
-def test_health_check_path_without_port_rejected():
-    issues = validate_document(_doc(_WORKER_DOC), _tables())
-    assert "rule_28_health_check_path_needs_port" in [i.rule for i in issues]
-
-
-def test_health_check_path_with_port_passes():
-    src = _WORKER_DOC.replace(
-        "        networks: [internal]\n",
-        "        networks: [internal]\n        port: 8090\n",
-    )
-    issues = validate_document(_doc(src), _tables())
-    assert issues == []
-
-
-def test_web_service_unaffected_by_rule_28():
-    """Rule 28 stays vacuous for existing projects — the unmodified fixed
-    fixture produces no rule-28 issue."""
-    raw = yaml.safe_load((_FIXED / "infra" / "infra.yml").read_text())
-    issues = validate_document(CICLDocument.model_validate(raw), _tables())
-    assert "rule_28_health_check_path_needs_port" not in [i.rule for i in issues]

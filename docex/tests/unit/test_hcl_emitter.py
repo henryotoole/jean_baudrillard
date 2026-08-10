@@ -717,24 +717,13 @@ def test_aws_lb_target_group_emits_health_check_from_target_extras(tmp_path: Pat
     assert "target_group_health_check" not in tf
 
 
-def test_aws_lb_target_group_omits_health_check_when_no_field(tmp_path: Path):
-    """Services that do not declare `health_check_path` produce a target
-    group with no `health_check` block — preserves the prior shape for
-    services that opt out."""
-    dest = tmp_path / "project"
-    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
-    ctx = load_project_context(dest)
-    rc = run_compile(ctx)
-    assert rc == 0
-    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
-    assert 'resource "aws_lb_target_group" "api-web"' in tf
-    # No health_check block emitted when no field was declared.
-    # (We have to be careful: an aws_db_instance might also emit a
-    # `health_check` block in some templates, so scope by service.)
-    tg_block_start = tf.find('resource "aws_lb_target_group" "api-web"')
-    tg_block_end = tf.find("}", tg_block_start) + 1
-    tg_block = tf[tg_block_start:tg_block_end]
-    assert "health_check" not in tg_block
+# Mod 125 deleted `test_aws_lb_target_group_omits_health_check_when_no_field`.
+# Its premise — a `web`-network core service declaring no `health_check_path` —
+# is now unrepresentable: rule 33 requires the field on every web-network core
+# service, and only a web-network service gets a target group at all, so the
+# `health_check` block is now GUARANTEED present rather than optional. Surviving
+# coverage is `test_aws_lb_target_group_emits_health_check_from_target_extras`
+# above, which asserts the block's contents.
 
 
 def _tg_block(tf: str, service: str) -> str:

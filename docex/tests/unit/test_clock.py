@@ -90,7 +90,6 @@ codebases:
         command: ["python", "-m", "entrypoints.clock"]
         port: 8082
         networks: [internal]
-        health_check_path: /health
         resources:
           cpu: 0.25
           memory: 512MB
@@ -231,15 +230,25 @@ def _compose(root: Path, env: str = "dev") -> dict:
 
 def test_fixed_clock_is_an_ordinary_compose_service(fixed_project: Path):
     """A clock is a long-running container with every ordinary attribute —
-    command, image, build context and healthcheck, exactly as a `worker`."""
+    command, image, build context, restart policy and networks, exactly as a
+    `worker`. It gets NO container probe (interim state): rule 33 forbids
+    `health_check_path` off the `web` network, and the compose healthcheck is
+    emitted only from that field.
+
+    # MOD 127: this asserts the interim state. When the probe moves into the
+    # role tables' `defaults`, this becomes
+    #   block["healthcheck"]["test"] == ["CMD", "./health.sh", "clock"]
+    # The assertion is deliberately left FAILING-ON-CHANGE rather than
+    # deleted: a deletion loses the coverage silently, and an xfail would flip
+    # to XPASS, which reads as noise. This stops the suite at exactly the
+    # moment attention is warranted.
+    """
     doc = _compose(fixed_project)
     block = doc["services"]["sample-dev-api-clock"]
     assert block["command"] == ["python", "-m", "entrypoints.clock"]
     assert block["image"] == "sample/api:0.1.0"
     assert block["build"]["context"] == "./core/api"
-    assert block["healthcheck"]["test"] == [
-        "CMD", "curl", "-f", "http://localhost:8082/health",
-    ]
+    assert "healthcheck" not in block
     assert block["restart"] == "unless-stopped"
     assert block["labels"] == ["docex.project=sample"]
     assert block["logging"]["driver"] == "json-file"

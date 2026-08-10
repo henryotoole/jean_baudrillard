@@ -297,6 +297,7 @@ def test_bootstrap_underscored_project_hyphenates_s3_bucket(
         '        command: ["python", "/service/dist/root.py"]\n'
         '        port: 8080\n'
         '        networks: [web, internal]\n'
+        '        health_check_path: /health\n'
         '        resources:\n'
         '          cpu: 0.25\n'
         '          memory: 512MB\n'

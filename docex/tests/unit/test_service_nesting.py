@@ -4,8 +4,12 @@ One codebase key in ``infra.yml`` expands into N compiled services, one
 per core service. This module covers the *authoring* half of that break —
 the ``core_services:`` block's schema, ``ServiceRef``, the ``cicl_version`` gate,
 and the validation rules the expansion adds or re-scopes (5, 12, 14, 16, 21,
-22, 23, 24, 26, 27, 28) — plus the ``http_host`` naming policy that now
+22, 23, 24, 26, 27, 33) — plus the ``http_host`` naming policy that now
 governs the emitted hostname label.
+
+Mod 125 retired rule 28. Item 17's subject was never rule 28 itself but the
+core-service SCOPING of ``health_check_path``, so it is repointed at rule 33's
+off-web arm, which reads the very same ``model_extra``.
 
 The emit half (one codebase, three core services, both foundations) lives in
 ``test_service_expansion_emit.py``, which needs a purpose-built project on
@@ -50,6 +54,7 @@ _WEB_SERVICE = """\
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
+        health_check_path: /health
         resources:
           cpu: 1.0
           memory: 2GB
@@ -396,11 +401,16 @@ def test_16_web_network_on_web_role_clean():
 
 
 # ---------------------------------------------------------------------------
-# 17 — rule 28 reads the CORE SERVICE.
+# 17 — the `health_check_path` rule reads the CORE SERVICE.
+#
+# Mod 125: rule 28 is retired, but this item's SUBJECT was always the scoping,
+# not the obligation — so it is repointed at rule 33's off-web arm, which reads
+# the same `model_extra`. Read it off the Codebase and it sees permanently empty
+# extras and passes while checking nothing, exactly as before.
 # ---------------------------------------------------------------------------
 
 
-def test_17_health_check_path_without_port_on_service_rejected():
+def test_17_health_check_path_read_off_the_core_service():
     """Regression for the silent pass Mod 095's corporal flagged: reading
     `health_check_path` off the Codebase sees permanently empty extras
     once the field is core-service-scoped."""
@@ -417,7 +427,7 @@ codebases:
           cpu: 0.5
           memory: 512MB
 """
-    assert "rule_28_health_check_path_needs_port" in _issues(src)
+    assert "rule_33_health_check_path_off_web" in _issues(src)
 
 
 # ---------------------------------------------------------------------------

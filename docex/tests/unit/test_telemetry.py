@@ -47,6 +47,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
+        health_check_path: /health
         uses: [appdb]
         resources:
           cpu: 1.0

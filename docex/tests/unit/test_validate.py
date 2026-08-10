@@ -31,6 +31,7 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
+        health_check_path: /health
         uses: [appdb]
         resources:
           cpu: 1.0
@@ -157,6 +158,74 @@ def test_rule_web_service_needs_port():
     src = _BASE_FIXED.replace("        port: 8080\n", "")
     issues = validate_document(_doc(src), _tables())
     assert any(i.rule == "rule_web_service_needs_port" for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Rule 33 (Mod 125) — `health_check_path` is a web-network field. Sits beside
+# rule 15, its sibling: 15 requires the port a web-network core service is
+# routed to, 33 requires the path the reverse proxy probes on it.
+#
+# Rule 28 (`health_check_path` obliges a `port`) is RETIRED in 1.7.0 and its
+# number tombstoned, exactly as rule 6's is above. Its tests are deleted with
+# it — not merely because it is obsolete but because it is now REDUNDANT: rule
+# 33 confines the field to `web`-network core services and rule 15 already
+# requires a `port` on those, so there is no document left in which rule 28
+# could fire.
+# ---------------------------------------------------------------------------
+
+
+def test_rule_33_web_service_needs_health_check_path():
+    src = _BASE_FIXED.replace("        health_check_path: /health\n", "")
+    issues = validate_document(_doc(src), _tables())
+    assert "rule_33_web_service_needs_health_check_path" in [
+        i.rule for i in issues
+    ]
+
+
+def test_rule_33_web_service_declaring_it_is_clean():
+    assert validate_document(_doc(_BASE_FIXED), _tables()) == []
+
+
+def test_rule_33_health_check_path_off_web_rejected():
+    src = _with_service_block(_BASE_FIXED, _WORKER_SERVICE).replace(
+        "        networks: [internal]\n        resources:\n"
+        "          cpu: 0.5\n",
+        "        networks: [internal]\n"
+        "        health_check_path: /health\n"
+        "        resources:\n          cpu: 0.5\n",
+    )
+    issues = validate_document(_doc(src), _tables())
+    hits = [i for i in issues if i.rule == "rule_33_health_check_path_off_web"]
+    assert [i.where for i in hits] == [
+        "codebases.api.core_services.worker.health_check_path"
+    ]
+
+
+def test_rule_33_non_web_service_declaring_none_is_clean():
+    src = _with_service_block(_BASE_FIXED, _WORKER_SERVICE)
+    assert validate_document(_doc(src), _tables()) == []
+
+
+def test_rule_33_keys_on_network_membership_not_role():
+    """`role: web` OFF the `web` network declares none.
+
+    The field is what the reverse proxy probes, and there is no reverse proxy
+    in front of a core service that is not on the `web` network — so the rule
+    keys on NETWORK MEMBERSHIP, not on role. This is the distinction the
+    doctrine calls out explicitly and the one a reader will get wrong.
+    """
+    off_web = _BASE_FIXED.replace(
+        "        networks: [web, internal]\n", "        networks: [internal]\n"
+    )
+    # Red: a `role: web` core service off the web network declaring the field.
+    rules = [i.rule for i in validate_document(_doc(off_web), _tables())]
+    assert "rule_33_health_check_path_off_web" in rules
+    # Green: the same core service declaring none. Rule 33 asks nothing of it
+    # even though its role is still `web`.
+    clean = off_web.replace("        health_check_path: /health\n", "")
+    rules = [i.rule for i in validate_document(_doc(clean), _tables())]
+    assert "rule_33_health_check_path_off_web" not in rules
+    assert "rule_33_web_service_needs_health_check_path" not in rules
 
 
 def test_rule_env_secrets_overlap():

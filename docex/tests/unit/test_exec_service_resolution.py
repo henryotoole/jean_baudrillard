@@ -32,6 +32,8 @@ _WEB_CODEBASE = {
             "command": ["python", "/service/dist/root.py"],
             "port": 8081,
             "networks": ["web", "internal"],
+            # Rule 33: every web-network core service declares it.
+            "health_check_path": "/health",
             "resources": {"cpu": 0.5, "memory": "1GB"},
         }
     }

@@ -3,7 +3,8 @@
 Cross-document validation (the `uses` graph, magic-ref resolution,
 container_registry-on-fixed, etc.) lives in ``compile.py`` — this
 module covers only what can be checked from a single ``infra.yml`` in
-isolation. See ``cicl.md`` for the full validation rules list.
+isolation (the name-shape rules 5 and 30, per-model field rules, units).
+See ``cicl.md`` for the full validation rules list.
 """
 
 from __future__ import annotations
@@ -28,6 +29,35 @@ _SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
 # it — WHY: two literals for one fact would drift at the worst possible
 # moment, the next CICL generation. See cicl.md § CICL Version.
 CURRENT_CICL_VERSION = "3"
+
+# api_style -> contract format. Transcribed from cicl.md § Surfaces, which is
+# the source of truth; contracts.md § Standards fixes each format's extension.
+#
+# WHY it lives in model.py and not validate.py: mod 126's contract gate resolves
+# a surface to a contract FILENAME from this same table. Two copies of one
+# doctrine table is the drift class docex_process.md § Additional Artifacts
+# exists to warn about.
+#
+# Rule 29 is DERIVED from this mapping (len({format(s) for s in styles}) == 1)
+# and never tabulates legal style pairs, so it cannot rot as styles are added.
+API_STYLE_FORMATS = {
+    "rest": "openapi",
+    "stream": "openapi",
+    "webhook": "openapi",
+    "rpc": "asyncapi",
+    "events": "asyncapi",
+    "socket": "asyncapi",
+    "graphql": "graphql",
+    "grpc": "proto",
+}
+
+# The formats docex can actually carry. `graphql` and `proto` are DEFINED
+# LANGUAGE that is not yet implemented, which is why this is a separate set
+# rather than an absence from the table above: an author who declares one must
+# hear "format not yet implemented", not "unknown style". See
+# 006_surfaces_and_health/surfaces_and_health.md resolved decision 3 and
+# contracts.md § Standards.
+IMPLEMENTED_CONTRACT_FORMATS = frozenset({"openapi", "asyncapi"})
 
 
 def names_core_service(entry: str) -> bool:
@@ -123,6 +153,35 @@ class Resources(BaseModel):
         return self
 
 
+class Surface(BaseModel):
+    """One named boundary of a core service, compiling to one contract file.
+
+    See cicl.md § Surfaces. `extra="forbid"` is deliberate: `api_style:`
+    (singular) is the typo this block invites, and under `extra="allow"` it
+    would be silently ignored, producing a surface with no styles rather than
+    an error. `min_length=1` makes an empty list a parse error, so rule 29
+    never has to reason about the empty set.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_styles: list[str] = Field(min_length=1)
+
+    def formats(self) -> set[str]:
+        """The contract formats this surface's styles resolve to.
+
+        Unknown styles are OMITTED rather than raising: rule 29 reports them
+        under their own issue id, and one authoring mistake must not surface
+        twice. After rule 29 passes this set is a singleton — which is what
+        mod 126 reads to name the surface's contract file.
+        """
+        return {
+            API_STYLE_FORMATS[style]
+            for style in self.api_styles
+            if style in API_STYLE_FORMATS
+        }
+
+
 class CoreService(BaseModel):
     """One named way of invoking a codebase's build artifact.
 
@@ -150,6 +209,14 @@ class CoreService(BaseModel):
     # graph SINK, which is what makes the cycle rule fall out of the graph's
     # shape instead of being enforced against it (rule 6, retired 1.7.0).
     uses: list[str] = Field(default_factory=list)
+    # cicl.md § Surfaces. Declaring a surface is what makes a core service a
+    # PROVIDER; the empty default is a non-provider, which is exactly a clock's
+    # state. Must be a declared field and not an accepted extra: CoreService is
+    # extra="allow", so an authored `surfaces:` would otherwise land in
+    # model_extra and resurface as `tt_rule_4_undeclared_field` — a message
+    # about transfer-table field declarations, which is the wrong answer to a
+    # correctly authored block.
+    surfaces: dict[str, Surface] = Field(default_factory=dict)
     # Carried onto CompiledService as the DECLARED value; `effective_replicas`
     # (compile.py) applies the prod-only clamp. Read by the fixed compose
     # unroll and the elastic ECS `desired_count` (Mod 100).
@@ -422,6 +489,21 @@ class CICLDocument(BaseModel):
                         f"{cb_name!r}) must start with a letter and "
                         "contain only letters, digits, '_' or '-'"
                     )
+                # Rule 30. A surface name is one segment of its contract's
+                # filename, which is parsed RIGHT-ANCHORED into four fields
+                # (<codebase>.<service>.<surface>.<format>.<ext>), so a dot in
+                # a surface name makes the path ambiguous. `_SERVICE_NAME_RE`
+                # is reused rather than reinvented precisely because it is
+                # already dot-free: a second pattern would be a second place
+                # for that property to drift.
+                for surface_name in cb.core_services[service_name].surfaces:
+                    if not _SERVICE_NAME_RE.match(surface_name):
+                        raise ValueError(
+                            f"surface name {surface_name!r} (on core service "
+                            f"{cb_name}.{service_name}) must start with a "
+                            f"letter and contain only letters, digits, '_' or "
+                            f"'-'. See cicl.md § Validation Rules rule 30."
+                        )
         # Names unique across core+backing too.
         overlap = set(self.codebases) & set(self.backing_services)
         if overlap:

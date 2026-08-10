@@ -32,30 +32,64 @@ _FIXTURE_ELASTIC = (
     Path(__file__).resolve().parent.parent / "fixtures" / "sample_project_elastic"
 )
 
-# A core `uses` target must declare `port` and `health_check_path` — those two
-# fields *are* its health declaration (contracts.md § Declared by fields), and
-# on elastic the port is what makes it Service-Connect-discoverable at all.
+# On elastic the `port` is what makes a core `uses` target
+# Service-Connect-discoverable at all: `render_ecs_service` emits the
+# `service_connect_configuration.service {}` block — the registered, resolvable
+# name this whole file reconciles against — only for a service that declares one.
+#
+# Mod 125 therefore makes this file's worker a DIRECTLY-ADDRESSED target rather
+# than a queue-reached one, which is what it always was in substance. Two
+# consequences, both rule-driven:
+#   - it declares an `rpc` surface (rule 31; asyncapi), not `events` — its
+#     consumers resolve and call it, they do not enqueue to it;
+#   - every consumer holds a magic ref to it (`_WORKER_REF` below), because
+#     cicl.md § Rules item 2 is how an in-project service is addressed at all —
+#     and that ref is exactly what rule 32's positive arm reads to REQUIRE the
+#     port this file depends on.
+# It declares no `health_check_path`: rule 33 confines that field to
+# `web`-network core services.
 _WORKER = {
     "role": "worker",
     "command": ["python", "/service/dist/entrypoints/worker.py"],
     "port": 8081,
-    "health_check_path": "/health",
     "networks": ["internal"],
     "uses": ["appdb"],
+    "surfaces": {"rpc": {"api_styles": ["rpc"]}},
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
 }
+
+# The address parts a consumer of `api.worker` builds its Service Connect URL
+# from at startup. Merged into any core service that lists `api.worker` in
+# `uses:` — see the note on `_WORKER`.
+_WORKER_REF = {
+    "WORKER_HOST": "${codebases.api.core_services.worker.host}",
+    "WORKER_PORT": "${codebases.api.core_services.worker.port}",
+}
+
+
+def _addresses_worker(svc: dict) -> None:
+    """Make ``svc`` a direct consumer of ``api.worker``: the edge plus the ref."""
+    svc["uses"] = [*svc.get("uses", []), "api.worker"]
+    svc["env"] = {**svc.get("env", {}), **_WORKER_REF}
+
 
 # Mod 115. A clock is an ORDINARY long-running core service on elastic — it
 # emits an `aws_ecs_service` like any other, so the reconcile must treat it
 # on the same terms as `web` and `worker`. The stop-then-start deployment
 # percentages are an emitter concern and change nothing here.
+#
+# It reaches `api.worker` the same way `api.web` does here — by resolving its
+# Service Connect name — so it carries the same magic ref (`_WORKER_REF`) and
+# for the same rule-32 reason. Its own `port: 8082` is nobody's `uses` target,
+# so rule 32 is silent on it. It declares no `health_check_path` (rule 33) and
+# no surface: nothing uses a clock, which is what makes it a non-provider.
 _CLOCK = {
     "role": "clock",
     "command": ["python", "-m", "entrypoints.clock"],
     "port": 8082,
-    "health_check_path": "/health",
     "networks": ["internal"],
     "uses": ["appdb", "api.worker"],
+    "env": dict(_WORKER_REF),
     "resources": {"cpu": 0.25, "memory": "512MB", "disk": "25GB"},
     "schedules": {"nightly_cleanup": "0 3 * * *"},
 }
@@ -96,7 +130,7 @@ def web_uses_worker(tmp_path: Path):
     def mutate(doc):
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
-        svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
+        _addresses_worker(svcs["web"])
     return _project(tmp_path, mutate)
 
 
@@ -334,7 +368,12 @@ def test_uses_cycle_redeploys_both_sides(
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
         svcs["worker"]["uses"] = [*svcs["worker"].get("uses", []), "api.web"]
-        svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
+        # This is the only mutate where `api.web` is itself a `uses` target, so
+        # it is the only one where rule 31 asks it for a surface. It needs no
+        # magic ref back: rule 32's negative arm carves out `web`-network
+        # targets, whose port rule 15 already requires.
+        svcs["web"]["surfaces"] = {"rest": {"api_styles": ["rest"]}}
+        _addresses_worker(svcs["web"])
     ctx = _project(tmp_path, mutate)
 
     fake_aws.service_connect_endpoint_ages = {
@@ -418,7 +457,7 @@ def test_clock_consumer_is_redeployed_on_the_same_terms(
         svcs = doc["codebases"]["api"]["core_services"]
         svcs["worker"] = dict(_WORKER)
         svcs["clock"] = dict(_CLOCK)
-        svcs["web"]["uses"] = [*svcs["web"].get("uses", []), "api.worker"]
+        _addresses_worker(svcs["web"])
     ctx = _project(tmp_path, mutate)
 
     fake_aws.service_connect_endpoint_ages = {

@@ -23,6 +23,7 @@ codebases:
         command: ["python", "/service/dist/app.py"]
         port: 8080
         networks: [web, internal]
+        health_check_path: /health
         uses: [appdb]
         resources:
           cpu: 1.0
@@ -32,9 +33,13 @@ codebases:
       worker:
         role: worker
         command: ["python", "-m", "entrypoints.worker"]
-        port: 8081
         networks: [internal]
-        health_check_path: /health
+        # Its surface is `events` and `api.clock` reaches it through a queue —
+        # it holds no magic ref to the worker — so the worker declares no
+        # `port` (rule 32's negative arm).
+        surfaces:
+          events:
+            api_styles: [events]
         uses: [appdb]
         resources:
           cpu: 0.25
@@ -46,7 +51,6 @@ codebases:
         command: ["python", "-m", "entrypoints.clock"]
         port: 8082
         networks: [internal]
-        health_check_path: /health
         resources:
           cpu: 0.25
           memory: 512MB
