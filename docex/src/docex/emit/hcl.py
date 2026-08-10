@@ -824,16 +824,23 @@ def render_ecs_service(svc: CompiledService, ctx: _RenderCtx) -> str:
 
 def render_target_group(svc: CompiledService, ctx: _RenderCtx) -> str:
     """Emit ``aws_lb_target_group`` + ``aws_lb_listener_rule`` for a
-    web-network service. The dispatcher only calls this when
-    ``web in svc.networks`` (per ``_destination_applicable``).
+    web-network service.
 
-    Mod 044: ``aws_lb_listener_rule`` is ALB-specific. Mod 070: EC2-traefik
-    routes via the traefik ECS provider, which reads each task's traefik.*
-    dockerLabels (see render_task_definition) — listener rules don't apply
-    there. We still emit the target group: ECS services with a
-    ``load_balancer { ... }`` reference it, and even when traefik is the
-    front door the target-group resource is harmless (no ALB attaches to
-    it). Future cleanup mod can prune.
+    The dispatcher calls this only when the service is on the ``web``
+    network AND the project's ``reverse_proxy`` is ``alb`` — see
+    ``_destination_applicable``, which suppresses ``target_group``
+    outright on the ``ec2_traefik_*`` variants (mod 044/070: traefik
+    reaches ECS tasks through its ECS provider, reading each task's
+    ``traefik.*`` dockerLabels — see ``render_task_definition`` — so
+    neither a target group nor an ALB listener rule applies there).
+
+    WHY this is spelled out: an earlier version of this docstring said the
+    target group was emitted anyway and was "harmless", with a cleanup
+    deferred to a future mod. Mod 070 had already done that cleanup. The
+    stale text was then cited as evidence in cicl.md's rule 33, which
+    carried a false claim about ec2_traefik emitting an inert target group
+    until mod 134. Nothing reaches this function unless an ALB will
+    attach to what it emits.
     """
     # ALB target-group names disallow underscores, so the name is
     # policy-translated regardless of the engine's own naming.

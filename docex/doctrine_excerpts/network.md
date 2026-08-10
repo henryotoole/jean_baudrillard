@@ -1,6 +1,6 @@
 # network
 
-Networks scope which services can reach which others. Each service declares a `networks:` list in `infra.yml`; every service must belong to at least one. The compiler creates one project-scoped network per environment per declared name, formatted as `${project}_${env}_${name}`, so environments stay airgapped from each other.
+Networks scope which services can reach which others. Each service declares a `networks:` list in `infra.yml`; every service must belong to at least one. The compiler creates one project-scoped network per environment per declared name, formatted as `${project_name}-${env_name}-${network_definition_name}`, so environments stay airgapped from each other.
 
 Two foundation realizations:
 

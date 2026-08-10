@@ -56,10 +56,12 @@ The following variables are always available inside a transfer table entry:
 | `${name}` | The service's identity as the compiler keys it: the simple `infra.yml` name for a backing service (e.g. `appdb`), and the two-segment compiled identity for a [core service](../cicl.md#core-services) (e.g. `api-web`). |
 | `${global_service_name}` | The globally-unique form of the service name (see [Naming Policies](#naming-policies)). |
 | `${port}` | The service's `port` field from `infra.yml`. |
-| `${networks}` | The list of networks the service belongs to. |
+| `${networks}` | The networks the service belongs to, comma-joined into a single string (e.g. `web,internal`) — not a list. |
 | `${project_name}` | From `project.yml`. |
 | `${env_name}` | The environment being compiled (`dev`, `test`, `stage`, `prod`). |
 | `${role_name}` | The service's `role` field from `infra.yml` (e.g., `web`, `relational_db`). |
+| `${service}` | The core service's own name segment (e.g. `web` in `api.web`); `None` for a backing service. Used by the bundled role tables to pass a core service's identity to its health probe. |
+| `${codebase_name}` | The name of the codebase the core service belongs to (e.g. `api`); a backing service has no codebase, so it resolves to that service's own `infra.yml` name. |
 | `${env_subdomain}` | The full bare-env hostname per [cicl.md § Domain](../cicl.md#domain): `${env_name}.${project_name}.${apex_domain}` (e.g., `dev.myproject.example.com`, `prod.myproject.example.com`). The bare-project ergonomic shortcut `${project_name}.${apex_domain}` is also available as `${bare_project_subdomain}` for prod-routing rules. |
 | `${apex_domain}` | The apex domain from `infra.yml`'s `apex_domain:` field. |
 | `${field_value}` | Inside a `fields:` entry, the value the project supplied for that role-specific field. |
@@ -790,7 +792,7 @@ Every core service — regardless of foundation — additionally receives a set 
 | `OTEL_SERVICE_NAME` | The core service's compiled identity, `<codebase>-<service>` | `infra.yml` `codebases.<cb>.core_services.<svc>` keys, hyphen-joined |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | Doctrine-fixed. The paired OTel sidecar shares the core service's network namespace, so loopback addressing resolves to the sidecar identically on both foundations — see [telemetry_infra.md § Service Discovery (Fixed)](./telemetry_infra.md#service-discovery) and [§ Service Discovery (Elastic)](./telemetry_infra.md#service-discovery-1). |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | Doctrine-fixed; matches the `otlp` receiver shape baked into the sidecar config — see [telemetry_infra.md § Pipeline Shape](./telemetry_infra.md#pipeline-shape). |
-| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name},docex.codebase=${codebase},docex.service=${service}` | Composed by the compiler from `project.yml` and `infra.yml`; drives backend-side filtering in the observability backend. The two `docex.*` attributes are the codebase / core-service axes made independently queryable — `service.name` fuses them with a hyphen and cannot be decomposed, since either segment may itself contain `-`. |
+| `OTEL_RESOURCE_ATTRIBUTES` | `service.namespace=${project_name},service.version=${project_version},deployment.environment.name=${env_name},docex.codebase=${codebase},docex.service=${service}` | **Not a transfer-table template** — the `${…}` here is notation for values the compiler substitutes directly, and `${project_version}` / `${codebase}` are *not* compile-time variables (see [§ Available compile-time variables](#available-compile-time-variables)); validation rule 5 does not apply to this string. Composed by the compiler from `project.yml` and `infra.yml`; drives backend-side filtering in the observability backend. The two `docex.*` attributes are the codebase / core-service axes made independently queryable — `service.name` fuses them with a hyphen and cannot be decomposed, since either segment may itself contain `-`. |
 
 These variables are doctrine-injected, not project-declared — a project's `infra.yml` need not list them under `env:`, and listing them explicitly is redundant. The compiler emits each on every core service's environment block (compose `environment:` on fixed; ECS `environment[]` entry on elastic — not SSM secrets, since none of these values are sensitive).
 

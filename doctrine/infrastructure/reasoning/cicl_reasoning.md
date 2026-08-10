@@ -19,7 +19,7 @@ This is relevant both for existing fields and new ones which might be developed 
 | migration ownership (`migrate.sh` runs once per codebase) | `networks`, `port` |
 | `env:` (shared) | `uses` |
 | | `env:` (merges over codebase-level) |
-| | every role-specific field (`health_check_path`, `schedules`, …) |
+| | every role-specific field (`schedules`, `versioning`, …) |
 
 Applying it: the *code* is what reads `STRIPE_API_KEY`, so `secrets:` is codebase-scoped. `migrations/` lives in the source tree, so migration ownership is too. **Role-specific fields follow `role`**, which is invocation-determined, so they are core-service-scoped by derivation — the table never needs revisiting when a role gains a field.
 

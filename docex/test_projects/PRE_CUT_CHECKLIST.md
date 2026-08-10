@@ -22,14 +22,20 @@ Every box below must be checked off on the dev machine before the walk begins.
 
 ### A.2 The docex image to be tested
 
-- [ ] The candidate `docex` image is built locally: `docker images docex:1.7.0` shows the tag.
-- [ ] Re-pin each test project to the candidate version. This moves each project's `docex_version` from `1.6.0` to `1.7.0` — the seeds sit at `1.6.0` today because mod 117 deliberately left repinning to the cut:
+- [ ] The candidate `docex` image is built locally: `docker images docex:$(cat ../../VERSION)` shows the tag (run from `docex/test_projects/`).
+- [ ] Re-pin each test project to the candidate version, moving each project's `docex_version` to the candidate. **Check first whether a repin is actually needed** — compare each seed's `project.yml` `docex_version` against `$jb/VERSION`; when a cut has not yet bumped `VERSION`, the seeds may already sit at the candidate and this box plus the commit box below are both no-ops. Do not force a repin that changes nothing, and do not move a tag on a repo that is already correct. Stating the versions as literals is what made this box a full release stale twice; read them (from `docex/test_projects/`, this file's own directory):
+  ```
+  cat ../../VERSION; grep docex_version fixed/project.yml elastic/project.yml
+  ```
+
+  If a repin is needed:
+
   ```
   bash ~/.claude/jean_baudrillard/docex_install.sh test_projects/fixed
   bash ~/.claude/jean_baudrillard/docex_install.sh test_projects/elastic
   ```
 - [ ] `cd test_projects/fixed && ./bin/docex --version` prints the candidate version. Same for `elastic/`.
-- [ ] **Commit the repin inward before assessing A.2.1.** The repin edits `project.yml`, which dirties both repos; A.2.1 requires a **clean** inner tree with the version tag at HEAD. Commit in the inner repo per [`test_projects.md § Commit cadence`](../plans/core/test_projects.md#commit-cadence) and force-move `v<version>` to the new HEAD. Skipping this does not fail here — it fails at A.2.1, or worse, silently leaves `containerize` pointed at a commit that predates the repin.
+- [ ] **If the repin changed anything, commit it inward before assessing A.2.1.** The repin edits `project.yml`, which dirties both repos; A.2.1 requires a **clean** inner tree with the version tag at HEAD. Commit in the inner repo per [`test_projects.md § Commit cadence`](../plans/core/test_projects.md#commit-cadence) and force-move `v<version>` to the new HEAD. Skipping this does not fail here — it fails at A.2.1, or worse, silently leaves `containerize` pointed at a commit that predates the repin.
 
 ### A.2.1 Test projects are self-contained git repos
 
@@ -62,7 +68,7 @@ The post-1.0.0 doctrine separates preinfra (machine-/account-wide), projinfra (p
 
 No traefik env vars are required. Fixed-foundation certs use the **HTTP-01** ACME challenge (Gap A / mod 051), served on the `web` entrypoint (`:80`) that the HAProxy demux already forwards by Host header — there is **no** `TRAEFIK_DNS_PROVIDER` prerequisite (HTTP-01 needs no DNS-provider credentials). `TRAEFIK_ACME_EMAIL` is **optional**: Let's Encrypt registers fine with no contact email; setting it only enables LE expiry-reminder emails. (Threading it through docex is a deferred future option — mod 053 / F2 decision A.)
 
-`./bin/docex preinfra development` (run from either test-project root, since it checks dev-side machine state which is project-agnostic) probes the bridge + HAProxy and exits 0 only when both are present.
+`./bin/docex preinfra development` probes the bridge + HAProxy and exits 0 only when both are present. **Run it from *both* test-project roots — it is not project-agnostic.** It also resolves the invoking project's own `dev` hostnames, and the registry manifest-delete probe fires only for a `fixed` project that declares a `container_registry`, so a single run from one root leaves the other project's dev DNS and the entire registry probe unasserted.
 
 #### A.3.2 Production side (elastic; only for the elastic walk)
 
@@ -80,14 +86,12 @@ Both test projects share the parent apex `luxrnd.tech` (Route53). The fixed proj
 
 The fixed project's bare apex is `luxrnd.tech` and the project segment derives to `docex-smoke-fixed`. The dev machine's public IP (`$DEV_IP`) needs to be reachable at every per-env host.
 
-**These nine records are created once, in the parent `luxrnd.tech` Route53 zone, as `A` records → `$DEV_IP`, and they are permanent.** They are *standing* records: they survive teardown by design, and [§ E](#e-after-both-walks-succeed) exempts them explicitly. Two reasons. First, `teardown.sh` disclaims DNS as the operator's responsibility (see its header) and always has — this section is now the other half of that statement rather than the only mention. Second, unlike the elastic walk, the fixed project has **no zone lifecycle** for a walk to create and destroy: A.4.2's child-zone records are temporary because `projinfra up/down production` creates and destroys the child zone around them, and no equivalent exists here. Per-walk churn would buy nothing and cost a DNS-propagation stall at the front of every walk.
+**These seven records are created once, in the parent `luxrnd.tech` Route53 zone, as `A` records → `$DEV_IP`, and they are permanent.** They are *standing* records: they survive teardown by design, and [§ E](#e-after-both-walks-succeed) exempts them explicitly. Two reasons. First, `teardown.sh` disclaims DNS as the operator's responsibility (see its header) and always has — this section is now the other half of that statement rather than the only mention. Second, unlike the elastic walk, the fixed project has **no zone lifecycle** for a walk to create and destroy: A.4.2's child-zone records are temporary because `projinfra up/down production` creates and destroys the child zone around them, and no equivalent exists here. Per-walk churn would buy nothing and cost a DNS-propagation stall at the front of every walk.
 
-**Creation.** If `dig +short <subdomain>` returns nothing for any of the nine, create it in the parent `luxrnd.tech` zone as an `A` record → `$DEV_IP` before proceeding. Do this at the Route53 console alongside A.4.2's records; the checklist is operator-driven and deliberately does not script it.
+**Creation.** If `dig +short <subdomain>` returns nothing for any of the seven, create it in the parent `luxrnd.tech` zone as an `A` record → `$DEV_IP` before proceeding. Do this at the Route53 console alongside A.4.2's records; the checklist is operator-driven and deliberately does not script it.
 
 - [ ] `dev.docex-smoke-fixed.luxrnd.tech       A → $DEV_IP`
 - [ ] `*.dev.docex-smoke-fixed.luxrnd.tech     A → $DEV_IP`
-- [ ] `test.docex-smoke-fixed.luxrnd.tech      A → $DEV_IP`
-- [ ] `*.test.docex-smoke-fixed.luxrnd.tech    A → $DEV_IP`
 - [ ] `stage.docex-smoke-fixed.luxrnd.tech     A → $DEV_IP`
 - [ ] `*.stage.docex-smoke-fixed.luxrnd.tech   A → $DEV_IP`
 - [ ] `prod.docex-smoke-fixed.luxrnd.tech      A → $DEV_IP`
@@ -103,8 +107,8 @@ Verify each: `dig +short <subdomain>` returns `$DEV_IP`.
 `docex projinfra up production` creates a Route53 zone for `docex-smoke-elastic.luxrnd.tech` (project zone, child of `luxrnd.tech`). Between phase 1 and phase 2 of the projinfra apply, the operator NS-delegates from the parent `luxrnd.tech` zone.
 
 - [ ] Operator has Route53 admin on `luxrnd.tech`.
-- [ ] **Elastic dev/test hosts must resolve before D.1.** `docex preinfra development` (D.1) also runs for the elastic project (its `dev`/`test` envs are local fixed stacks) and fails until `dev`, `*.dev`, `test`, `*.test`.`docex-smoke-elastic.luxrnd.tech` resolve to the dev machine. These are **out-of-band** dev/test A-records (deliberately not in projinfra — see the doctrine's elastic-dev-DNS note). Create them in the parent `luxrnd.tech` zone → `$DEV_IP` (low TTL) before D.1.
-- [ ] **⚠ Re-create the same four records in the CHILD zone immediately after D.3 phase 1, before probing anything.** Delegating the child zone at D.3 makes it authoritative for everything under `docex-smoke-elastic.luxrnd.tech`, which **shadows** the parent-zone dev/test records. An earlier revision of this checklist said the shadowing "is fine — `preinfra development` only runs at D.1." **That is wrong: `envinfra up dev` re-runs `preinfra development` as a precondition**, so D.6 fails after D.3 with `dev host '…' does not resolve in public DNS`.
+- [ ] **Elastic dev/test hosts must resolve before D.1.** `docex preinfra development` (D.1) also runs for the elastic project (its `dev`/`test` envs are local fixed stacks) and fails until `dev.docex-smoke-elastic.luxrnd.tech` and `*.dev.docex-smoke-elastic.luxrnd.tech` resolve to the dev machine. These are **out-of-band** dev/test A-records (deliberately not in projinfra — see the doctrine's elastic-dev-DNS note). Create them in the parent `luxrnd.tech` zone → `$DEV_IP` (low TTL) before D.1.
+- [ ] **⚠ Re-create the same two records in the CHILD zone immediately after D.3 phase 1, before probing anything.** Delegating the child zone at D.3 makes it authoritative for everything under `docex-smoke-elastic.luxrnd.tech`, which **shadows** the parent-zone dev/test records. An earlier revision of this checklist said the shadowing "is fine — `preinfra development` only runs at D.1." **That is wrong: `envinfra up dev` re-runs `preinfra development` as a precondition**, so D.6 fails after D.3 with `dev host '…' does not resolve in public DNS`.
 
   Two further traps make this expensive rather than merely annoying:
 
@@ -256,7 +260,9 @@ Run this audit *once per cut*, against each project independently.
   correct replacement — an existence check is blind to that, because the file it
   wants is also there. Reaching `check` needs the walk's feature-branch restructure
   ([C.6](#c6-check--containerize) / [D.8](#d8-check--containerize)), so at audit
-  time confirm the *shape* here and record the gate's line when you get there.
+  time confirm the *shape* here and record the gate's line when you get there — the
+  box that does that recording is the sub-bullet under each of those two `check`
+  steps, so this pointer no longer dangles.
   Per [`contracts.md`](../../doctrine/infrastructure/contracts.md).
 - [ ] **B.10 Health is a command, not an endpoint** — five parts, all per **core
   service**.
@@ -418,7 +424,7 @@ Run this audit *once per cut*, against each project independently.
   `forbidden` **and** `not core` arms are **both** checked, so a probe appearing on
   something new and unclassified is caught, not only the three shapes known today.
 - [ ] **B.11 Hex layout** — each **codebase** contains **exactly one** `src/root.py` (composition root — never `root_web.py` / `root_worker.py`, which would put two drifting copies of the driven wiring in the tree); each hex module contains `domain/`, `ports/{driving,driven}/`, `adapters/{driving,driven}/`, `alogic/`. Per [`hex_overview.md § Project Structure`](../../doctrine/hexagonal_architecture/hex_overview.md#project-structure) and [`internal_dependency_rules.md § Composition Root`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#composition-root).
-- [ ] **B.11.1 `src/entrypoints/` present, one module per core service** — and each core service's `command` in `infra.yml` invokes exactly one of them. **The composition root constructs; it does not activate**: grep each `root.py` for a `uvicorn.run`, a `serve`, a `while True`, a bound/listening socket, or an `if __name__ == "__main__"` block. Any of those is a failure. **Grep `socket` with judgement, not mechanically:** a health handler that *constructs* a `socket.create_connection` to probe a backing service is legitimate (the seed's `api/src/root.py` does exactly this for `/health/events`) — what the rule forbids is the root *binding* or *listening*. The test is whether the root returns its graph un-activated — the runtime host (uvicorn, a broker's consume loop, a poll loop) belongs to the entrypoint, not to the root and not to an adapter. Without this item the audit cannot catch a project whose `root.py` still starts a server, which is precisely the shape CICL v2 makes inexpressible: with more than one core service sharing one image, at most one could be what `root.py` starts. Per [`internal_dependency_rules.md § Entrypoints`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints).
+- [ ] **B.11.1 `src/entrypoints/` present, one module per core service** — and each core service's `command` in `infra.yml` invokes exactly one of them. **The composition root constructs; it does not activate**: grep each `root.py` for a `uvicorn.run`, a `serve`, a `while True`, a bound/listening socket, or an `if __name__ == "__main__"` block. Any of those is a failure. **Grep `socket` with judgement, not mechanically:** a health handler that *constructs* a `socket.create_connection` to probe a backing service is legitimate (the seed's `api/src/root.py` does exactly this for `/diagnostics/events`) — what the rule forbids is the root *binding* or *listening*. The test is whether the root returns its graph un-activated — the runtime host (uvicorn, a broker's consume loop, a poll loop) belongs to the entrypoint, not to the root and not to an adapter. Without this item the audit cannot catch a project whose `root.py` still starts a server, which is precisely the shape CICL v2 makes inexpressible: with more than one core service sharing one image, at most one could be what `root.py` starts. Per [`internal_dependency_rules.md § Entrypoints`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints).
 - [ ] **B.12 Migrations idempotent + reversible** — every `core/<codebase>/migrations/*.sql` has both `-- migrate:up` and `-- migrate:down` sections. Per [`databases.md § Migrations`](../../doctrine/practices/databases.md#migrations).
 - [ ] **B.13 Stage tester present** — `infra/stage/Dockerfile`, `infra/stage/stage_test.sh`, `infra/stage/tests/` all populated. Per [`tests.md § Staging Tests`](../../doctrine/infrastructure/tests.md#staging-tests).
 - [ ] **B.14 Foundation-irrelevant code parity** — `diff -r test_projects/fixed/core test_projects/elastic/core` produces no output (other than `__pycache__` / `dist/` which are gitignored). This covers the entrypoints too: a core service whose entrypoint differs by foundation means the parts-only env model is leaking foundation specifics into application code — that's a doctrine bug.
@@ -466,6 +472,21 @@ Run this audit *once per cut*, against each project independently.
 > **A reachable `origin` is required.** `check`/`merge` run `git fetch origin` from **inside** the docex container, which mounts the project root and specific `$HOME` subdirs (`~/.docker`, `~/.aws`, `~/.gitconfig`, `~/.ssh`) — **not** arbitrary `$HOME` paths. So a local bare remote must live **under the project root** to be container-visible. Create one in the gitignored `.docex/` (e.g. `git init --bare .docex/origin.git`), `git remote add origin .docex/origin.git`, and `git push origin main v<prior>` so `origin/main` sits at the prior release. The restructure: delete the current `v<new>` tag (merge recreates it), branch the new-version work onto a feature branch, move `main` back to `v<prior>`, push `main` to origin, and check out the feature branch.
 
 - [ ] `./bin/docex check` — exits 0. Runs gate checks against an ephemeral worktree (feature branch ⊕ `origin/main`).
+  - [ ] **Record `check`'s two contract gates by name, not just the exit code.** Exit 0
+        alone does not prove the *orphan* arm ran. Copy both lines out of `check`'s gate
+        table into the walk log; for these seeds they read:
+        ```
+          [PASS] contracts_exist         — 3 contract(s) present
+          [PASS] contract_health_path    — 'GET <path>' present for 1 web-network openapi provider(s)
+        ```
+        (`'GET <path>'` is literal — the gate does not interpolate the path. Column
+        padding varies with the longest gate name in the run.) `contracts_exist` reports
+        **both** directions, and the orphan direction is the one that matters here: it is
+        the only check that catches a leftover three-segment `api.web.openapi.yml` left
+        sitting beside its four-segment replacement, which an existence check cannot see
+        because the file it wants is also present. A count other than 3 means a contract
+        was added, removed, or orphaned — re-derive from `infra.yml`'s `surfaces:` blocks
+        before recording anything. This is the box **B.9** defers to.
 - [ ] `./bin/docex merge` — **required, and easy to miss: `containerize` refuses to run off `main`.** The real chain is `check` (on the feature branch) → `merge` → `containerize`. `merge` rebases onto `main`, tags `v<version>` at the new HEAD, and pushes both. Note it prints `error: failed to push some refs` while still **exiting 0** when the feature branch was never pushed to origin (it tries to delete a remote branch that does not exist) — alarming, harmless.
 - [ ] `./bin/docex containerize` — succeeds; **one image per codebase**, and there is one codebase, so exactly **one** repo: `registry.luxrnd.tech/docex_smoke_fixed/api:<v>` pushes successfully. The old `…/web` and `…/worker` are gone: `api-web`, `api-worker`, and `api-clock` all share the `api` tag and differ only by `command`. Confirm no **second** repo appears — a second one means a codebase was reintroduced. (Repo names preserve project-segment underscores per mod 030's structural emitter — this is correct.)
 
@@ -632,9 +653,24 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 ### D.8 Check + Containerize
 
-> **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.7 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`. This deliberately conflicts with [A.2.1](#a21-test-projects-are-self-contained-git-repos)'s resting state — see its ordering carve-out.
+> **Feature-branch prerequisite (mod 053 / F8).** As in C.6: `check`/`merge` need `main` at the prior release and the new version on a feature branch checked out now (the worktree merges feature ⊕ `origin/main`). Also note the D.3/D.4 ordering — `compile` must run before any `projinfra up`, since `projinfra up production`'s phase-2 `tofu apply` reads the compiled project-tier `main.tf`. This deliberately conflicts with [A.2.1](#a21-test-projects-are-self-contained-git-repos)'s resting state — see its ordering carve-out.
 
 - [ ] `./bin/docex check` — exits 0.
+  - [ ] **Record `check`'s two contract gates by name, not just the exit code.** Exit 0
+        alone does not prove the *orphan* arm ran. Copy both lines out of `check`'s gate
+        table into the walk log; for these seeds they read:
+        ```
+          [PASS] contracts_exist         — 3 contract(s) present
+          [PASS] contract_health_path    — 'GET <path>' present for 1 web-network openapi provider(s)
+        ```
+        (`'GET <path>'` is literal — the gate does not interpolate the path. Column
+        padding varies with the longest gate name in the run.) `contracts_exist` reports
+        **both** directions, and the orphan direction is the one that matters here: it is
+        the only check that catches a leftover three-segment `api.web.openapi.yml` left
+        sitting beside its four-segment replacement, which an existence check cannot see
+        because the file it wants is also present. A count other than 3 means a contract
+        was added, removed, or orphaned — re-derive from `infra.yml`'s `surfaces:` blocks
+        before recording anything. This is the box **B.9** defers to.
 - [ ] `./bin/docex merge` — **required; `containerize` refuses to run off `main`** (see C.6 for the full note).
 - [ ] `./bin/docex containerize` — succeeds; **one ECR repo and one image per codebase**: `<account>.dkr.ecr.us-east-1.amazonaws.com/docex_smoke_elastic/api:<v>`. The old `{web,worker}` repos are gone — `api-web`, `api-worker`, and `api-clock` all share the `api` tag. Confirm D.3 phase 2 provisioned exactly **one** ECR repo; a second appearing means a codebase was reintroduced. Authenticates against ECR via `aws ecr get-login-password` per invocation.
 
@@ -662,7 +698,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
   Write both timestamps into the walk log. **Expected verdict: `fire` on this
   first `stage` release** — deployment and name are created seconds apart — and
-  **`skip` on the code-only 0.0.21 release**, where the gap is days.
+  **`skip` on the code-only 0.0.24 release**, where the gap is days.
 
   The two verdicts are distinguishable in `release`'s own output, and both are
   explicit — neither is silence:
@@ -749,7 +785,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
   Write both timestamps into the walk log. **Expected verdict: `fire` on this
   first `prod` release** — deployment and name are created seconds apart — and
-  **`skip` on the code-only 0.0.21 release**, where the gap is days.
+  **`skip` on the code-only 0.0.24 release**, where the gap is days.
 
   The two verdicts are distinguishable in `release`'s own output, and both are
   explicit — neither is silence:
@@ -822,7 +858,7 @@ Same intent as C.10 but against elastic prod. The rollback path pushes SSM and r
 > A core service that cannot run alongside a copy of itself therefore first surfaces in **production**. That is a known limitation of the prod-only clamp, and it is the reason these two steps are not optional.
 
 - [ ] Both `verify_clean.sh` runs are green.
-- [ ] No leftover state in Route53 except: the parent `luxrnd.tech` zone; **the nine standing fixed-walk `A` records from [A.4.1](#a41-fixed-walk-dns)**; and any other unrelated records the operator runs. Those nine are *expected* to remain — deleting them breaks the next fixed walk at A.4.1, which is the contradiction this exemption repairs. The elastic walk's records, by contrast, are temporary and A.4.2 requires their removal, **including the parent-zone `NS` delegation**.
+- [ ] No leftover state in Route53 except: the parent `luxrnd.tech` zone; **the seven standing fixed-walk `A` records from [A.4.1](#a41-fixed-walk-dns)**; and any other unrelated records the operator runs. Those seven are *expected* to remain — deleting them breaks the next fixed walk at A.4.1, which is the contradiction this exemption repairs. The elastic walk's records, by contrast, are temporary and A.4.2 requires their removal, **including the parent-zone `NS` delegation**.
 - [ ] No registry images for `docex_smoke_fixed` or `docex_smoke_elastic` remain.
 - [ ] AWS cost report for the smoke-test window matches expectations (~$X for 1–2 hours of stage+prod elastic infra; verify against running tally).
 

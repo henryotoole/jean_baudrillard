@@ -343,6 +343,72 @@ manifest-delete probe (mod 133).
 
 ### Fixed
 
+- **Rule 33's `ec2_traefik` clause was false, and a stale docstring is what made it
+  false (mod 134).** The rule said the compiler "still emits a target group carrying
+  the path" on the `ec2_traefik_*` variants, "inert" because no ALB attaches. It emits
+  none at all: `_destination_applicable` suppresses `target_group` whenever
+  `reverse_proxy != "alb"`, and mod 070 is what did that. The false claim was built on
+  `render_target_group`'s docstring, which still promised the target group was emitted
+  anyway and deferred a cleanup mod 070 had already performed — so two docstrings in one
+  file contradicted each other and the stale one was cited as evidence about current
+  behavior. The rule is corrected to the stronger, uniform form (consumed on `elastic` +
+  `alb` **alone**; no consumer at all everywhere else) and the docstring that misled it
+  is gone. Recorded because it is this advance's own defect class reaching the rule of
+  record: **a citation is not a measurement.**
+- **Three doctrine files restated rules 32 and 33 in their pre-fix, contradictory forms
+  (mod 134).** `cicd.md`'s check-step list restated rule 32 without the `web`-network
+  exemption — the form that makes rules 15 and 32 contradict each other on the
+  `frontend`/`api` topology — and both `cicd.md` and `healthchecks.md` called
+  `health_check_path` "what the load balancer probes / reads" with no qualification.
+  `cicl_reasoning.md` went further and used `health_check_path` as its canonical example
+  of a field that "follows `role`", which rule 33 keys on **network membership**; the
+  example is now `schedules`, which really is role-keyed. `ec2_traefik.md` twice called
+  the ECS provider's `lastStatus == RUNNING` filter "health-gating" — it is a lifecycle
+  state, and a task failing `health.sh` stays `RUNNING` and keeps taking traffic.
+- **`transfer_tables.md`'s "always available" variable table was missing two variables
+  the bundled tables use (mod 134).** `${service}` is real and load-bearing —
+  `web.yml`, `worker.yml` and `clock.yml` all pass it to `./health.sh` — and
+  `${codebase_name}` was likewise absent, in a table whose own validation rule 5
+  requires every `${...}` to resolve to a known variable. `${networks}` was described as
+  a list and is a comma-joined string. Deliberately **not** added: `${project_version}`,
+  which is not a compile-time variable at all but a Python parameter the emitter
+  interpolates — a row for it would have put a false claim in the one table whose entire
+  job is enumerating what resolves. The `OTEL_RESOURCE_ATTRIBUTES` row that uses it is
+  now marked compiler-composed rather than rewritten.
+- **Two documented test invocations reported success while running nothing (mod 134).**
+  `RELEASING.md` gated a cut on "`pytest` (incl. `-m integration`)" — bare `pytest`
+  cannot collect this suite, and `pyproject.toml`'s `addopts` already carries
+  `-m 'not integration'`, so the combined form matches nothing and exits 0. Running from
+  the repo root fails the same way for a third reason (`tests.conftest` is unimportable
+  there). Each failure mode reports a deselect count **one short** of the truth, which
+  is what makes it believable. `docex_process.md`'s own warning about this carried two
+  stale numbers (17 and 18; the real count is 21) and now states the method for
+  re-deriving them instead of a figure that goes stale.
+- **`PRE_CUT_CHECKLIST` carried seven defects into the two real-AWS walks it gates
+  (mod 134).** A.3.1 called `preinfra development` "project-agnostic, run from either
+  root" — it resolves the invoking project's own hostnames and its registry probe fires
+  only for `fixed` with a `container_registry`, so one run left the other project's dev
+  DNS and the whole probe unasserted. A.2 said the seeds "sit at `1.6.0`" when both were
+  already at the candidate, risking tag surgery on a correct repo at the front of a
+  walk; it now reads the version instead of restating it, having been a full release
+  stale twice. A.4.1/A.4.2 required `test` DNS records for an env that is no longer
+  routed or TLS'd and whose compiled compose contains no `Host()` rule at all — nine
+  standing records become seven. B.11.1 pointed at `/health/events` for a route that
+  lives at `/diagnostics/events`. D.9/D.11 expected a verdict on a version two releases
+  behind. D.8 cited "the D.3/D.7 ordering" for a claim about D.4. And **no box recorded
+  `check`'s `contracts_exist` output**, so the *orphan* arm — the only thing that catches
+  a leftover three-segment contract sitting *beside* its replacement, which an existence
+  check cannot see because the file it wants is also there — was asserted nowhere,
+  despite B.9 promising it would be.
+- **Three `doctrine_excerpts` entries showed compiled identities a rename ago (mod
+  134).** `service_discovery.md`, `network_web.md` and `network.md` carried underscored,
+  three-segment names (`myproject_dev_api`, `{project}_{env}_web`) where compiled
+  identities are `${project}-${env}-${codebase}-${service}`. Advance 005's rename left
+  **no stale nouns** — it added a *fourth segment*, which is why no vocabulary grep could
+  find this. A full audit of the directory found 15 of 18 entries defective and three
+  actively misinstructing; it is booked as an overhaul rather than folded in, because
+  94% of the defects predate advance 006 and 14 trace to the directory's original
+  authoring.
 - **`linkcheck.py`'s anchor check failed open, silently, on every target outside
   the scanned roots (mod 132).** The guard read `if rp in anchors and ...` against
   a table built only from *scanned* files, so a link into any unscanned tree had

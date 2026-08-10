@@ -143,17 +143,32 @@ proportion is the argument:
 | Stale subdomain scheme (a `domain:` field that no longer exists; no project segment; `prod → www.`) | `dns.md`, `registrar.md` | the completeness pass; **booked**, not fixed |
 | `example.env` described as compile-emitted and committed — mod 092 deleted that emit | `secrets.md` | the completeness pass; **booked**, not fixed |
 | `docex up` for `docex envinfra up` | `environment_config.md` | the completeness pass; **booked**, not fixed |
+| Underscored, three-segment compiled identities — residue of advance 005's rename, which gave the identity a **fourth** segment | `service_discovery.md`, `network_web.md`, `network.md` | mod 134; fixed |
 
-Nine of eighteen entries, and **the vocabulary grep found exactly one of them.** The
+Over half of the eighteen entries, and **the vocabulary grep found exactly one of them.** The
 inverted topology claim had propagated to four files and predated the advance
 entirely; the stale subdomain scheme predates `apex_domain`. Two lessons follow.
 First, an artifact with no automated consumer does not drift *at* the rate its
 subject changes — it drifts at the rate nobody looks, so a sweep should expect to
 find damage from releases other than the one it is sweeping for. Second, **the
-completeness pass is not optional and is not a formality**: it found eight of the
-nine. The four still open are booked at
+completeness pass is not optional and is not a formality**: every defect above except
+that one came from it — count the rows of the table, not this sentence. The four still
+open are booked at
 [`007_small_edges/doctrine_excerpts_stale_entries.md`](../advances/007_small_edges/doctrine_excerpts_stale_entries.md),
 because each needs a rewrite rather than a corrected clause.
+
+Mod 134 then audited all eighteen entries against the doctrine rather than against a
+term list, and found the drift is far wider than the rows above: **15 of 18 carry
+defects and three actively misinstruct.** That audit is booked as a full overhaul at
+[`007_small_edges/doctrine_excerpts_overhaul.md`](../advances/007_small_edges/doctrine_excerpts_overhaul.md),
+which supersedes the narrower booking above. Two findings belong here rather than
+there, because they are about *this* process and not about the excerpts. First, **94% of
+the defects predate advance 006 and 14 of them trace to a single commit** — the
+directory's original authoring — which is the drift-at-the-rate-nobody-looks claim
+measured rather than asserted. Second, `git blame` **flatters** a sweeping advance:
+mod 131 edited two of these lines without fixing the stale token already on them, so
+blame attributes months-old content to the sweep that touched it. An advance cannot
+use blame to bound what it is responsible for.
 
 Keep them aligned. Fixing the code while leaving the rule stale (or vice versa) is the failure mode this process guards against.
 
@@ -168,8 +183,12 @@ python -m pytest tests -m integration   # the integration suite — run ALONE
 ```
 
 1. **`python -m pytest`, never bare `pytest`.** The bare binary cannot collect this
-   suite. It reports **17** deselected instead of 18 and runs nothing — a count near
-   enough to the truth to be believed.
+   suite. It reports a deselect count one short of the real one and runs nothing — at
+   the time of writing 21 integration-marked items exist, and the bare binary's near-miss
+   is exactly what makes it believable. Re-derive rather than trust this number:
+   `python -m pytest tests -q` prints the deselected count, and
+   `python -m pytest tests -q -m integration` prints how many actually run. The
+   two must agree.
 2. **The default suite is `tests`, not `tests/unit`.** Sixty-plus fast compile tests
    live under `tests/integration/` carrying **no** marker, so the conventional pair
    `pytest tests/unit` + `pytest tests -m integration` has a sixty-test hole between
