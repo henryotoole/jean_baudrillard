@@ -178,6 +178,40 @@ class StageTesterBuildFailed(DocexError):
     """Building the ephemeral stage-tester image failed."""
 
 
+class DeployedServiceUnhealthy(DocexError):
+    """The orchestrator answered, and the answer is bad.
+
+    A deployed core service is not healthy, is not running, or is not on the
+    version under test. Raised by ``stagetest``'s orchestrator pre-step (mod
+    128). Rule of record: ``healthchecks.md § Version`` — the orchestrator's
+    aggregated state and the deployment record are the truth, never a probe's
+    stdout.
+
+    Paired with ``OrchestratorStateUnreadable``. **These are two types and not
+    one on purpose.** The operator's next move differs — "the release is bad,
+    look at the service" vs. "the question was never answered, look at docex or
+    your credentials" — but the load-bearing reason is narrower: keeping them
+    separate makes "the gate broke" *untypeable* as "the env is fine". With one
+    type, a test written for the honest failure would pass when the gate merely
+    failed to read anything, which is the exact defect mod 128 exists to close.
+    """
+
+
+class OrchestratorStateUnreadable(DocexError):
+    """docex could not obtain an answer about the deployed env at all.
+
+    Unreachable host, absent cluster or service, an inconsistent task set, an
+    unreadable task-definition revision, garbled ``docker inspect`` output, an
+    image that declares no healthcheck, or an image ref with no readable tag.
+
+    This class exists so that *not knowing* can never be reported as health.
+    See ``DeployedServiceUnhealthy`` above for why the split is two types, and
+    ``healthchecks.md § Version`` plus mod 128's overview
+    (§ *Every way this step could fail to be able to answer*) for the full
+    enumeration of modes that land here.
+    """
+
+
 class TagMissing(DocexError):
     """``containerize`` was invoked before ``docex merge`` tagged the
     release. The expected ``v<version>`` tag is not present on HEAD."""

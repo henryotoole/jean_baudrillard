@@ -278,6 +278,28 @@ rollback-unavailable boundary inside one cut.
 
 ### Fixed
 
+- **The ECS cluster name is one expression instead of five (mod 128).** The
+  `<project>-<env>` cluster name — which is *also* the env's Service Connect
+  namespace name — was computed verbatim in `release.py`, `orchestrate/migrate.py`,
+  `pipeline/projinfra.py`, and `emit/hcl.py`, with `stagetest`'s new read about to
+  make a sixth. All now call `naming.ecs_cluster_name`. The emitter/reader pair is
+  what made it worth closing: `emit/hcl.py` *creates* the clusters the other three
+  address, so a drift between them means a runtime read pointed at a cluster
+  nothing created.
+
+- **Twelve tests were red and the suite reported green.**
+  `tests/integration/test_compile.py` holds 60-plus fast compile tests of which
+  one carries `@pytest.mark.integration`, so the conventional pair of invocations
+  — `pytest tests/unit` and `pytest tests -m integration` — has a hole between
+  them that neither can see. Ten of the twelve were inline `infra.yml` documents
+  invalid under rule 33; two had been red since advance 005 (a `cicl_version: "2"`
+  pin and an assertion on the retired `depends_on`). All fixed as CICL
+  conformance. The structural cause outlives the fix and is filed at
+  `docex/plans/advances/007_small_edges/misfiled_compile_tests.md`, along with the
+  measured fact that `pytest -m integration` **must be run alone** — run
+  concurrently it produces five convincing false failures in migrate, up/down,
+  and build.
+
 - **The pre-cut checklist named the wrong Service Connect consumers** (mod 124).
   `PRE_CUT_CHECKLIST.md` D.9 and D.11 told the walker to record reconcile
   operands for "`api-web` and `api-worker` — they form a `uses` cycle", and the
@@ -536,6 +558,54 @@ rollback-unavailable boundary inside one cut.
   a role already served correctly by the generated `docex role` surface.
 
 ### Added
+
+- **`docex stagetest` reads liveness and version from the orchestrator, and
+  fails before it builds the tester (mod 128).** Step 1 of the staging-test
+  process is now a foundation-aware pre-step: `docker inspect` **over SSH** to
+  the deployed host on fixed (`stage`/`prod` containers do not run on the
+  operator's machine), ECS `list_tasks` / `describe_tasks` /
+  `describe_task_definition` on elastic. Every core service must be healthy and
+  running the image tag matching `project.yml`'s version, or `stagetest` fails
+  there — before the stage-tester image is built. **This is the liveness
+  assertion; nothing downstream repeats it**, which is what lets staging tests
+  narrow to what genuinely requires being outside the stack. Version comes from
+  the deployment record rather than a self-report, so a container running last
+  week's image cannot misreport it; when the orchestrator and a self-report
+  disagree, the orchestrator wins.
+
+  **A probe's output is never parsed.** Docker captures healthcheck stdout and
+  ECS surfaces only a status, so anything read from probe output would work on one
+  foundation and silently not on the other. Liveness is the orchestrator's
+  aggregated state; version is the deployment record.
+
+  Two error classes, deliberately distinct: `DeployedServiceUnhealthy` (the
+  orchestrator answered and the answer is bad) and `OrchestratorStateUnreadable`
+  (docex could not obtain an answer at all). The split is the structural point of
+  the change — it makes "the gate broke" untypeable as "the env is fine." **No
+  empty result set reads as healthy** anywhere in the gate: zero core services,
+  zero RUNNING tasks, a container with no health state, an unreadable
+  task-definition revision, an image ref with no readable tag, and `rc 0` with
+  unusable `docker inspect` output all fail loudly and by name. On elastic, a task
+  set that shrinks between `list_tasks` and `describe_tasks` gets **one** bounded
+  re-read — ECS replaces tasks on its own schedule, so one unlucky replacement
+  mid-read is not evidence about the release — then fails; the re-read is scoped
+  to a shrinking task set only, never to a task that was returned and reported
+  unhealthy, which is what makes it structurally unable to mask an unhealthy
+  service. **The gate has no flag that disables it**, deliberately and
+  permanently.
+
+  Three new `AWSClient` methods (`ecs_list_service_task_arns`,
+  `ecs_describe_tasks`, `ecs_task_definition_images`) whose contract is the
+  *inverse* of the neighbouring `ecs_primary_deployment_times`: that one swallows
+  a missing cluster because its caller reads absence as "redeploy"; these raise,
+  because an unreadable service must never be indistinguishable from a healthy
+  one. Both docstrings name each other so the swallow cannot be copied into the
+  wrong place.
+
+  One asymmetry is known and accepted: on fixed the version comes from
+  `.Config.Image`, which proves the image *ref* and not the bytes — a re-pushed
+  tag would pass. No project records an expected digest to compare against, and
+  `healthchecks.md` specifies the ref.
 
 - **A job must tolerate a cold schema** (mod 124). `clock.md § Caveats` gains a
   fourth bullet stating an obligation the doctrine had never written down.

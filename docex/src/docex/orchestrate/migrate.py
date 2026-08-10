@@ -26,7 +26,7 @@ from docex.cicl.compile import codebase_global_name
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import AnsibleRunFailed, ECSTaskFailed, EnvNotSupported
-from docex.naming import apply_policy
+from docex.naming import ecs_cluster_name
 from docex.orchestrate._common import (
     _codebase_naming_policy,
     compose_file_for,
@@ -242,8 +242,7 @@ def _migrate_elastic(
     #     env-tier SG names — main.tf.j2 emits via the same Jinja replace
     #     filter the doctrine prescribes for data-plane identifiers).
     tables = ctx.transfer_tables
-    ecs_policy = tables.naming_policies.get("ecs")
-    cluster_name = apply_policy(f"{project}_{env}", ecs_policy)
+    cluster_name = ecs_cluster_name(project, env, tables.naming_policies)
     # Mod 040 + mod 046: env-tier SG names hyphenate the project segment,
     # not just the joiners. Run the project name through `_dns_label`
     # (same translation `http_host` / `docker` policies apply) so the

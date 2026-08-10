@@ -565,6 +565,13 @@ class FakeAWSClient:
     # modelling boto3's ParameterAlreadyExists) so ``ensure_tte_elastic``'s
     # read-before-mint guard is actually exercised.
     ssm_store: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # Mod 128: stagetest's orchestrator read. All three default to EMPTY —
+    # "nothing is deployed" — never to a healthy env. See the methods below.
+    ecs_service_task_arns: dict[str, list[str]] = field(default_factory=dict)
+    ecs_task_records: dict[str, dict[str, str]] = field(default_factory=dict)
+    ecs_task_definition_images_results: dict[str, dict[str, str]] = field(
+        default_factory=dict
+    )
     calls: list[tuple] = field(default_factory=list)
     _task_counter: int = 0
 
@@ -765,6 +772,35 @@ class FakeAWSClient:
             if name in self.ecs_deployment_times
         }
 
+    # -- Mod 128: stagetest's orchestrator liveness/version read -------
+    #
+    # Every default here is EMPTY, i.e. "nothing is deployed", and every new
+    # test must script its way out of that. Deliberate: a fake whose default is
+    # a healthy env is the same defect mod 128 exists to close, one layer down.
+
+    def ecs_list_service_task_arns(self, cluster: str, service: str) -> list[str]:
+        self._record("ecs_list_service_task_arns", cluster=cluster, service=service)
+        return list(self.ecs_service_task_arns.get(service, []))
+
+    def ecs_describe_tasks(
+        self, cluster: str, task_arns: list[str],
+    ) -> list[dict[str, str]]:
+        self._record(
+            "ecs_describe_tasks", cluster=cluster, task_arns=list(task_arns),
+        )
+        # Requested ARNs with no scripted record are SILENTLY OMITTED — that is
+        # how a test models the shrinking-task-set race (list an ARN, give it no
+        # record), mirroring real DescribeTasks putting it under `failures`.
+        return [
+            dict(self.ecs_task_records[arn])
+            for arn in task_arns
+            if arn in self.ecs_task_records
+        ]
+
+    def ecs_task_definition_images(self, task_definition: str) -> dict[str, str]:
+        self._record("ecs_task_definition_images", task_definition=task_definition)
+        return dict(self.ecs_task_definition_images_results.get(task_definition, {}))
+
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
         self._record("ecs_force_new_deployment", cluster=cluster, service=service)
 
@@ -860,12 +896,20 @@ class FakeSSHClient:
     ``(capture_rc, capture_out)`` — ``capture_out`` is the canned host
     ``tte.env`` string (default empty = an unprovisioned first-release
     store). Every capture is recorded in ``calls`` too.
+
+    ``capture_results`` (mod 128) maps a *command substring* to the stdout that
+    command should produce, so a test can script a different answer per
+    container for ``stagetest``'s per-container ``docker inspect``. It is
+    consulted first; ``capture_out`` remains the uniform fallback, so no
+    existing caller changes. ``capture_rc`` still applies to every capture —
+    a test that needs a per-command rc scripts the rc case on its own.
     """
 
     results: dict[str, int] = field(default_factory=dict)
     default_exit: int = 0
     capture_out: str = ""
     capture_rc: int = 0
+    capture_results: dict[str, str] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
 
     def run(self, host, key_path, command, *, user="deploy"):
@@ -874,6 +918,9 @@ class FakeSSHClient:
 
     def capture(self, host, key_path, command, *, user="deploy"):
         self.calls.append(("capture", host, str(key_path), command, user))
+        for needle, out in self.capture_results.items():
+            if needle in command:
+                return (self.capture_rc, out)
         return (self.capture_rc, self.capture_out)
 
 

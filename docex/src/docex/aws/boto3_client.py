@@ -553,6 +553,57 @@ class Boto3AWSClient:
                     break
         return out
 
+    # ------------------------------------------------------------------
+    # Mod 128: stagetest's orchestrator liveness/version read
+    # ------------------------------------------------------------------
+
+    def ecs_list_service_task_arns(self, cluster: str, service: str) -> list[str]:
+        ecs = self._client("ecs")
+        arns: list[str] = []
+        paginator = ecs.get_paginator("list_tasks")
+        # WHY no try/except: ClusterNotFoundException and
+        # ServiceNotFoundException MUST propagate — see the Protocol docstring.
+        # The neighbouring ecs_primary_deployment_times swallows the first of
+        # those on purpose; doing it here would make an unreadable service look
+        # like a healthy one to stagetest's gate.
+        for page in paginator.paginate(
+            cluster=cluster, serviceName=service, desiredStatus="RUNNING",
+        ):
+            arns.extend(str(a) for a in page.get("taskArns", []))
+        return arns
+
+    def ecs_describe_tasks(
+        self, cluster: str, task_arns: list[str],
+    ) -> list[dict[str, str]]:
+        if not task_arns:
+            return []
+        ecs = self._client("ecs")
+        out: list[dict[str, str]] = []
+        # DescribeTasks accepts at most 100 tasks per call.
+        for i in range(0, len(task_arns), 100):
+            chunk = task_arns[i:i + 100]
+            resp = ecs.describe_tasks(cluster=cluster, tasks=chunk)
+            for task in resp.get("tasks", []):
+                out.append({
+                    "task_arn": str(task.get("taskArn", "")),
+                    "last_status": str(task.get("lastStatus", "")),
+                    # ECS's own sentinel for "no container declares a health
+                    # check", kept verbatim rather than flattened to "".
+                    "health_status": str(task.get("healthStatus") or "UNKNOWN"),
+                    "task_definition": str(task.get("taskDefinitionArn", "")),
+                })
+        # Tasks under resp["failures"] are intentionally NOT represented: the
+        # caller detects the shortfall and treats it as unreadable state.
+        return out
+
+    def ecs_task_definition_images(self, task_definition: str) -> dict[str, str]:
+        ecs = self._client("ecs")
+        # No try/except: a revision we cannot read must raise, never degrade to
+        # an empty mapping (which would read downstream as "nothing to check").
+        resp = ecs.describe_task_definition(taskDefinition=task_definition)
+        defs = resp.get("taskDefinition", {}).get("containerDefinitions", [])
+        return {str(c["name"]): str(c["image"]) for c in defs}
+
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
         ecs = self._client("ecs")
         ecs.update_service(

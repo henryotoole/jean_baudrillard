@@ -122,7 +122,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `merge` | both | feature branch, `project.yml` | rebases onto main, tags `v<version>`, pushes both |
 | `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per codebase, tag, push to registry |
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
-| `stagetest` | both | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL | ephemeral stage-tester container, exit code |
+| `stagetest` | both, branches internally for the pre-step | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL, plus the orchestrator's own state (fixed: `docker inspect` over SSH; elastic: ECS `list_tasks`/`describe_tasks`) | ephemeral stage-tester container, exit code — **preceded** by a liveness/version gate that fails before the tester is built |
 | `rollback <env> <target_version>` | both, branches internally | `v<target_version>` git tag, target version's `infra.yml` (via ephemeral worktree), `infra/secrets/<env>.env` | recompiled output (in worktree), foundation-specific apply with migrations skipped |
 
 Each command's authoritative behavior lives in [docex.md](../../../doctrine/infrastructure/docex.md) and the cross-referenced specifics; this table is a navigation aid, not a re-spec.
@@ -194,8 +194,53 @@ Several commands branch internally on `foundation:` from `infra.yml`. The shim a
 | `containerize` | pushes to project-configured `container_registry` | pushes to project's auto-provisioned ECR (or override) |
 | `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` |
 | `migrate` (during release) | `compose run --rm` of the codebase's exec service on the host, in the existing internal docker network | ECS `RunTask` against the per-codebase migration task definition |
+| `stagetest` (the pre-step only) | `docker inspect` **over SSH** to the deployed host — `stage`/`prod` containers do not run on the operator's machine | ECS `list_tasks` / `describe_tasks` / `describe_task_definition` |
 
 The `dev` and `test` environments are always fixed regardless of declared foundation, per [shape.md § Shape and Environment](../../../doctrine/infrastructure/shape.md#shape-and-environment).
+
+### The orchestrator liveness/version gate
+
+`docex stagetest` reads every core service's health and version from the
+orchestrator **before it builds the stage-tester image**, and fails there if
+anything is unhealthy, on the wrong version, **or unreadable**. Rule of record:
+[`healthchecks.md § Version`](../../../doctrine/infrastructure/healthchecks.md#version)
+and [`cicd.md § Staging Tests`](../../../doctrine/infrastructure/cicd.md#staging-tests)
+step 1. Implemented in `src/docex/pipeline/orchestrator_health.py`
+(`assert_deployed_healthy`), which `stagetest.py` calls.
+
+Three properties of this gate are design commitments rather than incidental, and
+each exists because the alternative is a check that appears to answer and does
+not:
+
+- **Probe output is never parsed.** Liveness comes from the orchestrator's
+  aggregated state and version from the deployment record. Docker captures a
+  healthcheck's stdout; ECS surfaces only a status — so anything read out of
+  probe output would work on one foundation and silently not on the other.
+- **Two error classes, deliberately distinct.** `DeployedServiceUnhealthy` is the
+  orchestrator's honest bad answer; `OrchestratorStateUnreadable` is `docex`
+  being unable to obtain an answer at all. Keeping them separate is what makes
+  "the gate broke" untypeable as "the env is fine" — the structural fix for the
+  whole can't-answer class, and worth more than any individual guard.
+- **There is no flag that disables it.** A parameter whose only function is
+  switching off a health gate is the artifact advance 005 found eight times; once
+  it exists in a signature the next caller in a hurry uses it. Tests inject a
+  scripted transport instead. **Do not add one**, including under pressure from a
+  smoke walk: if the walk hurts, the gate is reporting something.
+
+An **empty result set never reads as healthy** anywhere in this gate — zero core
+services, zero RUNNING tasks, and an unreadable container all fail loudly. On
+elastic, a task set that shrinks between `list_tasks` and `describe_tasks` gets
+**one** bounded re-read (ECS replaces tasks on its own schedule, so one unlucky
+replacement mid-read is not evidence about the release) and then fails. The
+re-read is scoped to a *shrinking task set* only, never to a task that was
+returned and reported unhealthy — which is what makes it structurally unable to
+mask an unhealthy service.
+
+One asymmetry is known and accepted: on `fixed` the version comes from
+`.Config.Image`, which proves the image *ref* and not the bytes — a re-pushed tag
+would pass. Nothing in a project records an expected digest to compare against,
+and `healthchecks.md` specifies the ref, so there is no stronger check available
+to write.
 
 ## Credentials & Ambient Host State
 
@@ -275,7 +320,8 @@ jean_baudrillard/docex/
 │       ├── emit/            (compose / HCL rendering from compiled objects)
 │       ├── orchestrate/     (up, down, build, test, migrate, aggregate)
 │       ├── pipeline/        (preinfra, projinfra, bootstrap, check, merge,
-│       │                     containerize, release, stagetest, rollback)
+│       │                     containerize, release, stagetest, rollback,
+│       │                     orchestrator_health — stagetest's pre-step)
 │       ├── describe/        (describe)
 │       ├── why/             (why — serves doctrine_excerpts/)
 │       ├── roles/           (roles + role)

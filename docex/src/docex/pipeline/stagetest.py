@@ -4,12 +4,18 @@ Per [docex.md § stagetest] and [cicd.md § Staging Tests]:
 
   1. Compute STAGING_URL from ``infra.yml``'s ``domain`` field —
      ``https://stage.<domain>``.
-  2. Build the project's stage-tester image from ``infra/stage/``.
-  3. Run the tester image with ``--network host`` (simplest choice for
+  2. Read every core service's health and version **from the orchestrator** and
+     fail if anything is unhealthy, on the wrong version, or unreadable — mod
+     128's pre-step, ``pipeline/orchestrator_health.py``. This is
+     ``cicd.md § Staging Tests`` step 1 and it runs *before the tester image is
+     built*: there is no point building a tester for an env that is not up, and
+     no honest way to interpret its verdict.
+  3. Build the project's stage-tester image from ``infra/stage/``.
+  4. Run the tester image with ``--network host`` (simplest choice for
      "container needs to reach the deployed staging URL") and the
      project bind-mounted at ``/project``. Invoke
      ``/project/infra/stage/stage_test.sh`` with ``$STAGING_URL`` set.
-  4. Propagate the container's exit code.
+  5. Propagate the container's exit code.
 
 ``network_override`` lets a caller put the tester on a specific docker
 network instead of the host network — needed when the target is only
@@ -22,10 +28,18 @@ from __future__ import annotations
 
 import sys
 
+from docex.aws.client import AWSClient
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import StageTesterBuildFailed
 from docex.naming import dns_label
+from docex.pipeline.orchestrator_health import assert_deployed_healthy
+from docex.ssh.client import SSHClient
+
+#: ``stagetest`` takes no env argument and is ``stage`` by construction. A module
+#: constant rather than a CLI flag: ``docex stagetest <env>`` is not this step's
+#: business.
+_STAGETEST_ENV = "stage"
 
 
 def _stage_tester_tag(project_name: str) -> str:
@@ -42,6 +56,8 @@ def run_stagetest(
     ctx: ProjectContext,
     docker: DockerClient,
     *,
+    aws: AWSClient | None = None,
+    ssh: SSHClient | None = None,
     staging_url_override: str | None = None,
     network_override: str | None = None,
 ) -> int:
@@ -75,7 +91,22 @@ def run_stagetest(
         project_seg = dns_label(project_name)
         staging_url = f"https://stage.{project_seg}.{apex_domain}"
 
-    # 2. Build the stage tester image ----------------------------------
+    # 2. Orchestrator liveness/version pre-step ------------------------
+    #
+    # WHY this is second in the body while `cicd.md` numbers the orchestrator
+    # read as step 1 — do not flip the order after reading only the doctrine's
+    # numbering. The STAGING_URL derivation above is a pure string computation:
+    # it touches nothing deployed, builds nothing, and starts nothing. So the
+    # orchestrator read is still the first thing in this command that touches
+    # the deployed world, which is what the doctrine's ordering is about — and
+    # running it second preserves the better error for a project missing
+    # `apex_domain` (that is a config bug, not an unhealthy env).
+    #
+    # Its two error classes are DocexErrors and are NOT caught: the dispatcher's
+    # ErrorReporter renders them, exactly as StageTesterBuildFailed is handled.
+    assert_deployed_healthy(ctx, env=_STAGETEST_ENV, aws=aws, ssh=ssh)
+
+    # 3. Build the stage tester image ----------------------------------
     stage_dir = project_root / "infra" / "stage"
     dockerfile = stage_dir / "Dockerfile"
     if not dockerfile.is_file():
@@ -95,7 +126,7 @@ def run_stagetest(
             f"'docker build' for stage-tester image exited {rc}."
         )
 
-    # 3. Run the tester ----------------------------------------------
+    # 4. Run the tester ----------------------------------------------
     rc = docker.run_one_shot(
         image=tag,
         command=["/project/infra/stage/stage_test.sh"],

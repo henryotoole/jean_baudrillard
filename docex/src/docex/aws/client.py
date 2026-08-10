@@ -351,6 +351,62 @@ class AWSClient(Protocol):
         """
         ...
 
+    # ------------------------------------------------------------------
+    # Mod 128: stagetest's orchestrator liveness/version read.
+    # ------------------------------------------------------------------
+
+    def ecs_list_service_task_arns(self, cluster: str, service: str) -> list[str]:
+        """Task ARNs of ``service`` with ``desiredStatus=RUNNING``.
+
+        **Raises** when the cluster does not exist, when the service does not
+        exist, or when credentials are absent. An empty list means the service
+        exists and genuinely has no running tasks — a real, checkable fact, not
+        an error.
+
+        **Contrast ``ecs_primary_deployment_times`` immediately above, whose
+        contract is the inverse of this one.** That method deliberately swallows
+        ``ClusterNotFoundException`` and reports absent services as absent,
+        because its caller reads absence as "redeploy" — the safe direction
+        *there*. Here the safe direction is the opposite: ``stagetest``'s gate
+        must never let an unreadable service be indistinguishable from a healthy
+        one. Do not copy that swallow into this method.
+        """
+        ...
+
+    def ecs_describe_tasks(
+        self, cluster: str, task_arns: list[str],
+    ) -> list[dict[str, str]]:
+        """One dict per task **ECS returned**, keyed ``task_arn``,
+        ``last_status``, ``health_status``, ``task_definition``.
+
+        A missing ``healthStatus`` normalises to ECS's own ``"UNKNOWN"``, never
+        ``""``, so the caller's diagnosis stays honest.
+
+        Accepts any number of ARNs; ``DescribeTasks`` caps at 100 and chunking
+        is the implementation's business.
+
+        **A task ECS does not return — absent, or reported under ``failures`` —
+        is simply absent from the result, and that is deliberate**: it is how the
+        shrinking-task-set race becomes *visible* to the caller. The caller MUST
+        compare the returned count against the requested count and treat a
+        shortfall as unreadable state. That policy lives in
+        ``pipeline/orchestrator_health.py``, not here, because this adapter
+        reports what AWS said and does not decide what it means.
+        """
+        ...
+
+    def ecs_task_definition_images(self, task_definition: str) -> dict[str, str]:
+        """Container name → image ref, for one task-definition ARN or
+        ``family:revision``.
+
+        **Raises** if the revision cannot be read (deregistered, throttled,
+        denied). An unreadable revision must never be reported as an empty
+        mapping: downstream, an empty mapping reads as "no container to check",
+        which would silently convert an unanswerable version question into a
+        pass.
+        """
+        ...
+
     def ecs_force_new_deployment(self, cluster: str, service: str) -> None:
         """Force a new deployment of an ECS service without changing it.
 

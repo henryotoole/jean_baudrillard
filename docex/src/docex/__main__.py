@@ -561,7 +561,15 @@ def _cmd_stagetest(args: list[str]) -> int:
 
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
-    return run_stagetest(ctx, docker, staging_url_override=ns.staging_url)
+    # Mod 128: thread every transport the orchestrator pre-step may need. The
+    # fixed branch ignores ``aws``; the elastic branch ignores ``ssh``. The
+    # pre-step dispatches on foundation. Both constructions are cheap and
+    # offline, same as ``_cmd_release``'s.
+    aws = _make_aws_client()
+    ssh = _make_ssh_client()
+    return run_stagetest(
+        ctx, docker, aws=aws, ssh=ssh, staging_url_override=ns.staging_url,
+    )
 
 
 def _cmd_rollback(args: list[str]) -> int:

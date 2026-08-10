@@ -446,6 +446,19 @@ walk is where you would feel it.** My default, absent a ruling, is no retry.
 
 ---
 
+## Six-artifact alignment verdict
+
+Per [`docex_process.md § Additional Artifacts`](../../core/docex_process.md#additional-artifacts).
+
+| Artifact | Verdict |
+| --- | --- |
+| `doctrine/.../*.md` | Already correct — the operator's step-3 edits describe this pre-step (`cicd.md § Staging Tests` step 1, `healthchecks.md § Version`, `tests.md`, `docex.md § stagetest`). Code was written to them; nothing needed. |
+| `docex/plans/core/*.md` | **Updated.** `masterplan.md`: the `stagetest` row in § Subcommand Surface, a new row in § Foundation-Aware Behavior, a new § *The orchestrator liveness/version gate*, and the `pipeline/` tree listing. `release_flow.md`: two § Where to look rows. |
+| `tables/roles/*.yml` | **No change, correctly.** This mod reads what mod 127's tables emit; it emits nothing itself. |
+| `src/docex/**` | The mod. |
+| `tests/**` | The mod. |
+| `doctrine_excerpts/*.md` + `index.yml` | **No entry earned — a deliberate no, not an oversight.** The stated criterion is *infrastructural resources*, the nouns a deployed stack is physically made of. This mod adds no resource: it adds a *read* of resources that already have entries. A grep for `stagetest` / `healthStatus` / `describe_tasks` across all 18 excerpts returns zero, so nothing existing contradicts the new behavior either. **Mod 131 owns writing this advance's excerpt verdict into `docex_process.md`; this row is the input for the mod-128 half of it**, because on that artifact a silent no is indistinguishable from a miss. |
+
 ## Recorded limitations
 
 Neither is a defect to fix here. Both are properties a reader should find written

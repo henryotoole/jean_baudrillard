@@ -4,6 +4,15 @@ Brings up the sample fixture's dev stack (acting as a stand-in for a
 deployed staging env) and runs ``docex stagetest`` against it. Web
 services publish no host ports, so the tester is attached to the env's
 ``web`` docker network and reaches the api by container name.
+
+Mod 128: ``stagetest`` now runs an orchestrator liveness/version pre-step that
+would SSH to ``stage.sample.example.com``, which does not exist. **The pre-step
+still runs here, against a scripted ``FakeSSHClient``.** The tempting fix was a
+``skip_orchestrator_check=True`` parameter; it was rejected, because a parameter
+whose only function is to disable a health gate is the precise artifact advance
+005 found eight times, and once it exists in the signature the next caller in a
+hurry uses it. This test's real subject — build the tester image, run it over a
+docker network, propagate the exit code — is untouched by faking the transport.
 """
 
 from __future__ import annotations
@@ -20,6 +29,8 @@ from docex.naming import dns_label
 from docex.orchestrate.down import run_down
 from docex.orchestrate.up import run_up
 from docex.pipeline.stagetest import run_stagetest
+
+from tests.conftest import FakeSSHClient
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -55,10 +66,33 @@ def test_stagetest_against_local_dev(fresh_project: Path):
     # data-plane name gains a second segment — `sample-dev-api-web`, not
     # `sample-dev-api` (which now names no container at all).
     api_host = f"{seg}-dev-api-web"
+
+    # Mod 128: the orchestrator pre-step RUNS — against a fake host. A dummy
+    # deploy key satisfies its pre-SSH check, and the scripted capture answers
+    # the `docker inspect` for the (notional) stage container as healthy and on
+    # this project's version.
+    #
+    # SO NOTE: the SSH path is exercised against a real remote host NOWHERE in
+    # this suite — every test of the fixed path runs against FakeSSHClient. That
+    # is deliberate (see the module docstring) and is stated here so it is not
+    # mistaken for coverage. The consequence: the fixed smoke walk's `stagetest`
+    # box is this code's FIRST real execution — not one of many, the first. A
+    # failure there is as likely to be in the SSH plumbing or the `--format`
+    # string as in the deployed env.
+    deploy_key = fresh_project / "infra" / "deploy_creds" / "stage"
+    deploy_key.parent.mkdir(parents=True, exist_ok=True)
+    deploy_key.write_text("dummy-key-for-the-faked-orchestrator-read\n")
+    fake_ssh = FakeSSHClient(
+        capture_out=(
+            f"healthy|running|reg/sample/api:{ctx.project.version}"
+        ),
+    )
+
     try:
         rc = run_stagetest(
             ctx,
             docker,
+            ssh=fake_ssh,
             # Reached by container name on the env's web docker network (web
             # services publish no host ports).
             staging_url_override=f"http://{api_host}:8080",

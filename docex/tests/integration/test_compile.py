@@ -455,6 +455,7 @@ codebases:
         role: web
         command: ["python", "/service/dist/root.py"]
         port: 8080
+        health_check_path: /health
         networks: [web, internal]
         resources:
           cpu: 1.0
@@ -550,6 +551,7 @@ codebases:
         role: web
         command: ["python", "/service/dist/root.py"]
         port: 8080
+        health_check_path: /health
         networks: [web, internal]
         uses: [appdb]
         resources:
@@ -696,7 +698,7 @@ def test_project_tier_task_execution_policy_empty_core_services(tmp_path: Path):
     # Minimal valid CICL with no core services. backing_services likewise
     # omitted — empty-project edge case for the policy's per-repo gate.
     (proj / "infra" / "infra.yml").write_text(
-        "cicl_version: \"2\"\n"
+        "cicl_version: \"3\"\n"
         "foundation: elastic\n"
         "apex_domain: example.com\n"
         "observability_backend_url: \"https://obs.example.com\"\n"
@@ -902,7 +904,10 @@ def test_describe_dag_and_llm(tmp_path: Path):
         run_describe(ctx, env="prod", fmt="dag")
     out = buf.getvalue()
     assert "sample" in out
-    assert "depends_on" in out
+    # Mod 128: `depends_on` was retired in 1.7.0 (advance 005); `uses` is the one
+    # surviving relation, so the DAG's edge section is what proves it names edges.
+    assert "uses edges" in out
+    assert "api.web -> appdb" in out
 
     # LLM: must be valid JSON.
     buf = io.StringIO()

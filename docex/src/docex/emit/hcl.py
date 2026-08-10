@@ -44,7 +44,12 @@ from docex.cicl.substitute import HCLLiteral
 from docex.emit.otelcol import render_otelcol_config
 from docex.emit.schedules import schedule_env
 from docex.emit.tags import render_hcl_tags, standard_tags
-from docex.naming import NamingPolicies, NamingPolicy, apply_policy
+from docex.naming import (
+    NamingPolicies,
+    NamingPolicy,
+    apply_policy,
+    ecs_cluster_name,
+)
 
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -1189,7 +1194,6 @@ def emit_hcl_project(
     iam_p = naming_policies.get("iam")
     ssm_p = naming_policies.get("ssm_path")
     alb_p = naming_policies.get("alb")
-    ecs_p = naming_policies.get("ecs")
     # Mod 046: the project subdomain (Route53 zone, ACM cert domain_name + SANs)
     # is a DNS hostname — its project segment must be DNS-labeled. AWS rejects
     # underscores in zone names and ACM cert domain names; an underscored
@@ -1222,9 +1226,12 @@ def emit_hcl_project(
     # list, which only the ec2_traefik path consumed; making the clusters
     # project-tier fixes bug 8 — the traefik ECS provider treats a missing
     # listed cluster as fatal for the entire refresh, so both must pre-exist.)
+    # Mod 128: via the shared helper, so the emitted cluster name and every
+    # runtime read of it (release, migrate, projinfra, stagetest) come from one
+    # expression.
     ecs_clusters = {
-        "stage": apply_policy(f"{project}_stage", ecs_p),
-        "prod": apply_policy(f"{project}_prod", ecs_p),
+        env: ecs_cluster_name(project, env, naming_policies)
+        for env in ("stage", "prod")
     }
 
     # Render the EC2-traefik user_data script ahead of the HCL template so

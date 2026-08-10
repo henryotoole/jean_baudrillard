@@ -26,7 +26,7 @@ from docex.errors import (
     RequiredSecretsUnset,
     TofuApplyFailed,
 )
-from docex.naming import apply_policy
+from docex.naming import ecs_cluster_name
 from docex.orchestrate._common import ensure_compiled, codebases_with_schema
 from docex.ssh.client import SSHClient
 
@@ -592,8 +592,9 @@ def _release_elastic(
     # `skip_migrations` return, because both the first-release detector and the
     # consumer reconcile need it — so there is exactly one naming expression
     # and no chance of the two drifting apart.
-    ecs_policy = ctx.transfer_tables.naming_policies.get("ecs")
-    cluster_name = apply_policy(f"{project_name}_{env}", ecs_policy)
+    cluster_name = ecs_cluster_name(
+        project_name, env, ctx.transfer_tables.naming_policies
+    )
 
     if skip_migrations:
         # Rollback path: no first-release detection (rollback only

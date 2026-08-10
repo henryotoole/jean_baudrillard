@@ -173,3 +173,28 @@ def apply_policy(name: str, policy: NamingPolicy) -> str:
             f"{policy.max_len}; shorten project/env/service names"
         )
     return out
+
+
+def ecs_cluster_name(
+    project_name: str, env: str, policies: NamingPolicies
+) -> str:
+    """One env's ECS cluster name, per the ``ecs`` naming policy.
+
+    This is *also* the name of that env's Service Connect namespace. Mod 109
+    made them deliberately identical so one expression serves both and the two
+    cannot drift apart — a namespace that does not match its cluster silently
+    breaks intra-env service discovery.
+
+    Lifted here (mod 128) when ``stagetest``'s orchestrator read would have made
+    a *fifth* copy of the same expression. The four it replaced were
+    ``pipeline/release.py``, ``orchestrate/migrate.py``, ``pipeline/projinfra.py``
+    (the refuse-if-envs-up gate), and ``emit/hcl.py`` (which *emits* the
+    clusters). That last one is why the drift surface was worth closing at all:
+    the emitter and the readers must agree, or a runtime read silently addresses
+    a cluster nothing created. Same reasoning as ``CURRENT_CICL_VERSION`` being a
+    constant — see ``plans/core/compiler.md``.
+
+    Takes primitives rather than a ``ProjectContext`` on purpose: ``naming.py``
+    is a low-level module and importing ``docex.context`` would create a cycle.
+    """
+    return apply_policy(f"{project_name}_{env}", policies.get("ecs"))

@@ -17,6 +17,7 @@ from docex.naming import (
     NamingPolicy,
     apply_policy,
     dns_label,
+    ecs_cluster_name,
     parse_policies,
 )
 
@@ -191,3 +192,61 @@ def test_get_unknown_policy_raises_clearly():
     msg = str(exc_info.value)
     assert "unknown naming policy" in msg
     assert "nonexistent" in msg
+
+
+# ---------------------------------------------------------------------------
+# Mod 128 — the ECS cluster-name helper.
+# ---------------------------------------------------------------------------
+
+
+def _real_policies():
+    """The `ecs` policy as actually shipped in the transfer tables, not a
+    hand-rolled stand-in — the point of the helper is that it agrees with what
+    the emitters produce."""
+    from docex.cicl.transfer import load_transfer_tables
+
+    return load_transfer_tables(None).naming_policies
+
+
+def test_ecs_cluster_name_hyphenates_an_underscored_project():
+    """The `ecs` policy is hyphen/lower, so an underscored project name renders
+    as the DNS-label form the cluster (and the env's Service Connect namespace)
+    actually carries."""
+    policies = _real_policies()
+    assert ecs_cluster_name("docex_smoke_elastic", "stage", policies) == (
+        "docex-smoke-elastic-stage"
+    )
+    assert ecs_cluster_name("sample", "prod", policies) == "sample-prod"
+
+
+def test_ecs_cluster_name_matches_every_lifted_call_site():
+    """Mod 128 lifted this from four verbatim `apply_policy(f"{project}_{env}",
+    ecs_policy)` copies — release.py, orchestrate/migrate.py, projinfra.py, and
+    emit/hcl.py (which *emits* the clusters the other three read). Pin that the
+    helper produces the identical string, so the lift cannot have changed a name
+    that real infrastructure already answers to."""
+    policies = _real_policies()
+    for project in ("sample", "docex_smoke_elastic", "Mixed_Case"):
+        for env in ("stage", "prod"):
+            assert ecs_cluster_name(project, env, policies) == apply_policy(
+                f"{project}_{env}", policies.get("ecs")
+            )
+
+
+def test_ecs_cluster_name_takes_primitives_and_adds_no_imports():
+    """`naming.py` is a low-level module: importing `docex.context` to accept a
+    ProjectContext would create a cycle. Taking primitives is what buys that, so
+    pin it — a future signature change to `(ctx, env)` would compile and then
+    break the import graph."""
+    import inspect
+
+    from docex import naming
+
+    params = inspect.signature(ecs_cluster_name).parameters
+    assert list(params) == ["project_name", "env", "policies"]
+    imports = [
+        line.strip()
+        for line in inspect.getsource(naming).splitlines()
+        if line.startswith(("import ", "from "))
+    ]
+    assert not any("context" in line for line in imports), imports
