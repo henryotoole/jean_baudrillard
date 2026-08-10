@@ -55,8 +55,37 @@ where a load balancer reads it; the fan-out and everything enforcing it is gone;
    service is unhealthy or on the wrong version — read from `docker inspect` over
    SSH on fixed and `describe_tasks` on elastic. Demonstrated failing, not only
    passing (advance 005's standing rule).
-6. Both seed projects run zero HTTP servers on non-`web` core services; worker and
-   clock liveness is a tick file, observed stale-and-failing at least once.
+6. Neither seed runs an HTTP server **for health purposes**; worker and clock
+   liveness is a tick file, observed stale-and-failing at least once. The worker
+   retains a real `rpc` surface that `api.web` calls for application reasons — see
+   the amendment below.
+
+> **Amendment to SC 2.6, made before mod 129 and against my own earlier draft.**
+> This criterion originally read "zero HTTP servers on non-`web` core services."
+> That is wrong, and the reason is worth recording because the investigation nearly
+> went the other way.
+>
+> `release.py::_reconcile_candidates` filters on `svc.uses_core` — **core** targets
+> only, backing services excluded — and then drops any consumer whose targets are
+> not actually registered in the namespace. A core service registers a Service
+> Connect name **only where it declares a `port`** (`hcl.py:791`). So a purely
+> queue-reached, port-less worker is unregistered, `api.clock`'s only core edge has
+> no name to compare against, and the elastic seed's reconcile consumer set becomes
+> **empty**. That would silently retire the seeds' only coverage of the Service
+> Connect consumer reconcile — the mechanism advance 005 spent three mods and two
+> real-AWS recons on, and which shipped a latent `prod` defect that three clean
+> releases failed to detect. Losing it to a tidier seed is not a trade worth making.
+>
+> The criterion's *intent* was that the seeds stop running HTTP servers whose only
+> purpose was **health**. That intent is fully served by deleting the health
+> servers. A worker serving a genuine `rpc` boundary that a consumer calls for
+> application reasons is a shape [rule 32](../../../../doctrine/infrastructure/cicl.md#validation-rules)
+> exists to govern, not the shape being retired.
+>
+> **The honest cost:** the seeds then exercise rule 32's *positive* arm and not its
+> negative one. That is acceptable because mod 125 already pins the negative arm in
+> the clock fixtures — but it is a real gap in the seeds and is stated here rather
+> than discovered in a B-audit.
 
 ## Goal 3: the 1.7.0 cut stays shippable
 
