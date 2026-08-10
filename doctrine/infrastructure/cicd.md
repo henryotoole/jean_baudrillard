@@ -54,11 +54,11 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	4. `project.yml` version has not yet been released.
 	5. No merge conflicts
 3. Perform codebase checks:
-	1. All codebases contain `build.sh`, `test.sh`, and `migrate.sh` if it is required.
-	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s [uses](./cicl.md#uses-relationships) relationships. One contract per provider core service, at `${codebase}.${service}.${format}.yml`.
-	3. Every `web`-network core service's contract carries the mandatory [health check](./contracts.md#health-checks) endpoints: its own `GET /health`, and a `/health/<codebase>/<service>` for each core service it `uses` that is not itself on `web`. The self-`/health` assertion applies to OpenAPI providers; a `worker`'s probeability is declared by its fields, not by its AsyncAPI contract.
-	4. Every codebase whose image must answer a probe carries `curl`. The declaration is per core service — any one of a codebase's core services declaring `health_check_path` qualifies the codebase — but the subject is the codebase's single image, so the gate builds and probes once per codebase.
-	5. Every core-service `uses` target declares both `port` and `health_check_path`. Those two fields *are* its health declaration; see [contracts.md § Declared by fields](./contracts.md#declared-by-fields-not-by-the-contract).
+	1. All codebases contain `build.sh`, `test.sh`, `health.sh`, and `migrate.sh` if it is required.
+		+ Unlike the other codebase shims, `health.sh` is invoked **per core service**, as `./health.sh <service>`. Still one file per codebase — but a web edge and a queue consumer built from the same image have different probes, so the compiler supplies the argv.
+	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s declared [surfaces](./cicl.md#surfaces). One contract per surface, at `${codebase}.${service}.${surface}.${format}.${ext}`, in the format that surface's `api_styles` resolve to.
+	3. Every core-service [`uses`](./cicl.md#uses-relationships) target declares at least one surface. A core service that declares none is not a provider and cannot be used. A target that is **directly addressed** also declares a `port`, because a consumer reaching it needs an address; a target reached only through a queue or broker declares none.
+	4. Every `web`-network core service declares `health_check_path`. That field is the declaration — it is what the load balancer probes. Where the service *also* declares an `openapi` surface, its contract declares that path too. A `web`-network core service with no surface (a frontend, say) has no contract for the path to appear in, and needs none.
 4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
 5. Ensure build doesn't fail.
 6. Run build test
@@ -95,7 +95,7 @@ Every codebase gets a `build.sh` script. This is responsible for turning `source
 `build.sh` is the **single canonical build entry point** for every codebase. It is invoked in two contexts, but it is the same script in both:
 
 1. **Inside `docker build`** (canonical, authoritative). The Dockerfile's `build` stage `COPY`s `src/` and runs `./build.sh`, depositing artifacts at a known path inside that stage. The `prod` and `test` stages then `COPY --from=build` those artifacts into the final image. This is the path that produces images shipped to `stage` and `prod`.
-2. **Inside a one-off container of the codebase's exec service** (iteration convenience). That container runs the `dev` stage, which carries the same build tools, and has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` in it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
+2. **Inside a one-off container of the codebase's [exec service](./specifics/exec_service.md)** (iteration convenience). That container runs the `dev` stage, which carries the same build tools, and has `/service/src` and `/service/dist` bind-mounted from the host; running `build.sh` in it refreshes the host's `dist/` so the developer's running code is fresh without a container rebuild.
 
 Because the authoritative build runs *inside* `docker build`, the artifact is always produced on whatever platform the image is being built for — set explicitly by `docker buildx --platform` during [`./bin/docex containerize`](#containerize-step). A developer on an arm64 Mac thus produces correct amd64 production images: the build runs under emulation inside the buildx context, not on the host. There is no path by which a host-architecture artifact can be smuggled into a prod image, because the artifact in a prod image is always produced inside the same `docker build` invocation that produces the image.
 
@@ -119,7 +119,7 @@ This is what runs inside the Dockerfile during `./bin/docex containerize`, `./bi
 This is what `./bin/docex build` performs for the `dev` environment, refreshing artifacts without a container rebuild.
 
 1. Remove all contents of `$pr/core/${codebase_name}/dist` on the development machine.
-2. Run `build.sh` in a one-off container of each codebase's [exec service](./specifics/migrations.md#dev-and-test-mechanism) — `docker compose run --rm <project>-<env>-<codebase>-exec ./build.sh`. The exec service is the container that *is* the codebase; it is profile-gated, so no part of the dev stack needs to be running, and there is no per-core-service container to pick between.
+2. Run `build.sh` in a one-off container of each codebase's [exec service](./specifics/exec_service.md) — `docker compose run --rm <project>-<env>-<codebase>-exec ./build.sh`. It is profile-gated, so no part of the dev stack needs to be running, and there is no per-core-service container to pick between.
 	+ If any return a non-0 exit code, the build has failed.
 	+ If any `dist` folder is empty afterward, the build has failed.
 3. Updated artifacts appear in the host's `dist` folder via the container's bind-mount.
@@ -175,7 +175,7 @@ Migration refers to the step where we need to run a database migration. These ar
 This `migrate.sh` is a small shim that actually runs an idempotent migration. Nearly all of the time, this will just be a version of `dbmate up`, but choice of migration tool is ultimately up to the developer. This script should return a non-0 exit code on failure. The migrations themselves live in the `$pr/core/${codebase_name}/migrations` folder.
 
 Depending on the target environment, `migrate.sh` will be run a little differently.
-`dev` and `test` - `migrate.sh` is run in a one-off container of the codebase's [exec service](./specifics/migrations.md#dev-and-test-mechanism) after the compose stack is up.
+`dev` and `test` - `migrate.sh` is run in a one-off container of the codebase's [exec service](./specifics/exec_service.md) after the compose stack is up.
 `stage` and `prod` - Either as a step in the Ansible playbook (fixed) or in the release flow (elastic) *after* database resources exist and are reachable but *before* the new application code is rolled out.
 
 #### Process
@@ -219,18 +219,24 @@ Stage tests run at a project-wide level against the staging environment *from* a
 
 The developer also maintains `$pr/infra/stage/stage_test.sh`. It is a shim that calls the developer's stage tests and returns a non-0 exit code if something fails.
 
+Staging tests assert what can only be seen **from outside**: that TLS terminates, that DNS resolves, that the reverse proxy routes, and that a critical path works end to end through the real edge. They do **not** assert liveness. Every core service's health is read from the orchestrator before the tester runs, so a stage test never probes a service directly and never reaches a non-`web` core service at all. A project wanting an end-to-end assertion that passes through a worker drives the public edge and observes the effect.
+
 #### Process
-1. Ensure the staging environment is deployed and reachable at its public URL
-2. Build the staging tester image if missing or stale. Tag with `${project_name}-stage-tester`.
-3. Spawn an ephemeral container from the tester image:
+1. Read deployed liveness and version from the orchestrator, before building anything:
+	+ **Fixed:** `docker inspect` each core service's container — `State.Health.Status` must be `healthy`, and its image ref must carry `project.yml`'s version.
+	+ **Elastic:** `describe_services` / `describe_tasks` — every task reports `healthStatus: HEALTHY`, on the task-definition revision this release applied.
+	+ Any service unhealthy or on the wrong version fails `stagetest` here, before the tester image is built. This is the liveness assertion; nothing downstream repeats it.
+2. Ensure the staging environment is deployed and reachable at its public URL. Container health and public reachability are different claims — the gap between them is what the ingress assertions below exist to catch.
+3. Build the staging tester image if missing or stale. Tag with `${project_name}-stage-tester`.
+4. Spawn an ephemeral container from the tester image:
 	+ `--rm` for auto-cleanup.
 	+ Bind-mount the project root to `/project` inside the tester container.
 	+ Put the tester on the host network (`--network host`) so it can reach the deployed staging URL.
 	+ `STAGING_URL` env var pointing at the deployed staging env.
-	+ `PROJECT_VERSION` env var set to the current `project.yml` version. Stage tests that assert the deployed version (e.g., a `GET /health` returning `{"version": "..."}`) read this rather than hand-maintaining a hardcoded expected value, which historically drifts on every version bump.
+	+ `PROJECT_VERSION` env var set to the current `project.yml` version. A stage test asserting a `web` service's `GET /health` returns `{"version": "..."}` reads this rather than hand-maintaining a hardcoded expected value, which historically drifts on every version bump. Note this is the project's *own* assertion through the public edge; `docex` has already verified the deployed version against the orchestrator in step 1, which is the authoritative check.
 	+ Command: `/project/infra/stage/stage_test.sh`.
-4. `stage_test.sh` runs the project's staging tests against the deployed env via HTTPS.
-5. The container exits and is auto-removed; its exit code propagates through `docker run` to `./bin/docex stagetest`.
+5. `stage_test.sh` runs the project's staging tests against the deployed env via HTTPS.
+6. The container exits and is auto-removed; its exit code propagates through `docker run` to `./bin/docex stagetest`.
 
 #### `docex`
 `./bin/docex stagetest`

@@ -57,7 +57,7 @@ Two ways to consume the one query file:
 
 Does a skill, when used, actually produce a doctrine-correct result — and beat the no-skill baseline? Per-skill, **gated** (run before a doctrine-affecting `docex` cut), built on the `evals.json` case format + the grader/comparator/analyzer agent roles.
 
-A good case targets doctrine that **diverges from a capable model's priors** — an arbitrary choice it couldn't reconstruct. (The `contracts` demonstrator qualifies: the mandated `/health`+`{version}` and `/health/<dependency>` endpoints are not produced without the doctrine; the inferable parts — contract format, file path — show ≈zero delta. Doctrine where a skill earns its keep is exactly the non-inferable part.) Mark each `expectations` entry as a **delta driver** (doctrine-specific, non-inferable — where the skill must win) or **confirmatory** (inferable, expect ≈zero delta); the delta-driver scores are the skill's measured value.
+A good case targets doctrine that **diverges from a capable model's priors** — an arbitrary choice it couldn't reconstruct. (The `contracts` demonstrator qualifies: the loop-liveness tick with its fixed 10s/30s thresholds, and the rule that only `web`-network core services serve HTTP health at all, are not produced without the doctrine; the inferable parts — contract format, file path — show ≈zero delta. Doctrine where a skill earns its keep is exactly the non-inferable part.) Mark each `expectations` entry as a **delta driver** (doctrine-specific, non-inferable — where the skill must win) or **confirmatory** (inferable, expect ≈zero delta); the delta-driver scores are the skill's measured value.
 
 ### The run pattern
 

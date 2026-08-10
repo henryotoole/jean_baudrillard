@@ -148,7 +148,7 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 `./bin/docex build` to refresh `dist/` for all codebases in the `dev` environment.
 `./bin/docex build <codebase_name>` to refresh a specific codebase.
 
-Runs each codebase's `build.sh` in a one-off container of that codebase's exec service (`docker compose run --rm … ./build.sh`), depositing artifacts in `$pr/core/<codebase>/dist/` via bind-mount. One exec service per codebase, so there is no per-core-service container to choose between, and the dev stack need not be running. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
+Runs each codebase's `build.sh` in a one-off container of that codebase's [exec service](./specifics/exec_service.md) (`docker compose run --rm … ./build.sh`), depositing artifacts in `$pr/core/<codebase>/dist/` via bind-mount. One exec service per codebase, so there is no per-core-service container to choose between, and the dev stack need not be running. The `dist/` folder is cleared before each run and verified non-empty afterward — if `build.sh` exits 0 but `dist/` is empty, the build fails with an error pointing at likely causes (misconfigured bind mount, wrong output path in `build.sh`).
 
 **This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex envinfra up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source without paying for a container rebuild; because the exec service is profile-gated, it does not require the dev stack to be up. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
 
@@ -158,7 +158,7 @@ Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `
 
 ### `check`
 `./bin/docex check`
-Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, `uses`-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. See [cicd.md](./cicd.md#check-step).
 
 ### `merge`
 `./bin/docex merge`
@@ -178,7 +178,7 @@ Releases the previously-containerized build to `<env>` (typically `stage` or `pr
 
 ### `stagetest`
 `./bin/docex stagetest`
-Runs the project's staging tests against the deployed staging environment via HTTPS, from outside the env. Spawns an ephemeral container from the project's `$pr/infra/stage/Dockerfile` definition, bind-mounts the project root to `/project`, injects `STAGING_URL` and `PROJECT_VERSION`, and invokes `/project/infra/stage/stage_test.sh` over the host network. Tests cover deployment-shape concerns (DNS, TLS, network reachability), per-service liveness, and critical-path smoke flows. Inter-service interaction concerns are intentionally not covered here — those are caught at build-test time via contract tests. See [cicd.md](./cicd.md#staging-tests).
+Runs the project's staging tests against the deployed staging environment via HTTPS, from outside the env. Spawns an ephemeral container from the project's `$pr/infra/stage/Dockerfile` definition, bind-mounts the project root to `/project`, injects `STAGING_URL` and `PROJECT_VERSION`, and invokes `/project/infra/stage/stage_test.sh` over the host network. Tests cover deployment-shape concerns (DNS, TLS, network reachability) and critical-path smoke flows. Before building the tester, the command reads every core service's health and version from the orchestrator and fails there if any is unhealthy or on the wrong version — liveness is asserted by `docex`, not by the project's tests. Inter-service interaction concerns are intentionally not covered here — those are caught at build-test time via contract tests. See [cicd.md](./cicd.md#staging-tests) and [healthchecks.md](./healthchecks.md).
 
 ### `rollback`
 `./bin/docex rollback <env> <target_version>`

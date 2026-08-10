@@ -39,7 +39,7 @@ A codebase's build artifact can be invoked in more than one way — an HTTP edge
 3. **Never split the root** into `root_web.py` / `root_worker.py`. Two copies of the driven wiring drift, which is precisely the bug class module integration tests exist to catch (see "composition-root mistakes" in [hex_overview.md § Tests](./hex_overview.md#tests)).
 4. Where a client library **inverts control** — Celery-style decorators that register handlers at import time — register in the entrypoint, calling into the adapter's handler. A decorator inside the adapter leaks the framework into the module and destroys mocked-port testability.
 5. A driven adapter that is genuinely expensive and needed by only one core service should be **lazy internally**, rather than forking the root. If that feels like a band-aid, the honest question is whether this is really a second app.
-6. A long-running entrypoint that owns a loop **must expose that loop's liveness**. See [contracts.md § Health Checks](../infrastructure/contracts.md#health-checks) for the required mechanism and thresholds.
+6. A long-running entrypoint that owns a loop **must expose that loop's liveness** — the loop itself records a tick each iteration, observable from outside the process. See [healthchecks.md](../infrastructure/healthchecks.md#what-the-probe-must-actually-check) for the required mechanism and thresholds.
 
 ## No Self-Instantiation
 

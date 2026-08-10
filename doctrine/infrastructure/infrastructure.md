@@ -142,13 +142,14 @@ $pr
 │   │   ├── migrations
 │   │   ├── test.sh
 │   │   ├── build.sh
+│   │   ├── health.sh
 │   │   └── migrate.sh  # Only if needed
 │   └── frontend
 ├── infra
 │   ├── infra.yml
 │   ├── contracts
-│   │   ├── api.web.openapi.yml
-│   │   └── api.worker.asyncapi.yml
+│   │   ├── api.web.rest.openapi.yml
+│   │   └── api.worker.events.asyncapi.yml
 │   ├── stage
 │   │   ├── stage_test.sh
 │   │   ├── Dockerfile
@@ -195,6 +196,7 @@ Codebases go in the `core` folder. Each is given a name (like `api`) that will m
 + `build.sh` - the [build script](./cicd.md#build-step).
 + `test.sh` - the [test script](./cicd.md#build-test-step).
 + `migrate.sh` - the [migrate script](./cicd.md#migrate-step).
++ `health.sh` - the [health probe](./healthchecks.md#the-probe), invoked per core service.
 + `Dockerfile` - the dockerfile which configures the container.
 
 It can also contain a variety of other things depending on the service and its needs.
@@ -242,7 +244,7 @@ Dockerfiles will all describe multi-stage builds. The following list of stages m
 
 A codebase's Dockerfile `CMD` is not used. Every core service declares its own [`command`](./cicl.md#core-services) in `infra.yml`, which is what the compiler emits — so with several core services sharing one image, no `CMD` could be correct for all of them, and the ambiguity is deleted rather than answered.
 
-Any codebase whose core services declare a `health_check_path` must carry `curl` in its image. Dockerfiles for such services should be written to install `curl`. The [`./bin/docex check`](./cicd.md#check-step) gate check will fail if `curl` is omitted.
+Every image must be able to run `./health.sh <service>` for each core service it hosts. What that requires — an HTTP client, a file stat, a language runtime — is the project's to install. See [healthchecks.md](./healthchecks.md).
 
 ### Contracts
 
@@ -257,14 +259,14 @@ The idea is that all [core services](./cicl.md#core-services) are either provide
 
 In practice, these relationships are declared by `infra.yml`'s [uses](./cicl.md#uses-relationships) field.
 
-Provider core services have a contract which is stored at `$pr/infra/contracts/${codebase_name}.${service_name}.${contract_format}.yml`. The contract format follows from the provider's role — a request-based boundary is OpenAPI, a queue-based one is AsyncAPI. In the above example:
-+ `frontend.web` has no contract, as it is only a consumer relative to other core services.
-+ `api.web` has contract `api.web.openapi.yml` because it is driven by a request-based interface.
-+ `api.worker` has contract `api.worker.asyncapi.yml` because it is driven by a queue system.
+Providers have one contract per [surface](./cicl.md#surfaces), stored at `$pr/infra/contracts/${codebase}.${service}.${surface}.${format}.${ext}`. The format follows from the surface's declared `api_styles`. In the above example:
++ `frontend.web` declares no surfaces — it serves a browser, not a described boundary — so it has no contract.
++ `api.web` declares a `rest` surface, giving `api.web.rest.openapi.yml`.
++ `api.worker` declares an `events` surface, giving `api.worker.events.asyncapi.yml`.
 
 See [contracts](./contracts.md) for more info on formats, requirements, and the like.
 
-Every core service which is a provider *must* have a contract to pass CI checks.
+Every declared surface *must* have a contract to pass CI checks. Declaring a surface is what makes a core service a provider; a core service that declares none cannot be a `uses` target.
 
 ### Infra Filestructure
 
@@ -276,7 +278,7 @@ The `infra` folder holds our infrastructure concerns - driving config, compile c
 **tte** - Read-only records of [tte vars](./configurable.md#tte-vars) for `dev` and `test`. Generated and managed by `docex`.
 **deploy_creds** - Currently used only for `fixed` foundation deployments, this folder holds credentials needed to run the ansible deployment step. These take the form of private keys; corresponding public keys may also be stored there. See [this](./credentials.md#deploy-credentials) for more info.
 **stage** - Contains necessary files to perform [stage tests](./tests.md#staging-tests).
-**contracts** - Contains contracts which describe the boundaries between core services.
+**contracts** - Contains contracts which describe core services' [surfaces](./cicl.md#surfaces).
 
 ## Observability
 
@@ -301,6 +303,6 @@ More details [here](./credentials.md)
 Some things must be deferred for now:
 1. Multi-machine `fixed` foundation. We will one day support multiple machines, but this will involve docker-swarm and some other complexities. We assume only one machine for now, hosting all environments.
 2. Automated CI/CD flow (in the sense that a pull request kicks off the process). All CI/CD can be achieved with `docex` commands; this can be done manually by a developer with strict discipline. These commands could be worked into GitHub, GitLab, or some other service. That's beyond the scope of this version.
-3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. health check all services, check DNS) which run alongside project-defined stage tests.
+3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. DNS and TLS checks) which run alongside project-defined stage tests.
 4. Real defense-in-depth with networks, permissions, and validation cross-service.
 5. GPU workloads on `elastic` foundations. The doctrine commits to Fargate for elastic compute, and Fargate does not run GPU workloads; `resources.gpu` is therefore `fixed`-only and rejected on elastic compiles.

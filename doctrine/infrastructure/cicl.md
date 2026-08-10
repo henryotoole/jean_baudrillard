@@ -51,7 +51,7 @@ codebases:
         command: ["python", "-m", "entrypoints.http"]
         port: 8080
         networks: [web, internal]
-        health_check_path: /health
+        health_check_path: /health   # web only — this is the load balancer's probe
         resources:
           cpu: 1.0
           memory: 2GB
@@ -61,27 +61,31 @@ codebases:
           # belongs here rather than on the codebase.
           BUCKET_NAME: ${backing_services.bucket.bucket_name}
         uses: [appdb, cache, bucket, api.worker]
+        surfaces:
+          rest:
+            api_styles: [rest, webhook]   # one OpenAPI contract
       worker:
         role: worker
         command: ["python", "-m", "entrypoints.worker"]
-        port: 8080
         networks: [internal]
-        health_check_path: /health
         replicas: 4
         resources:
           cpu: 2.0
           memory: 4GB
         uses: [cache, appdb, api.web]
+        surfaces:
+          events:
+            api_styles: [events]          # one AsyncAPI contract
       clock:
         role: clock
         command: ["python", "-m", "entrypoints.clock"]
-        port: 8080
         networks: [internal]
-        health_check_path: /health
         resources:
           cpu: 0.25
           memory: 512MB
         uses: [appdb, api.worker]
+        # No `surfaces:` — a clock is driven by time, not from outside. It is
+        # a consumer only, so nothing may `uses` it.
         schedules:
           nightly_cleanup: "0 3 * * *"
           hourly_rollup: "0 * * * *"
@@ -125,9 +129,11 @@ codebases:
       web:                  # a core service
         role: web
         command: [...]
+        surfaces: { ... }   # core-service-scoped
       worker:
         role: worker
         command: [...]
+        surfaces: { ... }
 ```
 
 > **Naming**: A core service is generally named after its role, unless a codebase declares two on the same role. `role: web` → `web`; `role: worker` → `worker`; `role: clock` → `clock`.
@@ -143,6 +149,7 @@ The table below lists all standard fields for codebases and/or core services.
 | config | no | codebase | Declared, non-secret, per-env config values (e.g. a URL that differs by environment). Keys are declared here; values live in the non-tracked, LLM-readable `infra/config/<env>.env`. See [configurable.md](./configurable.md#config). |
 | env | no | codebase + core service | Contains fields which define infrastructure-driven environment variables for the container. Valid at the codebase level and on a core service; a core service's own block merges over the codebase's. |
 | role | yes | core service, backing | What this core service or backing service *does* for the project e.g. 'web', 'worker', 'relational_db', 'cache'. |
+| surface | no | core service | The API [surfaces](#surfaces) which this core service exposes. |
 | command | yes | core service | The command that launches this core service. Required on every core service; supersedes the Dockerfile `CMD`. |
 | networks | yes | core service, backing | Lists the networks this core service or backing service will belong to. |
 | resources | yes | core service | Computing resources the core service requires at runtime. See [Resources](#resources). |
@@ -197,7 +204,7 @@ We define some arbitrary but hard rules for these infra files in order to reduce
 
 1. Service names are interpolated into a globally unique name when used as variables.
 	+ For example, a core service needs a bucket name. This name will be interpolated from the object store backing service name, the environment name, and the project name.
-2. Services communicate over URLs, and those URLs are built from provided fields (host, port, etc.) at startup.
+2. When services communicate over URLS, those URLs are built from provided fields (host, port, etc.) at startup.
 
 ### Naming and Tagging
 
@@ -374,7 +381,7 @@ resources:
 
 ### Uses Relationships
 
-`uses` is the single relation between services. It says *"I speak to this boundary"* — nothing more.
+`uses` is the single relation between services. In the example below, service `api.web` *uses* service `api.worker` across a surface. Between core services, a consumer / provider relationship is implied. Below, `api.web` is the *consumer* and `api.worker` is the *provider* in the relationship.
 
 ```yml
 codebases:
@@ -384,57 +391,86 @@ codebases:
         uses: [appdb, cache, bucket, api.worker]
 ```
 
-A `uses` entry names either a **backing service**, bare (`appdb`), or a **core service**, dotted and fully qualified (`api.worker`). A bare codebase name is illegal, not shorthand for "all its core services": an interface edge points at a specific boundary, and a codebase does not have one contract.
+A `uses` entry names either a **backing service** (e.g. `appdb`) or a **core service** (dotted and fully qualified, e.g. `api.worker`). A bare codebase name is invalid.
 
-**Only core services declare `uses`.** A backing service has no outbound edges at all. Where an engine genuinely needs another container beneath it, that requirement is an *engine* concern and belongs in its transfer table's `defaults` block, not in `infra.yml`. The consequence is structural and load-bearing: a backing service is a **sink** in the relation graph. See [The graph may contain cycles](#the-graph-may-contain-cycles).
+**Only core services declare `uses`.** A backing service has no outbound edges at all. Where an engine genuinely needs another container beneath it, that requirement is an *engine* concern and belongs in its transfer table. This decision is load bearing as it makes backing services a *sink* in the infrastructure relational graph.
 
-Provider and consumer survive as **derived** vocabulary rather than as field names: a core service that is used by another is a provider, and the one doing the using is a consumer. See [contracts.md](./contracts.md).
+The `uses` field serves four purposes:
+1. It declares the [provider / consumer](./infrastructure.md#contracts) relationships between services.
+2. It satisfies [validation rule 7](#validation-rules) for magic refs.
+3. It determines which backing services must be running to use the per-codebase exec service [exec_service.md](./specifics/exec_service.md).
+4. On elastic, it names the endpoints each consumer must be able to resolve.
 
-`uses` **emits nothing onto a core service's own block** — no compose key, no HCL resource, on either foundation. It is read by the compiler's exec-block gate, by CI, by validation, and by the elastic release, where it does five jobs:
+While `uses` relationships do allow the infrastructure graph to be constructed, they are *not* used by `docex` to implement start ordering between core and backing services. Doctrine-compliant **core services must tolerate the momentary absence of dependencies**. Network outages, deployments, startup sequences, and other factors can all lead to temporary downtime of any service. Graceful handling of these sometimes unavoidable absences is necessary. Use:
++ Sensible timeouts to produce clean errors when a service is down unreachable.
++ Retries with exponential backoff and jitter to reduce hammering when the absent service returns.
 
-1. It declares the [provider / consumer](./infrastructure.md#contracts) relationships that determine which core services must carry a contract, and in which format.
-2. It drives the health-check fan-out — see [contracts.md § Health Checks](./contracts.md#health-checks).
-3. It satisfies [validation rule 7](#validation-rules) for magic refs.
-4. Its **backing-targeted** edges are unioned per codebase into the readiness gate on that codebase's exec block — the compiler's one remaining ordering emission. See [Startup ordering is not a doctrine feature](#startup-ordering-is-not-a-doctrine-feature).
-5. On elastic, it names the endpoints each consumer must be able to resolve, so a release can find and redeploy any consumer whose tasks predate one — see [§ Resilience covers reachability, not resolvability](#resilience-covers-reachability-not-resolvability).
+The `uses` relationship does allow for cycles. Service A can use Service B while Service B uses Service A.
 
-Jobs 1–3 and 5 are validation, CI, and *release-time orchestration* reads; nothing derived from them reaches the compiled output. Job 4 is the sole emission, and it lands on a block no project authors.
+Naturally, a consumer-service cannot "use" a provider-service if the provider does not have any declared surfaces. Such a state is invalid and will trip a `docex` compile error.
 
-#### Startup ordering is not a doctrine feature
+### Surfaces
 
-> **Startup ordering is not a substitute for connection resilience.**
+The *surface* is the doctrine name for the API which allows interaction with a core service from the "outside". A good example is a `web`-role core service's REST-based API. Other project infra (like a frontend) or 3rd party access would both interact with the core service through this REST surface.
 
-Every service must tolerate its dependencies being absent at any moment — not only at startup. Reconnect, back off, and fail requests cleanly; do not assume a dependency that was reachable a second ago still is.
+Every surface has a contract which defines its behavior (see [contracts.md](./contracts.md)). Surfaces also have one or more "API styles" e.g. REST, RPC, webhooks, MCP etc. Only certain combinations of API styles can be used together in one surface. Each style has a doctrine-defined standard format of contract which can effectively express it (see [contracts.md](./contracts.md#standards)). All styles in a surface must map to the same contract format. Invalid style combinations will trip a `docex` compile error. 
 
-This is an unqualified requirement, not a warning attached to a gate you might lean on. **The compiler emits no ordering onto any core service's block.** On `elastic` it could not be honoured in any case: ECS has no cross-service ordering primitive, and even a deploy-time emulation would hold exactly once and then be silently violated forever after, as ECS independently replaces tasks for scaling, AZ rebalance, failed health checks, and platform updates. But the reason it is gone from `fixed` too is sharper. A gate that `dev` and `test` honour while the doctrine says nothing makes those envs systematically **more forgiving** than elastic `prod`: a service that connects at boot with no retry works in `dev`, works in `test`, and breaks the first time the project goes elastic. The protection would be real but invisible, so nobody would know to distrust it. `dev` should *expose* non-resilient boot code, not shelter it.
+| API Style | Format | Covers |
+| --- | --- | --- |
+| `rest` | `openapi` | resource-oriented HTTP |
+| `stream` | `openapi` | SSE, JSON Lines, `application/json-seq` (OpenAPI 3.2 `itemSchema`) |
+| `webhook` | `openapi` | provider-initiated callbacks (OpenAPI 3.1 top-level `webhooks`) |
+| `rpc` | `asyncapi` | JSON-RPC, MCP, request/reply (AsyncAPI 3.0 `reply`) |
+| `events` | `asyncapi` | queue / broker / pub-sub |
+| `socket` | `asyncapi` | WebSocket, bidirectional |
+| `graphql` | `graphql` | GraphQL SDL |
+| `grpc` | `proto` | gRPC / protobuf IDL |
 
-The accepted cost is a burst of connection-refused lines on `envinfra up` while backing services initialize. That is acceptable and arguably good signal — you can watch backoff working — and per [logging.md](../practices/logging.md) stdout is already the home for that class of diagnostic. A service that crashes rather than retries fails the bring-up, which is the correct outcome.
+> **NOTE**: `graphql` and `proto` are not yet implemented.
 
-**The per-codebase exec block is the one place ordering survives, and it is not a carve-out.** `migrate.sh`, `test.sh`, and `build.sh` are one-off batch jobs whose entire contract is an exit code. Disposability says a long-running process must tolerate a dependency vanishing; nothing in it makes a one-shot script succeed against a database not yet accepting connections. For a batch job, "be tolerant" *means* "wait until ready". So the exec block carries the union of its codebase's backing-targeted `uses` edges, rewritten to `condition: service_healthy` — see [migrations.md](./specifics/migrations.md#dev-and-test-mechanism). Ordering has stopped being a property of the project's services and become a property of one compiler-owned block: no project declares it, and no project can rely on it.
+Surfaces are defined in `infra.yml` under the relevant core service.
 
-#### Resilience covers reachability, not resolvability
+```yml
+codebases:
+  api:
+    core_services:
+      web:
+        role: web
+        surfaces:
+          rest:
+            api_styles: [rest, stream, webhook]   # all openapi — one contract
+          graphql:
+            api_styles: [graphql]                 # different format — its own surface
+      mcp:
+        role: web
+        surfaces:
+          mcp:
+            api_styles: [rpc]                     # asyncapi
+```
 
-The rule above answers *reachability*: a dependency that is down, restarting, or briefly unroutable. It does **not** answer a second failure mode that elastic adds, and which no amount of application-level retrying can escape.
+Each surface compiles to exactly one contract file, named for the surface that produced it. See [contracts.md](./contracts.md) for the path format.
 
-ECS Service Connect fixes a service's set of **resolvable endpoint names at deployment creation**. Each Envoy sidecar identifies itself to the ECS control plane by its task-set ARN — the deployment id — and is served a cluster list fixed for that deployment; tasks launched later into the same deployment inherit it rather than re-reading the namespace. An endpoint registered in the namespace *after* a deployment was created is not merely unreachable from its tasks — it is unresolvable, for the life of the deployment. The name does not exist. Backing off and retrying never converges, because there is nothing to converge on.
+> **Naming**: A surface is generally named after its main API style, unless a core service declares two surfaces on the same style. `api_styles: [rest]` → `rest`; `api_styles: [rest, webhook]` → `rest`; two REST surfaces → `rest_public` and `rest_admin`.
 
-So a core service **deployed** alongside a [`uses`](#uses-relationships) target it has never seen registered can be permanently unable to reach it, with both sides healthy. The externally visible symptom is a `503` on the [health fan-out](./contracts.md#fan-out); the invisible one is that every real call across that edge fails too.
+A core service can have multiple surfaces. These can even be of the same type - for example, it's fine to have two surfaces named `rest_public` and `rest_admin` for two REST API's with differing purpose and authentication. However, this leads to the interesting design question of whether to split surfaces within one core service or across two different ones. The answer comes down to similarity and process suitability:
 
-**`docex` closes this at release time**, by redeploying, after the apply, any consumer whose current deployment was created before the registration of a name it `uses`. Note carefully that this is *not* the deploy-time ordering emulation rejected above, and the distinction is what makes it sound: an endpoint **registration is durable state**, owned by the service rather than by task liveness, and it survives every task replacement. Holding once is therefore permanently sufficient — once a consumer's deployment postdates the names it needs, every task ECS starts into that deployment (scaling, AZ rebalance, failed health check, platform update) inherits the same correct cluster list. A readiness gate decays because liveness changes; a deployment's resolved name set does not. Because *both* halves of the comparison are durable — deployment age as much as registration age — the check describes the env rather than the release that produced it, and any broken env it can read it can also repair. See [release.md § Service Connect Consumer Reconcile](./specifics/release.md#service-connect-consumer-reconcile).
+> Two boundaries belong to one core service iff every core-service-distinguishing
+> field — `role`, `command`, `resources`, `networks`, `port`, `replicas` — would
+> take the same value for both. If any would differ, they are two core services.
 
-Ordering could not have solved it in any case: the `uses` graph may legally [contain cycles](#the-graph-may-contain-cycles), and in a cycle some member must be created first.
+Splitting is cheap — two core services share one codebase, one image, and one composition root, and cost only a second thin entrypoint. Bundling is the move that cannot be undone without changing deployed topology, routing, and contract paths. **When in doubt, split.**
 
-#### The graph may contain cycles
-
-`api.web` enqueues a job; `api.worker` posts the result back to `api.web`'s internal API. So `web` uses `api.worker` *and* `worker` uses `api.web`. That is a cycle, it is the most common web/worker topology in existence, and it is entirely fine — interfaces may be mutually referential.
-
-One field carries the whole relation because the cycle rule keys on **target kind**, which the compiler knows for every edge: a cycle among core-service targets is legal, and a cycle through a backing-service target would be a startup deadlock. The second case cannot arise. A backing service declares no `uses` edges at all, so no path leaves one — it is a graph **sink**, and a sink cannot sit in a cycle. Acyclicity across backing-targeted edges therefore falls out of the shape of the graph rather than being enforced against it.
-
-#### Three clarifications
-
-- **One-directional: a ref implies an edge, never the reverse.** A magic ref to another service obliges a matching `uses` entry. A `uses` entry does *not* oblige a magic ref — in the cycle above, `api.web` declares `uses: [api.worker]` for the contract and the health fan-out but holds no ref to the worker, because it reaches it through the broker.
-- **Same-codebase is not exempt.** `api.worker` referencing `${codebases.api.core_services.web.host}` still declares `uses: [api.web]`. Sharing source does not make it not a boundary.
-- **A codebase-level `env:` ref obliges every core service** to declare the edge. If every core service receives `WEB_HOST`, every core service talks to `api.web`.
+| Circumstance | Correct Split | Why |
+| ------------ | ------------- | --- |
+| A classic `api` with `web` and `worker` | Two core services, one surface each | Queue-based worker has a fundamentally different entrypoint and `command`; must be different core services. |
+| A REST API that also emits webhooks and streams SSE | **One** core service, **one** surface | All three styles are `openapi`, and one process serves them on one port with one sizing. `api_styles: [rest, stream, webhook]`. |
+| A REST API that also serves GraphQL from the same server | **One** core service, **two** surfaces | Same process, same sizing — but the formats differ, so they cannot share a contract. |
+| A public REST API and an internal admin REST API in one process | **One** core service, **two** surfaces | Same format, but genuinely different consumers and auth. `rest_public` and `rest_admin`. |
+| …where the admin API must be off the `web` network | **Two** core services | `networks` differs, so the split test fails. Boundary shape did not decide this; deployment did. |
+| A REST edge and an MCP session server | **Two** core services | Session holding sizes on concurrent sessions and needs long drain windows; `resources` and `command` both differ. |
+| A REST API and a gRPC API | **Two** core services | Each needs its own listening `port`, and a core service declares one. (Per-surface `port` is deliberately deferred.) |
+| A worker consuming two different queues | **One** core service, **one** surface | Both are `events`; one AsyncAPI document carries both channels. Two surfaces only if the consumers are genuinely unrelated. |
+| A `clock` | **One** core service, **no** surfaces | Driven by time, not from outside. Declaring no surface is what makes it a non-provider. |
 
 ### Reverse Proxy
 
@@ -537,8 +573,8 @@ Rule numbers are **stable identities**. They are cited from other doctrine files
 3. All "magic refs" must resolve.
 4. Engines must be known and engines must match foundation (e.g. minio for `fixed` foundation, S3 for `elastic`).
 5. The rendered data-plane identity of every emitted service must be unique after naming-policy normalization. The set spans core services, backing services, **and the derivatives the compiler appends to them** — `-otelcol` (the paired collector sidecar), `-exec` (the per-codebase operations container), `-migrate` (the migration task definition), and `-1`…`-N` (the replica index, on a core service declaring `replicas: N`) — since all of them render into the same namespace. So a core service named `exec` on codebase `api` is an error: it renders `api-exec`, which is byte-identical to the exec container the compiler emits for the `api` codebase, and the two would silently share one compose key. Likewise a codebase `api` declaring core services `web` with `replicas: 3` and `web-1` is an error: replica 1 of `web` renders `api-web-1`, byte-identical to the `web-1` core service's own compiled identity. The rule is keyed on **collision, not on a list of forbidden names**, which is what makes it cover every suffix the compiler learns in future without a further edit, and what keeps a name that collides with nothing from being forbidden for its own sake.
-6. *(Retired in 1.7.0.)* Formerly forbade cycles in `depends_on`. With one relation, and backing services declaring no outbound edges, a backing service is a graph **sink** — acyclicity across backing-targeted edges is a property of the graph's shape rather than a rule enforced against it. See [The graph may contain cycles](#the-graph-may-contain-cycles).
-7. Magic refs which imply a dependency must be matched by a corresponding `uses` entry on the referencing core service. This rule governs **core-service referencers**, since a core service is the only thing that can hold a `uses` edge. A backing service that embeds a core service's part — an `object_store` holding `${codebases.api.core_services.web.host}` as a CORS origin, say — cannot satisfy it at all, because backing services declare no edges. That is rule 7 correctly **not applying** rather than a gap: a backing service embedding a core hostname is not *calling* it, so there is no interface implication for the relation to express. See [Uses Relationships](#uses-relationships) for the one-directional, same-codebase, and codebase-level-`env:` clarifications.
+6. *(Retired in 1.7.0.)* Formerly forbade cycles in `depends_on`. With one relation, and backing services declaring no outbound edges, a backing service is a graph **sink** — acyclicity across backing-targeted edges is a property of the graph's shape rather than a rule enforced against it.
+7. Magic refs which imply a dependency must be matched by a corresponding `uses` entry on the referencing core service. This rule governs **core-service referencers**, since a core service is the only thing that can hold a `uses` edge. A backing service that embeds a core service's part — an `object_store` holding `${codebases.api.core_services.web.host}` as a CORS origin, say — cannot satisfy it at all, because backing services declare no edges. That is rule 7 correctly **not applying** rather than a gap: a backing service embedding a core hostname is not *calling* it, so there is no interface implication for the relation to express. Three clarifications: the implication is **one-directional** — a ref obliges an edge, an edge obliges no ref; sharing a codebase is **not** an exemption, since two core services of one codebase still meet at a boundary; and a ref in a codebase-level `env:` obliges the edge on **every** core service that receives it.
 8. Database roles (e.g. `relational_db`) all specify a valid `schema_owned_by` codebase.
 9. `container_registry` is set when `foundation: fixed`. Omission is permitted under elastic, where it defaults to the project's auto-provisioned ECR.
 10. Every core service has a `resources:` block declaring at least `cpu` and `memory`.
@@ -559,4 +595,9 @@ Rule numbers are **stable identities**. They are cited from other doctrine files
 25. `uses` names either a backing service, bare, or a core service, fully qualified as `<codebase>.<service>`. A bare codebase name is an error, and a core service may not use itself.
 26. `replicas` is not declared on a `clock` core service.
 27. `worker` and `clock` core services do not declare `web` in `networks`.
-28. Every core service that declares `health_check_path` also declares a `port`. The path is only meaningful against a port — the probe is issued at `http://localhost:<port><path>` — and no role fixes a default health port, deliberately: an implicit one would silently oblige the application to bind it. Without this rule the omission emits a malformed probe and surfaces as a container that never becomes healthy, rather than as a compile error.
+28. *(Retired in 1.7.0.)* Formerly required a `port` alongside `health_check_path`. Rule 33 confines `health_check_path` to `web`-network core services and rule 15 already requires a `port` on those, so the obligation is redundant rather than merely obsolete.
+29. Every [surface](#surfaces)'s `api_styles` resolve to exactly one contract format. A surface mixing styles of differing formats is an error, not a merge — split it into two surfaces. The rule is *derived* from the style table rather than tabulated against it, so it cannot drift as styles are added.
+30. Surface names match the same pattern as codebase and core service names. A surface name is one segment of its contract's filename, which is parsed right-anchored into four fields, so a dot in a surface name makes the path ambiguous.
+31. Every core-service `uses` target declares at least one surface. Declaring a surface is what makes a core service a provider; one that declares none has no boundary to be used across, and the edge is an error rather than a missing contract.
+32. A `uses` target that its consumer addresses **directly** declares a `port`. A target reached only through a queue or broker declares none — there is no address at which a consumer reaches it, so a port would be decoration.
+33. Every `web`-network core service declares `health_check_path`, and no core service off the `web` network declares one. The field is what the reverse proxy probes, and it is meaningless without one in front of the service. It is consumed by the ALB target group on `elastic`; on `fixed`, traefik takes target health from the container healthcheck instead. The declaration is required on both foundations regardless, so that a project stays portable between them.

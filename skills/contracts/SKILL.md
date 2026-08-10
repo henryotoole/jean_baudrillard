@@ -1,28 +1,31 @@
 ---
 name: contracts
-description: Doctrine for defining core-service contracts and boundaries — OpenAPI/AsyncAPI provider contracts and the mandatory health-check endpoints. Use this whenever you are defining or changing a service's contract, adding a provider/consumer relationship, or wiring health checks, even if the word "contract" is never used.
+description: Doctrine for defining core-service surfaces and their contracts — which API styles share a surface, the OpenAPI/AsyncAPI format each resolves to, and the health probe every core service owes. Use this whenever you are declaring or changing a service's surfaces, writing a contract, adding a provider/consumer relationship, or wiring health checks, even if the words "contract" or "surface" are never used.
 metadata:
   type: thread
 ---
 
 # contracts
 
-Contracts define the boundary of a provider **core service**; a single file covers the formats, the mandatory endpoints, and how CI uses them.
+A core service exposes zero or more **surfaces**; each surface is one described boundary and gets exactly one contract file. Declaring a surface is what makes a core service a provider.
 
 ## General Information
 
-What contracts are and what they must contain. **Read this now.**
+Read both. **Now.**
 
-[`contracts.md`](../../doctrine/infrastructure/contracts.md) — contract formats (OpenAPI for HTTP, AsyncAPI for queues), where they live, the mandatory `/health` and downstream `/health/<codebase>/<service>` endpoints, the loop-liveness tick a long-running core service owes, and how CI checks them.
+[`contracts.md`](../../doctrine/infrastructure/contracts.md) — what a contract is, the four formats and their file extensions, and the `${codebase}.${service}.${surface}.${format}.${ext}` path.
+
+[`healthchecks.md`](../../doctrine/infrastructure/healthchecks.md) — the `health.sh` probe every core service ships, what it must actually check (the loop-liveness tick), and why only `web`-network services also serve `GET /health`.
 
 ## Specific Information
 
-The reasoning under the requirement. **Read on demand.**
+**Read on demand.**
 
-[`healthchecks.md`](../../doctrine/infrastructure/reasoning/healthchecks.md) — one paragraph on *why* every core service must declare a healthcheck: a system that autoscales and is evaluated by machine has no other way to be judged. `contracts.md` states the requirement; this states its motive.
+[`cicl.md § Surfaces`](../../doctrine/infrastructure/cicl.md#surfaces) — the `api_styles` → format table, the one-format-per-surface rule, and the table deciding when two boundaries are two surfaces versus two core services. Read this when choosing how to split a service that exposes more than one kind of API.
 
 ## Thread
 
-- Provider/consumer relationships are declared via `uses` in `infra.yml` — author that in `infra-compile`. Only the **core-service** targets of a `uses` list define contract edges; a backing-service target does not.
-- Provider-side contract tests run in the test suite (`testing`); the check step enforces contract-to-`uses` alignment (`cicd-pipeline`).
+- Surfaces are declared in `infra.yml` under a core service — author that in `infra-compile`. A `uses` edge may only target a core service that declares at least one surface.
+- Health splits across two mechanisms deliberately: the **probe** (`health.sh`, every core service, command-form) proves liveness to the orchestrator; **`GET /health`** exists only where a load balancer reads it. Only the latter appears in a contract, and only when the service also declares an `openapi` surface.
+- Provider-side contract tests run in the test suite (`testing`); the check step enforces surface-to-contract alignment (`cicd-pipeline`).
 - A contract expresses a module's *boundary*; the internal architecture behind it is the Resident hexagonal doctrine, already in context.

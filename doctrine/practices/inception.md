@@ -70,8 +70,8 @@ __PART III__: Infrastructure Smoke Test
 		+ These don't need to be perfect. At this stage, we only know what the codebases are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.
 	2. `dist`, `src`, and `tests` folders.
 		+ These will be empty.
-	3. Infrastructure scripts: `build.sh`, `test.sh`.
-		+ These can be empty; they must merely exist.
+	3. Infrastructure scripts: `build.sh`, `test.sh`, `health.sh`.
+		+ These can be empty; they must merely exist. Note that an empty `health.sh` exits 0 and so reports healthy unconditionally — which is what lets the smoke test pass before any code exists, and which must be replaced with a real probe once there is a process worth probing.
 	4. If this codebase owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
 		+ These can be empty; they must merely exist.
 6. Compile `infra.yml`.
@@ -95,7 +95,7 @@ The first of these cycles is very important. It must do the following very well:
 1. Write the contents of `build.sh` and `test.sh` for the first time for each codebase.
 2. Adjust each codebase's Dockerfile for the specifics of the code it will be running.
 3. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database will need to write the initial migration file(s) which set up the database and the `migrate.sh` script which runs it.
-4. Write the first drafts of [contracts](../infrastructure/contracts.md) for "provider" core services.
+4. Write the first drafts of [contracts](../infrastructure/contracts.md) — one per [surface](../infrastructure/cicl.md#surfaces) declared in `infra.yml`.
 
 The files in the above list will likely be edited again in future mods. However, this first one is terribly important because it establishes the conventions that future mods will follow. Care should be taken to get them right.
 

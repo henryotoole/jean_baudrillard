@@ -19,6 +19,7 @@ This guide defines special words and phrases that have unique context for all ma
 | Backing Service | "backing service" | A service running code external to the project, like postgres running in a docker compose container or AWS S3. |
 | Codebase |  | The bundle of source code for a core-service family, and the single build artifact and image compiled from it. One codebase never imports code from another. Declares one or more core services, all of which run that same image. A codebase is the unit of *code*; a core service is the unit of *deployment*. |
 | Entrypoint |  | The *code module* a core service's `command` invokes. Binds the composition root's driving adapters to a runtime host. One entrypoint per core service. Not an infrastructure noun — the word is already spent on the Dockerfile `ENTRYPOINT` and on traefik entrypoints. |
+| Surface |  | The API which allows interaction with a core service from the "outside". Every surface has a contract defining its function. A core service can have zero, one, or many surfaces. |
 | Foundation |  | A project has a `fixed` or `elastic` foundation depending on whether a project manages the lifecycle of the machines which run its infrastructure. |
 | Environment | "env" | A copy of all environment-tier infrastructure that serves a distinct purpose: `dev`, `test`, `stage`, and `prod`. |
 | Infrastructure Tier |  | All infrastructure falls into one of three tiers on the basis of project control and environmental replication. See [here](./infrastructure/infrastructure.md#infrastructure-tiers). |

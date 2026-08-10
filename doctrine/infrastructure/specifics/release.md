@@ -95,7 +95,7 @@ For a typical release where only the image tag has changed, this updates each co
 
 ### Service Connect Consumer Reconcile
 
-ECS Service Connect fixes a service's set of resolvable endpoint names **at deployment creation** — each Envoy is served a cluster list keyed to its deployment's task-set ARN, and later tasks in that deployment inherit it. An endpoint registered after a deployment was created is unresolvable from every task in it — not slow, not intermittently unreachable, but absent. See [`cicl.md § Resilience covers reachability, not resolvability`](../cicl.md#resilience-covers-reachability-not-resolvability) for why application-level retrying cannot recover from this.
+ECS Service Connect fixes a service's set of resolvable endpoint names **at deployment creation** — each Envoy is served a cluster list keyed to its deployment's task-set ARN, and later tasks in that deployment inherit it. An endpoint registered after a deployment was created is unresolvable from every task in it — not slow, not intermittently unreachable, but absent. See [`elastic_release_pattern.md`](../reasoning/elastic_release_pattern.md) for why application-level retrying cannot recover from this.
 
 Because `tofu apply` creates every env-tier `aws_ecs_service` concurrently, a consumer and the [`uses`](../cicl.md#uses-relationships) target it depends on start racing. Whichever starts first may never see the other. So after the final apply, `release` asks one question of current AWS state — **is any consumer's current deployment older than the registration of a name it needs?** — and repairs whatever it finds:
 
@@ -117,7 +117,7 @@ Three implementation details matter:
 - **Ties break toward redeploying, and the margin is deliberately wide.** The comparison is `<=`, and a fixed 60-second margin is added to the registration time before comparing. That margin is not a clock-skew allowance — the genuine uncertainty is far smaller than a minute. It exists to collapse the **concurrent-creation window** into a redeploy: when a consumer's deployment and a target's name are created seconds apart, which one won is a race whose outcome the two timestamps do not report, so the step stops trying to read it and simply acts. The cost is one rolling deploy per consumer on a first release or a shape change — the releases where the race is real — and nothing at all on an ordinary code-only release, where the gap is days or weeks and the comparison is not close. A false positive costs one rolling deploy; a false negative costs a permanently broken env that exits 0. Never round toward silence.
 - **Client bookkeeping entries are not endpoints.** A namespace holds one `aws-ecs-sc.client.<uuid>.<service>` entry per client-only participant. They register nothing, nothing can `uses` them, and they are filtered out before the comparison.
 
-A failed redeploy fails the release: the health fan-out is doctrine-mandated, and an env whose consumers cannot resolve their targets is not released. A redeploy that is accepted but slow to settle is a warning only — ECS will converge.
+A failed redeploy fails the release: an env whose consumers cannot resolve the targets they `uses` is not released, however healthy each side looks in isolation. A redeploy that is accepted but slow to settle is a warning only — ECS will converge.
 
 **Fixed foundations need none of this.** Docker network DNS resolves a sibling container whenever it exists, with no deployment-time name freeze.
 

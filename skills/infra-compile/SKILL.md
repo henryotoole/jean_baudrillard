@@ -31,6 +31,7 @@ How the compiler turns CICL into provider-ready output. **Read on demand.**
 
 ## Thread
 
+- **Surfaces are authored here but specified in `contracts`.** `infra.yml` declares each core service's `surfaces:` and their `api_styles`; that declaration is what makes the service a provider and what fixes each contract's format and filename. Load `contracts` when deciding how to split them or what goes in the contract itself.
 - Writing project-local transfer tables (the former `docex-transfer-table` activity, now folded here) goes in `infra/transfer_tables/`.
 - The network plane in depth — *why* ingress/egress is shaped as it is — is `network-design`; come here to *author* a service's networks, go there to *design* the plane.
 - Compiled output is consumed downstream by `cicd-pipeline` (containerize/release) and realized by `preinfra-setup` and `projinfra-setup`, the infra tiers around the services.

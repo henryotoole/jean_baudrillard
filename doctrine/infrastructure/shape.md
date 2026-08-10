@@ -146,7 +146,7 @@ backing_services:
 - One internal network: `myproject-dev-internal`
 - A named volume: `myproject-dev-appdb_data`
 - An `api-web` container on both networks (no published host port), with Traefik labels routing both `dev.myproject.example.com` (it's the `domain_default_service`) and `api-web.dev.myproject.example.com` to it, plus `DATABASE_*` env for internally constructing the db url
-- An `api-exec` container, profile-gated so `up` never starts it — the per-codebase one-off container `build`, `test`, and `migrate` run inside
+- An `api-exec` container, profile-gated so `up` never starts it — the per-codebase one-off container `build`, `test`, and `migrate` run inside (see [exec_service.md](./specifics/exec_service.md))
 - An `appdb` container on the internal network, postgres 15 image, env vars and healthcheck per the transfer table
 
 The project traefik (project-tier, listed above) spans the `-web` networks and `docex-ingress`; it picks up the `api-web` container's labels so that `dev.myproject.example.com` and `api-web.dev.myproject.example.com` both actually get routed to it. The developer accesses the project at `dev.myproject.example.com` on the dev machine.

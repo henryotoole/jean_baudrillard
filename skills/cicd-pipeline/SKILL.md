@@ -27,7 +27,11 @@ The mechanism behind the heavier steps. **Read on demand.**
 
 [`migrations.md`](../../doctrine/infrastructure/specifics/migrations.md) — the `migrate.sh` contract and how migrations run per env category and foundation.
 
+[`exec_service.md`](../../doctrine/infrastructure/specifics/exec_service.md) — the per-codebase one-off container `build`, `test`, and `migrate` all run inside: why it exists, what the compiled block carries, and how to invoke it by hand. Read when a pipeline step's one-off container behaves unexpectedly, or when a job needs running against a codebase's image with no `docex` command of its own.
+
 [`config_and_secrets.md`](../../doctrine/infrastructure/specifics/config_and_secrets.md) — how `<env>.env` materializes into compose env vars (fixed) or SSM `secrets[]` entries (elastic).
+
+[`healthchecks.md`](../../doctrine/infrastructure/healthchecks.md) — what `stagetest` reads from the orchestrator before it runs a single test, and what the `health.sh` probe it is reading actually proves. Read when a release or stagetest fails on a service's health rather than on a test.
 
 ## Thread
 

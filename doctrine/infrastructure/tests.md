@@ -37,28 +37,25 @@ Flow tests can look similar to contract tests. A key distinction is in *purpose*
 ### Contract Tests
 [On contracts](./infrastructure.md#contracts).
 
-Contract tests ensure core service modularity. They check that the boundary of a core service is well-defined, and ensure that consumers of that core service can expect the interior machinery to behave as defined by the contract. They don't literally test communications between multiple core services, but they do ensure that core services *will communicate correctly* in production.
+Contract tests ensure core service modularity. They check that a core service's surfaces are well-defined, and ensure that consumers across those surfaces can expect the interior machinery to behave as defined by the contract. They don't literally test communications between multiple core services, but they do ensure that core services *will communicate correctly* in production.
 
-Two axes are easy to conflate here, because the codebase / core service split falls between them:
+Keep in mind that a codebase can have multiple core services and that a core service can have multiple surfaces. A contract test *tests* a single core service's surface. However, it *runs* in the codebase's [exec service](./specifics/exec_service.md).
 
-| Question | Answer |
-| -------- | ------ |
-| What a contract test *asserts about* | one **core service's** boundary — its own contract file. |
-| Where a contract test *runs* | the **codebase's** [exec service](./specifics/migrations.md#dev-and-test-mechanism) — the one-off container `test.sh` is invoked in. |
+A codebase declaring two core services (each declaring one surface) therefore has two contract files but one test suite, one `test.sh`, and one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`.
 
-A codebase declaring two providers therefore has two contract files but one test suite, one `test.sh`, and one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`; neither the running `api-web` nor the running `api-worker` container is the one doing the testing.
+A core service declaring two surfaces is the same story from the other direction: `api.web` declaring `rest` and `graphql` has two contract files, both verified in that one run. The count of contracts tracks surfaces; the count of test suites tracks codebases.
 
 Good contract tests spare the developer from needing to write and maintain a bunch of complex and brittle end-to-end staging tests. Staging tests ideally test only *infrastructure* and shouldn't be burdened by concern over the application logic within a codebase.
 
 The tricky thing about contract tests is that they can run on both sides of the contract. The provider side ensures that the provider reacts correctly to simulated contract-appropriate requests from "outside" the service. The consumer side ensures that the consumer acts and reacts correctly when working with a provider that is mocked in accordance with the contract.
 
-This doctrine requires provider-side contract tests for core services with defined contracts, and encourages consumer-side contract tests for larger projects with many different core services.
+This doctrine requires provider-side contract tests for core service surfaces, and encourages consumer-side contract tests for larger projects with many different core services.
 
 #### Provider Side
 - Runs in a one-off container of the provider's **codebase** exec service, built from that codebase's `test` Dockerfile stage — the same container every other test in that codebase's suite runs in.
 - Test starts the provider's server *inside* that container. It does not call the core service's own long-running container in the `test` stack: schema-fuzzing tools generate large volumes of traffic, and aiming that at a shared container makes the suite order-dependent and pollutes state other tests rely on.
 - A schema-validation tool (e.g., schemathesis for OpenAPI) hits the real running endpoints.
-- Verifies that actual responses conform to what contract.*.yml declares.
+- Verifies that actual responses conform to what the surface's contract declares.
 - Invoked by the codebase's test.sh.
 
 #### Consumer Side
@@ -70,18 +67,21 @@ This doctrine requires provider-side contract tests for core services with defin
 
 The consumer side is codebase-scoped in a second sense as well. It exercises a driven gateway adapter, and that adapter is shared by every core service the codebase declares — so two core services consuming the same provider want *one* consumer-side test, not two, even though [`uses`](./cicl.md#uses-relationships) is declared per core service.
 
+Where a provider declares more than one surface, [`uses`](./cicl.md#uses-relationships) does not say which one a consumer depends on. In practice the consumer's gateway adapter makes it obvious, and the mock is generated from that surface's contract. If a project finds this genuinely ambiguous, that is the signal the two surfaces should have been two core services.
+
 The consumer side is *especially* tricky because it can require spinning up a separate container. If this is done, it should be done as a subcontainer *within* the codebase's exec container. That way it does not become an infrastructural concern.
 
 ## Staging Tests
 
 Staging tests verify that a deployed release functions correctly on its infrastructure. They catch problems that codebase tests can not because codebase tests run isolated within a singular codebase. 
 
-Staging tests should at least perform the following:
-+ Liveness Checks - Each `web`-network core service responds to its own `GET /health` at its own hostname. Core services that are not on `web` are not reachable from the stage tester at all, so their liveness is asserted through the `/health/<codebase>/<service>` [fan-out](./contracts.md#fan-out) on the `web` core service that `uses` them. A core service that nothing `uses` — a [clock](./specifics/clock.md), which is consumer-only by rule — appears in no fan-out at all. Its liveness is enforced by its container healthcheck rather than asserted here; the staging walk does not see it.
+Staging tests assert what can only be seen **from outside** the deployed stack. They should at least perform the following:
 + TLS / DNS - Can requests reach the [reverse proxy](./shape.md#general)?
 + Critical-path smoke-tests - one or two end-to-end smoke tests that span the system. These should be sufficient to ensure:
 	1. Secrets and environmental variables are wired up properly.
 	2. Services can actually reach each other over the network.
+
+**Liveness is not among them.** Before the stage tester is even built, `./bin/docex stagetest` reads every core service's health and version from the orchestrator — `docker inspect` on `fixed`, `describe_tasks` on `elastic` — and fails there if anything is unhealthy or running the wrong version. See [healthchecks.md](./healthchecks.md). A staging test therefore never probes a service to find out whether it is alive, and never reaches a non-`web` core service at all: a scenario that must exercise a worker drives the public edge and observes the effect.
 
 Staging tests are run per-project, not per-codebase. They are run *by* the project-wide `$pr/infra/stage/stage_test.sh` [stage test shim](./cicd.md#staging-tests) and are run *in* a special "test environment" image that is launched by the `./bin/docex stagetest` command and described by `$pr/infra/stage/Dockerfile`. The tests themselves are written by the developer and go in the `$pr/infra/stage/tests` folder.
 
@@ -96,6 +96,6 @@ The developer must also ensure that the Dockerfile produces an environment with 
 | Variable | Source | Purpose |
 | -------- | ------ | ------- |
 | `STAGING_URL` | derived from `infra.yml`'s `apex_domain` field and [domain rules](./cicl.md#domain) | The public URL of the deployed staging environment. Tests issue HTTPS calls against this. |
-| `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. Tests that assert a deployed `/health` returns the expected version read this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. |
+| `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. A test asserting that a `web` service's `/health` returns the expected version reads this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. This is the project's own assertion through the public edge; `docex` has already checked the deployed version against the orchestrator. |
 
 The contract is one-way and stable: docex injects these on every `stagetest` run; the project's tests are free to read or ignore them. Adding new doctrine-injected variables is a doctrine change, not a project change.

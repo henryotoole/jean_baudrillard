@@ -21,9 +21,7 @@ codebases:
       clock:
         role: clock
         command: ["python", "-m", "entrypoints.clock"]
-        port: 8080
         networks: [internal]
-        health_check_path: /health
         resources: { cpu: 0.25, memory: 512MB }
         uses: [appdb, api.worker]
         schedules:
@@ -35,9 +33,9 @@ codebases:
 
 A clock is subject to every ordinary [core service](../cicl.md#core-services) rule, with **no exemptions**:
 
-- **Health.** It serves `GET /health` like any core service. Because it owns a loop, [contracts.md § Self health](../contracts.md#self-health) already prescribes the tick-based liveness rule — bump a monotonic tick each iteration, 503 when stale, tick at least every 10 s even when idle, 30 s staleness threshold. A cron loop with a bounded ≤10 s wait is the natural way to write one, so the existing rule fits without amendment. A wedged clock fails its own probe.
+- **Health.** Its container runs `./health.sh clock` like any other core service. Because it owns a loop, [healthchecks.md](../healthchecks.md#what-the-probe-must-actually-check) already prescribes the tick-based liveness rule — record a monotonic tick each iteration, fail when stale, tick at least every 10 s even when idle, 30 s staleness threshold. A cron loop with a bounded ≤10 s wait is the natural way to write one, so the existing rule fits without amendment. A wedged clock fails its own probe. It is off the `web` network, so it declares no `health_check_path` and serves no HTTP at all ([rule 33](../cicl.md#validation-rules)).
 - **Telemetry.** It gets a paired OTel collector sidecar like any other core service, so job telemetry is ordinary telemetry and the trace originates in the process that fired the job.
-- **Contract.** It is consumer-only, so it needs none. The provider set is (core-service `uses` targets) ∪ (`web`-network core services), and a clock is neither.
+- **Contract.** It declares no [surfaces](../cicl.md#surfaces), so it has no contract. A clock is driven by time rather than from outside, which is exactly what having no surface means; and since only a surface-declaring core service can be a `uses` target, nothing can use a clock.
 - **Networks.** It may not declare `web` ([rule 27](../cicl.md#validation-rules)). It serves no public boundary.
 - **Replicas.** It may not declare `replicas` ([rule 26](../cicl.md#validation-rules)) — see [Deployment](#deployment).
 - **`dev` and `test`.** A normal container with the normal bind mounts, in every environment. Nothing about a clock is suppressed anywhere.
@@ -52,7 +50,7 @@ So enqueueing must be an in-process call by code in the codebase that owns the s
 
 The rule earns its keep beyond that, too. A clock is a singleton with no replicas and no queue-level retry; heavy work run inside it has no retry story and no horizontal headroom. Deferring puts the work where retry and concurrency already exist.
 
-The consequence — **a codebase with no queue cannot have scheduled work** — is correct pressure rather than a gap. It is also why "run an arbitrary argv on a schedule" is no longer available: scheduled work must be an operation on a driving port, which forces it into the composed, observable, tested application instead of a side door. Argv-against-the-image survives where it belongs, in the per-codebase exec container and `migrate.sh`.
+The consequence — **a codebase with no queue cannot have scheduled work** — is correct pressure rather than a gap. It is also why "run an arbitrary argv on a schedule" is no longer available: scheduled work must be an operation on a driving port, which forces it into the composed, observable, tested application instead of a side door. Argv-against-the-image survives where it belongs, in the per-codebase [exec container](./exec_service.md) and `migrate.sh`.
 
 ## One clock per codebase with scheduled work
 
@@ -111,5 +109,5 @@ This is deliberate and applies to `role: clock` alone. ECS rolling-deploy defaul
 
 - **No backfill or catch-up.** A missed fire — host down, task replacement, a deploy window — is not retroactively run. The clock fires forward-only.
 - **No per-job concurrency guard.** If a job's runtime exceeds its interval, a second fire can occur before the first completes. Since a clock only enqueues, this means a duplicate *enqueue*, which is why jobs must be idempotent. Guard at the queue if a job genuinely cannot overlap.
-- **A clock is invisible to staging tests.** It is consumer-only, so nothing `uses` it and no `web` core service fans out to it, and it is not on `web` itself — so the stage tester cannot reach it by any route. Its `/health` is enforced by the container healthcheck (docker `healthcheck:` on fixed, ECS container health on elastic), which restarts a wedged clock. That is real enforcement, but it is local: a clock's liveness is not asserted by [staging tests](../tests.md#staging-tests).
+- **A clock is invisible to staging tests.** It is not on `web`, so the stage tester cannot reach it by any route. This is no longer a special case: [staging tests](../tests.md#staging-tests) assert nothing about any core service's liveness, and every core service's health — a clock's included — is read from the orchestrator by `./bin/docex stagetest` before the tester runs. A wedged clock fails its container probe, is restarted, and fails the release if it stays down.
 - **A scheduled job may fire before migrations have run.** Nothing gates a core service's startup on its backing services, and migrations run *after* the stack is up: in `dev` and `test` on both foundations ([`migrations.md § Invocation Timing`](./migrations.md#invocation-timing)), and after `tofu apply` on an elastic env's [first release](./migrations.md#first-time-release-of-an-env) — where a clock is **guaranteed** to meet the window rather than merely liable to. Because a clock fires on its own schedule rather than in response to a request, it is the service most likely to reach a cold schema first, and a `relation "…" does not exist` stack trace in a clock's log on a first bring-up is expected rather than a fault. Recovery is automatic: the loop treats a failed fire as a failed fire and not a failed loop, so the job retries on its own next slot — no operator action, and no effect on the clock's health probe. **The obligation this places on a job is that a fire must tolerate a cold schema**: it may fail before doing anything at all, and the next attempt must be able to proceed as if it had never been made.

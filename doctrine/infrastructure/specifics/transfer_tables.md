@@ -288,7 +288,7 @@ The `sslmode` part exists specifically to bridge a real fixed↔elastic differen
 
 - **`defaults`** (required) — per-foundation blocks of YAML that get merged into the default target's emitted resource for every service using this engine. For fixed this is typically the docker-compose service skeleton (volumes, healthcheck, environment); for elastic it is the engine's primary Tofu resource block (instance class, storage settings, etc.). `defaults:` cannot route to a non-default target — that's what `fields:` translations with `target:` are for.
 
-- **`fields`** (optional) — declares the role-specific fields the project may set on this service in `infra.yml` (e.g., `version: "15"` for relational_db, `versioning: true` for object_store), and how each translates per foundation. The compile-time variable `${field_value}` refers to the value the project supplied. Each per-foundation translation may declare an optional `target:` naming the destination from the engine's `emits:` list; when omitted, the translation lands on the default target. This is what lets a single field on a single service contribute to *more than one* emitted resource — e.g., `health_check_path` on a `web/container` service routes to `target_group` on elastic (the ALB target group's health check) while still landing on `compose_service` (the container's docker healthcheck) on fixed.
+- **`fields`** (optional) — declares the role-specific fields the project may set on this service in `infra.yml` (e.g., `version: "15"` for relational_db, `versioning: true` for object_store), and how each translates per foundation. The compile-time variable `${field_value}` refers to the value the project supplied. Each per-foundation translation may declare an optional `target:` naming the destination from the engine's `emits:` list; when omitted, the translation lands on the default target. This is what lets a field route somewhere other than its foundation's default emitted resource — e.g., `health_check_path` on a `web/container` service routes to `target_group` on elastic (the ALB target group's health check) rather than to the task definition. A field may also translate on one foundation and not the other, as that same field does: on fixed nothing consumes it, so it has no translation there at all.
 
 - **`provides`** (optional) — declares the discrete connection **parts** of this engine that consumers may reference via magic refs (e.g., `${backing_services.appdb.host}`). Each part is foundation-aware: a separate template per foundation. Templates may use any of the three [substitution syntaxes](#substitution-grammar) — `${var}` for compile-time values, `$[var]` for runtime app refs, or `@<expr>` for HCL pass-through (elastic only, used for provider-allocated values like RDS endpoints). Common part names are short and consistent across engines of the same role: `host`, `port`, `db`, `user`, `password` for relational_db; `bucket_name`, `region`, `endpoint`, `access_key`, `secret_key` for object_store; etc. Engines may expose any additional parts they need. **An engine never exposes a pre-composed connection string — there is no `url` part** (see the rule below).
 
@@ -327,6 +327,14 @@ roles:
           # (fixed) / an ALB target group + listener rule attached
           # to the project ALB (elastic), with per-service domains.
           # See networks.md and cicl.md § Domain.
+          #
+          # Every core service gets the same container-level probe, keyed on
+          # nothing but its own name — see healthchecks.md.
+          healthcheck:
+            test: ["CMD", "./health.sh", "${service_name}"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
         elastic:
           # Port, env, and uses come from infra.yml. Image is derived (see fixed
           # block above). cpu/memory/ephemeral_storage come from the service's
@@ -339,13 +347,10 @@ roles:
           network_mode: awsvpc
       fields:
         health_check_path:
-          fixed:
-            # target omitted → defaults to compose_service
-            healthcheck:
-              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
-              interval: 30s
-              timeout: 5s
-              retries: 3
+          # No fixed translation. On fixed, traefik takes target health from
+          # the container healthcheck in `defaults` above, so the path has no
+          # consumer; it is still declared in infra.yml on both foundations so
+          # a project stays portable. See cicl.md rule 33.
           elastic:
             target: target_group
             health_check:
@@ -370,7 +375,9 @@ This entry shows what differs from a backing service like postgres:
 - **No project-side `engine:` declaration.** Core service roles have a single canonical engine (`container`); the project does not pick one in `infra.yml`. The transfer table's engine layer is filled by the `container` placeholder for schema uniformity.
 - **`env: {}` is empty.** Core services do not introduce engine-required env vars the way postgres does (POSTGRES_USER, etc.). The project's own env vars are declared directly in its `codebases.<cb>.core_services.<svc>.env` block in `infra.yml` (or codebase-wide in `codebases.<cb>.env`).
 - **`provides:` is symmetric across foundations.** Apps reach a core service by the same name on both foundations: `myproject-prod-api-web` resolves via the shared docker network in fixed, and via ECS Service Connect within the env's namespace in elastic. Same connection string; different resolution mechanism underneath.
-- **`health_check_path` is a role-specific field that crosses emit targets.** The project supplies the value (e.g., `/health`) in its `infra.yml`. On fixed, the translation lands on the default `compose_service` target as a docker healthcheck block. On elastic, the translation routes via `target: target_group` to the ALB target group's `health_check` block — *not* to the ECS task definition (the default elastic target). Without the `target:` redirect, the field would silently land on the wrong resource and the ALB would fall back to checking `/`. This is the canonical example of why `emits:` and `target:` exist; before this mechanism the field was structurally undeliverable.
+- **`health_check_path` is a role-specific field that crosses emit targets.** The project supplies the value (e.g., `/health`) in its `infra.yml`. On elastic the translation routes via `target: target_group` to the ALB target group's `health_check` block — *not* to the ECS task definition, which is the default elastic target. Without the `target:` redirect the field would silently land on the wrong resource and the ALB would fall back to checking `/`. This is the canonical example of why `emits:` and `target:` exist; before this mechanism the field was structurally undeliverable.
+
+- **The container probe is a default, not a field.** `health.sh` is emitted for *every* core service on both foundations and needs nothing from `infra.yml` but the service's own name, so it belongs in `defaults` rather than in `fields`. That is what separates it from `health_check_path`, which exists only where a load balancer reads it — one is the universal probe, the other is one consumer's route to it. See [healthchecks.md](../healthchecks.md).
 
 ## Failure-mode contract
 
@@ -771,7 +778,7 @@ Every core service — regardless of foundation — additionally receives a set 
 
 These variables are doctrine-injected, not project-declared — a project's `infra.yml` need not list them under `env:`, and listing them explicitly is redundant. The compiler emits each on every core service's environment block (compose `environment:` on fixed; ECS `environment[]` entry on elastic — not SSM secrets, since none of these values are sensitive).
 
-`PROJECT_VERSION`'s name matches the env var [`./bin/docex stagetest` injects](../cicd.md#staging-tests) into the stage tester container. A service introspecting its own version (e.g. a `/health` endpoint that returns `{"version": "..."}`) reads from the same canonical handle a stage test compares against — so the assertion `body["version"] == os.environ["PROJECT_VERSION"]` is deterministic across the release boundary, not a manual sync.
+`PROJECT_VERSION`'s name matches the env var [`./bin/docex stagetest` injects](../cicd.md#staging-tests) into the stage tester container. A `web` service introspecting its own version for its `/health` body reads from the same canonical handle a stage test compares against — so the assertion `body["version"] == os.environ["PROJECT_VERSION"]` is deterministic across the release boundary, not a manual sync. Note this proves only that the *code* agrees with its own build-time env; the authoritative deployed version comes from the orchestrator, which `docex` checks separately (see [healthchecks.md § Version](../healthchecks.md#version)).
 
 The four `OTEL_*` variables are the OTel SDK's standard auto-discovery surface: any conformant SDK reads them from the environment at startup, so application code doesn't have to wire telemetry config explicitly. The full picture of how the sidecar, exporter, and backend fit together lives in [telemetry_infra.md](./telemetry_infra.md); this table is the canonical list of what the compiler emits onto the core service container itself.
 
@@ -815,7 +822,7 @@ x-logging: &default-logging
 
 ### Depends-on emission (fixed)
 
-Compose `depends_on` is emitted on **one block only** — the per-codebase exec service, whose gate is the union of the codebase's backing-targeted `uses` edges (see [migrations.md](./migrations.md#dev-and-test-mechanism)). No core-service block carries it. Where it is emitted it is always long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or a `compose run` one-off from `./bin/docex envinfra up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
+Compose `depends_on` is emitted on **one block only** — the per-codebase exec service, whose gate is the union of the codebase's backing-targeted `uses` edges (see [exec_service.md](./exec_service.md)). No core-service block carries it. Where it is emitted it is always long-form (a map), never short-form. For each dependency, `condition` is `service_healthy` when the target service's emitted compose block contains a `healthcheck:`, otherwise `service_started`. Short-form only waits for the target container to start; backing services like postgres take measurable time to become reachable after starting, and a dependent service (or a `compose run` one-off from `./bin/docex envinfra up`) that connects too early hits a refused TCP socket. The healthcheck is already declared by the engine, so using it as the wait condition is the deterministic translation.
 
 ```yml
 depends_on:

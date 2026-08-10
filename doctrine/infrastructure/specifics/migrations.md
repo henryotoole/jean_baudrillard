@@ -36,21 +36,16 @@ In every case, migration runs as a separate process invocation against the codeb
 
 ## Dev and Test Mechanism
 
-For `dev` and `test` envs, on both foundations, `./bin/docex migrate <env>` runs `migrate.sh` as a one-off container of each schema-owning **codebase's** exec service:
+For `dev` and `test` envs, on both foundations, `./bin/docex migrate <env>` runs `migrate.sh` as a one-off container of each schema-owning **codebase's** [exec service](./exec_service.md):
 
 ```bash
 docker compose -f infra/output/<env>/docker-compose.yml \
     run --rm <project>-<env>-<codebase>-exec ./migrate.sh
 ```
 
-(`./migrate.sh` is relative because the image's working directory is the fixed `/service` root — see [Codebase Containers](../infrastructure.md#codebase-containers). `--build` is added in `test` only; `dev` reuses the existing image.)
+(`./migrate.sh` is relative because the image's working directory is the fixed `/service` root — see [Codebase Containers](../infrastructure.md#codebase-containers). `--build` is added in `test` only, [for the reason given there](./exec_service.md#invocation).)
 
-The exec service is the compiled block that *is* the codebase: one per codebase, carrying the codebase's image, the dev bind mounts in `dev`, the union of the codebase's non-`web` networks, and the union of its `uses` edges whose target is a backing service, rewritten to `condition: service_healthy`. Two properties matter here:
-
-- **Nothing needs to be running.** The exec service is gated behind `profiles: [exec]` so `compose up` never starts it, while `compose run` implicitly enables the profile of the service it names. And because it gates on its backing services' healthchecks, the one-off waits for the database instead of assuming the stack is already up.
-- **It carries codebase-level `env:` only** — never a core service's overlay. That is what makes *`migrate.sh`, `test.sh`, and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather than a convention: a core-service-scoped key is not discouraged there, it is absent. A migration has no business reading a worker's concurrency knob, and now it cannot.
-
-This also removes a question that has no good answer. A codebase with several [core services](../cicl.md#core-services) offers no principled way to pick one of their containers to `exec` into, and any rule for choosing a representative moves the migration's environment when an unrelated core service is renamed.
+Two of that block's properties are why migration runs there. It needs nothing running — it is profile-gated and waits on its backing services' healthchecks, so the one-off gates on the database rather than assuming the stack is up. And it carries codebase-level `env:` only, so a migration cannot read a core service's overlay.
 
 If `migrate.sh` exits non-zero, the env stays up and `./bin/docex migrate <env>` returns the non-zero code. The schema may be in a partial state; the operator fixes the migration and re-invokes the command. Since the env is unchanged otherwise, retry is just another one-off run — no env teardown or rebuild required.
 
@@ -68,7 +63,7 @@ For `stage`/`prod` on fixed projects, migration is a step in the Ansible playboo
   loop: "{{ codebases_with_schema }}"
 ```
 
-For each schema-owning codebase, `compose run` starts a one-off container of that codebase's exec service using the new image. Routing production migration through the *same* exec service `dev` and `test` use is what makes the codebase-scoped-env rule hold everywhere: a rule that lapsed in `stage`/`prod` would not be a rule. The container inherits the exec service's networks and readiness gates, reads its env vars from the rendered `.env`, and exits with a status code. The old service containers are still running and serving traffic against the (about-to-be-migrated) database — see [Backward Compatibility](#backward-compatibility-requirement) below.
+For each schema-owning codebase, `compose run` starts a one-off container of that codebase's [exec service](./exec_service.md) using the new image — the *same* block `dev` and `test` use, which is why that block is emitted in all four fixed-compiled envs and not just the two. The container inherits its networks and readiness gates, reads its env vars from the rendered `.env`, and exits with a status code. The old service containers are still running and serving traffic against the (about-to-be-migrated) database — see [Backward Compatibility](#backward-compatibility-requirement) below.
 
 Note the path is absolute here (`/service/migrate.sh`) while `dev`/`test` use the relative `./migrate.sh`. Both resolve to the same script; the absolute form is used where the command is rendered into a playbook rather than issued against a known working directory.
 
