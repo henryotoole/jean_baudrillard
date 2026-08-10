@@ -296,10 +296,15 @@ Run this audit *once per cut*, against each project independently.
   **There is no fan-out, and its absence is checked rather than assumed:**
 
   ```sh
-  grep -rn 'health/api/worker\|/health/<codebase>\|_build_health_app' core/ infra/ plans/ | grep -v CHANGELOG
+  grep -rn --exclude-dir=dist --exclude-dir=__pycache__ \
+    'health/api/worker\|/health/<codebase>\|_build_health_app' \
+    core/ infra/ plans/ | grep -v CHANGELOG
   ```
 
-  Zero hits, except prose that names the deletion in negation. Per
+  Zero hits, except prose that names the deletion in negation. `dist/` is
+  excluded deliberately: it is gitignored build output, section B runs before
+  any `docex build`, and a seed whose `dist/` predates this advance would fail
+  this box against correct source. B.14 already grants that exemption. Per
   [`healthchecks.md`](../../doctrine/infrastructure/healthchecks.md).
 
   ---

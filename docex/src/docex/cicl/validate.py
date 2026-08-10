@@ -1850,9 +1850,9 @@ def _validate_health_check_declaration(doc: CICLDocument) -> list[ValidationIssu
 
     Keyed on NETWORK MEMBERSHIP, not on role. A `role: web` core service off
     the `web` network declares none: the field is what the reverse proxy probes
-    (the ALB target group on elastic; on fixed traefik takes target health from
-    the container healthcheck), and it is meaningless with nothing in front of
-    the service. Required on both foundations regardless, so a project stays
+    (the ALB target group on elastic; on fixed it has no consumer at all --
+    the compiler emits no health-aware traefik labels, so nothing probes the
+    path there), and it is meaningless with nothing in front of the service. Required on both foundations regardless, so a project stays
     portable between them. See healthchecks.md § `web` services also serve
     GET /health.
     """
