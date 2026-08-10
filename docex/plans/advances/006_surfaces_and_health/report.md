@@ -41,7 +41,7 @@ rollback-unavailable boundary inside one cut.
 
 Advance 005 catalogued **eight** instances of one defect: *something that could not
 answer reported zero, and zero read as clean.* This advance found that shape, or its
-mirror, **twenty times** — and the mirror is worse, because it provokes wrong
+mirror, **twenty-one times** — and the mirror is worse, because it provokes wrong
 repairs rather than merely permitting them.
 
 | # | The instrument | What it reported | The truth |
@@ -64,6 +64,7 @@ repairs rather than merely permitting them.
 | 18 | my A.2.1 check | `tag_at_head=NO` | `git rev-parse` prints the ref name to stdout on failure, so my `||` fallback concatenated two lines. |
 | 19 | four seed versions with no changelog entry | four | Sixteen — 36% of all tagged versions. The eyeball count read only each file's recent tail. |
 | 20 | `git blame` | credits stale content to 2026-08-10 | Mod 131 touched two lines without fixing the stale token *on* them. **An advance cannot use blame to bound its own responsibility.** |
+| 21 | the same trigger eval, again | a recall failure | A query that **timed out** was scored as ∅ — indistinguishable from a skill declining to fire. So the same command on the same tree yields different "findings" depending on what else the machine is doing. The only **load-dependent** defect of the twenty-one, and the only non-deterministic one. |
 
 Two of those defects were **committed by me into the rule of record**, and both were
 caught by a corporal checking the claim instead of the citation:
@@ -128,6 +129,12 @@ the probe is exec-form, so a zero-byte file has no shebang. The same holds for
 - A verifier **may decline to answer but may not decline quietly** — now `linkcheck`'s
   own `Declined` block, `preinfra`'s failure/declination split, and the honest limit
   that unbounded citations are *counted, not enumerated*.
+- **An instrument that cannot say "I failed to measure" will say something else, and
+  that something else gets acted on.** All three `run_suite.py` defects shared this
+  shape: each reported a condition *unrelated to the measurement* as the measurement,
+  and each failed in the direction that looks like an actionable finding rather than a
+  broken tool. `TIMEOUT` is now a sentinel excluded from the vote, unscored queries are
+  counted, and a run with any reports `n/a` rather than a fabricated accuracy.
 - **Run a new check against the instance that motivated it, and confirm it fires.**
   Mod 132's citation arm was demonstrated against a reconstruction it wrote in
   bounded form; `doctrine_excerpts/` is unbounded in 14 of 16 lines, so the arm is
