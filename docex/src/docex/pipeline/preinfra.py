@@ -15,6 +15,12 @@ What gets checked, per (foundation, side):
       fails the challenge and burns Let's Encrypt's failed-authorization
       rate limit. Skipped when ``infra.yml`` is absent (e.g. the
       inception-step-3 standalone run before infra.yml exists).
+    - On a ``fixed`` project with a ``container_registry``: the registry
+      accepts a manifest ``DELETE`` (mod 133). Every ``fixed`` project's
+      ``teardown.sh`` depends on that capability; without
+      ``REGISTRY_STORAGE_DELETE_ENABLED`` the registry answers ``405
+      UNSUPPORTED`` and each project leaks one registry tag per release,
+      with garbage collection unable to start.
 
 - Fixed project, ``production`` side
     - The ``docex-ingress`` bridge exists locally (single-machine
@@ -38,11 +44,31 @@ What is intentionally NOT checked (per the design):
   docex-preinfra skill; no automation hook yet).
 - Observability backend URL reachability (per ``telemetry_infra.md``
   that's a ``docex check`` concern).
-- Container registry *availability / reachability* — whether the
-  registry itself is up and serving (``docex containerize`` surfaces
-  that naturally). The fixed-production side does verify that the
-  target host carries the registry *credential* (see above); that is a
-  distinct concern from registry reachability.
+- Container registry *availability / reachability*, and whether the
+  operator holds a working credential for it. ``docex containerize``
+  surfaces both naturally, and ``preinfra development`` is the gate
+  ``envinfra up dev`` runs — a dev stack that never touches a registry
+  must not be blocked because the operator has not yet logged in.
+
+Mod 133 splits the registry into two questions and keeps only one of
+them in scope:
+
+- *Configuration* — does the registry permit manifest deletes? In
+  scope, and a confirmed refusal (``405`` carrying the registry's own
+  ``UNSUPPORTED`` code) is a **failure**, rc 1. It is prerequisite
+  infrastructure not being in the form ``teardown.sh`` requires.
+- *Reachability and auth* — no credential, unreachable host, TLS or DNS
+  failure, timeout, ``401``/``403``, or any response that cannot be read
+  as a verdict (notably a bare ``405`` from a proxy that the registry may
+  never have seen). These are the excluded concerns above, so they are
+  out of scope rather than unanswered: each is **printed by name in the
+  ``Declined`` block with its own resolution, at rc 0**. Declining is
+  never silent, but declining an out-of-scope question is a different act
+  from failing an in-scope one, and one exit code cannot express both.
+
+The fixed-*production* side separately verifies that the deploy hosts
+carry the registry *credential* (see above); that is a distinct concern
+from either of the two above.
 """
 
 from __future__ import annotations
@@ -52,6 +78,7 @@ from docex.context import ProjectContext
 from docex.dns.client import DnsResolver
 from docex.docker.client import DockerClient
 from docex.naming import dns_label
+from docex.registry.client import RegistryClient
 from docex.ssh.client import SSHClient
 
 # Doctrine-prescribed master VPC tags (Mod 060). Must match the
@@ -68,6 +95,21 @@ _MASTER_VPC_TAGS: dict[str, str] = {
 _DOCEX_INGRESS_NETWORK = "docex-ingress"
 _PRIMARY_AZ = "us-east-1a"
 
+# The manifest-delete probe's target (mod 133). `preinfra-smoke/` is the
+# namespace the doctrine already reserves for registry verification; this
+# repository does not exist and a 64-zero digest cannot exist, so the
+# request is side-effect-free BY CONSTRUCTION — nothing is uploaded and
+# nothing can be deleted. That matters because `preinfra development`
+# runs as the `envinfra up dev` precondition, against preinfra shared by
+# every project on the machine.
+_DELETE_PROBE_REPOSITORY = "preinfra-smoke/delete-capability-probe"
+_DELETE_PROBE_DIGEST = "sha256:" + "0" * 64
+# Registry error codes that prove the delete gate was passed: reaching
+# the manifest lookup at all means `deleteEnabled` was not the answer.
+_MANIFEST_ABSENT_CODES = frozenset(
+    {"MANIFEST_UNKNOWN", "NAME_UNKNOWN", "BLOB_UNKNOWN"}
+)
+
 
 def run_preinfra(
     ctx: ProjectContext,
@@ -77,6 +119,7 @@ def run_preinfra(
     side: str,
     ssh: SSHClient | None = None,
     dns: DnsResolver | None = None,
+    registry: RegistryClient | None = None,
 ) -> int:
     """Check prerequisite infrastructure for ``side``.
 
@@ -94,8 +137,17 @@ def run_preinfra(
     ``dns`` is required on the ``development`` side (mod 054); the
     dispatcher always supplies it there so the dev-web-hostname DNS
     check can run. Unused on the production side.
+
+    ``registry`` is required on the ``development`` side of a ``fixed``
+    project that declares a ``container_registry`` (mod 133), for the
+    manifest-delete capability probe.
+
+    Some outcomes are *declined* rather than failed: printed by name with
+    their own resolution, but never affecting the exit code. See the
+    module docstring for which questions are in scope and why.
     """
     failures: list[str] = []
+    declined: list[str] = []
 
     # Every side check needs the docker bridge — both fixed envs and
     # elastic dev-side envs run as docker stacks on the operator's
@@ -119,6 +171,23 @@ def run_preinfra(
             )
         else:
             failures.extend(_check_dev_dns(ctx, dns))
+
+        # Mod 133: the registry's manifest-delete capability. Elastic, and
+        # fixed-without-a-registry, produce NOTHING AT ALL — not even a
+        # declination. The question does not apply: elastic uses ECR, where
+        # deletion is IAM-governed and teardown removes the repository
+        # wholesale. Printing "skipped" on every invocation would be noise
+        # that trains the reader to skim.
+        if ctx.infra.foundation == "fixed" and ctx.infra.container_registry:
+            if registry is None:
+                failures.append(
+                    "development side requires a registry client but none was "
+                    "provided (this is a dispatcher bug)."
+                )
+            else:
+                f, d = _check_registry_manifest_delete(ctx, registry)
+                failures.extend(f)
+                declined.extend(d)
 
     # Fixed + production: the target host's registry credential.
     if (
@@ -157,9 +226,21 @@ def run_preinfra(
         print(f"preinfra {side} side: {len(failures)} check(s) failed:")
         for f in failures:
             print(f"  - {f}")
-        return 1
-    print(f"preinfra {side} side: all checks passed.")
-    return 0
+    else:
+        print(f"preinfra {side} side: all checks passed.")
+    # Declinations are an addendum to the verdict, never the verdict — so
+    # they print after the pass/fail line and do not touch the exit code.
+    # Each is named individually: a *count* of declinations is not a
+    # declaration, and the operator must not be left guessing which mode
+    # occurred.
+    if declined:
+        print(
+            "Declined — printed, not failures. A verifier may decline to "
+            "answer, but not quietly:"
+        )
+        for d in declined:
+            print(f"  - {d}")
+    return 1 if failures else 0
 
 
 def _check_dev_dns(ctx: ProjectContext, dns: DnsResolver) -> list[str]:
@@ -196,6 +277,116 @@ def _check_dev_dns(ctx: ProjectContext, dns: DnsResolver) -> list[str]:
                 f"inception.md PART III."
             )
     return failures
+
+
+def _check_registry_manifest_delete(
+    ctx: ProjectContext, registry: RegistryClient,
+) -> tuple[list[str], list[str]]:
+    """Probe whether the registry will accept a manifest ``DELETE``.
+
+    Returns ``(failures, declined)``. One request, zero bytes uploaded, no
+    side effects: a ``DELETE`` of a nonexistent digest under a nonexistent
+    repository.
+
+    WHY that suffices, and what it infers: ``registry:2`` checks
+    ``deleteEnabled`` *before* any manifest lookup, so a delete-disabled
+    registry answers ``405 UNSUPPORTED`` without a manifest needing to
+    exist. Reaching the lookup instead — ``404 MANIFEST_UNKNOWN`` — proves
+    the gate was passed. That reading is an inference, and it is pinned by
+    a test rather than trusted: `tests/integration/
+    test_preinfra_registry_delete_real.py` brings up the doctrine-pinned
+    image with the flag off and asserts ABSENT, so a registry version that
+    ever stops discriminating turns that test red instead of silently
+    turning this probe into a rubber stamp.
+    """
+    host = ctx.infra.container_registry
+    result = registry.delete_manifest(
+        host, _DELETE_PROBE_REPOSITORY, _DELETE_PROBE_DIGEST
+    )
+    prefix = "registry manifest-delete probe"
+
+    # An explicit ladder ending in a catch-all declination. The rule this
+    # whole check exists to honour: "capability present" may be produced
+    # ONLY by an observation that positively proves it, so there is no
+    # implicit fall-through — only the two `return [], []` rows below.
+    if result.failure == "no_credential":
+        return [], [
+            f"{prefix}: no credential to probe with — {result.detail}. "
+            f"Run `docker login {host}` if you want this checked; `dev` "
+            f"builds locally and does not need it, so this does not block "
+            f"bring-up."
+        ]
+    if result.failure == "bad_credential_store":
+        return [], [
+            f"{prefix}: credential is held by an external helper — "
+            f"{result.detail}. docex will not invoke a "
+            f"credsStore/credHelpers helper; the capability is unverified "
+            f"until an inline auth entry exists for {host!r}."
+        ]
+    if result.failure == "transport":
+        return [], [
+            f"{prefix}: no response — {result.detail}. Registry "
+            f"reachability is out of scope here (`docex containerize` "
+            f"surfaces it); the delete capability is unverified."
+        ]
+    if result.failure is not None:
+        # A failure mode this ladder does not name yet. Declining is the
+        # only safe reading: an unrecognized failure must never reach the
+        # status rungs below, where `status is None` would otherwise be
+        # described as a response.
+        return [], [
+            f"{prefix}: could not complete the probe "
+            f"({result.failure!r}) — {result.detail}. The delete "
+            f"capability is unverified."
+        ]
+    if result.status == 405 and result.error_code == "UNSUPPORTED":
+        return [
+            f"registry {host!r} refuses manifest DELETE (405 UNSUPPORTED) "
+            f"— the delete capability is disabled. Set "
+            f'REGISTRY_STORAGE_DELETE_ENABLED: "true" in the registry\'s '
+            f"environment "
+            f"(/opt/docex-preinfra/container_registry/registry/"
+            f"docker-compose.yml) and restart it. Without it every `fixed` "
+            f"project's `teardown.sh` leaks one registry tag per release "
+            f"and registry garbage collection cannot start."
+        ], []
+    if result.status == 405:
+        # The false-positive arm. A reverse proxy can reject the method
+        # before the registry ever sees it; reporting that as a
+        # delete-disabled registry invents a misconfiguration.
+        return [], [
+            f"{prefix}: 405 from {host!r} but WITHOUT the registry's own "
+            f"UNSUPPORTED error code (got {result.error_code!r}) — "
+            f"something between docex and the registry rejected the "
+            f"method, and the registry may never have seen it. Not "
+            f"reported as a delete-disabled registry; check for a reverse "
+            f"proxy that blocks DELETE."
+        ]
+    if result.status in (401, 403):
+        return [], [
+            f"{prefix}: credential rejected or lacks delete scope (HTTP "
+            f"{result.status}) from {host!r}. Every DELETE gets a 401 "
+            f"regardless of the delete setting — the auth middleware runs "
+            f"ahead of the handler — so this is no verdict either way. "
+            f"Re-run `docker login {host}`. Auth is out of scope here."
+        ]
+    if result.status == 404 and result.error_code in _MANIFEST_ABSENT_CODES:
+        # PASS: the delete gate was passed and the manifest lookup reached.
+        return [], []
+    if result.status == 202:
+        # PASS: the capability was directly observed.
+        return [], []
+    if result.status == 404:
+        return [], [
+            f"{prefix}: 404 from {host!r} with no registry error code — "
+            f"that is a proxy 404, not the registry answering. Verify "
+            f"{host!r} routes /v2/ to the registry."
+        ]
+    return [], [
+        f"{prefix}: unexpected response from {host!r} (HTTP "
+        f"{result.status}, error code {result.error_code!r}) — no verdict "
+        f"can be read from it. {result.detail}"
+    ]
 
 
 def _check_fixed_registry_creds(ctx: ProjectContext, ssh: SSHClient) -> list[str]:

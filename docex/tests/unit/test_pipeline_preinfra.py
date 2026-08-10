@@ -65,11 +65,12 @@ def _script_healthy_master_vpc(
 
 
 def test_preinfra_dev_passes_when_bridge_exists(
-    sample_ctx, fake_docker, fake_dns, capsys,
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
 ):
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 0
     out = capsys.readouterr().out
@@ -77,11 +78,12 @@ def test_preinfra_dev_passes_when_bridge_exists(
 
 
 def test_preinfra_dev_fails_when_bridge_missing(
-    sample_ctx, fake_docker, fake_dns, capsys,
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
 ):
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = False
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 1
     out = capsys.readouterr().out
@@ -90,14 +92,14 @@ def test_preinfra_dev_fails_when_bridge_missing(
 
 
 def test_preinfra_dev_does_not_call_aws(
-    sample_ctx, fake_docker, fake_aws, fake_dns,
+    sample_ctx, fake_docker, fake_aws, fake_dns, fake_registry,
 ):
     """Even when aws is provided, dev side never invokes AWS methods —
     the foundation+side gate short-circuits."""
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=fake_aws, side="development",
-        dns=fake_dns,
+        dns=fake_dns, registry=fake_registry,
     )
     assert rc == 0
     # No AWS call recorded.
@@ -118,7 +120,7 @@ _DEV_HOSTS = ["api-web.dev.sample.example.com", "dev.sample.example.com"]
 
 
 def test_preinfra_dev_dns_all_resolve_passes(
-    sample_ctx, fake_docker, fake_dns, capsys,
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
 ):
     """Every dev web host resolves → no DNS failure; resolver was asked
     about exactly the dev hosts (never test/stage/prod)."""
@@ -126,6 +128,7 @@ def test_preinfra_dev_dns_all_resolve_passes(
     fake_dns.default = True
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 0
     assert "all checks passed" in capsys.readouterr().out
@@ -133,7 +136,7 @@ def test_preinfra_dev_dns_all_resolve_passes(
 
 
 def test_preinfra_dev_dns_unresolved_host_fails(
-    sample_ctx, fake_docker, fake_dns, capsys,
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
 ):
     """A non-resolving dev host → that host enumerated as a failure and
     run_preinfra returns 1."""
@@ -141,6 +144,7 @@ def test_preinfra_dev_dns_unresolved_host_fails(
     fake_dns.results = {"api-web.dev.sample.example.com": False}
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 1
     out = capsys.readouterr().out
@@ -149,13 +153,14 @@ def test_preinfra_dev_dns_unresolved_host_fails(
 
 
 def test_preinfra_dev_dns_only_asks_about_dev_hosts(
-    sample_ctx, fake_docker, fake_dns,
+    sample_ctx, fake_docker, fake_dns, fake_registry,
 ):
     """The resolver is only ever asked about `dev` hosts — no `test`,
     `stage`, or `prod` hostnames leak into the check."""
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
     run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     for host in fake_dns.asked:
         assert ".dev.sample.example.com" in host or host == "dev.sample.example.com"
@@ -164,21 +169,28 @@ def test_preinfra_dev_dns_only_asks_about_dev_hosts(
 
 
 def test_preinfra_dev_dns_skipped_when_infra_absent(
-    sample_ctx, fake_docker, fake_dns,
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
 ):
-    """With no infra.yml (ctx.infra is None) the DNS check is skipped
-    entirely — resolver never called (the inception-step-3 no-op)."""
+    """With no infra.yml (ctx.infra is None) the dev-side infra checks are
+    skipped entirely — neither resolver nor registry is called (the
+    inception-step-3 no-op). Mod 133 inherits this by living inside the
+    same `ctx.infra is not None` block."""
     sample_ctx.infra = None
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 0
     assert fake_dns.asked == []
+    assert fake_registry.calls == []
+    out = capsys.readouterr().out
+    assert "registry" not in out.lower()
+    assert "Declined" not in out
 
 
 def test_preinfra_dev_dns_resolver_error_surfaced_not_crashed(
-    sample_ctx, fake_docker, fake_dns, capsys,
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
 ):
     """A resolver that raises is surfaced as a 'could not check' failure,
     not propagated as a crash."""
@@ -186,6 +198,7 @@ def test_preinfra_dev_dns_resolver_error_surfaced_not_crashed(
     fake_dns.raise_on = {"api-web.dev.sample.example.com"}
     rc = run_preinfra(
         sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 1
     out = capsys.readouterr().out
@@ -194,7 +207,7 @@ def test_preinfra_dev_dns_resolver_error_surfaced_not_crashed(
 
 
 def test_preinfra_dev_dns_enumerates_per_web_core_service(
-    sample_ctx, fake_docker, fake_dns,
+    sample_ctx, fake_docker, fake_dns, fake_registry,
 ):
     """A codebase with TWO web core service has TWO dev hosts checked.
 
@@ -226,6 +239,7 @@ def test_preinfra_dev_dns_enumerates_per_web_core_service(
     fake_dns.default = True
     rc = run_preinfra(
         ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+        registry=fake_registry,
     )
     assert rc == 0
     # Both web core service of the ONE codebase, plus the bare-env host that
@@ -238,14 +252,387 @@ def test_preinfra_dev_dns_enumerates_per_web_core_service(
 
 
 def test_preinfra_dev_dns_none_resolver_reports_bug(
-    sample_ctx, fake_docker, capsys,
+    sample_ctx, fake_docker, fake_registry, capsys,
 ):
     """The dispatcher must supply a resolver on the development side; if
     it doesn't, preinfra surfaces it as an explicit bug (mirrors aws/ssh)."""
     fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
-    rc = run_preinfra(sample_ctx, fake_docker, aws=None, side="development")
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development",
+        registry=fake_registry,
+    )
     assert rc == 1
     out = capsys.readouterr().out
+    assert "requires a DNS resolver" in out
+    assert "dispatcher bug" in out
+
+
+# ---------------------------------------------------------------------------
+# Development side — registry manifest-delete probe (mod 133)
+# ---------------------------------------------------------------------------
+#
+# The four tests immediately below are the mod's red-before-green arms
+# (design Part 5): the honest failure plus three can't-answer modes. Each
+# was observed failing against a verdict function that had not yet learned
+# to distinguish them — see `red_before_green.md` in the mod folder.
+
+
+def _dev_registry_rc(ctx, fake_docker, fake_dns, fake_registry, result):
+    """Run a development-side preinfra with one scripted probe result."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    fake_registry.result = result
+    return run_preinfra(
+        ctx, fake_docker, aws=None, side="development",
+        dns=fake_dns, registry=fake_registry,
+    )
+
+
+def test_preinfra_dev_registry_delete_disabled_fails(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """RED-BEFORE-GREEN arm 1 — the honest failure.
+
+    ``405`` carrying the registry's own ``UNSUPPORTED`` code is the registry
+    itself refusing a real delete: rc 1, and the resolution names the env
+    var that fixes it.
+    """
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(status=405, error_code="UNSUPPORTED"),
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "REGISTRY_STORAGE_DELETE_ENABLED" in out
+    assert "registry.example.com" in out
+    assert "teardown.sh" in out
+
+
+def test_preinfra_dev_registry_401_declines_without_verdict(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """RED-BEFORE-GREEN arm 2 — the trap that hid the original defect.
+
+    A ``401`` arrives for every DELETE regardless of the delete flag (the
+    auth middleware runs ahead of the handler), so it can be read as
+    neither a pass nor the finding. It must be a named declination at
+    rc 0, and the output must claim nothing about the capability.
+    """
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(status=401, detail="401 from registry.example.com"),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Declined" in out
+    assert "credential rejected" in out
+    # Neither verdict may be claimed: not the finding...
+    assert "REGISTRY_STORAGE_DELETE_ENABLED" not in out
+    # ...and not a capability-present claim. The pass arm appends nothing,
+    # so no line may assert the capability was verified.
+    for claim in (
+        "capability present",
+        "accepts a manifest delete",
+        "delete capability verified",
+    ):
+        assert claim not in out.lower()
+
+
+def test_preinfra_dev_registry_no_credential_declines(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """RED-BEFORE-GREEN arm 3 — the most likely real-world mode.
+
+    A fixed project before its first ``docker login``: dev builds locally
+    and never touches the registry, so this must not block `envinfra up
+    dev`. rc 0, named, with `docker login` as the resolution.
+    """
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(
+            failure="no_credential",
+            detail="no auths entry for 'registry.example.com' in /x/config.json",
+        ),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Declined" in out
+    assert "no credential" in out.lower()
+    assert "docker login registry.example.com" in out
+    assert "REGISTRY_STORAGE_DELETE_ENABLED" not in out
+
+
+def test_preinfra_dev_registry_405_without_code_declines(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """RED-BEFORE-GREEN arm 4 — the false-positive arm.
+
+    A reverse proxy can reject DELETE with a bare ``405`` the registry
+    never saw. Reporting that as a delete-disabled registry is a checker
+    inventing a violation, so it declines and must NOT name the env var.
+    """
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(status=405, error_code=None),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Declined" in out
+    assert "405" in out
+    assert "UNSUPPORTED" in out  # names what was MISSING from the response
+    assert "REGISTRY_STORAGE_DELETE_ENABLED" not in out
+
+
+# --- the two passing observations ------------------------------------------
+
+
+def test_preinfra_dev_registry_404_manifest_unknown_passes(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """The inferred pass: reaching the manifest lookup proves the delete
+    gate was passed. Nothing is appended — no failure, no declination."""
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(status=404, error_code="MANIFEST_UNKNOWN"),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "all checks passed" in out
+    assert "Declined" not in out
+
+
+@pytest.mark.parametrize("code", ["MANIFEST_UNKNOWN", "NAME_UNKNOWN", "BLOB_UNKNOWN"])
+def test_preinfra_dev_registry_404_absent_codes_all_pass(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys, code,
+):
+    """All three "the thing isn't there" codes prove the same thing: the
+    request got past `deleteEnabled` to a lookup."""
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(status=404, error_code=code),
+    )
+    assert rc == 0
+    assert "Declined" not in capsys.readouterr().out
+
+
+def test_preinfra_dev_registry_202_passes(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """A 202 is the capability directly observed rather than inferred
+    (what `registry:3` returns). Also a pass."""
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(status=202),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "all checks passed" in out
+    assert "Declined" not in out
+
+
+# --- the rest of the can't-answer enumeration (design Part 3) --------------
+
+
+@pytest.mark.parametrize(
+    "result_kwargs,needle",
+    [
+        # 3. The credential lives in an external helper docex won't invoke.
+        ({"failure": "bad_credential_store", "detail": "held by a helper"},
+         "external helper"),
+        # 6-9. DNS failure, connection refused, TLS failure, timeout — all
+        # arrive as one transport failure with a specific detail.
+        ({"failure": "transport", "detail": "Name or service not known"},
+         "no response"),
+        # 10. 403 — distinguished from "no credential"; the resolutions differ.
+        ({"status": 403}, "lacks delete scope"),
+        # 12. A proxy 404 with no registry error code.
+        ({"status": 404, "error_code": None}, "proxy 404"),
+        # 13. Any other status, including a malformed probe.
+        ({"status": 400, "error_code": "DIGEST_INVALID"}, "unexpected response"),
+        ({"status": 500}, "unexpected response"),
+        # 14. A body that is not JSON, or JSON without a code, reaches the
+        # mapping as error_code=None — on a status with no verdict, declined.
+        ({"status": 418, "error_code": None}, "unexpected response"),
+        # A failure mode the ladder does not name yet must still decline
+        # rather than fall through to a status rung with status=None.
+        ({"failure": "some_future_mode", "detail": "who knows"},
+         "could not complete the probe"),
+    ],
+)
+def test_preinfra_dev_registry_cant_answer_modes_are_named_and_rc_zero(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+    result_kwargs, needle,
+):
+    """Every can't-answer mode: rc 0, individually named in the Declined
+    block, and never the ABSENT finding.
+
+    A *count* of declinations is not a declaration — each mode must be
+    identifiable, so each asserts its own distinguishing phrase.
+    """
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(**result_kwargs),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Declined" in out
+    assert needle in out
+    assert "REGISTRY_STORAGE_DELETE_ENABLED" not in out
+
+
+def test_preinfra_dev_registry_declination_does_not_suppress_pass_line(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """A declination is an addendum, not a verdict: the pass line still
+    prints and the exit code is still 0."""
+    from docex.registry.client import ManifestDeleteResult
+
+    rc = _dev_registry_rc(
+        sample_ctx, fake_docker, fake_dns, fake_registry,
+        ManifestDeleteResult(failure="transport", detail="connection refused"),
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "all checks passed" in out
+    assert out.index("all checks passed") < out.index("Declined")
+
+
+def test_preinfra_dev_registry_declination_does_not_mask_a_real_failure(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """A declined registry probe alongside a genuine failure: rc 1 from the
+    failure, and the declination still printed rather than swallowed."""
+    from docex.registry.client import ManifestDeleteResult
+
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = False
+    fake_registry.result = ManifestDeleteResult(
+        failure="no_credential", detail="no Docker config",
+    )
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development",
+        dns=fake_dns, registry=fake_registry,
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "1 check(s) failed" in out   # the bridge, not the registry
+    assert "Declined" in out
+    assert "no credential" in out.lower()
+
+
+# --- the side-effect-free contract, and the scope gate ---------------------
+
+
+def test_preinfra_dev_registry_probe_targets_reserved_repo_and_zero_digest(
+    sample_ctx, fake_docker, fake_dns, fake_registry,
+):
+    """Pins the side-effect-free contract: the probe must aim at the
+    doctrine-reserved `preinfra-smoke/` namespace and a digest that cannot
+    exist. A probe that ever pushed or targeted a real tag would mutate
+    preinfra shared by every project on the machine.
+    """
+    from docex.pipeline.preinfra import (
+        _DELETE_PROBE_DIGEST,
+        _DELETE_PROBE_REPOSITORY,
+    )
+
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development",
+        dns=fake_dns, registry=fake_registry,
+    )
+    assert fake_registry.calls == [(
+        "delete_manifest", "registry.example.com",
+        "preinfra-smoke/delete-capability-probe",
+        "sha256:" + "0" * 64,
+    )]
+    assert _DELETE_PROBE_REPOSITORY.startswith("preinfra-smoke/")
+    assert _DELETE_PROBE_DIGEST == "sha256:" + "0" * 64
+
+
+def test_preinfra_dev_registry_not_probed_on_elastic(
+    elastic_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """Elastic is silent, not declined: ECR governs deletion via IAM and
+    teardown removes the repository wholesale, so the question does not
+    apply (design Q3). Printing a skip line on every invocation would be
+    noise that trains the reader to skim."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    rc = run_preinfra(
+        elastic_ctx, fake_docker, aws=None, side="development",
+        dns=fake_dns, registry=fake_registry,
+    )
+    assert rc == 0
+    assert fake_registry.calls == []
+    out = capsys.readouterr().out
+    assert "Declined" not in out
+    assert "manifest-delete" not in out
+
+
+def test_preinfra_dev_registry_not_probed_when_no_container_registry(
+    sample_ctx, fake_docker, fake_dns, fake_registry, capsys,
+):
+    """A fixed project that declares no `container_registry` — same silent
+    not-applicable as elastic."""
+    sample_ctx.infra.container_registry = None
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development",
+        dns=fake_dns, registry=fake_registry,
+    )
+    assert rc == 0
+    assert fake_registry.calls == []
+    out = capsys.readouterr().out
+    assert "Declined" not in out
+    assert "manifest-delete" not in out
+
+
+def test_preinfra_dev_registry_not_probed_on_production_side(
+    sample_ctx, fake_docker, fake_ssh, fake_registry,
+):
+    """The probe is a development-side check only — the production side has
+    its own (SSH) registry-credential check and must not fire this one."""
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    hosts = _seed_deploy_keys(sample_ctx)
+    fake_ssh.results = {h: 0 for h in hosts.values()}
+    run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="production",
+        ssh=fake_ssh, registry=fake_registry,
+    )
+    assert fake_registry.calls == []
+
+
+def test_preinfra_dev_registry_none_client_reports_dispatcher_bug(
+    sample_ctx, fake_docker, fake_dns, capsys,
+):
+    """A forgotten dispatcher call site must be LOUD — a failure, matching
+    the aws/ssh/dns guards — never a silently skipped check.
+
+    This is the one registry-shaped outcome besides ABSENT that is rc 1,
+    and deliberately so: it is a bug in docex, not a question about the
+    operator's infrastructure.
+    """
+    fake_docker.network_exists_results[_DOCEX_INGRESS_NETWORK] = True
+    rc = run_preinfra(
+        sample_ctx, fake_docker, aws=None, side="development", dns=fake_dns,
+    )
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "requires a registry client" in out
     assert "dispatcher bug" in out
 
 

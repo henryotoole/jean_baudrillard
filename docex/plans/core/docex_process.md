@@ -84,6 +84,41 @@ sentence it earned went into the existing `core_service.md` entry rather than a 
 one. Mods 126, 127 and 128 each concluded independently that they introduced no
 resource; mod 128 recorded its row expressly so this verdict could aggregate them.
 
+And once more at mod 133: **the registry manifest-delete probe gets no entry.**
+`container_registry` is already an indexed resource; the mod adds a *check on* it,
+and a check is no more a resource than a probe is. The mod did edit that entry —
+but for an **omission**, not a contradiction: it described only the
+`container_registry:` field and never pointed at
+`infrastructure/preinfra/container_registry.md`, the doctrine home of the fixed
+registry's setup, its delete requirement, and its GC procedure. So a `docex why
+container_registry` on a fixed project reached the field and never the resource.
+That is the same class as `codebase.md`'s missing `health.sh` below, and it is the
+fifth such omission this advance found.
+
+**A verdict that was retracted, which is worth more than the four that stood.**
+Mod 133 first reported that entry's closing citation as a **dead heading** —
+`cicl.md § Container Registry` where the real heading is § Container Registry and
+Service Images. That was wrong. `linkcheck.py`'s `classify_citation` accepts an
+anchor that *starts with* the cited slug plus `-`, its deliberate truncated-title
+rule, so the citation classifies as `truncated` and is valid. The claim was
+asserted from reading and withdrawn on measurement. **Sweeping this artifact by
+eye produces false positives as readily as false negatives**, and the check is
+cheap: force the citation into bounded form and watch which bucket the count moves.
+
+**Bounded vs. unbounded citations, which decides whether a sweep can help at all.**
+`linkcheck.py` classifies a citation's heading only when the path **and** the `§`
+sit inside one common inline-code span. `doctrine_excerpts/`'s house style puts the
+path in backticks and the heading in bare prose, so **fourteen of sixteen**
+`Doctrine reference:` lines are counted `unbounded` — file verified, heading never
+checked. This directory is in `linkcheck`'s roots *because* a dead citation here
+motivated that check, and its own convention places nearly every heading beyond
+that check's reach. Worse, `unbounded` is the one declined class that never reaches
+the tool's `Declined` block: `cite()` increments a counter and returns, so a run
+reports that N headings went unchecked and never *which*. Mod 133 converted its own
+line to the bounded form (`unbounded` 25 → 24, `exact` 238 → 239); doing the
+remaining thirteen would turn a silent count into thirteen checked citations and is
+the cheapest available improvement to this artifact's verifiability.
+
 **How this artifact is swept, and the limit that was found the hard way.** Three
 mods of advance 006 grepped all eighteen excerpts for
 *health / contract / surface / curl* and got zero hits, and concluded nothing

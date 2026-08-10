@@ -120,6 +120,15 @@ Verify each: `dig +short <subdomain>` returns `$DEV_IP`.
 - [ ] A Docker Registry V2 instance is reachable at `https://registry.luxrnd.tech` from the dev machine and from itself when serving as the `prod` host.
 - [ ] The **operator's** `~/.docker/config.json` has credentials for this registry. This is the push side, used by `docex containerize`. Pull-side credentials (`deploy` and `root` on the target host) are covered in A.7.
 - [ ] If running the registry locally on the dev machine: it persists images to a volume (so the `release prod` pull side finds them after `release stage` pushed them).
+- [ ] `cd test_projects/fixed && ./bin/docex preinfra development` reports **no registry failure and no registry declination**. A *failure* naming `REGISTRY_STORAGE_DELETE_ENABLED` means the registry refuses manifest deletes, which breaks `teardown.sh`. A *declination* means something weaker: the probe could not reach or authenticate to the registry, so it did not learn anything either way — not that deletion is broken. Fix the boxes above and re-run rather than reading a declination as a verdict.
+
+> **A green box above exercises the PASS arm only.** This machine's registry
+> already has `REGISTRY_STORAGE_DELETE_ENABLED=true`, so the walk can only ever
+> confirm that the probe agrees with a correctly configured registry. It proves
+> **nothing whatever** about the failure branch. That branch is covered
+> exclusively by `tests/integration/test_preinfra_registry_delete_real.py`,
+> which brings up a flag-off `registry:2` and asserts the finding. Do not read a
+> green box here as having tested the failure path.
 
 ### A.6 Observability backend
 

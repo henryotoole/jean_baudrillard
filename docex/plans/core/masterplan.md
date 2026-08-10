@@ -112,7 +112,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `why <resource>` | both | bundled doctrine excerpts | stdout |
 | `roles [--format]` | both | bundled + project-local transfer tables | stdout (role list with descriptions) |
 | `role <name> [--format]` | both | the named role's `tables/roles/<name>.yml` | stdout (engines, provided parts, env vars, fields) |
-| `preinfra <side>` | both, branches internally | `project.yml`, `infra.yml`; docker daemon, DNS; AWS (elastic + production), SSH (fixed + production) | nothing — read-only probe of prerequisite infrastructure; exit code |
+| `preinfra <side>` | both, branches internally | `project.yml`, `infra.yml`; docker daemon, DNS; AWS (elastic + production), SSH (fixed + production), the container registry + `~/.docker/config.json` (fixed + development) | nothing — read-only probe of prerequisite infrastructure; exit code, plus a `Declined` block for questions it will not answer (see below) |
 | `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (four `-web` networks + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup — S3 bucket + DynamoDB table for tofu state |
 | `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env`; for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
@@ -126,6 +126,33 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `rollback <env> <target_version>` | both, branches internally | `v<target_version>` git tag, target version's `infra.yml` (via ephemeral worktree), `infra/secrets/<env>.env` | recompiled output (in worktree), foundation-specific apply with migrations skipped |
 
 Each command's authoritative behavior lives in [docex.md](../../../doctrine/infrastructure/docex.md) and the cross-referenced specifics; this table is a navigation aid, not a re-spec.
+
+### `preinfra` distinguishes failing from declining
+
+`preinfra` is the only command with two kinds of negative outcome, and the
+distinction is load-bearing rather than cosmetic. Its own scope excludes registry
+*reachability* and *auth* — `containerize` surfaces both naturally — while
+`preinfra development` is the gate `envinfra up dev` runs. So an outcome that is
+really a statement about reachability must not block a dev stack that never
+touches a registry.
+
+- **Failures** are in-scope questions answered wrong: a missing `docex-ingress`
+  bridge, an unresolved `dev` hostname, a master VPC without its subnets, or a
+  registry that answers a manifest `DELETE` with `405 UNSUPPORTED` — a
+  *configuration* fact, and the one the delete probe exists to catch. These set
+  exit code 1.
+- **Declinations** are out-of-scope questions the command will not answer: no
+  registry credential, an unreachable host, a timeout, a `401`, or any response
+  no verdict can be read from (notably a bare `405` from a proxy the registry may
+  never have seen). Each is **printed by name with its own resolution** under a
+  `Declined` heading, and none affects the exit code.
+
+A verifier may decline to answer but may not decline quietly; what the split adds
+is that declining an out-of-scope question is a different act from failing an
+in-scope one, and one exit code cannot express both. The corollary that matters
+when reading a green run: a declination is *not* a pass, and the registry
+delete-capability check can only ever fail against a registry it could actually
+reach and authenticate to.
 
 ### Cross-command orchestration
 
@@ -248,7 +275,7 @@ to write.
 
 | Need | Source | Used by |
 | ---- | ------ | ------- |
-| Container registry push/pull | `~/.docker/config.json` | `containerize`, `release` (fixed pull side is the *target host*'s config, not the operator's) |
+| Container registry push/pull | `~/.docker/config.json` | `containerize`, `release` (fixed pull side is the *target host*'s config, not the operator's), `preinfra development` (fixed — authenticates the manifest-delete probe; absent credential *declines*, never fails) |
 | AWS API access | `~/.aws/credentials` (or env vars / OIDC if present) | `projinfra`, `release` (elastic), `containerize` (when ECR) |
 | SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts` | `release` (fixed); `preinfra production` (fixed — probes the target host for registry creds) |
 | Git identity & remote push | `~/.gitconfig`, `~/.ssh/` | `merge`, `check` (worktree creation) |

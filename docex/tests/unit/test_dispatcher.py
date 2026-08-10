@@ -96,11 +96,13 @@ def test_preinfra_dev_dispatches_to_run_preinfra_without_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                          registry=None):
         captured["ctx"] = ctx
         captured["docker"] = docker
         captured["aws"] = aws
         captured["side"] = side
+        captured["registry"] = registry
         return 0
 
     monkeypatch.setattr(
@@ -113,6 +115,10 @@ def test_preinfra_dev_dispatches_to_run_preinfra_without_aws(
     assert captured["docker"] is docker_sentinel
     assert captured["aws"] is None
     assert aws_construct_calls["count"] == 0
+    # Mod 133: the fixed development side needs a registry client for the
+    # manifest-delete probe. Without this assertion a dropped call site
+    # would only surface as a "dispatcher bug" failure at runtime.
+    assert captured["registry"] is not None
 
 
 def test_preinfra_fixed_prod_dispatches_without_aws(
@@ -132,8 +138,10 @@ def test_preinfra_fixed_prod_dispatches_without_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                          registry=None):
         captured["aws"] = aws
+        captured["registry"] = registry
         return 0
 
     monkeypatch.setattr(
@@ -144,6 +152,9 @@ def test_preinfra_fixed_prod_dispatches_without_aws(
     assert rc == 0
     assert captured["aws"] is None
     assert aws_construct_calls["count"] == 0
+    # Mod 133: the manifest-delete probe is development-side only, so the
+    # production side builds no registry client.
+    assert captured["registry"] is None
 
 
 def test_preinfra_elastic_prod_dispatches_with_aws(
@@ -161,7 +172,8 @@ def test_preinfra_elastic_prod_dispatches_with_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                          registry=None):
         captured["aws"] = aws
         captured["side"] = side
         return 0
@@ -193,8 +205,10 @@ def test_preinfra_elastic_dev_dispatches_without_aws(
 
     captured = {}
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                          registry=None):
         captured["aws"] = aws
+        captured["registry"] = registry
         return 0
 
     monkeypatch.setattr(
@@ -205,6 +219,10 @@ def test_preinfra_elastic_dev_dispatches_without_aws(
     assert rc == 0
     assert captured["aws"] is None
     assert aws_construct_calls["count"] == 0
+    # Mod 133: an ELASTIC project's development side has no registry
+    # question to ask (ECR governs deletion via IAM), so `docex preinfra`
+    # builds no client for it — and the probe's own gate would not fire.
+    assert captured["registry"] is None
 
 
 def test_preinfra_propagates_nonzero(monkeypatch, sample_ctx):
@@ -213,10 +231,52 @@ def test_preinfra_propagates_nonzero(monkeypatch, sample_ctx):
     _patch_docker_ok(monkeypatch)
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 1,
     )
     rc = _cmd_preinfra(["development"])
     assert rc == 1
+
+
+def test_every_development_side_preinfra_call_site_supplies_a_registry(
+    monkeypatch, sample_ctx,
+):
+    """Mod 133: all three dispatcher paths that can pass
+    ``side="development"`` must supply a registry client.
+
+    A forgotten call site is caught by ``run_preinfra``'s dispatcher-bug
+    guard at runtime, but nothing would catch it in CI — so each site is
+    asserted here. ``run_preinfra`` is stubbed to pass; this test is about
+    the arguments, not the checks.
+    """
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    seen: list[tuple[str, object]] = []
+
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                          registry=None):
+        seen.append((side, registry))
+        return 0
+
+    monkeypatch.setattr(
+        "docex.pipeline.preinfra.run_preinfra", fake_run_preinfra,
+    )
+    monkeypatch.setattr(
+        "docex.orchestrate.up.run_up", lambda ctx, docker, *, env: 0,
+    )
+    monkeypatch.setattr(
+        "docex.pipeline.projinfra.run_projinfra_fixed_up",
+        lambda ctx, docker, *, side: 0,
+    )
+
+    assert _cmd_preinfra(["development"]) == 0        # site 2
+    assert _cmd_envinfra(["up", "dev"]) == 0          # site 1
+    assert _cmd_projinfra(["up", "development"]) == 0  # site 3
+
+    assert len(seen) == 3
+    for side, registry in seen:
+        assert side == "development"
+        assert registry is not None
 
 
 def test_preinfra_rejects_unknown_side(capsys):
@@ -261,7 +321,7 @@ def test_envinfra_up_dispatches_to_run_up(monkeypatch, sample_ctx):
     # so this test stays focused on the ``run_up`` dispatch.
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 0,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 0,
     )
 
     rc = _cmd_envinfra(["up", "dev"])
@@ -287,7 +347,7 @@ def test_envinfra_up_refuses_when_preinfra_fails(
     monkeypatch.setattr("docex.orchestrate.up.run_up", fake_run_up)
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 1,
     )
 
     rc = _cmd_envinfra(["up", "dev"])
@@ -307,7 +367,8 @@ def test_envinfra_down_not_gated_by_preinfra(
 
     called = {"preinfra": False, "run_down": False}
 
-    def fake_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
+    def fake_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                      registry=None):
         called["preinfra"] = True
         return 1
 
@@ -410,7 +471,7 @@ def test_projinfra_elastic_up_production_runs_bootstrap(
     # this test stays focused on the bootstrap dispatch.
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 0,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 0,
     )
 
     captured = {}
@@ -442,7 +503,7 @@ def test_projinfra_elastic_up_production_refuses_when_preinfra_fails(
     )
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 1,
     )
 
     called = {"bootstrap": False}
@@ -499,7 +560,8 @@ def test_projinfra_elastic_dev_side_routes_fixed_style(
         called["run_projinfra_fixed_down"] = True
         return 0
 
-    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None):
+    def fake_run_preinfra(ctx, docker, aws, *, side, ssh=None, dns=None,
+                          registry=None):
         called["run_preinfra"] = True
         return 0
 
@@ -602,7 +664,7 @@ def test_projinfra_fixed_all_invocations_dispatch_to_real_runners(
     # sides. Stub it to pass so this test stays focused on dispatch.
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 0,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 0,
     )
 
     rc = _cmd_projinfra([direction, side])
@@ -642,7 +704,7 @@ def test_projinfra_fixed_up_refuses_when_preinfra_fails(
     )
     monkeypatch.setattr(
         "docex.pipeline.preinfra.run_preinfra",
-        lambda ctx, docker, aws, *, side, ssh=None, dns=None: 1,
+        lambda ctx, docker, aws, *, side, ssh=None, dns=None, registry=None: 1,
     )
 
     rc = _cmd_projinfra(["up", "development"])

@@ -965,3 +965,55 @@ class FakeDnsResolver:
 def fake_dns() -> FakeDnsResolver:
     """Pytest fixture: fresh FakeDnsResolver per test."""
     return FakeDnsResolver()
+
+
+# ---------------------------------------------------------------------------
+# Fake registry client (mod 133).
+# ---------------------------------------------------------------------------
+
+
+def _passing_manifest_delete_result():
+    """The observation that proves the capability is present: the delete
+    gate was passed and the (nonexistent) manifest lookup was reached."""
+    # Lazy: `src/` only joins sys.path above, so docex imports stay
+    # function-local throughout this module.
+    from docex.registry.client import ManifestDeleteResult
+
+    return ManifestDeleteResult(
+        status=404, error_code="MANIFEST_UNKNOWN",
+        detail="404 from fake registry",
+    )
+
+
+@dataclass
+class FakeRegistryClient:
+    """Recording, scriptable stand-in for ``RegistryClient``.
+
+    - ``result`` is what ``delete_manifest`` returns by default. It
+      defaults to the *passing* observation (``404 MANIFEST_UNKNOWN``) so
+      the existing development-side tests only need the fixture threaded
+      through, not a scripted result.
+    - ``results`` maps ``(host, repository)`` to a per-target result and is
+      consulted before ``result``.
+    - ``calls`` records every invocation so a test can assert the probe
+      targeted the reserved repository and the zero digest — and, on the
+      elastic / no-registry paths, that it was never called at all.
+    """
+
+    result: ManifestDeleteResult = field(
+        default_factory=_passing_manifest_delete_result
+    )
+    results: dict[tuple[str, str], ManifestDeleteResult] = field(
+        default_factory=dict
+    )
+    calls: list[tuple] = field(default_factory=list)
+
+    def delete_manifest(self, host, repository, reference):
+        self.calls.append(("delete_manifest", host, repository, reference))
+        return self.results.get((host, repository), self.result)
+
+
+@pytest.fixture
+def fake_registry() -> FakeRegistryClient:
+    """Pytest fixture: fresh FakeRegistryClient per test."""
+    return FakeRegistryClient()

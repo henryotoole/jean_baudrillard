@@ -38,7 +38,10 @@ service declares its API boundaries explicitly as `surfaces:` instead of having 
 contract format inferred from its `role`, and HTTP stops being the doctrine's
 mandated health substrate. Both halves are breaking for `infra.yml`, and both
 ride the **same `cicl_version: "3"`** rather than manufacturing a second
-rollback-unavailable boundary inside one cut.
+rollback-unavailable boundary inside one cut. Two items unrelated to either half
+fold in from advance 005's deferrals: `linkcheck.py` scoping its checks
+independently (mod 132), and `preinfra development` gaining the registry
+manifest-delete probe (mod 133).
 
 ### Changed
 
@@ -685,6 +688,28 @@ rollback-unavailable boundary inside one cut.
 
 ### Added
 
+- **`docex preinfra development` probes the container registry's manifest-delete
+  capability (mod 133).** On a `fixed` project with a `container_registry`, the
+  command now issues one authenticated `DELETE` of a 64-zero digest under a
+  nonexistent `preinfra-smoke/` repository — no image is pushed and nothing can
+  be deleted, so the probe is side-effect-free against preinfra shared by every
+  project on the machine. A `405` carrying the registry's own `UNSUPPORTED` code
+  is a **failure** naming `REGISTRY_STORAGE_DELETE_ENABLED`: without that flag
+  every `fixed` project's `teardown.sh` leaks one registry tag per release and
+  garbage collection cannot start. Previously the requirement was stated in the
+  doctrine but never checked, and the misconfiguration survived several releases
+  because the cleanup checks downstream of it could not tell a `405` from a clean
+  registry.
+- **`preinfra` now distinguishes *declining* from *failing*.** Registry
+  reachability and auth are outside `preinfra`'s documented scope, and
+  `preinfra development` is the gate `envinfra up dev` runs — so no credential,
+  an unreachable host, a timeout, a `401`, or any response no verdict can be read
+  from is **printed by name with its own resolution** under a new `Declined`
+  heading at **exit code 0**, rather than blocking a dev stack that never touches
+  a registry. Only in-scope questions answered wrong set exit code 1. A verifier
+  may decline to answer but may not decline quietly; what is new is that
+  declining an out-of-scope question is not the same act as failing an in-scope
+  one. Note when reading a green run: a declination is not a pass.
 - **`docex stagetest` reads liveness and version from the orchestrator, and
   fails before it builds the tester (mod 128).** Step 1 of the staging-test
   process is now a foundation-aware pre-step: `docker inspect` **over SSH** to

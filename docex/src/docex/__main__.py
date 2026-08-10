@@ -204,6 +204,10 @@ def _cmd_envinfra(args: list[str]) -> int:
         rc = run_preinfra(
             ctx, docker, aws=None, side="development",
             dns=DnspythonResolver(),
+            # Mod 133: the dev-side registry manifest-delete probe. Cheap
+            # to construct and only consulted on the fixed-with-registry
+            # branch, so pass it unconditionally (mirrors `dns`).
+            registry=_make_registry_client(),
         )
         if rc != 0:
             print("error: preinfra development failed; aborting envinfra up.")
@@ -257,10 +261,22 @@ def _cmd_preinfra(args: list[str]) -> int:
         and ns.side == "production"
     )
     ssh = _make_ssh_client() if needs_ssh else None
+    # Mod 133: the manifest-delete probe is a fixed + development-side
+    # check, so build the registry client only there (mirroring needs_aws /
+    # needs_ssh). A fixed dev side that declares no container_registry
+    # gets a client it never uses, which costs nothing.
+    needs_registry = (
+        ctx.infra is not None
+        and ctx.infra.foundation == "fixed"
+        and ns.side == "development"
+    )
+    registry = _make_registry_client() if needs_registry else None
     # The DNS resolver is cheap to construct and only consulted on the
     # development branch; pass it unconditionally (mod 054).
     dns = DnspythonResolver()
-    return run_preinfra(ctx, docker, aws, side=ns.side, ssh=ssh, dns=dns)
+    return run_preinfra(
+        ctx, docker, aws, side=ns.side, ssh=ssh, dns=dns, registry=registry,
+    )
 
 
 def _cmd_projinfra(args: list[str]) -> int:
@@ -322,9 +338,16 @@ def _cmd_projinfra(args: list[str]) -> int:
             ssh = _make_ssh_client() if needs_ssh else None
             # Mod 054: this branch handles `projinfra up development` too,
             # where run_preinfra's dev-DNS check needs a resolver.
+            #
+            # Mod 133: and, on a fixed development side, the registry
+            # manifest-delete probe. Passed unconditionally alongside the
+            # resolver — construction is offline and free, and this branch
+            # also serves an elastic project's development side, where the
+            # probe's own gate declines to fire.
             rc = run_preinfra(
                 ctx, docker, aws=None, side=ns.side, ssh=ssh,
                 dns=DnspythonResolver(),
+                registry=_make_registry_client(),
             )
             if rc != 0:
                 print(
@@ -475,6 +498,19 @@ def _make_ssh_client() -> "object":
     from docex.ssh import SubprocessSSHClient
 
     return SubprocessSSHClient()
+
+
+def _make_registry_client() -> "object":
+    """Construct a ``UrllibRegistryClient``.
+
+    Stateless and offline to construct — no request is made and the Docker
+    config is not read until ``delete_manifest`` is called. The dispatcher
+    builds one for the development-side preinfra branch (mod 133's
+    manifest-delete capability probe).
+    """
+    from docex.registry.urllib_client import UrllibRegistryClient
+
+    return UrllibRegistryClient()
 
 
 def _cmd_check(args: list[str]) -> int:
