@@ -372,19 +372,117 @@ Procedure, on the `fixed` seed's `dev` stack:
 
 Both arms and both services, red before green, recorded in the mod report.
 
+### 7.1 What was actually observed
+
+Run against the `fixed` seed's `dev` stack, then torn down. The probe went red
+before it went green, on both loop-owning core services.
+
+**`api.worker`**, wedged with `SIGSTOP` to the poll loop — container up, process
+alive, loop frozen:
+
+```
+t+2s    probe_rc=0  docker_health=healthy
+t+15s   probe_rc=0  docker_health=healthy
+t+31s   probe_rc=1  docker_health=healthy    loop tick is 32s stale (threshold 30s)
+t+65s   probe_rc=1  docker_health=healthy    loop tick is 66s stale (threshold 30s)
+t+95s   probe_rc=1  docker_health=UNHEALTHY  failing_streak=3
+```
+
+Docker's own health log, read back from `docker inspect`, carries the three
+failures it ran itself: `0 0 1 (40s stale) 1 (70s stale) 1 (100s stale)`. So the
+claim is complete end to end — loop wedged → probe red → **orchestrator**
+unhealthy — and not merely "a script I ran by hand returned 1". `SIGCONT`
+restored `probe_rc=0` within 3 s and `docker_health=healthy` with
+`failing_streak=0`. The absent-tick arm was then fired deliberately (`rm
+/tmp/worker.tick` → rc=1).
+
+**`api.clock`**, same wedge: `probe_rc=0` at t+10s, `rc=1` at t+33s ("loop tick
+is 34s stale"), `docker_health=unhealthy` at streak 3, recovered on `SIGCONT`.
+
+**The clock binds no application socket**, verified rather than asserted — the
+only `LISTEN` entry in its `/proc/net/tcp` is `127.0.0.11:*`, docker's embedded
+DNS resolver, which every container has. `api.web` shows `0.0.0.0:8080` and
+`api.worker` shows `0.0.0.0:8081`; the clock shows nothing.
+
+**The `rpc` edge, live.** `POST /jobs/drain` on `api.web` crossed to the worker
+and returned `{"performed": 0}` on the first call and `{"performed": 2}` after
+five heartbeats were queued in a burst — the worker's own loop having taken the
+other three under `SKIP LOCKED`. That is direct evidence for two design choices
+at once: the boundary performs real work, and **the stage test was right not to
+assert a count.** `GET /health/api/worker` returns 404.
+
+### 7.2 Two false-green traps found while proving it
+
+Both are the advance's recurring defect — *something that could not have
+detected the failure reported success* — and both would have produced a
+convincing wrong answer.
+
+1. **`kill -STOP 1` inside the container does not wedge anything.** PID 1 in a
+   PID namespace is immune to `SIGSTOP` and `SIGKILL` from inside that namespace
+   unless it has installed a handler, so the "wedge" was silently a no-op and the
+   probe kept passing — at t+40s it still read `rc=0`. A verifier working from
+   that reading concludes either that the probe is broken or, worse, records a
+   green from a wedge that never happened. The wedge must be delivered from the
+   host: `sudo kill -STOP $(docker inspect -f '{{.State.Pid}}' <container>)`.
+2. **`envinfra up dev` left the host `dist/` bind mount stale**, so the
+   containers first came up running the *pre-mod* entrypoints. The probe's first
+   answer was `no tick file at /tmp/worker.tick` — which is indistinguishable
+   from the absent-tick arm working correctly, and is in fact old code that never
+   writes a tick at all. `./bin/docex build` refreshed it (and itself refuses to
+   run until the stack is up, so the order is `up` → `build` → restart the core
+   services). Any future walk that reads a tick-file failure on a first `up`
+   should check `dist/` before believing the probe.
+
 ---
 
 ## 8. Knowingly left stale
 
 Stated so a reader between mods 129 and 130 finds an accounting rather than a gap:
 
-- `infra/output/**` in both projects — mod 130.
+- `infra/output/**` in both projects — mod 130. The `compile` runs this mod's
+  signal requires **did** rewrite eight of those artifacts (four per project),
+  and they are deliberately **left uncommitted**, so mod 130 reviews the artifact
+  diff rather than inheriting it already blessed. That review is the whole reason
+  the two mods were split.
 - Both projects' `plans/core/masterplan.md` and `plans/core/api/api.md`, which
   still describe the fan-out and the three-segment contract paths — mod 130.
 - Both `CHANGELOG.md`s and the inner-repo commit / tag cadence — mod 130.
 - `PRE_CUT_CHECKLIST.md` § B.7 (which still tells the walker that every core
   `uses` target declares `port` **and** `health_check_path`, and that the curl gate
   has no network filter), C.7, C.9, D.9, D.11 — mod 131.
+
+## 8.1 Errors in this mod's own implementation plan
+
+Recorded because the implementor reported them rather than working around them,
+which is the behaviour worth reinforcing.
+
+1. **Step 12(d)'s grep contradicted steps 3.4, 10.1 and 11.2.** It expected zero
+   hits for `fan-out` while three other steps *commissioned* prose using the word
+   in negation ("these are **not** a health fan-out — there is no fan-out"). Ten
+   hits, all negations, five per tree. The prose is right and the grep was wrong:
+   a change this size needs the deletion stated, not silently absent. The grep's
+   other seven spellings — `health/api/worker`, `fanout`, `_build_health_app`,
+   `_HEALTH_PORT`, `_STALENESS_SECONDS`, `health/probe`, `health/events` — are
+   clean, and those are the structural ones. **Verified** at review.
+2. **Step 12(f)'s literal `pytest tests -q` cannot collect the suite.** Three
+   files do `from tests.conftest import ...`, and plain `pytest` does not put the
+   repo root on `sys.path`; it errors on collection and reports *17* deselected
+   rather than 18, because one deselected test lives in an erroring file. A
+   count that is nearly right while nothing ran is the worst possible signature.
+   The working invocation is `.venv/bin/python -m pytest tests -q`. Pre-existing
+   and unrelated to this mod, but the plan should not have written the broken
+   form.
+3. **Three comments the plan froze had gone stale.** Steps 4 and 5 said "keep
+   verbatim" / "unchanged" for three WHY comments phrased as "would answer 200
+   forever" — reasoning that is still exactly right inside files that now serve
+   nothing. The implementor honoured the freeze and flagged it; fixed at review to
+   "would keep the probe green forever". A `verbatim` instruction is a liability
+   when the surrounding substrate is what the mod is changing.
+
+Accepted without change: `build_processor` / `build_clock` docstrings also said
+the entrypoint owns "the liveness surface" and were corrected (an addition the
+plan did not enumerate, in territory and required for truthfulness); step 7's two
+tests became three, splitting the 503 case out for clearer failure attribution.
 
 ## 9. Provenance of the local `docex:1.7.0` image
 

@@ -163,6 +163,55 @@ rollback-unavailable boundary inside one cut.
   silently not arriving. That is strictly worse than a 503, which is why the
   reconcile matters more after this change than before it.
 
+- **Both smoke-test seed projects move onto the new model (mod 129).** Source,
+  contracts, and `infra.yml` in `test_projects/{fixed,elastic}` — the two trees
+  downstream projects copy from, and the doctrine's reference implementation of
+  the entrypoint and liveness rules. `api.web` declares a `rest` surface;
+  `api.worker` declares **two** surfaces of one format (`rpc` and `events`,
+  distinguished by unrelated consumer sets, which nothing else in the repo
+  exercised); `api.clock` declares none, because it is consumer-only and nothing
+  may `uses` it. Three contract files per project replace two, four-segment and
+  rewritten, with their spec versions raised to the minimums `contracts.md`
+  fixes — the seeds were shipping OpenAPI 3.0.3 and AsyncAPI 2.6.0 in violation
+  of it, which nothing enforces mechanically
+  ([`007_small_edges/contract_spec_version_ungated.md`](./docex/plans/advances/007_small_edges/contract_spec_version_ungated.md)).
+
+  **Health leaves HTTP in the seeds.** A new `core/api/health.sh` — the fourth
+  codebase shim — branches on its argv: `web` curls its own route, `worker` and
+  `clock` stat a tick file the loop touches from inside itself. Both loop-owning
+  entrypoints lose their FastAPI health app, their uvicorn health server, and
+  their in-memory tick; `api.clock` loses uvicorn, fastapi, and its listener
+  **outright** and now binds no application socket at all, which is the clearest
+  evidence in the change that it is not cosmetic. The `/health/api/worker`
+  fan-out is deleted from the composition root, and the two backing-service
+  reachability probes move from `/health/{probe,events}` to
+  `/diagnostics/{probe,events}` — kept, because they are the only exercise either
+  seed gives the project-local `sidecar`/`clickhouse` engines, but moved so no
+  reader concludes the fan-out survived under a narrower name.
+
+  The 30s staleness **threshold** now lives only in `health.sh`, which is the
+  only thing that judges it; the ≤10s tick **cadence** lives only in the
+  entrypoint, which is the only thing that can honour it. Each file names the
+  other half, because 30 being three times 10 is what the pair means and one
+  number alone does not show it.
+
+  **`api.worker` keeps its `port` and gains a real `rpc` boundary** —
+  `POST /drain`, which asks the worker to drain the deferred-job queue in its own
+  process because the perform side of the queue belongs to it. This replaces the
+  fan-out's HTTP edge with an application one, and adds a shape neither seed had:
+  a **consumer-side gateway onto a sibling core service** (`GwyJobRunner` +
+  `GwyJobRunnerHttp`, injected by the composition root), which is what rule 32's
+  positive arm exists to govern. The port survives for a second reason recorded
+  in the advance plan: a port-less worker registers no Service Connect name, which
+  would have emptied the elastic release's reconcile consumer set and silently
+  retired the seeds' only coverage of it.
+
+  Staging tests narrow to what requires being outside. The liveness fan-out test
+  is deleted — `docex stagetest` now reads liveness from the orchestrator before
+  the tester image is built — and is replaced by a defer-then-drain round trip
+  through the real ingress, asserting **no exact count**, because the worker's own
+  poll loop legitimately races it.
+
 - **A codebase is a `codebase`; a process type is a `core service`.** The two
   central nouns of the doctrine's service vocabulary trade places. What 1.6.0
   called a *core service* — one source tree, one build artifact, one image — is

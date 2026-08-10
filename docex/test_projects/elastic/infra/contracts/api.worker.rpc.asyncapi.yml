@@ -1,0 +1,115 @@
+# The `rpc` surface of the `api.worker` core service.
+#
+# Why this file exists: `api.worker` declares
+# `surfaces: {rpc: {api_styles: [rpc]}}` in infra.yml, and the format follows
+# from that style — `rpc` → asyncapi (cicl.md § Surfaces). It is the SECOND of
+# this core service's two surfaces; the queues it consumes are described
+# separately in api.worker.events.asyncapi.yml. Two surfaces resolving to one
+# format is legal, and what makes them two rather than one is the consumers:
+# this boundary is called synchronously and waited on, the queues are not.
+#
+# WHY ASYNCAPI FOR AN HTTP CALL. HTTP is the TRANSPORT (see `servers:` below)
+# and `rpc` is the API_STYLE. They are different axes, and the doctrine keys
+# the contract format on the second — which is why a request/reply boundary
+# spoken over HTTP is described here rather than in an OpenAPI document. This
+# is MCP's case: JSON-RPC over HTTP or stdio, one style, one format either way.
+# AsyncAPI 3.0 is the floor because `reply` — the whole reason `rpc` resolves
+# to asyncapi at all — does not exist before it.
+#
+# WHAT THIS SURFACE OBLIGES. This is the surface `api.web` ADDRESSES DIRECTLY,
+# holding `${codebases.api.core_services.worker.{host,port}}` in its own `env:`
+# — and being directly addressed is what obliges this core service's `port:`
+# under rule 32's positive arm. The contrast one core service over is the
+# clearest illustration in either seed: `api.clock` also declares `api.worker`
+# in its `uses:`, holds NO address at all, and reaches the same target through
+# the `jobs` table instead. One target, two consumers, two kinds of edge —
+# which is why rule 32 is scoped to the edge and not to the target.
+
+asyncapi: "3.0.0"
+info:
+  title: docex_smoke_elastic.api.worker.rpc
+  version: "0.0.1"
+  description: |
+    The request/reply boundary of the doctrine smoke test's worker core
+    service. One operation: drain the deferred-job queue now and reply with
+    the number of jobs performed. Called by `api.web` when a caller asks for a
+    drain rather than waiting for this core service's next poll.
+
+defaultContentType: application/json
+
+servers:
+  # The internal address, resolved from the consumer's magic refs: docker
+  # network DNS on fixed, ECS Service Connect on elastic. Not reachable from
+  # outside — this core service is on `[internal]` alone and takes no ingress.
+  # `protocol: http` records the TRANSPORT; the api_style is `rpc`, and the two
+  # are independent (see the header).
+  internal:
+    host: "api-worker:8081"
+    protocol: http
+    description: internal network address of the `api.worker` core service
+
+channels:
+  drain:
+    address: /drain
+    description: |
+      The drain command boundary. A request carries no body; the reply carries
+      the count of jobs this core service performed.
+
+      Serving this concurrently with the poll loop's own drain is safe for a
+      reason already documented rather than a new one: `QueueJobsPostgres`
+      opens a connection per call and `claim` takes its batch with
+      `SELECT ... FOR UPDATE SKIP LOCKED`, the same guarantee that makes
+      `replicas: 2` safe against itself (see api.worker.events.asyncapi.yml's
+      `jobs` channel). No job is ever claimed twice, so no lock is needed and
+      none exists.
+    messages:
+      drainRequest:
+        name: DrainRequest
+        title: A request to drain the queue now
+        contentType: application/json
+        payload:
+          type: object
+          description: >
+            Empty. The command takes no parameters — not a batch size and not
+            a job-name filter. Both would be knobs on someone else's queue.
+          additionalProperties: false
+          properties: {}
+      drainResult:
+        name: DrainResult
+        title: The count of jobs performed
+        contentType: application/json
+        payload:
+          type: object
+          required: [performed]
+          properties:
+            performed:
+              type: integer
+              minimum: 0
+              example: 3
+              description: >
+                How many jobs this core service claimed and performed on this
+                call. ZERO IS A SUCCESS, not an error: this core service's own
+                poll loop drains on its interval, so finding the queue already
+                empty is the ordinary outcome of asking at the wrong moment. A
+                caller that treats 0 as a failure is asserting on scheduling,
+                which this boundary does not promise.
+
+operations:
+  drainQueue:
+    action: receive
+    summary: Claim and perform one batch of deferred jobs, then reply with the count.
+    description: |
+      A failure to claim the batch at all is reported as a transport-level 503
+      by the HTTP mechanism serving this surface, and means nothing was
+      performed. A per-job failure is NOT reported here — it is recorded on the
+      job's own row (see the `error` property in
+      api.worker.events.asyncapi.yml) and does not count toward `performed`.
+    channel:
+      $ref: '#/channels/drain'
+    messages:
+      - $ref: '#/channels/drain/messages/drainRequest'
+    reply:
+      channel:
+        $ref: '#/channels/drain'
+      messages:
+        - $ref: '#/channels/drain/messages/drainResult'

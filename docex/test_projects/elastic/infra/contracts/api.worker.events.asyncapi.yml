@@ -1,35 +1,39 @@
-# AsyncAPI contract for the `api.worker` core service.
+# The `events` surface of the `api.worker` core service.
 #
-# Why this file exists: `api.web` declares `api.worker` in `uses:`, which
-# makes the worker a provider, and the format follows from the provider's
-# ROLE — `role: worker` → asyncapi (contracts.md § Standards). This is the
-# format path that was *provably unreachable* before mod 101.
+# Why this file exists: `api.worker` declares
+# `surfaces: {events: {api_styles: [events]}}` in infra.yml, and a declared
+# surface must have a contract. The FORMAT follows from that surface's
+# `api_styles` — `events` → asyncapi — and NOT from the core service's `role`
+# (cicl.md § Surfaces). A `worker` that declared a `rest` surface would get an
+# OpenAPI document; the role decides nothing here.
+#
+# This is ONE of TWO surfaces this core service declares. This one describes
+# the queues it CONSUMES; its request/reply boundary is a separate surface in
+# api.worker.rpc.asyncapi.yml, because the two have unrelated consumer sets.
+# Its liveness is a container probe (`./health.sh worker`) that no contract
+# describes and that nothing outside the orchestrator reads.
+#
+# Both queues live in this ONE document, per cicl.md § Surfaces' split table:
+# "a worker consuming two different queues — one core service, one surface;
+# one AsyncAPI document carries both channels."
 #
 # ---------------------------------------------------------------------
 # A known loose end, recorded rather than hidden.
 #
 # AsyncAPI naturally describes a broker: a channel on a message bus, with
-# publish/subscribe operations. This worker has no broker. The doctrine
-# ships no `queue` role, so its "queue" is the `pings` TABLE in the
+# send/receive operations. This worker has no broker. The doctrine ships no
+# `queue` role, so its "queues" are the `pings` and `jobs` TABLES in the
 # `appdb` relational_db, polled once a second. That is a legitimate shape
 # — and the honest channel address for it is a table name, not a topic.
 #
-# It is the most visible loose end the CICL-v2 advance leaves: 1.6.0 ships
-# a first-class `worker` role with no first-class thing for it to consume.
-# The channel below is described as it actually is.
+# It remains the most visible loose end in this area: the doctrine ships a
+# first-class `worker` role with no first-class thing for it to consume. The
+# channels below are described as they actually are.
 # ---------------------------------------------------------------------
-#
-# Note what is deliberately ABSENT: there is no `/health` path here.
-# Per contracts.md § Declared by fields, this contract describes only the
-# message boundary. The worker's probeability is declared by its `port` +
-# `health_check_path` fields in infra.yml, and its liveness is *exposed*
-# through the consumer's OpenAPI (`/health/api/worker` in
-# api.web.openapi.yml). Forcing an HTTP path into an AsyncAPI document
-# would be a contortion.
 
-asyncapi: "2.6.0"
+asyncapi: "3.0.0"
 info:
-  title: docex_smoke_fixed.api.worker
+  title: docex_smoke_elastic.api.worker
   version: "0.0.1"
   description: |
     Test-project worker core service for the doctrine smoke test. Claims
@@ -41,6 +45,7 @@ defaultContentType: application/json
 
 channels:
   pings:
+    address: pings
     description: |
       The work queue, which is a postgres table rather than a broker topic
       (see the header). `api.web` appends a row per POST /pings; this
@@ -50,10 +55,8 @@ channels:
       Address is the table name because that is the truth. A broker-backed
       worker would put a topic here instead and nothing else in this file
       would change.
-    subscribe:
-      operationId: consumePing
-      summary: Claim and process one unprocessed ping.
-      message:
+    messages:
+      ping:
         name: Ping
         title: A ping awaiting processing
         contentType: application/json
@@ -83,6 +86,7 @@ channels:
                 performed by this core service.
 
   jobs:
+    address: jobs
     description: |
       The deferred-job queue, which like `pings` above is a postgres TABLE
       rather than a broker topic (see the header). `api.clock` appends one
@@ -93,13 +97,13 @@ channels:
 
       Claimed with `SELECT ... FOR UPDATE SKIP LOCKED` inside one
       transaction, which is what makes `replicas: 2` safe: no job is ever
-      claimed twice. The same jobs can also be deferred by hand over HTTP on
-      `api.web` (`POST /jobs/*`), because the clock and the HTTP edge share
-      one driving port.
-    subscribe:
-      operationId: performJob
-      summary: Claim and perform one deferred job.
-      message:
+      claimed twice. That same guarantee is what makes this core service's
+      `rpc` surface safe to serve concurrently with this loop — see
+      api.worker.rpc.asyncapi.yml. The same jobs can also be deferred by hand
+      over HTTP on `api.web` (`POST /jobs/*`), because the clock and the HTTP
+      edge share one driving port.
+    messages:
+      job:
         name: Job
         title: A job awaiting performance
         contentType: application/json
@@ -136,3 +140,24 @@ channels:
               description: >
                 Null on success; the handler's failure message otherwise. A
                 failed job does not stall the ones behind it.
+
+# AsyncAPI 3.0 lifts operations out of `channels` into their own top-level
+# block, which is the structural half of the 2.6 -> 3.0 move. `action: receive`
+# is this core service's side of both channels: it consumes, and it publishes
+# to neither.
+operations:
+  consumePing:
+    action: receive
+    summary: Claim and process one unprocessed ping.
+    channel:
+      $ref: '#/channels/pings'
+    messages:
+      - $ref: '#/channels/pings/messages/ping'
+
+  performJob:
+    action: receive
+    summary: Claim and perform one deferred job.
+    channel:
+      $ref: '#/channels/jobs'
+    messages:
+      - $ref: '#/channels/jobs/messages/job'

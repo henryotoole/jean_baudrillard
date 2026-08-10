@@ -1,13 +1,20 @@
 """Entrypoint for the `worker` core service of the `api` codebase.
 
-Owns the three things a loop-owning core service owes and an adapter must
-not: the poll loop itself, the signal handling that stops it, and the
-liveness surface that proves it is still turning.
+Owns four things a loop-owning core service owes and an adapter must not: the
+poll loop itself, the signal handling that stops it, the **tick file** that the
+container probe stats from another process, and the runtime host for this core
+service's `rpc` surface.
 
-The thresholds below are **doctrine-fixed** (contracts.md § Health Checks)
-— the loop must tick at least every 10 s even when idle, `/health` must
-503 once the tick is 30 s stale. There is deliberately no per-project knob
-and no env var; do not add one.
+**The two numbers, and which file owns each.** The loop's CADENCE lives here —
+at least one tick every 10 s even when idle, which `_POLL_INTERVAL_SECONDS`
+satisfies with room to spare — because the loop is the only thing that can
+honour it. The staleness THRESHOLD (30 s) lives in `health.sh`, because the
+probe is the only thing that judges it. Both are doctrine-fixed with no
+per-project knob and no env var; do not add one. **They only mean something as
+a pair:** 30 is three times 10, so a healthy loop misses two consecutive ticks
+before it is called stale. A reader who finds one number without the other
+cannot see that, which is why each file names the other half
+(healthchecks.md § What the probe must actually check).
 """
 
 from __future__ import annotations
@@ -15,12 +22,12 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-import time
+from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
-from root import VERSION, build_job_runner, build_processor
+from root import VERSION, build_job_runner, build_job_runner_http, build_processor
 
 
 logging.basicConfig(
@@ -29,57 +36,42 @@ logging.basicConfig(
 )
 logger = logging.getLogger("entrypoints.worker")
 
-# Doctrine-fixed. 30 is three times 10, so a healthy loop misses two
-# consecutive ticks before it is called stale — enough slack for scheduling
-# jitter and one slow iteration without flapping.
-_STALENESS_SECONDS = 30.0
-
 # The receive must be *bounded* so the tick keeps arriving while idle. One
-# second is comfortably inside the 10 s ceiling.
+# second is comfortably inside the 10 s ceiling; the 30 s threshold this has to
+# stay inside lives in health.sh.
 _POLL_INTERVAL_SECONDS = 1.0
 
-# Health port. Must match infra.yml's `port: 8081` on this core service —
-# nothing injects it, so the two are coupled by convention, as in web.py.
-_HEALTH_PORT = 8081
+# `api.worker`'s `rpc` surface. Must match infra.yml's `port: 8081` on this core
+# service — nothing injects it, so the two are coupled by convention, as in
+# web.py.
+_RPC_PORT = 8081
+
+# The tick is a FILE, not an in-memory float: the probe is `./health.sh worker`,
+# which docker and ECS run as a SEPARATE PROCESS, so the tick has to live
+# somewhere that process can stat (healthchecks.md § What the probe must
+# actually check). `/tmp` is tmpfs-backed wherever the core service declares
+# `disk:`, so this is a memory write rather than a disk write once a second.
+_TICK_PATH = Path("/tmp/worker.tick")
 
 
 class _Tick:
-    """The loop's liveness signal: when it last completed an iteration."""
+    """The loop's liveness signal, observable from another process."""
 
-    def __init__(self) -> None:
-        self.at = time.monotonic()
+    def __init__(self, path: Path) -> None:
+        self._path = path
 
     def bump(self) -> None:
-        # WHY: no lock. This is one `STORE_ATTR` of a float, written by the
-        # loop thread and read by the health thread; the GIL makes it
-        # atomic, so a reader can never observe a torn value. A lock here
-        # would add contention and buy nothing — do not add one.
-        self.at = time.monotonic()
+        # `touch` both creates the file and re-stamps its mtime, which is the
+        # whole of the signal — the CONTENT is never read.
+        self._path.touch()
 
 
-_tick = _Tick()
+# WHY the file is NOT created here. The in-memory version seeded itself with
+# `time.monotonic()` at import, which pre-declared the loop alive before it had
+# run once. `health.sh`'s absent-file arm is what catches a loop that never
+# started, and pre-creating the file would disarm it.
+_tick = _Tick(_TICK_PATH)
 _stop = threading.Event()
-
-
-def _build_health_app() -> FastAPI:
-    app = FastAPI(title="api-worker", version=VERSION)
-
-    @app.get("/health")
-    def health() -> dict[str, str]:
-        # WHY: liveness is sourced from the LOOP's tick, never from this
-        # thread's own aliveness. A separate liveness thread will cheerfully
-        # answer 200 while nothing is being processed, and that is exactly
-        # what the doctrine forbids — a wedged consumer must fail its own
-        # probe (contracts.md § Self health).
-        age = time.monotonic() - _tick.at
-        if age > _STALENESS_SECONDS:
-            raise HTTPException(
-                503, f"processor loop tick is {age:.1f}s stale "
-                     f"(threshold {_STALENESS_SECONDS:.0f}s)",
-            )
-        return {"version": VERSION}
-
-    return app
 
 
 def _on_signal(signum: int, _frame: object) -> None:
@@ -91,24 +83,37 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
 
-    # WHY: the health server runs in a daemon thread and the poll loop in the
-    # MAIN thread, not the other way round. Signals are only delivered to the
-    # main thread, and it is the loop that has to hear SIGTERM to shut down
-    # cleanly; a daemon thread also needs no join on the way out.
+    # WHY this thread exists, because the shape is easy to misread: it is NOT a
+    # health server. Liveness is the tick file and does not involve this thread
+    # at all — kill this server and `./health.sh worker` still tells the truth
+    # about the loop. The thread is here because `api.web` CALLS this boundary
+    # (POST /drain on the `rpc` surface), which is an application call, not a
+    # probe. `api.clock`, which declares no surface, runs no server at all.
+    #
+    # WHY the loop is in the MAIN thread and the server in the daemon thread,
+    # not the other way round: signals are only delivered to the main thread,
+    # and it is the loop that has to hear SIGTERM to shut down cleanly; a
+    # daemon thread also needs no join on the way out.
+    #
+    # The app is built HERE and not in the composition root because the runtime
+    # host is not an adapter (internal_dependency_rules.md § Entrypoints,
+    # rule 2). The root constructs the router; this file serves it.
+    runner_http = build_job_runner_http()
+    rpc_app = FastAPI(title="api-worker-rpc", version=VERSION)
+    rpc_app.include_router(runner_http.router)
     server = uvicorn.Server(
         uvicorn.Config(
-            _build_health_app(), host="0.0.0.0", port=_HEALTH_PORT,
-            log_level="warning",
+            rpc_app, host="0.0.0.0", port=_RPC_PORT, log_level="warning",
         ),
     )
-    threading.Thread(target=server.run, name="health", daemon=True).start()
+    threading.Thread(target=server.run, name="rpc", daemon=True).start()
 
     cli = build_processor()
     job_runner = build_job_runner()
     logger.info(
-        "processor: starting loop (interval=%.2fs, health on :%d); "
+        "processor: starting loop (interval=%.2fs, tick=%s, rpc on :%d); "
         "each pass processes pings and drains the deferred-job queue",
-        _POLL_INTERVAL_SECONDS, _HEALTH_PORT,
+        _POLL_INTERVAL_SECONDS, _TICK_PATH, _RPC_PORT,
     )
     while not _stop.is_set():
         try:
@@ -125,8 +130,8 @@ def main() -> None:
             #
             # WHY: the tick is NOT bumped on this path. A loop that fails
             # every single iteration is not alive in any useful sense, and
-            # bumping here would report 200 forever while no work moves —
-            # defeating the entire point of the probe.
+            # bumping here would keep the probe green forever while no work
+            # moves — defeating the entire point of the probe.
             logger.exception("processor: iteration failed")
         else:
             _tick.bump()

@@ -1,38 +1,45 @@
-# OpenAPI contract for the `api.web` core service.
+# The `rest` surface of the `api.web` core service.
 #
-# The path is keyed on the core service — <codebase>.<service>.<format>.yml — not
-# on the codebase: one codebase may run two HTTP boundaries and both
-# deserve their own contract (contracts.md).
+# The path is <codebase>.<service>.<surface>.<format>.<ext> — keyed on the
+# SURFACE, not just the core service: one core service may declare several
+# boundaries with unrelated consumers and each gets its own document. This file
+# is `api.web`'s single surface, `surfaces: {rest: {api_styles: [rest]}}` in
+# infra.yml, and the format follows from that style rather than from the core
+# service's `role` (cicl.md § Surfaces).
 #
-# docex check's contract gate verifies that paths declared here exist in
-# the running core service (provider-side contract testing).
+# docex check's contract gate verifies that paths declared here exist in the
+# running core service (provider-side contract testing), and its orphan arm
+# fails on any file in this folder that parses as a contract but matches no
+# declared surface — so nothing may be left behind here.
 #
-# Health-endpoint rules (doctrine/infrastructure/contracts.md § Health Checks):
-#   - GET /health is mandatory for every long-running core service.
-#   - GET /health/<codebase>/<service> is mandatory on every `web`-network core service
-#     type, one per CORE `uses` target that is not itself on the `web`
-#     network. Sourced from the core-targeted half of `uses`: a backing
-#     target has no `<codebase>/<service>` health form to proxy.
+# WHY `GET /health` BELONGS HERE, and only here. It is not because every
+# long-running core service owes a /health route — none of them do; a non-`web`
+# core service's liveness is its container probe, `./health.sh <service>`.
+# `api.web` is on the `web` network AND declares an `openapi` surface, which is
+# the one case healthchecks.md § web services also serve GET /health describes,
+# and it is what docex check's contract_health_path gate asserts. The route
+# exists for the reverse proxy (`health_check_path: /health`), not for a
+# reader of this contract.
 #
-# So the three /health sub-paths below are NOT alike:
-#   - /health/api/worker IS doctrine-required. `api.web` declares
-#     `api.worker` in `uses:`, and the worker sits on `[internal]` alone,
-#     so nothing outside can reach its own /health.
-#   - /health/probe and /health/events are NOT required (probe and events
-#     are backing services, not core services). They're declared here
-#     because the advance-end smoke walk uses them to assert that Service
-#     Connect + EFS-backed ClickHouse + sidecar are all wired up correctly.
+# WHY THE /diagnostics/* PATHS ARE NOT A HEALTH FAN-OUT. They are `api.web`
+# probing the reachability of two BACKING services — `probe` (sidecar/nginx)
+# and `events` (analytics_db/clickhouse) — and they report on nothing that is a
+# core service. There is no fan-out anywhere in this project and none is
+# possible: healthchecks.md § What this doctrine does not do forbids one
+# service reporting on another's liveness. These two routes used to sit under
+# /health/* beside a fan-out endpoint that has been deleted, and they were
+# moved out precisely so that no future reader mistakes them for its remnant.
 
-openapi: "3.0.3"
+openapi: "3.2.0"
 info:
   title: docex_smoke_fixed.api.web
   version: "0.0.1"
   description: |
     Test-project web core service for the doctrine smoke test. POST a
     payload to /pings, the `api.worker` core service picks it up via
-    postgres. /health/{probe,events} exercise the project-local sidecar +
-    analytics_db backings; /health/api/worker is the doctrine-required
-    liveness fan-out onto the worker.
+    postgres. /diagnostics/{probe,events} exercise the project-local sidecar
+    + analytics_db backings. POST /jobs/drain asks `api.worker` to drain the
+    deferred-job queue now, across that core service's `rpc` surface.
 servers:
   - url: "https://docex-smoke-fixed.luxrnd.tech"
     description: prod (bare-project → prod's bare env → domain_default_service)
@@ -61,10 +68,10 @@ paths:
                     type: string
                     example: "0.0.1"
 
-  /health/probe:
+  /diagnostics/probe:
     get:
-      summary: Probe sidecar reachability over the internal network.
-      operationId: healthProbe
+      summary: Backing-service reachability — the nginx sidecar over the internal network.
+      operationId: diagnosticsProbe
       responses:
         "200":
           description: probe reachable
@@ -82,32 +89,10 @@ paths:
         "503":
           description: probe unreachable
 
-  # Doctrine-required health fan-out onto the `api.worker` core service.
-  # One hop only: this proxies the worker's own /health and never its
-  # fan-out endpoints, because the `uses` graph may legally cycle.
-  /health/api/worker:
+  /diagnostics/events:
     get:
-      summary: Liveness of the `api.worker` core service (uses fan-out).
-      operationId: healthApiWorker
-      responses:
-        "200":
-          description: worker's poll loop is live
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [version]
-                properties:
-                  version:
-                    type: string
-                    example: "0.0.1"
-        "503":
-          description: worker unreachable, or its loop tick is stale
-
-  /health/events:
-    get:
-      summary: ClickHouse (analytics_db backing) TCP reachability.
-      operationId: healthEvents
+      summary: Backing-service reachability — ClickHouse (analytics_db) on its native port.
+      operationId: diagnosticsEvents
       responses:
         "200":
           description: events backing reachable
@@ -213,3 +198,43 @@ paths:
                     format: uuid
         "503":
           description: the queue could not be written; nothing was deferred
+
+  # The one route on this surface that crosses to another core service. It is
+  # 200 rather than 202 because, unlike the two deferral routes above, the work
+  # HAS happened by the time this replies — the worker's own reply travels back
+  # out through this edge carrying the count.
+  /jobs/drain:
+    post:
+      summary: Ask `api.worker` to drain the deferred-job queue now.
+      description: |
+        Calls `api.worker`'s `rpc` surface (`POST /drain`, described by
+        api.worker.rpc.asyncapi.yml) and returns the number of jobs that core
+        service performed.
+
+        WHY this crosses a process boundary instead of draining here: the
+        perform side of the queue belongs to `api.worker`. An edge that
+        drained the queue in its own process, with its own sizing and its own
+        request-scoped lifetime, would be performing rather than deferring —
+        the same violation clock.md § The clock defers; it does not work
+        forbids of `api.clock`. This edge asks; the worker performs.
+
+        `performed: 0` IS A SUCCESS. The worker's own poll loop drains on its
+        interval, so finding the queue already empty is the ordinary outcome
+        of asking at the wrong moment. A caller that treats 0 as a failure is
+        asserting on scheduling, which this route does not promise.
+      operationId: drainJobs
+      responses:
+        "200":
+          description: the worker drained the queue and reported the count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [performed]
+                properties:
+                  performed:
+                    type: integer
+                    minimum: 0
+                    example: 3
+        "503":
+          description: the worker could not be reached; nothing was drained

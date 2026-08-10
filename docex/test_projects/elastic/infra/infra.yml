@@ -50,20 +50,33 @@ codebases:
         command: ["python", "/service/dist/entrypoints/web.py"]
         port: 8080
         networks: [web, internal]
-        # Declared so the ALB target group (on elastic) and the container
-        # healthcheck (on fixed) point at /health rather than /. Routes
-        # via the role's `health_check_path` field's `target: target_group`
-        # translation on elastic.
+        # Rule 33 REQUIRES this field on a `web`-network core service: it is
+        # what the reverse proxy reads to know where to probe. Declared so the
+        # ALB target group (on elastic) and the container healthcheck (on
+        # fixed) point at /health rather than /. Routes via the role's
+        # `health_check_path` field's `target: target_group` translation on
+        # elastic. It is not a statement about this core service's own
+        # liveness — that is `./health.sh web` — and rule 33's negative arm
+        # forbids the field entirely on the two core services below.
         health_check_path: /health
         # ONE relation: bare entries name backing services, the dotted entry
-        # names a core service. `api.web` proxies the worker's liveness at
-        # /health/api/worker and therefore speaks to that boundary. One
-        # direction only — this worker polls a table and never calls the web
-        # edge, so the reverse edge would be a false declaration.
-        # (cicl.md § Uses Relationships.)
+        # names a core service. `api.web` speaks to `api.worker`'s `rpc`
+        # surface (POST /drain) for an application reason: the perform side
+        # of the deferred-job queue belongs to the worker, so this edge asks
+        # rather than performs. One direction only — that worker polls a
+        # table and never calls the web edge, so the reverse edge would be a
+        # false declaration. (cicl.md § Uses Relationships.)
         uses: [appdb, probe, events, api.worker]
+        # ONE surface, one contract file (api.web.rest.openapi.yml).
+        # Declaring a surface is what makes a core service a PROVIDER — one
+        # that declares none has no boundary to be used across and cannot be
+        # a `uses` target at all (cicl.md § Surfaces).
+        surfaces:
+          rest:
+            api_styles: [rest]
         env:
-          # Core-service-scoped: only the web edge exposes /health/{probe,events},
+          # Core-service-scoped: only the web edge exposes
+          # /diagnostics/{probe,events},
           # so only it declares these refs — which is what keeps `probe` and
           # `events` out of the worker's `uses`. Per rule 7 a
           # CODEBASE-level ref would oblige EVERY core service to declare the
@@ -77,8 +90,13 @@ codebases:
           CLICKHOUSE_HOST: ${backing_services.events.host}
           CLICKHOUSE_PORT: ${backing_services.events.port}
           # Five-segment core magic refs — the worker's Service Connect
-          # address, used by the /health/api/worker fan-out. Holding these
-          # refs is what obliges the `api.worker` entry in `uses:` above.
+          # address. They address the worker's `rpc` surface, POST /drain,
+          # and nothing else.
+          #
+          # Holding them obliges TWO declarations: the `api.worker` entry in
+          # `uses:` above (rule 7 — a ref implies an edge), and the worker's
+          # own `port:` below, because holding an address is what makes it
+          # DIRECTLY ADDRESSED under rule 32's positive arm.
           WORKER_HOST: ${codebases.api.core_services.worker.host}
           WORKER_PORT: ${codebases.api.core_services.worker.port}
         resources:
@@ -92,15 +110,42 @@ codebases:
       worker:
         role: worker
         command: ["python", "/service/dist/entrypoints/worker.py"]
-        # A port purely for the liveness probe: a worker is never an ingress
-        # target and gets no ALB exposure, but a core `uses` target must be
-        # probeable — and on elastic the port is exactly what makes it
+        # The address at which `api.web` reaches this core service's `rpc`
+        # surface (POST /drain). That is rule 32's positive arm: a directly
+        # addressed target must declare the port it is addressed on. A worker
+        # is still never an ingress target and gets no ALB exposure — and on
+        # elastic this port is exactly what makes it
         # Service-Connect-discoverable, which is what lets the sibling `web`
-        # core service reach its /health one hop away.
+        # core service reach that surface one hop away, and what registers
+        # the name `release`'s consumer reconcile compares against.
+        #
+        # NOTE what is absent: no `health_check_path`. Rule 33 confines that
+        # field to `web`-network core services. This core service's liveness
+        # is its container probe, `./health.sh worker`, which stats the poll
+        # loop's tick file.
         port: 8081
-        health_check_path: /health
         networks: [internal]
         uses: [appdb]
+        # TWO surfaces, ONE format — legal, and what makes them two rather
+        # than one is the CONSUMERS. `api.web` calls the rpc boundary
+        # synchronously and waits for a count; the queues are produced onto
+        # by `api.web` and `api.clock` and consumed here, asynchronously and
+        # with no reply. cicl.md § Surfaces permits one surface per unrelated
+        # consumer set, and collapsing these would describe two unrelated
+        # boundaries in one document.
+        #
+        # Both queues (`pings`, `jobs`) live in the ONE `events` document, per
+        # the same section's split table: "a worker consuming two different
+        # queues — one core service, one surface; one AsyncAPI document
+        # carries both channels."
+        #
+        # Two files: api.worker.rpc.asyncapi.yml and
+        # api.worker.events.asyncapi.yml.
+        surfaces:
+          rpc:
+            api_styles: [rpc]
+          events:
+            api_styles: [events]
         # Honoured in `prod` only — clamped to 1 in dev/test/stage. Puts a
         # real `desired_count = 2` through `tofu validate` in prod.
         replicas: 2
@@ -117,21 +162,30 @@ codebases:
       clock:
         role: clock
         command: ["python", "/service/dist/entrypoints/clock.py"]
-        # `port` + `health_check_path` with NOTHING routed to it. A clock
-        # takes no ingress (rule 27 forbids `web` in its networks) and
-        # nothing `uses` it, so no health fan-out reaches it either — its
-        # /health is enforced by the CONTAINER HEALTHCHECK alone (ECS
-        # container health here, docker `healthcheck:` on fixed). That is
-        # real enforcement — a wedged clock gets its task killed and
-        # replaced — but it is local: staging tests cannot reach it.
-        # (clock.md § Caveats.)
-        port: 8082
-        health_check_path: /health
+        # NO `port`, NO `health_check_path`, and NO `surfaces`. A clock takes
+        # no ingress (rule 27 forbids `web` in its networks), nothing `uses`
+        # it, and nothing addresses it — so there is nothing to listen on and
+        # no boundary to describe. Its entrypoint runs no HTTP server at all.
+        #
+        # Its liveness is `./health.sh clock`, which stats the cron loop's
+        # tick file, and which the ORCHESTRATOR runs and acts on (ECS
+        # container health here, docker `healthcheck:` on fixed). That is real
+        # enforcement — a wedged clock gets its task killed and replaced — but
+        # it is local: staging tests cannot reach it. (clock.md § Caveats.)
         networks: [internal]
         # `api.worker` holds NO magic ref. The clock reaches the worker
         # through the `jobs` table, not the mesh, so there is no host to
         # reference; the edge exists to declare the interface. A ref implies
         # an edge, never the reverse (cicl.md § Three clarifications).
+        #
+        # THE ASYMMETRY IS THE POINT, so it is stated rather than left to be
+        # inferred: `api.worker` has TWO consumers reaching it TWO DIFFERENT
+        # WAYS. `api.web` holds five-segment magic refs and calls the `rpc`
+        # surface directly; this clock holds no ref at all and reaches the
+        # same target through the `jobs` table. That is exactly the case rule
+        # 32 is EDGE-SCOPED for — one target is "directly addressed" on one
+        # edge and not on the other, and a per-target rule could not express
+        # it.
         uses: [appdb, api.worker]
         # Bare 5-field UTC cron, passed through to the clock verbatim — no
         # dialect translation anywhere, because the clock is project code

@@ -2,31 +2,31 @@
 # (infrastructure.md § Core Service Containers).
 #
 # ONE image, THREE core services: `api.web` (uvicorn edge), `api.worker`
-# (poll loop + liveness server) and `api.clock` (cron loop + liveness
-# server). All three start this same artifact with a different `command`,
-# so every dependency any of them needs is installed here.
+# (poll loop + an `rpc` surface) and `api.clock` (a cron loop, and nothing
+# else — it listens on nothing). All three start this same artifact with a
+# different `command`, so every dependency any of them needs is installed
+# here.
 
 FROM python:3.12-slim AS base
 WORKDIR /service
-# curl: needed by the doctrine-emitted docker healthcheck (the
-# `health_check_path: /health` field translation in transfer tables
-# `web/container` and `worker/container` emits
-# `CMD curl -f http://localhost:${port}${path}`).
-# python:3.12-slim does not include curl; without it the container is
-# perpetually marked unhealthy, and traefik 3.x's docker provider
-# filters out unhealthy containers from its router config — so the
-# service is unreachable. Doctrine improvement TODO: switch the
-# emit to a tool-free probe (traefik HTTP healthcheck via service
-# labels) so the container's package list doesn't matter.
+# curl is here for exactly ONE line: `health.sh`'s `web` arm, which curls
+# `http://localhost:8080/health` to check that the request cycle is serving.
+# An image needs whatever its OWN probe needs and nothing more
+# (healthchecks.md § The probe) — the emitted container probe is
+# `["CMD", "./health.sh", "<service>"]` on both foundations, so what the
+# probe depends on is this project's choice of shim implementation rather
+# than anything the compiler dictates. The `worker` and `clock` arms stat a
+# tick file and need no network tool at all.
 #
-# ALL THREE core services need it now: `api.worker` and `api.clock` also
-# declare `health_check_path`, and the `docex check` gate keys off that
-# field with no network filter, so it requires curl for them too. A clock
-# is not exempt from anything (clock.md § What a clock core service is).
+# Still true and still the reason this line exists: python:3.12-slim does
+# not include curl.
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
-# fastapi + uvicorn are not web-only: `api.worker` and `api.clock` serve
-# their liveness ticks over the same stack (entrypoints/{worker,clock}.py).
+# fastapi + uvicorn serve SURFACES, not liveness: `api.web`'s `rest` surface
+# and `api.worker`'s `rpc` surface (entrypoints/{web,worker}.py). They are no
+# longer a liveness dependency anywhere — liveness is `health.sh` — and
+# `api.clock` needs neither, receiving them only because one image carries
+# one dependency set.
 #
 # pyyaml + croniter are the clock's: it parses the compiler-delivered
 # `DOCEX_SCHEDULES_YAML` literal and evaluates plain 5-field UTC cron
@@ -62,14 +62,14 @@ RUN chmod +x /service/build.sh && /service/build.sh
 # bind-mount in at runtime.
 # ----------------------------------------------------------------------
 FROM base AS dev
-COPY build.sh migrate.sh test.sh /service/
+COPY build.sh migrate.sh test.sh health.sh /service/
 COPY src/ /service/src/
 COPY tests/ /service/tests/
 COPY migrations/ /service/migrations/
 RUN chmod +x /service/*.sh && /service/build.sh
-# 8080 for api.web, 8081 for api.worker's liveness server, 8082 for
-# api.clock's.
-EXPOSE 8080 8081 8082
+# 8080 for api.web's `rest` surface, 8081 for api.worker's `rpc` surface.
+# api.clock listens on nothing — it declares no port and no surface.
+EXPOSE 8080 8081
 ENV PYTHONPATH=/service/dist
 # WHY: this CMD is never what runs. `command` is required on every core
 # service and supersedes the Dockerfile CMD (cicl.md § Core Services), which
@@ -83,10 +83,15 @@ CMD ["python", "/service/dist/entrypoints/web.py"]
 # ----------------------------------------------------------------------
 FROM base AS prod
 COPY --from=build /service/dist /service/dist
-COPY migrate.sh /service/migrate.sh
+# health.sh is load-bearing HERE above all: `prod` is the image that `stage`
+# and `prod` actually run, and the container probe on both foundations is
+# `./health.sh <service>`. Without this COPY the probe is missing from the
+# only image whose liveness anybody acts on. (`test` derives FROM prod and
+# inherits it.)
+COPY migrate.sh health.sh /service/
 COPY migrations/ /service/migrations/
-RUN chmod +x /service/migrate.sh
-EXPOSE 8080 8081 8082
+RUN chmod +x /service/migrate.sh /service/health.sh
+EXPOSE 8080 8081
 ENV PYTHONPATH=/service/dist
 # See the WHY on the dev stage: overridden by each core service's `command`.
 CMD ["python", "/service/dist/entrypoints/web.py"]
