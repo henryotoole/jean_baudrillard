@@ -398,6 +398,40 @@ reports nothing.
 The trigger eval is the load-bearing verifier, and it is run by the mod owner rather than the
 implementor — interpreting a precision trade is a design call, not an execution step.
 
+### The full-suite trigger figure was deliberately NOT taken — it is outstanding
+
+Stated plainly because a measurement documented as unrun is fine and one quietly skipped is
+another instance of this advance's defect class.
+
+**What was measured** (corrected harness, focused runs, all valid):
+
+| Query | old description | new description |
+| ----- | --------------- | --------------- |
+| `infra-compile` surfaces-authoring | 5/5 → **`contracts`** (poached) | **5/5 → `infra-compile`** |
+| `contracts` health diagnostic | **4/5 → `contracts`** (passes) | 5/5 |
+| `preinfra-setup` hyperdx (control) | — | 3/3 |
+| `telemetry-design` otel sidecar (control) | — | 3/3 |
+
+These carry the two claims this mod acted on, which is why they are sufficient to close it.
+
+**What was not measured:** the 73-query full suite, whose value is **per-skill precision across
+all nineteen skills** — the first honest precision figure the project would have. The one attempt
+was discarded as saturation-invalid (defect 3 above).
+
+**Why it was not retaken:** the machine was needed for the two-foundation smoke walk, which is the
+heavier gate and the one that decides whether the cut can happen. Running both starves both —
+measured directly here at load average 31. With defect 3 fixed a starved suite would now fail
+*honestly* rather than fabricate findings, so the risk was a wasted two hours rather than a corrupt
+gate; wasting them was still the wrong trade against the walk.
+
+**For whoever takes it:** run `run_suite.py --runs-per-query 3` on an **idle** machine with
+`--num-workers 2-3` and `--timeout 240`, and treat any non-zero `timed_out_runs` in the report as
+"re-run", per the warning the runner now prints. Two things are worth watching specifically: the
+`uses:` query, which is the condition on which naming that field in `infra-compile`'s description
+was approved, and `contracts`' precision across its nine queries — the corrected instrument showed
+`contracts` poaching a sibling, so it is the skill most likely to be carrying further undetected
+precision debt.
+
 The trigger eval is the load-bearing verifier. Reported per-skill recall **and** per-skill
 precision, measured by this mod's own run; the gate run's artifacts live in another agent's
 scratchpad and are not inherited.
