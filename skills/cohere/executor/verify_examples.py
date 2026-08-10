@@ -105,6 +105,10 @@ codebases:
         command: ["python", "/service/dist/root.py"]
         networks: [web, internal]
         port: 8080
+        health_check_path: /health
+        surfaces:
+          rest:
+            api_styles: [rest]
         uses: [appdb]
         resources:
           cpu: 1.0
@@ -113,7 +117,9 @@ codebases:
         role: worker
         command: ["python", "/service/dist/worker.py"]
         networks: [internal]
-        port: 8081
+        surfaces:
+          events:
+            api_styles: [events]
         resources:
           cpu: 1.0
           memory: 2GB

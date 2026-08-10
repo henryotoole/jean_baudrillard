@@ -436,17 +436,33 @@ codebases:
     core_services:
       web:
         role: web
+        networks: [web, internal]
+        port: 8080
+        health_check_path: /health
         surfaces:
           rest:
             api_styles: [rest, stream, webhook]   # all openapi — one contract
-          graphql:
-            api_styles: [graphql]                 # different format — its own surface
+          events:
+            api_styles: [events]                  # different format — its own surface
       mcp:
         role: web
+        networks: [web, internal]
+        port: 8081
+        health_check_path: /health
         surfaces:
           mcp:
             api_styles: [rpc]                     # asyncapi
 ```
+
+Both declare `networks` and `health_check_path` because both are publicly routed,
+and [rule 33](#validation-rules) ties that field to `web`-network membership rather
+than to the `web` *role* — routing is network-driven.
+
+The second surface above is `events` rather than `graphql` for a mechanical
+reason worth stating: a `graphql` surface **compiles to an error** today, so an
+example using one would be a worked example that does not work. `events` makes the
+same point — one process, two boundaries, two formats, therefore two surfaces —
+against a format the compiler can actually carry.
 
 Each surface compiles to exactly one contract file, named for the surface that produced it. See [contracts.md](./contracts.md) for the path format.
 

@@ -9,5 +9,5 @@ required.
 Private keys (`stage`, `prod`) are gitignored. Public keys (`*.pub`) may
 be committed.
 
-For setup steps, see `../../../PRE_CUT_CHECKLIST.md` § "Fixed deploy
-credentials".
+For setup steps, see `../../../PRE_CUT_CHECKLIST.md`
+§ "A.7 Fixed deploy credentials and deploy-target user".

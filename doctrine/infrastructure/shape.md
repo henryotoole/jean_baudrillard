@@ -119,6 +119,10 @@ codebases:
         command: ["python", "-m", "entrypoints.http"]
         port: 8080
         networks: [web, internal]
+        health_check_path: /health
+        surfaces:
+          rest:
+            api_styles: [rest]
         uses: [appdb]
         resources:
           cpu: 1.0

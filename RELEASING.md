@@ -7,7 +7,7 @@ version to the next as a single, coherent unit.
 It generalizes what used to be `docex`-only. The cut procedure originally lived
 in [`docex/plans/core/docex_process.md`](./docex/plans/core/docex_process.md)
 § *Cutting a version*; that section now points here, and `docex_process.md`
-keeps only the `docex`-**development** specifics (mod cycles, the five-artifact
+keeps only the `docex`-**development** specifics (mod cycles, the six-artifact
 alignment, expensive tests). A release is the event that bundles a development
 campaign into a versioned snapshot of the entire repo.
 
@@ -70,9 +70,10 @@ gate the cut depends on which of the three strata the campaign touched:
 
 | If the release changed… | Gate before cutting |
 | ----------------------- | ------------------- |
-| `docex` behavior (code/tables) | The five-artifact alignment check + `pytest` (incl. `-m integration`). For **MINOR/MAJOR**, the two-foundation **test-project smoke walks** per [`docex/test_projects/PRE_CUT_CHECKLIST.md`](./docex/test_projects/PRE_CUT_CHECKLIST.md). PATCH skips the smoke walk. |
+| `docex` behavior (code/tables) | The six-artifact alignment check + `pytest` (incl. `-m integration`). For **MINOR/MAJOR**, the two-foundation **test-project smoke walks** per [`docex/test_projects/PRE_CUT_CHECKLIST.md`](./docex/test_projects/PRE_CUT_CHECKLIST.md). PATCH skips the smoke walk. |
 | Skills (`skills/`) | `skill-iteration` trigger eval (do descriptions still fire correctly, suite-level) + outcome eval for materially-changed skills. |
-| Doctrine prose (`doctrine/`) | `cohere` static audit (dangling links, skill-pointer resolution, resident discipline, contradictions). |
+| Doctrine prose (`doctrine/`) | `cohere` static audit (dangling links, skill-pointer resolution, resident discipline, contradictions). **Plus `skills/cohere/executor/verify_examples.py` green** — a doctrine rule change can invalidate the doctrine's own worked `infra.yml` examples, and no other gate can see a fence that fails to compile. Advance 006 left seven of them invalid for the length of an advance because the standing check was `linkcheck`, which reads links and not YAML. |
+| `cohere`'s executor tooling (`skills/cohere/executor/`) | Its own colocated tests, plus a green run of each tool at its default scope. This row exists because a change to `linkcheck.py` or `verify_examples.py` fires **neither** of the two rows above — it is not `docex` behavior and it is not doctrine prose — so before it was written, the verifiers were the only thing in the repo with no gate of their own. |
 
 A release that only adds skills and top-level docs (no `docex` behavior change,
 no doctrine-rule change) is a MINOR and skips the smoke walk.
