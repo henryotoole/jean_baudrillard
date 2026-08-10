@@ -22,9 +22,8 @@ infra/contracts/
 
 ## Standards
 
-Contracts take standard formats defined by the `doctrine` on the basis of the `api_styles` chosen for the contract's surface. The full table is below:
+Contracts take standard formats defined by the `doctrine` on the basis of the `api_styles` chosen for the contract's surface:
 
-The doctrine currently provides the following standard contract formats:
 | Contract Format | Filepath Name | Ext | Specification |
 | --------------- | ------------- | --- | ------------------------ |
 | OpenAPI | `openapi` | `yml` | OpenAPI 3.2 or later. |

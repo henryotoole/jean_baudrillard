@@ -43,7 +43,7 @@ Keep in mind that a codebase can have multiple core services and that a core ser
 
 A codebase declaring two core services (each declaring one surface) therefore has two contract files but one test suite, one `test.sh`, and one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`.
 
-A core service declaring two surfaces is the same story from the other direction: `api.web` declaring `rest` and `graphql` has two contract files, both verified in that one run. The count of contracts tracks surfaces; the count of test suites tracks codebases.
+A core service declaring two surfaces is the same story from the other direction: `api.web` declaring `rest` and `events` has two contract files, both verified in that one run. The count of contracts tracks surfaces; the count of test suites tracks codebases.
 
 Good contract tests spare the developer from needing to write and maintain a bunch of complex and brittle end-to-end staging tests. Staging tests ideally test only *infrastructure* and shouldn't be burdened by concern over the application logic within a codebase.
 

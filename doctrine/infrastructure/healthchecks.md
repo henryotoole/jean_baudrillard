@@ -16,9 +16,11 @@ Three different consumers ask three different questions, and conflating them is 
 | -------- | -------- | ----------- |
 | The orchestrator (Docker, ECS) | Should this container be restarted, and should it receive traffic? | The **probe** — a command, run inside the container. |
 | `docex` | Did the release land, is every service healthy, and at what version? | The **orchestrator's** aggregated state. |
-| The reverse proxy (ALB, traefik) | Is this target fit to route to? | The probe on `fixed`; `GET /health` over the network on `elastic`. |
+| The reverse proxy | Is this target fit to route to? | `GET /health` over the network — but **only** on `elastic` with `reverse_proxy: alb`. Nowhere else: see below. |
 
-Only the third is HTTP, only on `web`-network core services, and only because a load balancer has no other way to ask. Everything else is a command, because a command is the one probe form both orchestrators accept natively.
+Only the third is HTTP, only on `web`-network core services, and only because an ALB has no other way to ask. Everything else is a command, because a command is the one probe form both orchestrators accept natively.
+
+**Nothing else routes on health, and this is worth stating because it is easy to assume otherwise.** On `fixed` the compiler emits no health-aware traefik labels, so the project traefik probes nothing and the container probe has exactly two consumers — Docker, which restarts nothing of its own accord, and `docex`. On `elastic` with `reverse_proxy: ec2_traefik_eip` or `_pip`, traefik's ECS provider filters targets on `lastStatus == RUNNING`, a **lifecycle** state: a container failing its probe stays `RUNNING` and keeps receiving traffic until the ECS scheduler replaces it. So on two of the three reverse-proxy configurations, a wedged `web` service is removed from service by the orchestrator replacing it, not by the proxy withholding traffic. See [cicl.md rule 33](./cicl.md#validation-rules).
 
 ## The probe
 
@@ -70,7 +72,7 @@ The [**exec service**](./specifics/exec_service.md) has no health check. It is a
 
 The path is declared by the core service's `health_check_path` field, which compiles to the ALB target group's health check. **That field is the declaration** — it is what the load balancer reads, and the [check step](./cicd.md#check-step) asserts it. A core service that is not on the `web` network has no load balancer in front of it, declares no `health_check_path`, and needs no HTTP surface of any kind — a queue consumer built under this doctrine listens on nothing.
 
-Where a `web`-network core service *also* declares an `openapi` [surface](./cicl.md#surfaces), `GET /health` is part of that surface and belongs in its contract, which the check step asserts as well. This does not hold universally: a core service can be on the `web` network and declare no surface at all — a frontend serving a browser is the usual case — and then there is no contract for the path to appear in. The field covers both; the contract covers only the described boundary. See [contracts.md](./contracts.md).
+Where a `web`-network core service *also* declares an `openapi` [surface](./cicl.md#surfaces), `GET /health` is part of that surface and belongs in its contract, which the check step asserts as well. This does not hold universally, and there are **two** ways out of it rather than one. A core service can be on the `web` network and declare no surface at all — a frontend serving a browser is the usual case. It can also declare surfaces of which none is `openapi`: [cicl.md](./cicl.md#surfaces)'s own worked `api.mcp` is exactly that, on `web` with a single `rpc` surface resolving to **asyncapi**, so it serves `GET /health` with no `openapi` document for the path to appear in. In both cases there is no contract obligation. The field covers both; the contract covers only the described boundary. See [contracts.md](./contracts.md).
 
 ## Version
 

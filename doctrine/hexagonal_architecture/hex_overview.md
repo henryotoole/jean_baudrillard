@@ -126,7 +126,7 @@ Only when none of these fit is util appropriate, and even then the entry should 
 
 ### Tests
 
-There are five natural test types in hexagonal architecture. The first four each target a distinct layer: domain, alogic, adapter, and module tests; the fifth (service/flow tests) exercises the whole codebase at once. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
+There are five natural test types in hexagonal architecture. The first four each target a distinct layer: domain, alogic, adapter, and module tests; the fifth (codebase-level flow tests) exercises the whole codebase at once. Each tier catches bugs the lower tiers can't, but at increasing time cost. Write as many as you need at the bottom and as few as you can get away with at the top.
 
 All the below categories of tests are [codebase tests](../infrastructure/tests.md#codebase-tests) from an infrastructure perspective.
 
