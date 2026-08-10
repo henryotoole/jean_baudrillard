@@ -158,7 +158,22 @@ by the `jean-baudrillard:corporal:mod-developer` subagent unless noted. Per
 ### Phase 3 — the seed projects
 
 Both foundations' `core/` trees are byte-identical by design (audit box B.14
-diffs them), so every source edit below is made twice, identically.
+diffs them) and are **two real trees, not symlinks** — verified, because the
+fixture tree next door *is* symlinked and a `git mv` there cost mod 126 119 tests.
+So every source edit below is made twice, identically.
+
+> **Correction, from mod 127's review.** Earlier drafts of this plan and of mods
+> 126–127 booked the seeds as "expected red until mod 129." **That is wrong in
+> mechanism.** Nothing in `tests/`, `src/`, `pyproject.toml`, or the Makefile
+> references `test_projects/` — so the seeds' staleness (missing `health.sh`,
+> three-segment contract filenames, and now stale compiled output) is **real,
+> present, and invisible to pytest**. It surfaces on the next walk and nowhere
+> earlier. Mods 129 and 130 therefore **may not use a green suite as their
+> completion signal.** Their signal is mechanical and explicit, per project:
+> `./bin/docex compile` followed by `git diff --exit-code` on `infra/output/`
+> (recompile must be a no-op), and `./bin/docex check` green. A mod that waits for
+> a red test to tell it when it is done will wait forever — which is this advance's
+> own recurring defect, arriving one level up in the plan rather than in the code.
 
 5. **Mod 129: seed projects — source, contracts, infra.** `corporal`.
    Per project: `infra.yml` gains `surfaces:` on `api.web` and `api.worker` and
