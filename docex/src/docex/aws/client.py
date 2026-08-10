@@ -2,13 +2,23 @@
 
 Same discipline as ``DockerClient`` / ``GitClient``: any module other
 than :mod:`docex.aws.boto3_client` is forbidden from importing ``boto3``.
-The Protocol covers the union of AWS operations Phase 4 needs:
+The Protocol covers **every** AWS operation docex performs, which is what makes
+the boto3 ban enforceable. Read the method list below rather than a summary — it
+is the surface, and any prose count here would be one refactor from wrong. The
+families, for orientation:
 
-  - ``caller_identity`` — STS account-ID lookup for SSM ARN derivation
-  - SSM Parameter Store push (used by ``release`` to clobber per-env secrets)
-  - S3 + DynamoDB create/inspect (used by ``bootstrap``)
-  - ECS task definition register + RunTask + wait (used by elastic migrate)
-  - EC2 / ECS lookups for release-time HCL prerequisites
+  - STS — ``caller_identity``, for SSM ARN derivation
+  - SSM Parameter Store — the elastic aggregate (``release``)
+  - S3 + DynamoDB — the tofu state backend (``docex projinfra up production``)
+  - ECR — registry auth, image existence, image counts (``containerize``,
+    ``preinfra``, the rollback image probes)
+  - ECS — task-definition register / RunTask / wait (elastic migrate), plus
+    cluster, service, deployment and task inspection (the ``stagetest``
+    pre-step and the release-time Service Connect consumer reconcile)
+  - Cloud Map — Service Connect endpoint discovery, for that same reconcile
+  - EC2 — VPC / subnet / security-group discovery for release-time HCL
+    prerequisites
+  - RDS — the deletion-protection probe that gates ``envinfra down``
 
 Methods that return exit codes are intentionally absent — boto3 raises
 exceptions on failure. The orchestrate/pipeline layer catches the boto3
@@ -412,7 +422,7 @@ class AWSClient(Protocol):
 
         The only supported way to make a running Service Connect client pick
         up endpoints registered after it started — see mod 109 and
-        `cicl.md § Depends-On Relationships`.
+        `cicl.md § Uses Relationships`.
         """
         ...
 

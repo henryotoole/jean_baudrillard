@@ -245,14 +245,14 @@ def _target_cicl_version(
     that an ``infra.yml`` which parses but declares no ``cicl_version``
     yields ``(None, None)``.
 
-    WHY a single-key read rather than ``CICLDocument`` validation: a
-    pre-v2 ``infra.yml`` fails full validation for several unrelated
-    reasons at once (no ``core_services:``, ``domain_default_service``,
-    core-service-level ``resources:`` under ``extra="forbid"``), and which
-    one pydantic reports first decides what the operator sees. "You are
-    across the v1 boundary" is the only fact that matters here, and it
-    is the one a single-key read cannot get wrong. It also has to work
-    on a file that is not a valid CICL document at all.
+    WHY a single-key read rather than ``CICLDocument`` validation: an
+    ``infra.yml`` from any superseded generation fails full validation for
+    several unrelated reasons at once, and which one pydantic reports first
+    decides what the operator sees. "You are on a generation this docex does
+    not compile" is the only fact that matters here — ``CURRENT_CICL_VERSION``
+    is the boundary, deliberately not restated as a literal — and it is the one
+    a single-key read cannot get wrong. It also has to work on a file that is
+    not a valid CICL document at all.
     """
     raw = git.show(project_root, tag_name, "infra/infra.yml")
     if raw is None:

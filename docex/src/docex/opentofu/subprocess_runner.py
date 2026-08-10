@@ -86,7 +86,8 @@ def tofu_apply(
     plan never re-prompts).
 
     ``targets`` restricts the apply to the given resource addresses
-    (each rendered as ``-target=<addr>``). Used by ``docex bootstrap``
+    (each rendered as ``-target=<addr>``). Used by
+    ``docex projinfra up production``
     to apply just the Route53 zone in phase 1, before ACM DNS
     validation is reachable.
     """
@@ -140,8 +141,8 @@ def tofu_state_list(workdir: Path) -> list[str]:
 
     Empty list both on "no state yet" and on subprocess failure — the
     caller treats either as "phase 1 needed" anyway. Used by
-    ``docex bootstrap`` to determine which phase of the project-tier
-    apply to run (zone-only vs. full).
+    ``docex projinfra up production`` to determine which phase of the
+    project-tier apply to run (zone-only vs. full).
     """
     cmd: list[str] = ["tofu", f"-chdir={workdir}", "state", "list"]
     try:
@@ -158,8 +159,8 @@ def tofu_state_list(workdir: Path) -> list[str]:
 def tofu_output(workdir: Path, name: str) -> Any:
     """``tofu output -json <name>`` in ``workdir``. Returns parsed JSON.
 
-    Used by ``docex bootstrap`` to read the project zone's NS records
-    after phase 1, so it can print them for NS delegation. Returns
+    Used by ``docex projinfra up production`` to read the project zone's
+    NS records after phase 1, so it can print them for NS delegation. Returns
     ``None`` if the output doesn't exist (e.g. the zone hasn't been
     applied yet) or the subprocess fails — the caller is expected to
     treat ``None`` as "not yet available".

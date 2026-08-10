@@ -19,7 +19,7 @@ set -uo pipefail
 
 PROJECT_NAME="docex_smoke_fixed"
 # Hyphenated form. Doctrine name-translation rules (transfer_tables.md
-# § naming) produce hyphenated image/container names from underscore
+# § Naming Policies) produce hyphenated image/container names from underscore
 # project names, and docex's own test images use the hyphenated form.
 PROJECT_NAME_HYPHEN="${PROJECT_NAME//_/-}"
 REGISTRY_HOST="registry.luxrnd.tech"

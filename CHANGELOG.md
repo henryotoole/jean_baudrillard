@@ -409,6 +409,102 @@ manifest-delete probe (mod 133).
   actively misinstructing; it is booked as an overhaul rather than folded in, because
   94% of the defects predate advance 006 and 14 trace to the directory's original
   authoring.
+- **Two documents told a reader to delete a live validation check (mod 134b).**
+  `compiler.md`'s probe section and `worker.yml`'s `fields: {}` comment both said rule
+  33's negative arm is enforced "at the table layer by rule 4, with no second rule".
+  There is a second rule and it is load-bearing: rule 4 only ever rejects a field the
+  *engine* does not declare, so it cannot see a `role: web` core service sitting off the
+  `web` network — which declares `health_check_path` legally as far as the table is
+  concerned. `validate.py`'s dedicated `rule_33_health_check_path_off_web` is the only
+  thing that catches that case, and
+  `test_rule_33_keys_on_network_membership_not_role` is that case. Rule 33 keys on
+  network membership, not on role; the table layer and the validator each cover what the
+  other structurally cannot. `worker.yml`'s cross-reference to `clock.yml`'s `schedules`
+  is corrected in the same edit rather than deleted: `schedules` is declared on no other
+  role, so there rule 4 really *is* the whole story, and the asymmetry is the reason the
+  two are not one mechanism.
+- **`compiler.md` claimed the Jinja templates do no naming translation; four HCL sites
+  re-derive the project segment and two of them get it wrong (mod 134b).**
+  `project.tf.j2` and `main.tf.j2` render `{{ project | replace('_', '-') }}` at four
+  places; two omit `| lower`. `project_dns_label` is never passed into HCL template
+  context, and nothing validates `project.yml`'s `name` to lowercase — so a project
+  named `MyProject` compiles, in one run, to `MyProject-traefik` and
+  `MyProject-<env>-<short>` against `myproject-<env>`, while everything routed through
+  `apply_policy` and the whole fixed side get `myproject`. On a case-sensitive AWS name
+  those are different resources. No test catches it because no fixture has a capital
+  letter, and the doc sentence is what would have stopped an author noticing. Corrected
+  to state the divergence; **booked, not fixed** — patching four Jinja sites leaves the
+  fifth author to re-derive it, and the real fix (normalize or validate the project name
+  where it enters `docex`) is a behavior change.
+- **A CLI verb that does not exist was named across eleven code sites (mod 134b).**
+  `docex bootstrap` became `docex projinfra up production` in mod 034. Sites naming the
+  **verb an operator types** are corrected — `errors.py`, `subprocess_runner.py` ×3,
+  `containerize.py`, `bootstrap.py`'s header, and five comments in `main.tf.j2` /
+  `project.tf.j2` that are emitted *into the operator's own HCL*, which makes them the
+  copies most likely to be read. Sites naming the internal step keep their name, since
+  `run_bootstrap` and `pipeline/bootstrap.py` are still called that; `compile.py` already
+  modelled the honest form and was left alone. Alongside it, `__main__.py` and
+  `projinfra.py` both still said elastic projinfra was "stubbed until mods 037-039".
+- **Enumerations across `docex`'s own docs and docstrings had silently lost members
+  (mod 134b)** — the defect class a vocabulary grep cannot find, because a grep for the
+  new thing cannot find a list that lacks it. `masterplan.md`'s `src/` tree omitted
+  `registry/` — the only absent
+  package and the only unlisted client seam, in a tree whose `pipeline/` line *had* been
+  updated for `orchestrator_health`. `compiler.md § Key types` had no entry for
+  `surfaces`, `Surface`, `API_STYLE_FORMATS` or `IMPLEMENTED_CONTRACT_FORMATS` — the
+  advance's headline field and its supporting types — its pipeline diagram named
+  `emit/secrets.py`, which is not on the compile path, while omitting `schedules.py`,
+  `otelcol.py` and `tags.py`, which are; `emit/tags.py` appeared in no core doc at all;
+  and `effective_replicas` was credited to "both emitters" against three readers.
+  `aws/client.py` described 34 methods as five bullets "Phase 4 needs",
+  `opentofu/__init__.py` claimed four operations against five exported, and
+  `ssh/client.py` claimed "the single SSH operation" against two. `masterplan.md`'s
+  subcommand table understated what `config`, `envinfra` and `migrate` read; its SSH
+  credential row omitted `stagetest` (which needs the deploy key **and** passwordless
+  sudo); it stopped elastic `projinfra up production` at the state backend, omitting the
+  two-phase project-tier apply; and it attributed ephemeral worktrees to `check` alone
+  when `rollback` uses the same helpers as the point of the command. The Service Connect
+  consumer reconcile — four AWS calls, one of them mutating — was missing from
+  `masterplan.md` entirely and from `release_flow.md`'s own four-sequences table, in the
+  file whose prose describes it.
+- **Six docstrings and one core doc described behavior that no longer exists (mod
+  134b).** `core_uses()` named `check.py` as a reader; `check.py` reads neither
+  accessor, and the health gate it referred to was deleted this advance.
+  `build.py` asserted the doctrine's one image requirement is `curl` backed by a
+  `check` gate — both halves withdrawn by mods 126/127, so the argument keeps its shape
+  and gains the true gate (`check` verifies the `health.sh` shim's presence).
+  `stagetest.py` read an `infra.yml` `domain` field and a two-segment staging URL; the
+  code reads `apex_domain` and builds three segments. `rollback.py`'s docstring was a
+  CICL generation behind, and its three-example parenthetical was dropped rather than
+  renumbered, because two of its examples now read as false against v3 —
+  re-deriving that list for v2 would have re-armed the staleness. `EnvNotRunning` named
+  `migrate dev/test` as a raiser and described a `compose exec` transport mod 099
+  replaced. `MigrationFailed` has no raiser at all: kept, since it is exported, but
+  annotated with the channel a migration failure **actually** uses (a propagated
+  non-zero rc; `ECSTaskFailed` on elastic), because an unraised error class misleads only
+  while a reader believes it is the channel. And `masterplan.md` said `release` migrates
+  before applying — false on a first release, where the order inverts, and on rollback,
+  which never migrates because the doctrine's migrations are forward-only.
+- **A citation that every mechanical check passes and still sends the reader to the
+  wrong document (mod 134b).** `compiler.md` cited rule 33 as `[rule 33](#validation)` —
+  resolving to `compiler.md`'s *own* `## Validation` heading rather than `cicl.md §
+  Validation Rules`, six lines after a correctly-formed citation of the same rule.
+  `linkcheck` cannot see it because the anchor *does* resolve; it is the fifth instance
+  of this class found in this advance.
+- **The smoke seeds contradicted their own code in five places (mod 134b).** Both
+  `db_schema.md`s claimed `pings.id` is a `uuid7` "for time-ordered insertion" — the
+  domain calls `uuid4()`, so the stated property was false too — and both asserted the
+  doctrine requires migrations to be "idempotent and **reversible**" where
+  `databases.md` requires **forward-only** and `docex rollback` runs no migration at all.
+  Both `processor.md`s called `FOR UPDATE SKIP LOCKED` "out of scope for this seed" while
+  the `jobs` module ships it and four sibling docs treat it as load-bearing; the module
+  boundary survives, narrowed to the module. Both `test.sh`s enumerated five of seven
+  test files. The elastic `masterplan.md` gave per-env hosts without the codebase segment
+  (`<service>.dev.…` against a compiled `api-web.dev.…`), disagreeing with the fixed
+  companion, which states the canonical form. And `test_projects.md` named both seeds'
+  domains as `doctrine-*` where every artifact uses `docex-smoke-*`. Seven dead prose
+  citations across the two seeds are repointed — none was a markdown link, which is
+  exactly why `linkcheck` never saw them.
 - **`linkcheck.py`'s anchor check failed open, silently, on every target outside
   the scanned roots (mod 132).** The guard read `if rp in anchors and ...` against
   a table built only from *scanned* files, so a link into any unscanned tree had

@@ -2,8 +2,9 @@
 
 Per [docex.md § stagetest] and [cicd.md § Staging Tests]:
 
-  1. Compute STAGING_URL from ``infra.yml``'s ``domain`` field —
-     ``https://stage.<domain>``.
+  1. Compute STAGING_URL from ``infra.yml``'s ``apex_domain`` field and the
+     project name — ``https://stage.<dns_label(project)>.<apex_domain>``, the
+     canonical bare-env host per ``cicl.md § Domain``.
   2. Read every core service's health and version **from the orchestrator** and
      fail if anything is unhealthy, on the wrong version, or unreadable — mod
      128's pre-step, ``pipeline/orchestrator_health.py``. This is

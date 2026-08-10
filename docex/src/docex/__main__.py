@@ -283,12 +283,13 @@ def _cmd_projinfra(args: list[str]) -> int:
     """``docex projinfra <direction> <side>`` — bring up or tear down
     project-tier infrastructure for a side.
 
-    Mod 036 wires the fixed branch end-to-end: ``up`` runs the project-
-    tier compose stack (four ``-web`` networks + per-project traefik);
-    ``down`` tears it down (refusing if any env-tier compose stack for
-    this project is still up). Elastic ``up production`` continues to
-    run the existing state-backend setup (formerly ``bootstrap``); the
-    rest of elastic projinfra is stubbed until mods 037-039."""
+    Fixed: ``up`` runs the project-tier compose stack (four ``-web``
+    networks + per-project traefik); ``down`` tears it down (refusing if
+    any env-tier compose stack for this project is still up). Elastic
+    ``up production`` (the verb formerly spelled ``bootstrap``) creates the
+    tofu state backend and then runs the two-phase project-tier ``tofu
+    apply`` — phase 1 the Route53 zone alone, for NS delegation, phase 2 the
+    full project tier; ``down production`` tears the project tier down."""
     parser = argparse.ArgumentParser(prog="docex projinfra", add_help=True)
     parser.add_argument("direction", choices=["up", "down"],
                         help="up | down")

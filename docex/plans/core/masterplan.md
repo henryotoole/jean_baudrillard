@@ -107,17 +107,17 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | ------- | ------------------- | ----- | ---------------- |
 | `compile` | both | `infra.yml`, transfer tables (bundled + project-local), `project.yml` | `infra/output/<env>/...` |
 | `secrets <scaffold\|status\|set\|copy> <env>` | both | `infra.yml` + transfer tables (via `secret_manifest`), `infra/secrets/<env>.env` | `infra/secrets/<env>.env` (value-blind: `set` reads a no-echo tty prompt or `--from-file`; `status` never prints a value) |
-| `config <scaffold\|status\|set\|get\|copy> <env>` | both | `infra/config/<env>.env` | `infra/config/<env>.env` (values visible: `set` takes a positional value, `get`/`status` print them) |
+| `config <scaffold\|status\|set\|get\|copy> <env>` | both | `infra.yml` + transfer tables (via `config_manifest`), `infra/config/<env>.env` | `infra/config/<env>.env` (values visible: `set` takes a positional value, `get`/`status` print them) |
 | `describe [<env>] [--format <format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
 | `why <resource>` | both | bundled doctrine excerpts | stdout |
 | `roles [--format]` | both | bundled + project-local transfer tables | stdout (role list with descriptions) |
 | `role <name> [--format]` | both | the named role's `tables/roles/<name>.yml` | stdout (engines, provided parts, env vars, fields) |
 | `preinfra <side>` | both, branches internally | `project.yml`, `infra.yml`; docker daemon, DNS; AWS (elastic + production), SSH (fixed + production), the container registry + `~/.docker/config.json` (fixed + development) | nothing — read-only probe of prerequisite infrastructure; exit code, plus a `Declined` block for questions it will not answer (see below) |
-| `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (four `-web` networks + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup — S3 bucket + DynamoDB table for tofu state |
-| `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, `infra/secrets/<env>.env`; for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
+| `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (four `-web` networks + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup (S3 bucket + DynamoDB table for tofu state), then the two-phase project-tier `tofu apply` — phase 1 the Route53 hosted zone alone so the operator can NS-delegate, phase 2 the full project tier; both idempotent |
+| `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, and the whole aggregate at bring-up — TTE ∪ secrets ∪ config (`infra/tte/`, `infra/secrets/`, `infra/config/`); for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
 | `test` | fresh `test` env | full project | host docker (ephemeral test stack), exit code |
-| `migrate <env>` | both | service images at current version, `infra/secrets/<env>.env` | target env's database(s) via `migrate.sh` |
+| `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test |
 | `merge` | both | feature branch, `project.yml` | rebases onto main, tags `v<version>`, pushes both |
 | `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per codebase, tag, push to registry |
@@ -162,7 +162,8 @@ A few commands compose others rather than duplicate logic:
 - `up` and `test` cause `docker build` to run as needed, which in turn runs each codebase's `build.sh` inside the `build` stage. Two gaps in that sentence are closed explicitly, both because **`compose up --build` does not build a `profiles:`-gated service** and `compose run` builds only when an image is *absent* (never when a present one is stale):
   - **`test`-env one-offs pass `--build`.** In `test` the image *is* the artifact under test, and for a codebase with no non-gated compose service nothing else ever refreshes its tag. `dev` deliberately does not: there the source arrives by bind mount and the `dev` stage exists precisely so `build.sh` can be re-invoked *without* an image rebuild, so `docex build` — the hot iteration loop — must not pay for one.
   - **`up dev` pre-populates each codebase's host `dist/`** before bringing the stack up, since the bind mount shadows the `dev` stage's in-image `dist/` and the container's command would otherwise have nothing to execute. Every codebase gets this; mod 116 retired the one exception, a codebase whose core services were all the old cron role and which therefore had no bind-mounted compose service at all. That shape can no longer be constructed — every core-service role is long-running — so `compose up --build` builds every codebase's *compose* tag and `docex` builds none of those itself. It does issue one build of its own here: `orchestrate/up.py:58` runs `docker build --target build` under the throwaway tag `docex-initial-build-<cb>:latest` purely to copy the artifact out into the host `dist/`. That image is never run as a service and never becomes a codebase's tag.
-- `release` invokes `migrate` against the target env before applying new application state.
+- `release` invokes `migrate` against the target env **before** applying new application state in the steady-state case, which is what preserves zero-downtime. Two exceptions: on a **first release** the order inverts to apply-then-migrate, because migrate needs the env's services and database to exist; and **`rollback` never migrates at all**, since the doctrine's migrations are forward-only. Both are set out in [`release_flow.md § The four sequences`](./release_flow.md#the-four-sequences).
+- `release` on elastic ends with a **Service Connect consumer reconcile** — the only step that reads AWS state written by its own apply, and the only one that mutates a service it did not just deploy. It runs on every elastic branch including rollback. See [`release_flow.md § Elastic-foundation flow`](./release_flow.md#elastic-foundation-flow) step 4.
 - The manual CI/CD chain — `docex merge && docex containerize && docex release stage && docex stagetest && docex release prod` — is a documented sequence, not a megacommand. Keeping it explicit preserves the doctrine's "developer can drive the pipeline by hand" property.
 
 ## What `docex` Bundles vs. What It Doesn't
@@ -198,7 +199,6 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `infra/deploy_creds/<env>` — SSH private key for fixed `release`
 - `infra/stage/{Dockerfile, stage_test.sh, tests/}` — stage tester definition and tests
 - `core/<codebase>/{Dockerfile, build.sh, test.sh, health.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
-- `CHANGELOG.md` — referenced by `merge` for version-bump validation
 - `.git/` — required by `check`, `merge`, and any command that needs commit identity
 
 **Write:**
@@ -216,10 +216,10 @@ Several commands branch internally on `foundation:` from `infra.yml`. The shim a
 
 | Command | Fixed | Elastic |
 | ------- | ----- | ------- |
-| `projinfra` | brings the project-tier compose stack (four `-web` networks + per-project traefik) up or down | `up production` creates `<project>-tofu-state` S3 bucket + `<project>-tofu-locks` DynamoDB table (idempotent) |
+| `projinfra` | brings the project-tier compose stack (four `-web` networks + per-project traefik) up or down | `up production` creates `<project>-tofu-state` S3 bucket + `<project>-tofu-locks` DynamoDB table, then applies the project tier in two phases (Route53 zone alone → full tier), pausing between them for NS delegation; all idempotent. `down production` tears the project tier down |
 | `compile` | emits `docker-compose.yml` per env, plus `playbook.yml` / `inventory.yml` / `ansible.cfg` for stage/prod | emits `main.tf` per env (stage/prod); `dev`/`test` still get compose |
 | `containerize` | pushes to project-configured `container_registry` | pushes to project's auto-provisioned ECR (or override) |
-| `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` |
+| `release` | `ansible-playbook` over SSH using `infra/deploy_creds/<env>` | SSM push → `RunTask` migration → `tofu apply` → Service Connect consumer reconcile (`forceNewDeployment` on any consumer whose deployment predates a name it `uses`) |
 | `migrate` (during release) | `compose run --rm` of the codebase's exec service on the host, in the existing internal docker network | ECS `RunTask` against the per-codebase migration task definition |
 | `stagetest` (the pre-step only) | `docker inspect` **over SSH** to the deployed host — `stage`/`prod` containers do not run on the operator's machine | ECS `list_tasks` / `describe_tasks` / `describe_task_definition` |
 
@@ -277,7 +277,7 @@ to write.
 | ---- | ------ | ------- |
 | Container registry push/pull | `~/.docker/config.json` | `containerize`, `release` (fixed pull side is the *target host*'s config, not the operator's), `preinfra development` (fixed — authenticates the manifest-delete probe; absent credential *declines*, never fails) |
 | AWS API access | `~/.aws/credentials` (or env vars / OIDC if present) | `projinfra`, `release` (elastic), `containerize` (when ECR) |
-| SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts` | `release` (fixed); `preinfra production` (fixed — probes the target host for registry creds) |
+| SSH to fixed-foundation hosts | `infra/deploy_creds/<env>` (private key) + `~/.ssh/known_hosts`; and on the target host, passwordless `sudo` for the `deploy` user | `release` (fixed); `preinfra production` (fixed — probes the target host for registry creds); `stagetest`'s pre-step (fixed — `docker inspect` per core container, which needs the sudo above because the playbook runs `become: true` and the containers are root-owned) |
 | Git identity & remote push | `~/.gitconfig`, `~/.ssh/` | `merge`, `check` (worktree creation) |
 | Git remote auth via a host credential helper (opt-in) | host `git credential fill` for `origin`, brokered per-op via a forwarding socket — see [The Shim](#the-shim) | `merge`, `check`, `rollback` when `DOCEX_GIT_CREDENTIAL_PASSTHROUGH` is set |
 | Docker daemon | `/var/run/docker.sock` | every command that touches docker |
@@ -299,9 +299,9 @@ DinD is rejected as slower, more dangerous (requires `--privileged`), and unnece
 
 ## Ephemeral Git Worktrees
 
-`docex check` (and defensively, `docex merge`) needs to perform git operations against a merged state without disturbing the developer's working tree. The mechanism:
+`docex check` (and defensively, `docex merge`) needs to perform git operations against a merged state without disturbing the developer's working tree. `docex rollback` uses the same `pipeline/_worktree` helpers for a different reason: it checks out `v<target_version>` and recompiles that version's `infra.yml` with the *current* `docex`, which is the point of the command rather than a precaution (see [`release_flow.md § Worktree mechanism`](./release_flow.md#worktree-mechanism)). The mechanism:
 
-1. Create a temporary worktree under `.docex/worktrees/check-<sha>/` (gitignored by convention; the bootstrap adds the entry).
+1. Create a temporary worktree under `.docex/worktrees/<command>-<discriminator>/` — `check-<sha>`, `rollback-<version>` — gitignored by convention.
 2. Inside the worktree, rebase the feature branch tip onto a fresh fetch of `origin/main`.
 3. Run gate checks (working-tree-clean, version bumped, contracts aligned, etc.), then `compile`, `build` (via `docker build`), and `test` against the worktree.
 4. On success, the worktree is removed. On failure, the worktree is removed *and* a structured error report points at what failed; the developer's branch and main are untouched either way.
@@ -427,6 +427,7 @@ jean_baudrillard/docex/
 │       ├── ansible/         (ansible adapter)
 │       ├── opentofu/        (tofu CLI adapter)
 │       ├── secretsmgmt/     (SSM / .env secret backends)
+│       ├── registry/        (container-registry HTTP adapter)
 │       ├── context.py       (project context load)
 │       ├── naming.py        (name policies)
 │       ├── errors.py        (error taxonomy)

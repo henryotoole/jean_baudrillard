@@ -36,7 +36,8 @@ transfer tables  ───────────┤    cicl/transfer.py      �
                     │       ↓          │
                     │   CompiledEnv    │ ← what the emit layer consumes
                     │       ↓          │
-                    │ emit/...         │ compose.py, hcl.py, ansible.py, secrets.py
+                    │ emit/...         │ compose.py, hcl.py, ansible.py,
+                    │                  │ schedules.py, otelcol.py, tags.py
                     └──────────────────┘
                             ↓
                     infra/output/<env>/...
@@ -55,7 +56,8 @@ In `src/docex/cicl/`:
 - **`SourceKeyCategories` / `classify_source_keys`** (`cicl/categories.py`, mod 078) — a pure partition of a service's source-key namespace into TTE / secret / config. `secret_manifest` / `config_manifest` derive the per-category key sets (mods 083/084) and `minted_policies` derives the minted key→policy map. These back the three-category model in [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md); don't re-derive it here.
 - **`NamingPolicy` / `NamingPolicies`** — see [`transfer_tables.md § Naming Policies`](../../../doctrine/infrastructure/specifics/transfer_tables.md#naming-policies). Lifted from inline engine `naming` structs in mod 005 so structural emitters can share the table.
 - **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads. Since mod 096 it also carries the service-expansion fields — see [Service expansion](#service-expansion). The one relation is on it as a single stored field `uses`, holding the authored entries **verbatim** (bare for a backing target, dotted for a core one). `uses_backing` and `uses_core` are read-only **derived properties**, not fields — the backing/core split is derived from target kind rather than authored, so there is no way to construct a `CompiledService` whose edge landed in the wrong list. `uses_core` yields **compiled** identities (`api-worker`), so a core edge resolves against `CompiledEnv.services` with one dict lookup. See [The union view](#the-union-view).
-- **`CoreService` / `ServiceRef`** (`cicl/model.py`, mod 096) — `CoreService` is one named way of invoking a codebase's build artifact (`role`, `command`, `networks`, `resources`, `port`, `uses`, `replicas`, `env`), per [`cicl.md § Core Services`](../../../doctrine/infrastructure/cicl.md#core-services). `ServiceRef` is the value type carrying the dots-for-reference / hyphens-for-emission rule: `.dotted` → `api.web`, `.compiled` → `api-web`, `.parse()` rejecting a bare name. It is the single place that rule is expressed, so read sites never re-derive it.
+- **`CoreService` / `ServiceRef`** (`cicl/model.py`, mod 096) — `CoreService` is one named way of invoking a codebase's build artifact (`role`, `command`, `networks`, `resources`, `port`, `uses`, `surfaces`, `replicas`, `env`), per [`cicl.md § Core Services`](../../../doctrine/infrastructure/cicl.md#core-services). `ServiceRef` is the value type carrying the dots-for-reference / hyphens-for-emission rule: `.dotted` → `api.web`, `.compiled` → `api-web`, `.parse()` rejecting a bare name. It is the single place that rule is expressed, so read sites never re-derive it.
+- **`Surface` / `API_STYLE_FORMATS` / `IMPLEMENTED_CONTRACT_FORMATS`** (`cicl/model.py`, advance 006) — a `Surface` is one described boundary of a core service (`name` + `api_styles`), per [`cicl.md § Surfaces`](../../../doctrine/infrastructure/cicl.md#surfaces). `API_STYLE_FORMATS` maps each style to its contract format and `IMPLEMENTED_CONTRACT_FORMATS` is the subset docex can check today. Rule 29 is **derived** from the first map rather than tabulated against it, so it cannot drift as styles are added; two consumers read the map — the rule-29 validator and `check.py::_gate_contracts` — which is why it lives on the model. Do not restate the mapping here; `cicl.md § Surfaces` is the table and a literal-equality test pins the code to it.
 
 In `src/docex/naming.py`:
 
@@ -173,7 +175,9 @@ are runtime-only.
 **`replicas`** is the **declared** count. `effective_replicas(svc, env)`
 (`cicl/compile.py`) applies the clamp — the count applies in `prod` only, per
 [`shape.md`](../../../doctrine/infrastructure/shape.md)'s Runtime Shape
-paragraphs — and both emitters call it, so the prod-only rule is stated once.
+paragraphs — and all three readers call it (both emitters plus the `stagetest`
+pre-step, which computes replica container names to inspect), so the prod-only
+rule is stated once.
 See [Replicas](#replicas).
 
 ### Replicas
@@ -496,8 +500,16 @@ On fixed the **container probe** has exactly two consumers and neither reroutes 
 Docker, which reports a status and restarts nothing of its own accord, and
 `docex stagetest`, which reads that status and fails a release on it.
 It is gone from `worker` and `clock` entirely, which is how
-[rule 33](#validation)'s negative arm is enforced at the table layer by rule 4, with no
-second rule.
+[rule 33](../../../doctrine/infrastructure/cicl.md#validation-rules)'s negative arm is
+enforced at the table layer by rule 4 — for those two roles. Rule 4 cannot enforce the
+whole arm, because it only ever rejects a field the *engine* does not declare: a
+`role: web` core service off the `web` network declares `health_check_path` legally as
+far as the table is concerned. `cicl/validate.py`'s dedicated
+`rule_33_health_check_path_off_web` is what catches that case, and it is the only thing
+that does — see
+`tests/unit/test_validate.py::test_rule_33_keys_on_network_membership_not_role`. The
+rule keys on network membership, not on role, so the table layer and the validator each
+cover a case the other structurally cannot.
 
 The **exec readiness gate is untouched**: `emit/compose.py` resolves `service_healthy`
 vs. `service_started` by asking whether a target block carries a `healthcheck:`, and it
@@ -584,7 +596,7 @@ secrets scaffold`/`status`, never written by `compile`. `emit/secrets.py` retain
 only `render_manifest_env`, the shared grouped-`KEY=value` renderer those scaffold
 commands use (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md)).
 
-The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-tier HCL), `project.tf.j2` (project-tier HCL), `playbook.yml.j2`, `inventory.yml.j2`, `ansible.cfg.j2`. Pre-translated names (state bucket, ALB name, ECS cluster, etc.) are computed in Python and passed to the templates as context; the templates do not do naming translation themselves.
+The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-tier HCL), `project.tf.j2` (project-tier HCL), `ec2_traefik_user_data.sh.j2`, `playbook.yml.j2`, `inventory.yml.j2`, `ansible.cfg.j2`. Pre-translated names (state bucket, ALB name, ECS cluster, etc.) are computed in Python by `apply_policy` and passed to the templates as context — **but four HCL template sites re-derive the project segment inline instead**, and they do not agree with each other: `project.tf.j2:325` and `main.tf.j2:63` render `{{ project | replace('_', '-') }}` with **no `| lower`**, while `main.tf.j2:128` and `:130` include it. `project_dns_label` is never passed into HCL template context (only `emit/compose.py` and `emit/ansible.py` hold it), so none of the four is equivalent to `naming.dns_label`, and the two without `| lower` diverge from it outright on a mixed-case project name — which nothing rejects. Booked as a defect, not fixed here: adding `| lower` to two sites leaves the fifth author to re-derive it, and the real fix is to normalize or validate the project name where it enters docex. Do not add a fifth re-derivation.
 
 ## Validation
 
@@ -627,6 +639,7 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | ------------ | -------- |
 | What a role/engine emits per foundation | `tables/roles/<role>.yml` (data) |
 | How a name is formatted | `tables/naming_policies.yml` (data) + the engine's `naming: <policy>` ref |
+| The ECS cluster / Service Connect namespace name | `src/docex/naming.py::ecs_cluster_name` — the only expression (mod 128 lifted it after finding five copies, one in `emit/hcl.py`, the emitter that creates the clusters the others read). Policy-aware; do not re-inline. Readers are enumerated in [`release_flow.md`](./release_flow.md) |
 | How the compiler walks services | `src/docex/cicl/compile.py` — the work list in `compile_env` pairs each backing service with each `(codebase, service)` from `CICLDocument.all_core_services()` |
 | Whether a new identity is per-service or per-codebase | [Service expansion](#service-expansion). The default is per-service, because `CompiledService.name` already is; the codebase-keyed set is small and listed there |
 | What a core service may declare, and at which level | `src/docex/cicl/model.py` (`Codebase` is `extra="forbid"` over `{core_services, secrets, config, env}`; `CoreService` is `extra="allow"` so role-specific fields land in `model_extra`) |
@@ -643,9 +656,10 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |
 | What the scaffold manifest render looks like | `src/docex/emit/secrets.py::render_manifest_env` |
 | What the OTel sidecar config looks like | `src/docex/emit/otelcol.py` |
+| What tags every emitted resource carries | `src/docex/emit/tags.py` — `standard_tags` (the per-tier key set) and `render_hcl_tags`. Called from `emit/hcl.py`, `cicl/compile.py` and `pipeline/bootstrap.py`, and reaches both Jinja templates through `env.globals` |
 | What a clock's schedule table looks like, and how it reaches the container | `src/docex/emit/schedules.py` — `render_schedule_table` (the delivered payload), `render_schedules_file` (the `schedules.yml` visibility artifact), `schedule_env` (the one delivery seam both emitters call). See [The clock](#the-clock) |
 | How the sidecar is paired with each core service | `src/docex/emit/compose.py::_sidecar_block` (fixed — one per *emitted container*, so one per replica; its `paired_key` is the container it shares a netns with) + `src/docex/emit/hcl.py::render_task_definition` second container entry (elastic) |
-| How `replicas` becomes containers or tasks | `src/docex/cicl/compile.py::effective_replicas` (the `prod`-only clamp) + `emit/compose.py` (the fixed unroll) + `emit/hcl.py::render_ecs_service` (`desired_count`) |
+| How `replicas` becomes containers or tasks | `src/docex/cicl/compile.py::effective_replicas` (the `prod`-only clamp) + `emit/compose.py` (the fixed unroll) + `emit/hcl.py::render_ecs_service` (`desired_count`) + `pipeline/orchestrator_health.py` (which replica container names the `stagetest` pre-step inspects) |
 | An engine env var's `kind` / a fixed literal / a minted policy | `tables/roles/<role>.yml` `env:` + `tables/generation_policies.yml`; loader in `cicl/transfer.py` |
 | How a minted value is generated | `src/docex/cicl/generate.py` |
 | How `$[VAR]` resolves per kind (fixed inline vs runtime ref) | `src/docex/cicl/magic_refs.py::_inline_fixed` |

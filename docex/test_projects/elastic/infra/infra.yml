@@ -14,7 +14,7 @@ reverse_proxy: alb
 # provisioned by `docex projinfra up production`. One repo per CODEBASE,
 # so `api` gets exactly one regardless of how many core services it
 # declares — the repo is keyed on the codebase, not on the core-service
-# count. See cicl.md § Container Registry.
+# count. See cicl.md § Container Registry and Service Images.
 repo_url: "https://github.com/luxedo/jean_baudrillard"
 # Project-wide observability backend (self-hosted HyperDX). Sidecars in
 # stage/prod export OTLP signals here. See doctrine/infrastructure/
@@ -33,7 +33,7 @@ codebases:
   api:
     # Codebase-scoped: all three core services run the same artifact and all
     # need a database, so these live once at the codebase level and merge
-    # into every core service. (cicl.md § Field scoping.)
+    # into every core service. (cicl_reasoning.md § Field Scoping.)
     env:
       # Built from appdb's provided parts at startup (parts-only model).
       # On elastic, DATABASE_HOST resolves to the RDS endpoint (HCL
@@ -176,7 +176,7 @@ codebases:
         # `api.worker` holds NO magic ref. The clock reaches the worker
         # through the `jobs` table, not the mesh, so there is no host to
         # reference; the edge exists to declare the interface. A ref implies
-        # an edge, never the reverse (cicl.md § Three clarifications).
+        # an edge, never the reverse (cicl.md § Validation Rules, rule 7).
         #
         # THE ASYMMETRY IS THE POINT, so it is stated rather than left to be
         # inferred: `api.worker` has TWO consumers reaching it TWO DIFFERENT

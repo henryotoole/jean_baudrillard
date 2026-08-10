@@ -81,6 +81,39 @@ task instead.)
   runs a cron loop and nothing else.
 - **The stage suite's fan-out test**, with the endpoint it exercised.
 
+## [0.0.20] - 2026-08-10
+
+Documentation corrections found by the advance-006 coherence pass (docex mod
+134b). No code, config, or behavior change — every edit here makes a document
+say what the seed actually does.
+
+### Fixed
+
+- **`db_schema.md` claimed `pings.id` was a `uuid7`** generated "for
+  time-ordered insertion". The domain calls `uuid4()`, which is random, so both
+  the function and the stated property were wrong. The table's ordering comes
+  from `created_at`.
+- **`db_schema.md` stated the doctrine requires migrations to be "reversible".**
+  `databases.md` requires them to be idempotent and **forward-only** — the
+  doctrine never reverses a schema, even on rollback, and `docex rollback` runs
+  no migration at all. The `-- migrate:down` half of each file is dbmate's file
+  format, not a path the pipeline takes.
+- **`processor.md` said multi-worker coordination was "out of scope for this
+  seed".** `FOR UPDATE SKIP LOCKED` ships in the `jobs` module and four other
+  seed docs treat it as load-bearing. The boundary is real but belongs to
+  `processor` alone, whose work is a no-op and so has nothing to contend over.
+- **`test.sh`'s comment enumerated five of seven test files**, omitting
+  `test_jobs_alogic.py` and `test_jobs_drain.py`. The script globs the whole
+  folder, so only the comment was short; it now says the glob is the authority.
+- **Four dead section citations repointed** — `infra.yml`'s
+  `cicl.md § Field scoping` (the heading is `cicl_reasoning.md § Field Scoping`)
+  and `cicl.md § Three clarifications` (prose inside rule 7, not a heading), and
+  `transfer_tables.md § naming` in **both** `verify_clean.sh` and `teardown.sh`
+  (the heading is `§ Naming Policies`). The two shell scripts carry the same
+  comment, so fixing one would have left the pair disagreeing about which
+  spelling is current. None was a markdown link, so nothing mechanical could
+  resolve any of them.
+
 ## [0.0.19] - 2026-08-06
 
 Repairs found by the `1.7.0` pre-cut fixed-foundation smoke walk. No feature

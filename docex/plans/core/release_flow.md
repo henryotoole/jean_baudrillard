@@ -74,6 +74,13 @@ Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/a
 | 3 | render compose.yml + .env | run_migrate (`RunTask` per schema owner) | run_migrate (`RunTask` per schema owner) |
 | 4 | docker compose run migrate (per schema owner) | — | tofu apply (full) |
 | 5 | docker compose up -d | — | — |
+| 6 | — | Service Connect consumer reconcile | Service Connect consumer reconcile |
+
+Row 6 runs **after the final apply on every elastic branch, including rollback**, and
+is the one step in this table that is not an apply, a migrate, or a push: it reads
+post-apply AWS state and may issue a *mutating* `forceNewDeployment`. It is detailed at
+[§ Elastic-foundation flow](#elastic-foundation-flow) step 4 — the numbering there is
+the authority; this row exists so the table cannot be read as the whole sequence.
 
 **Why the elastic ordering differs between first-release and steady-state:**
 

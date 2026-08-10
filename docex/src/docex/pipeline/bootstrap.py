@@ -1,4 +1,4 @@
-"""``docex bootstrap`` — idempotent setup for elastic projects.
+"""The elastic project-tier setup behind ``docex projinfra up production`` — idempotent.
 
 Per :doc:`elastic_bootstrap.md` (doctrine/infrastructure/specifics),
 bootstrap is the one-shot setup that makes an elastic-foundation project

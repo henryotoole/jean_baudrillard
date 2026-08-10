@@ -64,11 +64,13 @@ _BUILD_ENV = "dev"
 # DEPENDENCY: the dev stage image must carry `sh` and `find`. `sh` was already
 # required (`build.sh` is `#!/bin/sh` and is invoked as `./build.sh`); `find`
 # is in both coreutils and busybox, so any base carrying a build toolchain has
-# it. Deliberately NOT a doctrine rule: the doctrine's one image requirement
-# (`curl`) is backed by a `docex check` gate, and an unenforced image
-# requirement is a claim in the rule of record that nothing verifies. The
-# failure mode here is loud anyway — `find: not found`, non-zero exit, build
-# fails immediately.
+# it. Deliberately NOT a doctrine rule: the doctrine's one image requirement is
+# that the image can run `./health.sh <service>` (infrastructure.md § Codebase
+# Containers), and `docex check` gates the shim's presence — an unenforced image
+# requirement is a claim in the rule of record that nothing verifies. (Mods
+# 126/127 withdrew an earlier `curl` requirement, which is why the gate covers
+# the shim rather than any particular tool inside it.) The failure mode here is
+# loud anyway — `find: not found`, non-zero exit, build fails immediately.
 _CLEAR_AND_BUILD = (
     "set -e; cd /service; mkdir -p dist; "
     "find dist -mindepth 1 -delete; exec ./build.sh"

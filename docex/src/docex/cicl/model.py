@@ -262,9 +262,12 @@ class CoreService(BaseModel):
         Entries that do not parse are dropped rather than passed through: rule 25
         reports each one once, and a malformed entry must not ALSO surface
         downstream — as a mystifying rule-7 miss, or as a missing contract for a
-        target the author plainly named. Both the validator (rule 7) and
-        ``check.py``'s contract / health gates read through here, so the
-        dots-for-reference parse lives in exactly one place.
+        target the author plainly named. Two validation rules read through here —
+        rule 7 (``_validate_refs``) and rule 32 (``_validate_uses_addressing``) — so
+        the dots-for-reference parse lives in exactly one place. ``check.py`` is NOT
+        a reader: its contract gates go through ``surfaces`` and ``model_extra``, and
+        the health gate that once read this set (``_gate_health_endpoints``) was
+        deleted in advance 006.
         """
         out: set[str] = set()
         for raw in (self.uses or []):

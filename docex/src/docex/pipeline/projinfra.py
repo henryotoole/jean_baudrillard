@@ -1,6 +1,8 @@
 """``docex projinfra <direction> <side>`` — project-tier infrastructure
-runner. Mod 036 ships the fixed branch (per-project traefik + four
-``-web`` networks); mods 037-039 add elastic.
+runner. Both foundations are live: fixed brings up a per-project traefik
+plus four ``-web`` networks; elastic ``up production`` runs the state
+backend and the two-phase project-tier ``tofu apply``
+(``pipeline/bootstrap.py``), and ``down`` tears it down.
 
 The doctrine-level behavior lives in
 ``doctrine/infrastructure/specifics/projinfra/projinfra.md`` and

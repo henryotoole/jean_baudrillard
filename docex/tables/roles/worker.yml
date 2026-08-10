@@ -63,11 +63,19 @@ roles:
             timeout: 5
             retries: 3
             startPeriod: 10
-      fields: {}   # Rule 4 (tt_rule_4_undeclared_field) now REJECTS
-                   # `health_check_path` on a worker, which is how rule 33's
-                   # negative arm is enforced at the table layer with no
-                   # second rule — the same mechanism clock.yml documents for
-                   # `schedules`.
+      fields: {}   # Rule 4 (tt_rule_4_undeclared_field) REJECTS
+                   # `health_check_path` on a worker, which enforces rule 33's
+                   # negative arm at the table layer FOR THIS ROLE. It does not
+                   # enforce the whole arm: a `role: web` core service off the
+                   # `web` network declares the field legally per its own engine,
+                   # and only `cicl/validate.py`'s dedicated
+                   # `rule_33_health_check_path_off_web` catches that. Rule 33
+                   # keys on network membership, not role.
+                   #
+                   # NOT the same mechanism clock.yml documents for `schedules`:
+                   # `schedules` is declared on no other role, so there is no
+                   # legal-declaration case for a second rule to catch and rule 4
+                   # really is the whole story there.
       provides:
         # A worker that declares a `port` registers as Service-Connect-
         # discoverable on elastic (shape.md § service_discovery), which is what

@@ -34,11 +34,11 @@ Identical to fixed companion. `Ping`, `Codebase`, `Core service`, and `Smoke tes
 
 `apex_domain: luxrnd.tech` — the bare apex. Project segment derives from `project.yml`'s `name` field DNS-labeled, yielding `docex-smoke-elastic.luxrnd.tech` as the project subdomain. A Route53 hosted zone for `docex-smoke-elastic.luxrnd.tech` is provisioned by `docex projinfra up production`; the operator NS-delegates from the parent `luxrnd.tech` zone (also in Route53, same account) between projinfra's two-phase apply.
 
-Per-env hosts compile to:
-- `<service>.dev.docex-smoke-elastic.luxrnd.tech` (local, served by the dev-side per-project Traefik)
-- `<service>.test.docex-smoke-elastic.luxrnd.tech` (local, same)
-- `<service>.stage.docex-smoke-elastic.luxrnd.tech` (project ALB, stage cert)
-- `<service>.prod.docex-smoke-elastic.luxrnd.tech` (project ALB, prod cert)
+Per-env hosts compile to the doctrine's canonical form `<codebase>-<service>.<env>.docex-smoke-elastic.luxrnd.tech` — two segments in one DNS label, hyphen-joined:
+- `api-web.dev.docex-smoke-elastic.luxrnd.tech` (local, served by the dev-side per-project Traefik)
+- `api-web.test.docex-smoke-elastic.luxrnd.tech` (local, same)
+- `api-web.stage.docex-smoke-elastic.luxrnd.tech` (project ALB, stage cert)
+- `api-web.prod.docex-smoke-elastic.luxrnd.tech` (project ALB, prod cert)
 
 Plus the bare-env and bare-project forms per `cicl.md § Domain`. ACM issues two certs (stage + prod) with the doctrine-spec SANs.
 

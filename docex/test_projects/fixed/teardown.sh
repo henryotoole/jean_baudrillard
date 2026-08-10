@@ -16,7 +16,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_NAME="docex_smoke_fixed"
 # Hyphenated form. Doctrine name-translation rules (transfer_tables.md
-# § naming) produce hyphenated container/network/volume names from
+# § Naming Policies) produce hyphenated container/network/volume names from
 # underscore project names; teardown's `docker ... --filter name=…`
 # substring matching needs both forms to find every running resource.
 PROJECT_NAME_HYPHEN="${PROJECT_NAME//_/-}"

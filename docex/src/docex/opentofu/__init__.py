@@ -1,9 +1,11 @@
 """Thin wrappers around the ``tofu`` CLI.
 
-Phase 4 needs four OpenTofu operations — init, validate, plan, apply —
-so we follow the Phase 3 ansible-runner pattern: one callable per
-operation, no Protocol ceremony. The dispatcher and pipeline modules
-import these functions directly; tests substitute a recorder.
+Five operations — init, validate, plan, apply, destroy — following the
+ansible-runner pattern: one callable per operation, no Protocol ceremony.
+``tofu_destroy`` arrived after the other four (elastic project-tier teardown
+and elastic ``envinfra down`` for stage/prod). ``__all__`` below is the
+authority on the set. The dispatcher and pipeline modules import these
+functions directly; tests substitute a recorder.
 
 The runtime implementations live in :mod:`docex.opentofu.subprocess_runner`;
 this module re-exports them.

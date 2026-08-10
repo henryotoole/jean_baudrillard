@@ -154,8 +154,8 @@ def run_containerize(
 
         full_tag = _image_tag(registry, project_name, cb, version)
 
-        # ECR repositories are provisioned by `docex bootstrap` as part
-        # of the project-tier tofu apply. We don't ensure them here.
+        # ECR repositories are provisioned by `docex projinfra up production`
+        # as part of the project-tier tofu apply. We don't ensure them here.
 
         # Build.
         rc = docker.buildx_build(

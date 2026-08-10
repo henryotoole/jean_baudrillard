@@ -20,7 +20,7 @@ terraform {
       version = "~> 5.0"
     }
   }
-  # State backend reference (provisioned by `docex bootstrap`).
+  # State backend reference (provisioned by `docex projinfra up production`).
   backend "s3" {
     bucket         = "{{ state_bucket }}"
     key            = "{{ env }}/terraform.tfstate"
@@ -41,7 +41,7 @@ data "aws_caller_identity" "current" {}
 
 # ---------------------------------------------------------------------------
 # Project-tier outputs (VPC, subnets, Route53 zone, ACM cert, ECR repos).
-# Provisioned once by `docex bootstrap` against ../project/production/main.tf;
+# Provisioned once by `docex projinfra up production` against ../project/production/main.tf;
 # the env-tier apply just composes them.
 # ---------------------------------------------------------------------------
 data "terraform_remote_state" "project" {

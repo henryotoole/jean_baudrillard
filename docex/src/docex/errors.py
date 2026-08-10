@@ -75,8 +75,11 @@ class EnvNotSupported(DocexError):
 class EnvNotRunning(DocexError):
     """The named env's compose stack is not up.
 
-    Raised by ``build`` (which needs running dev containers) and by
-    ``migrate dev/test`` (which exec into a running container).
+    Raised by ``build``, which needs running dev containers to run
+    ``build.sh`` against the bind-mounted source. NOT raised by
+    ``migrate dev/test``: since mod 099 that path runs a one-off container
+    rather than exec-ing into a running one, so it does not require the
+    stack to be up.
     """
 
 
@@ -86,7 +89,16 @@ class BuildFailed(DocexError):
 
 
 class MigrationFailed(DocexError):
-    """``migrate.sh`` for a service exited non-zero."""
+    """``migrate.sh`` for a service exited non-zero.
+
+    **Currently unraised — nothing in docex constructs this.** Kept because it
+    is exported. A migration failure surfaces by RETURN CODE, not by this
+    exception: ``dev``/``test`` and fixed ``stage``/``prod`` both print to
+    stderr and propagate a non-zero rc out of ``orchestrate/migrate.py``, and
+    the elastic path raises ``ECSTaskFailed`` instead. Do not add a
+    ``raise MigrationFailed`` to those paths on the strength of this class
+    existing — their callers read rc.
+    """
 
 
 class AggregationError(DocexError):
@@ -229,8 +241,10 @@ class AWSCredentialsMissing(DocexError):
 
 
 class BootstrapFailed(DocexError):
-    """``docex bootstrap`` couldn't create or reconcile the project's
-    OpenTofu state backend (S3 bucket + DynamoDB table)."""
+    """``docex projinfra up production`` couldn't create or reconcile the
+    project's OpenTofu state backend (S3 bucket + DynamoDB table). The verb
+    was ``docex bootstrap`` before mod 034; the internal step is still called
+    bootstrap (``pipeline/bootstrap.py::run_bootstrap``)."""
 
 
 class SSMPushFailed(DocexError):
