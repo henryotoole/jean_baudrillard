@@ -174,8 +174,18 @@ and the changelog's frozen-section link paths.
 Advance 005's was *a verification step's pass is worthless until the step has been
 observed failing.* This advance earns the next clause: **and an instrument's report
 is worthless until the instrument has been run against a case whose answer you
-already know.** Every one of the twenty defects above passed a plausibility check.
-None survived being *executed* against a known case — which is why the seed's tick
+already know.** **How the worst of them was actually caught is worth recording, because it was nearly
+not.** Mod 135 found the trigger-eval confound only because it **re-measured a hole it
+had already "fixed."** Had that focused re-run come back 5/5 instead of 1/3, both
+description edits would have shipped and been reported as a success — and the
+`contracts` widening would have made the real defect *worse* while closing a phantom.
+The check that saved it was cheap, unglamorous, and one decision away from being
+skipped as redundant. The same agent then found the third defect by *disbelieving its
+own output*: a full suite returning 17% accuracy at load 31, where two queries it had
+measured at 5/5 minutes earlier read ∅. The temptation was to file that as a finding.
+
+Every one of the twenty-one defects above passed a plausibility check.
+None survived being *executed* against a case whose answer was already known — which is why the seed's tick
 file was wedged from the host, the probe census was run over all eight artifacts, the
 empty shim was actually executed in a container, and the trigger eval was re-run from
 an empty directory.
