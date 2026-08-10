@@ -11,7 +11,6 @@ have something to look at.
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 import pytest
 
@@ -20,13 +19,12 @@ from docex.pipeline import check as check_mod
 from docex.pipeline.check import run_check
 
 
-@pytest.fixture
-def stub_test_and_compile(monkeypatch):
-    """Replace ``run_test`` + ``run_compile`` + the compose build step
-    so check's expensive end-stage steps are no-ops.
+def _stub_expensive_steps(monkeypatch, *, stub_compile: bool) -> None:
+    """No-op check's expensive end-stage steps.
 
-    Each test that wants to see check exit successfully needs this so
-    the test runner doesn't spawn real docker.
+    ``stub_compile=False`` leaves ``run_compile`` REAL, which is what
+    ``test_check_reaches_compile_when_a_surface_is_skipped`` needs: it asserts
+    that compile is reached, so it cannot be the thing that is stubbed out.
     """
     monkeypatch.setattr(
         check_mod,
@@ -38,7 +36,8 @@ def stub_test_and_compile(monkeypatch):
     import docex.cicl.compile as cicl_compile
 
     monkeypatch.setattr(orch_test, "run_test", lambda *a, **kw: 0)
-    monkeypatch.setattr(cicl_compile, "run_compile", lambda *a, **kw: 0)
+    if stub_compile:
+        monkeypatch.setattr(cicl_compile, "run_compile", lambda *a, **kw: 0)
 
     # Mod 019's reachability probe would otherwise hit the real network.
     # Return a fake context-manager response so the gate passes without
@@ -52,6 +51,23 @@ def stub_test_and_compile(monkeypatch):
         "docex.pipeline.check.urllib.request.urlopen",
         lambda *_a, **_kw: fake_response,
     )
+
+
+@pytest.fixture
+def stub_test_and_compile(monkeypatch):
+    """Replace ``run_test`` + ``run_compile`` + the compose build step
+    so check's expensive end-stage steps are no-ops.
+
+    Each test that wants to see check exit successfully needs this so
+    the test runner doesn't spawn real docker.
+    """
+    _stub_expensive_steps(monkeypatch, stub_compile=True)
+
+
+@pytest.fixture
+def stub_test_only(monkeypatch):
+    """Like ``stub_test_and_compile`` but ``run_compile`` runs for real."""
+    _stub_expensive_steps(monkeypatch, stub_compile=False)
 
 
 @pytest.fixture
@@ -173,7 +189,9 @@ def test_check_contracts_missing_failure(
     # need to delete the contract BEFORE worktree_add runs. The
     # cleanest approach: delete it from the source fixture so the
     # populating copy lacks it.
-    contract = ctx.project_root / "infra" / "contracts" / "api.web.openapi.yml"
+    contract = (
+        ctx.project_root / "infra" / "contracts" / "api.web.rest.openapi.yml"
+    )
     contract.unlink()
 
     rc = run_check(ctx, fake_docker, fake_git)
@@ -183,13 +201,16 @@ def test_check_contracts_missing_failure(
     # fact that rc==1 with the contracts gate failing is enough.)
 
 
-def test_check_health_endpoint_missing_failure(
+def test_check_contract_health_path_failure(
     worktree_setup, fake_docker, monkeypatch, stub_test_and_compile, capsys
 ):
-    """Missing /health in the contract should fail the health_endpoints gate."""
+    """Missing the declared health_check_path in the contract should fail the
+    contract_health_path gate."""
     ctx, fake_git = worktree_setup
     # Replace the contract with one missing /health.
-    contract = ctx.project_root / "infra" / "contracts" / "api.web.openapi.yml"
+    contract = (
+        ctx.project_root / "infra" / "contracts" / "api.web.rest.openapi.yml"
+    )
     contract.write_text(
         "openapi: '3.0.3'\n"
         "info: { title: api, version: '0.1.0' }\n"
@@ -199,7 +220,7 @@ def test_check_health_endpoint_missing_failure(
     rc = run_check(ctx, fake_docker, fake_git)
     assert rc == 1
     out = capsys.readouterr().out
-    assert "health_endpoints" in out
+    assert "contract_health_path" in out
 
 
 def test_check_version_already_released(
@@ -217,157 +238,19 @@ def test_check_version_already_released(
 def test_check_happy_path_aggregates_all_passing(
     worktree_setup, fake_docker, stub_test_and_compile, capsys
 ):
-    """All gates pass + no test failures → rc 0."""
+    """All gates pass + no test failures → rc 0, and the ROSTER is exactly the
+    nine gates mod 126 left behind."""
     ctx, fake_git = worktree_setup
     rc = run_check(ctx, fake_docker, fake_git)
-    assert rc == 0, capsys.readouterr().out
+    # One readouterr() only — a second call returns the drained-and-empty
+    # remainder, not the same text.
     out = capsys.readouterr().out
+    assert rc == 0, out
     assert "all gates and tests passed" in out
-
-
-# ---------------------------------------------------------------------------
-# Gap I (mod 051): _gate_healthcheck_tooling unit tests.
-# ---------------------------------------------------------------------------
-
-
-def _hc_ctx(tmp_path: Path, *, web_with_hc=True, extra_worker=False, worker_hc=False):
-    """Build a ProjectContext whose `api` web service declares
-    `health_check_path`. Optionally add a non-web `worker` that the gate
-    must skip (no `health_check_path`) or, with ``worker_hc``, one that
-    declares `health_check_path` on a non-`web` network — which the gate
-    must STILL check (mod 059)."""
-    from docex.context import load_project_context
-
-    root = tmp_path / "hcproj"
-    (root / "infra").mkdir(parents=True)
-    (root / "core" / "api").mkdir(parents=True)
-    if extra_worker:
-        (root / "core" / "worker").mkdir(parents=True)
-    (root / "bin").mkdir(parents=True)
-    (root / "project.yml").write_text(
-        'name: hc\nversion: "0.1.0"\ndocex_version: "1.0.3"\n'
-    )
-    hc_line = "        health_check_path: /health\n" if web_with_hc else ""
-    worker_block = (
-        "  worker:\n"
-        "    core_services:\n"
-        "      web:\n"
-        "        role: web\n"
-        '        command: ["python", "/service/dist/root.py"]\n'
-        "        networks: [internal]\n"
-        + ("        port: 9090\n" if worker_hc else "")
-        + ("        health_check_path: /health\n" if worker_hc else "")
-        + "        resources:\n"
-        "          cpu: 0.5\n"
-        "          memory: 512MB\n"
-        "          disk: 1GB\n"
-    ) if extra_worker else ""
-    (root / "infra" / "infra.yml").write_text(
-        'cicl_version: "3"\n'
-        "foundation: fixed\n"
-        'apex_domain: "example.com"\n'
-        'container_registry: "registry.example.com"\n'
-        'observability_backend_url: "https://hyperdx.luxrnd.tech"\n'
-        "domain_default_service: api.web\n"
-        "codebases:\n"
-        "  api:\n"
-        "    core_services:\n"
-        "      web:\n"
-        "        role: web\n"
-        '        command: ["python", "/service/dist/root.py"]\n'
-        "        port: 8080\n"
-        "        networks: [web, internal]\n"
-        + hc_line +
-        "        resources:\n"
-        "          cpu: 1.0\n"
-        "          memory: 2GB\n"
-        "          disk: 20GB\n"
-        + worker_block
-    )
-    return load_project_context(root), root
-
-
-def test_hcgate_passes_when_curl_present(fake_docker, tmp_path):
-    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
-
-    ctx, root = _hc_ctx(tmp_path)
-    report = CheckReport()
-    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
-
-    res = next(r for r in report.results if r.name == "healthcheck_tooling")
-    assert res.passed, res.detail
-    # Gate built the api prod image and probed for curl.
-    assert ("build_image", str(root / "core" / "api"), "prod", "docex-hcgate-api:check") in fake_docker.calls
-    assert any(c[0] == "run_one_shot" and "command -v curl" in c[2][-1] for c in fake_docker.calls)
-
-
-def test_hcgate_fails_when_curl_absent(fake_docker, tmp_path):
-    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
-
-    ctx, root = _hc_ctx(tmp_path)
-    # Script the curl probe to fail.
-    tag = "docex-hcgate-api:check"
-    fake_docker.exit_codes[("run_one_shot", tag, ("sh", "-c", "command -v curl >/dev/null 2>&1"))] = 1
-    report = CheckReport()
-    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
-
-    res = next(r for r in report.results if r.name == "healthcheck_tooling")
-    assert not res.passed
-    assert "lacks curl" in res.detail
-    assert "Add curl to its Dockerfile" in res.detail
-
-
-def test_hcgate_skips_services_without_health_check_path(fake_docker, tmp_path):
-    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
-
-    # api stays on web but DECLARES NO health_check_path, plus a non-web
-    # worker — neither qualifies, so the gate passes without building.
-    ctx, root = _hc_ctx(tmp_path, web_with_hc=False, extra_worker=True)
-    report = CheckReport()
-    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
-
-    res = next(r for r in report.results if r.name == "healthcheck_tooling")
-    assert res.passed, res.detail
-    assert "nothing to check" in res.detail
-    # No image build attempted.
-    assert not any(c[0] == "build_image" for c in fake_docker.calls)
-
-
-def test_hcgate_checks_nonweb_health_check_path_service(fake_docker, tmp_path):
-    # Mod 059: a `role: web` service on a NON-`web` network that declares
-    # `health_check_path` still gets a curl healthcheck emitted, so the gate
-    # must build+probe it even though it is not web-routed. Previously the
-    # `on_web` filter skipped it.
-    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
-
-    ctx, root = _hc_ctx(tmp_path, web_with_hc=False, extra_worker=True, worker_hc=True)
-    report = CheckReport()
-    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
-
-    res = next(r for r in report.results if r.name == "healthcheck_tooling")
-    assert res.passed, res.detail
-    # The gate built + probed the non-web worker, not just web services.
-    assert (
-        "build_image", str(root / "core" / "worker"), "prod",
-        "docex-hcgate-worker:check",
-    ) in fake_docker.calls
-
-
-def test_hcgate_reports_build_failure(fake_docker, tmp_path):
-    from docex.pipeline.check import CheckReport, _gate_healthcheck_tooling
-
-    ctx, root = _hc_ctx(tmp_path)
-    fake_docker.exit_codes[
-        ("build_image", str(root / "core" / "api"), "prod", "docex-hcgate-api:check")
-    ] = 1
-    report = CheckReport()
-    _gate_healthcheck_tooling(root, ctx, fake_docker, report)
-
-    res = next(r for r in report.results if r.name == "healthcheck_tooling")
-    assert not res.passed
-    assert "image build failed" in res.detail
-    # Build failed → no curl probe attempted.
-    assert not any(c[0] == "run_one_shot" for c in fake_docker.calls)
+    assert "all 9 gate(s) passed" in out
+    assert "contract_health_path" in out
+    assert "health_endpoints" not in out
+    assert "healthcheck_tooling" not in out
 
 
 def test_check_empty_origin_skips_trunk_gates(
@@ -385,3 +268,68 @@ def test_check_empty_origin_skips_trunk_gates(
     assert "skipped (empty origin/main)" in out
     # rebase MUST NOT have been called — no trunk to rebase onto.
     assert not [c for c in fake_git.calls if c[0] == "rebase"]
+
+
+# ---------------------------------------------------------------------------
+# Mod 126: the gates-before-compile ordering, and health.sh as the fourth shim.
+# ---------------------------------------------------------------------------
+
+
+def test_check_reaches_compile_when_a_surface_is_skipped(
+    worktree_setup, fake_docker, stub_test_only
+):
+    """`_expected_contracts` skips a mixed-format surface ONLY because
+    `run_compile` is reachable in the same command.
+
+    Every gate passes on this document — the skip sees to that — and the project
+    still fails `docex check`, at the compile step, with
+    `rule_29_mixed_contract_formats`: the message that names the actual problem
+    instead of a missing filename the author could never have produced.
+
+    What this pins is REACHABILITY, not gate ORDER, and the distinction matters
+    because the obvious reading is wrong: moving the gates after `run_compile`
+    leaves this test green, since compile raises either way. The hole opens if
+    `run_compile` stops being called (a `--gates-only` flag, an early return) or
+    stops validating — delete the `run_compile` call from `run_check` and this
+    test goes red with `DID NOT RAISE`.
+    """
+    from docex.errors import ValidationError
+
+    ctx, fake_git = worktree_setup
+    infra = ctx.project_root / "infra" / "infra.yml"
+    infra.write_text(
+        infra.read_text().replace(
+            "          rest:\n            api_styles: [rest]\n",
+            "          rest:\n            api_styles: [rest]\n"
+            "          mixed:\n            api_styles: [rest, rpc]\n",
+        )
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        run_check(ctx, fake_docker, fake_git)
+    assert "rule_29_mixed_contract_formats" in str(excinfo.value)
+
+
+def test_check_requires_health_sh(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """`health.sh` is the fourth codebase shim (cicd.md § Check Step 3.1)."""
+    ctx, fake_git = worktree_setup
+    (ctx.project_root / "core" / "api" / "health.sh").unlink()
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "codebase_scripts" in out
+
+
+def test_check_requires_health_sh_executable(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """Present but non-executable is the same failure — the compiler invokes it
+    as `./health.sh <service>`."""
+    ctx, fake_git = worktree_setup
+    (ctx.project_root / "core" / "api" / "health.sh").chmod(0o644)
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "codebase_scripts" in out

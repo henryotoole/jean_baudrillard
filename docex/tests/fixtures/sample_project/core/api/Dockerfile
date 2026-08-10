@@ -24,6 +24,7 @@ FROM base AS dev
 COPY build.sh /service/build.sh
 COPY migrate.sh /service/migrate.sh
 COPY test.sh /service/test.sh
+COPY health.sh /service/health.sh
 COPY src/ /service/src/
 COPY tests/ /service/tests/
 COPY migrations/ /service/migrations/
@@ -38,8 +39,9 @@ CMD ["python", "/service/dist/app.py"]
 FROM base AS prod
 COPY --from=build /service/dist /service/dist
 COPY migrate.sh /service/migrate.sh
+COPY health.sh /service/health.sh
 COPY migrations/ /service/migrations/
-RUN chmod +x /service/migrate.sh
+RUN chmod +x /service/migrate.sh /service/health.sh
 EXPOSE 8080
 CMD ["python", "/service/dist/app.py"]
 

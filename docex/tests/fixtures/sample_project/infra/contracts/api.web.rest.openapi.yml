@@ -1,0 +1,23 @@
+# Contract for `api.web`'s `rest` surface.
+#
+# One contract per declared surface, named
+# `<codebase>.<service>.<surface>.<format>.<ext>` — the format follows from the
+# surface's `api_styles` (cicl.md § Surfaces, contracts.md § Standards).
+#
+# `docex check`'s `contract_health_path` gate asserts that some openapi contract
+# of `api.web` declares a GET on its declared `health_check_path`. It does no
+# schema conformance; contract *testing* is the project's own `test.sh` concern.
+
+openapi: "3.0.3"
+info:
+  title: sample-api
+  version: "0.1.0"
+servers:
+  - url: "https://example.com"
+paths:
+  /health:
+    get:
+      summary: Service liveness
+      responses:
+        "200":
+          description: OK

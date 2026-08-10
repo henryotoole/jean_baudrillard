@@ -67,6 +67,56 @@ rollback-unavailable boundary inside one cut.
   `web`-network core services and rule 15 already requires a port on those, so
   the obligation is *redundant* rather than merely obsolete.
 
+- **`docex check`'s contract gate reads `surfaces:` and nothing else; two health
+  gates are deleted (mod 126).** The provider set was
+  `(core-targeted uses entries) ∪ (web-network core services)`. Now **a core
+  service is a provider iff it declares `surfaces:`**, with one expected contract
+  per surface at
+  `infra/contracts/<codebase>.<service>.<surface>.<format>.<ext>`, in the format
+  that surface's `api_styles` resolve to. The second arm of the old union was
+  *wrong*, not merely redundant: a `web`-network core service that declares no
+  surface — a frontend serving a browser — now correctly needs **no** contract,
+  where before one was forced onto it.
+
+  Contract filenames parse right-anchored on **four** stem segments, and the
+  extension is checked against the *resolved format* rather than a list of
+  accepted suffixes: `contracts.md § Standards` fixes exactly one extension per
+  format, so `api.web.rest.openapi.yml` resolves and both
+  `api.web.openapi.yml` (the retired three-segment form) and
+  `api.web.rest.openapi.yaml` do not. **A contract file matching no declared
+  surface now fails the gate**, naming the four-segment form and saying to rename
+  or delete it — including a leftover three-segment name, which an
+  existence-only gate cannot see precisely because the new file also exists.
+
+  `_CONTRACT_FORMAT_BY_ROLE`, `_FALLBACK_CONTRACT_FORMAT`, and
+  `_contract_format_for_role` are gone, and with them the silent fall back to
+  `openapi` for an unrecognized role. An unrecognized `api_style` is now
+  `rule_29_unknown_api_style` at compile time, so the gate has nothing left to
+  guess at.
+
+  **The `health_endpoints` gate is deleted whole** — the
+  `/health/<codebase>/<service>` fan-out with it, and the probeability arm that
+  demanded `port` *and* `health_check_path` on every core `uses` target, which
+  rules 32 and 33 now respectively make conditional and forbid. **The
+  `healthcheck_tooling` (`curl`) gate is deleted rather than narrowed**:
+  `infrastructure.md § Codebase Containers` no longer mandates `curl` in a
+  codebase image — it mandates that the image can run `./health.sh <service>`,
+  and leaves the tool to the project. A gate enforcing a requirement the rule of
+  record has withdrawn is worse than no gate.
+
+  **One health assertion survives, narrowed**, as the new `contract_health_path`
+  gate: where a `web`-network core service declares an `openapi` surface, one of
+  its openapi contracts declares a `GET` on that service's **declared
+  `health_check_path`** (not a hardcoded `/health`). *Any one* openapi surface
+  satisfies it — requiring the path in every surface would force a `rest_admin`
+  contract to document a route outside its own boundary, which is a worse defect
+  than an omission. A non-`web` `openapi` provider declares no health route at
+  all.
+
+  `health.sh` joins `build.sh` and `test.sh` as an unconditionally required
+  codebase shim (`migrate.sh` stays conditional on schema ownership). The gate
+  roster goes from ten to nine.
+
 - **A codebase is a `codebase`; a process type is a `core service`.** The two
   central nouns of the doctrine's service vocabulary trade places. What 1.6.0
   called a *core service* — one source tree, one build artifact, one image — is

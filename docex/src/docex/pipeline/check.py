@@ -34,7 +34,12 @@ from pathlib import Path
 
 import yaml
 
-from docex.cicl.model import CICLDocument, ServiceRef, CoreService  # noqa: F401
+from docex.cicl.model import (  # noqa: F401
+    IMPLEMENTED_CONTRACT_FORMATS,
+    CICLDocument,
+    CoreService,
+    ServiceRef,
+)
 from docex.context import ProjectContext, load_project_context
 from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
@@ -105,84 +110,130 @@ def _aggregate_check_report(report: CheckReport) -> str:
 # Contract format.
 # ---------------------------------------------------------------------------
 
-# contracts.md § Standards: the format follows from the PROVIDER'S ROLE, not from
-# the shape of the graph — the role is what fixes the communication mechanism, so
-_CONTRACT_FORMAT_BY_ROLE = {
-    "web": "openapi",
-    "worker": "asyncapi",
+# contract format -> filename extension. Transcribed from contracts.md § Standards,
+# which fixes exactly ONE extension per format. All four rows are carried, including
+# the two formats `IMPLEMENTED_CONTRACT_FORMATS` excludes: this is the doctrine's
+# table, and when `graphql` lands the only edit is one line in model.py.
+#
+# WHY here and not model.py, where mod 125 put API_STYLE_FORMATS: that table has two
+# consumers (validate.py's rule 29 and this module). This one has exactly one, and a
+# one-consumer table does not earn a home outside its consumer.
+_FORMAT_EXTENSIONS = {
+    "openapi": "yml",
+    "asyncapi": "yml",
+    "graphql": "graphql",
+    "proto": "proto",
 }
-_FALLBACK_CONTRACT_FORMAT = "openapi"
+
+# Extensions that make a stray file in `infra/contracts/` look like a contract
+# somebody meant to author. Used only by the orphan arm of `_gate_contracts`, to
+# separate "a contract with the wrong name" from "a README".
+_CONTRACT_EXTENSIONS = frozenset({"yml", "yaml", "graphql", "proto"})
 
 
-def _contract_format_for_role(role: str) -> tuple[str, bool]:
-    """``(format, role_recognized)`` for a provider core service.
+def _parse_contract_filename(name: str) -> tuple[str, str, str, str] | None:
+    """``"api.web.rest.openapi.yml"`` → ``("api", "web", "rest", "openapi")``.
 
-    Mod 101 replaces a heuristic (`_infer_contract_format`) whose asyncapi branch
-    was unreachable from the day it was written: its only call site passed a CORE
-    service name, the function then looked that name up in `backing_services`, and
-    `model.py` forbids the overlap — so it returned "openapi" every time it was
-    ever called. That is why the async-contract path was never exercised.
+    Three things fix the shape:
 
-    WHY a fallback rather than a raise: an unrecognized core role is already a
-    transfer-table load error, and raising here would deny the operator every other
-    gate's result — the aggregation pattern exists precisely to avoid that. The
-    caller surfaces the fallback in the gate detail so it is never silent.
+    - Segments are indexed **from the right**, off the extension.
+      "Right-anchored" has never meant *take the last four of however many* — the
+      count is exact, so ``a.b.c.d.e.openapi.yml`` is ``None``.
+    - ``_SERVICE_NAME_RE`` (model.py) admits no dots in a codebase, core-service,
+      or surface name, so a canonical contract filename has exactly four stem
+      segments and nothing else is a name ``docex`` authored.
+    - The extension is checked **against the resolved format** rather than against
+      a list of accepted suffixes. That is what narrows ``.yaml`` out (contracts.md
+      § Standards fixes one extension per format) and what lets the non-YAML
+      formats use this same template instead of being special-cased later.
     """
-    fmt = _CONTRACT_FORMAT_BY_ROLE.get(role)
-    if fmt is None:
-        return _FALLBACK_CONTRACT_FORMAT, False
-    return fmt, True
-
-
-def _parse_contract_filename(name: str) -> tuple[str, str, str] | None:
-    """``"api.web.openapi.yml"`` → ``("api", "web", "openapi")``; else ``None``.
-
-    RIGHT-anchored, per contracts.md's `${codebase}.${service}.${format}.yml`.
-    The left-anchored `name.split(".", 1)[0]` this replaces yielded "api" — a
-    valid `codebases` key purely because the codebase happens to be the first
-    segment — and discarded the core service entirely, so the health gate
-    reasoned at codebase granularity and silently `continue`d on anything it
-    could not match.
-
-    Exactly three segments are required: `_SERVICE_NAME_RE` (model.py) admits no
-    dots in a codebase or core service name, so a canonical contract filename has
-    three
-    and nothing else is a name this gate authored.
-    """
-    stem = name
-    for suffix in (".yml", ".yaml"):
-        if stem.endswith(suffix):
-            stem = stem[: -len(suffix)]
-            break
-    else:
+    stem, sep, ext = name.rpartition(".")
+    if not sep:
         return None
     parts = stem.split(".")
-    if len(parts) != 3 or not all(p.strip() for p in parts):
+    if len(parts) != 4 or not all(p.strip() for p in parts):
         return None
-    return parts[-3], parts[-2], parts[-1]
+    fmt = parts[-1]
+    if fmt not in _FORMAT_EXTENSIONS:
+        return None
+    if ext != _FORMAT_EXTENSIONS[fmt]:
+        return None
+    return parts[-4], parts[-3], parts[-2], parts[-1]
 
 
-def _resolve_service(
-    infra: CICLDocument, dotted: str
-) -> tuple[str, str, CoreService] | None:
-    """``"api.worker"`` → ``("api", "worker", <CoreService>)`` if it names a real
-    core service, else ``None``.
+@dataclass
+class ContractExpectation:
+    """One declared surface's expected contract file."""
 
-    Returning ``None`` for an unresolvable reference is deliberate: rule 25 already
-    reports it, and this gate must not double-report it as a missing contract or a
-    missing probe endpoint.
+    codebase: str
+    service: str
+    surface: str
+    fmt: str
+    path: Path
+    svc: CoreService
+
+    @property
+    def dotted(self) -> str:
+        return ServiceRef(self.codebase, self.service).dotted
+
+
+def _expected_contracts(
+    infra: CICLDocument, contracts_dir: Path
+) -> list[ContractExpectation]:
+    """One expectation per declared surface, named from the surface's format.
+
+    Computed once and shared by the two gates that need the same filenames — a
+    second copy of the naming expression is a second place for it to drift. Each
+    expectation carries the resolved ``CoreService``, so nothing downstream ever
+    parses a filename back into a service.
     """
-    try:
-        ref = ServiceRef.parse(dotted)
-    except ValueError:
-        return None
-    cb = infra.codebases.get(ref.codebase)
-    if cb is None:
-        return None
-    svc = cb.core_services.get(ref.service)
-    if svc is None:
-        return None
-    return ref.codebase, ref.service, svc
+    out: list[ContractExpectation] = []
+    for cb_name, svc_name, _cb, svc in infra.all_core_services():
+        for surface_name, surface in sorted(svc.surfaces.items()):
+            fmts = surface.formats()
+            # WHY skip rather than report: rule 29 (`rule_29_mixed_contract_formats`,
+            # `rule_29_unknown_api_style`) and `rule_contract_format_not_implemented`
+            # already own these at compile time, and a second complaint here would
+            # name a filename the author could never have produced. Skipping does
+            # not let the project through: `run_check` runs `run_compile` in the same
+            # command, so `docex check` still fails — at the compile step, with the
+            # message that names the actual problem. That REACHABILITY is what makes
+            # the skip honest rather than lax, and
+            # `test_check_reaches_compile_when_a_surface_is_skipped` pins it: delete
+            # the `run_compile` call from `run_check` and the skip becomes a hole.
+            # Same policy `_resolve_service` stated for rule 25: one authoring
+            # mistake produces one report.
+            if len(fmts) != 1:
+                continue
+            fmt = next(iter(fmts))
+            if fmt not in IMPLEMENTED_CONTRACT_FORMATS:
+                continue
+            filename = (
+                f"{cb_name}.{svc_name}.{surface_name}.{fmt}."
+                f"{_FORMAT_EXTENSIONS[fmt]}"
+            )
+            out.append(
+                ContractExpectation(
+                    codebase=cb_name,
+                    service=svc_name,
+                    surface=surface_name,
+                    fmt=fmt,
+                    path=contracts_dir / filename,
+                    svc=svc,
+                )
+            )
+    return out
+
+
+def _declares_get(paths_map: dict, key: str) -> bool:
+    """True iff ``paths_map[key]`` is a mapping carrying a ``get`` operation.
+
+    Case-insensitive on the method key: OpenAPI fixes it lowercase, but a
+    hand-authored contract that writes ``GET`` is describing the same route and
+    must not fail a gate over casing.
+    """
+    node = paths_map.get(key)
+    return isinstance(node, dict) and "get" in {str(k).lower() for k in node}
 
 
 # ---------------------------------------------------------------------------
@@ -344,299 +395,192 @@ def _gate_contracts(
     worktree: Path,
     ctx: ProjectContext,
     report: CheckReport,
-) -> tuple[list[Path], list[str]]:
-    """Verify every required contract file is present.
+) -> tuple[list[ContractExpectation], list[str]]:
+    """Verify the contracts directory matches the declared surfaces exactly.
 
-    Per contracts.md, **the provider set is (CORE-targeted `uses` entries) ∪
-    (`web`-network core service)**. Both arms
-    are load-bearing: the first is the declared interface graph; the second
-    catches every publicly reachable boundary even when nothing inside the
-    project uses it, which is what gives the health-endpoint gate something to
-    validate. Driving the set off `uses` alone would silently switch that gate
-    off for a public edge.
+    **A core service is a provider iff it declares `surfaces:`** (cicl.md
+    § Surfaces). One expected contract file per surface, at
+    ``infra/contracts/<codebase>.<service>.<surface>.<format>.<ext>``, in the
+    format that surface's `api_styles` resolve to via ``Surface.formats()``.
 
-    Providers ship a contract at
-    ``infra/contracts/<codebase>.<service>.<fmt>.yml``. The path is
-    service-keyed unconditionally: one codebase may run two HTTP core services —
-    a public `api` and an internal `admin` — and both are genuine boundaries
-    deserving their own contract.
+    The old two-armed ``(core-targeted uses) ∪ (web-network core services)``
+    union is deleted, **and the second arm was wrong, not merely redundant**: a
+    `web`-network core service that declares no surface now correctly requires
+    **no** contract. That is a frontend serving a browser, which
+    ``infrastructure.md § Contracts`` uses as its worked example (`frontend.web`
+    declares no surface) — the old arm forced a contract onto it.
 
-    Returns (existing_contracts, providers) — the contract paths that DO exist,
-    for the next gate to scan, and the provider core service refs, dotted.
+    WHY the orphan arm exists: an existence-only gate is blind to a half-renamed
+    contracts directory *precisely because the new file also exists*, and a
+    leftover three-segment ``api.web.openapi.yml`` is the likeliest 1.7.0 upgrade
+    mistake in this advance.
+
+    Returns (existing_expectations, providers) — the expectations whose file DOES
+    exist, for the next gate to read, and the provider core service refs, dotted.
     """
     infra = ctx.infra
-    existing: list[Path] = []
+    existing: list[ContractExpectation] = []
     providers: list[str] = []
     if infra is None:
         report.add("contracts_exist", True, "no infra.yml — skipped")
         return existing, providers
 
-    # Every CORE-targeted `uses` entry in the document, dotted. This gate reads
-    # the AUTHORING model, so it goes through `core_uses()`; a backing target
-    # is not a provider and has no contract.
-    consumed: set[str] = set()
-    for _cbn, _svcn, _cb, svc in infra.all_core_services():
-        consumed |= svc.core_uses()
+    # Read the DECLARED set, not the expectation list: a provider all of whose
+    # surfaces were skipped (§ `_expected_contracts`) is still a provider, and
+    # deriving this from expectations would make it silently vanish.
+    for cb_name, svc_name, _cb, svc in infra.all_core_services():
+        if svc.surfaces:
+            providers.append(ServiceRef(cb_name, svc_name).dotted)
 
     contracts_dir = worktree / "infra" / "contracts"
+    expected = _expected_contracts(infra, contracts_dir)
     missing: list[str] = []
-    fallbacks: list[str] = []
-    for cb_name, svc_name, _cb, svc in infra.all_core_services():
-        label = ServiceRef(cb_name, svc_name).dotted
-        on_web = "web" in (svc.networks or [])
-        if not (on_web or label in consumed):
-            continue  # not a provider
-        providers.append(label)
-        fmt, role_known = _contract_format_for_role(svc.role)
-        if not role_known:
-            fallbacks.append(f"{label} (role {svc.role!r})")
-        candidate = contracts_dir / f"{cb_name}.{svc_name}.{fmt}.yml"
-        if candidate.is_file():
-            existing.append(candidate)
+    for exp in expected:
+        if exp.path.is_file():
+            existing.append(exp)
         else:
-            missing.append(f"{label} (expected {candidate.relative_to(worktree)})")
+            missing.append(
+                f"{exp.dotted} surface {exp.surface!r} "
+                f"(expected {exp.path.relative_to(worktree)})"
+            )
 
-    fallback_clause = (
-        "; unrecognized role, assumed openapi: " + ", ".join(fallbacks)
-        if fallbacks
-        else ""
-    )
-    if missing:
-        # The fallback is likely to be WHY a contract appears missing (the gate
-        # looked for the wrong extension), so it belongs on the failure too.
+    unexpected: list[str] = []
+    if contracts_dir.is_dir():
+        wanted = {e.path.name for e in expected}
+        for entry in sorted(contracts_dir.iterdir()):
+            name = entry.name
+            if not entry.is_file() or name.startswith(".") or name in wanted:
+                continue
+            looks_like_a_contract = (
+                _parse_contract_filename(name) is not None
+                or name.rpartition(".")[2] in _CONTRACT_EXTENSIONS
+            )
+            if looks_like_a_contract:
+                unexpected.append(
+                    f"{name}: matches no declared surface. The form is "
+                    f"<codebase>.<service>.<surface>.<format>.<ext> "
+                    f"(e.g. api.web.rest.openapi.yml) — rename it to the surface "
+                    f"it describes, or delete it."
+                )
+
+    if missing or unexpected:
+        clauses: list[str] = []
+        if missing:
+            clauses.append("missing contract(s): " + "; ".join(missing))
+        if unexpected:
+            clauses.append("unexpected contract file(s): " + "; ".join(unexpected))
+        report.add("contracts_exist", False, "; ".join(clauses))
+    else:
         report.add(
             "contracts_exist",
-            False,
-            "missing contract(s): " + "; ".join(missing) + fallback_clause,
+            True,
+            (
+                f"{len(existing)} contract(s) present"
+                if providers
+                else "no core service declares a surface — nothing to check"
+            ),
         )
-    else:
-        detail = (
-            f"{len(existing)} contract(s) present"
-            if existing
-            else "no provider core services — nothing to check"
-        )
-        report.add("contracts_exist", True, detail + fallback_clause)
     return existing, providers
 
 
-def _gate_health_endpoints(
-    worktree: Path,
+def _gate_contract_health_path(
     ctx: ProjectContext,
-    contracts: list[Path],
+    contracts: list[ContractExpectation],
     report: CheckReport,
 ) -> None:
-    """Assert the doctrine's health model (contracts.md § Health Checks).
+    """A `web`-network core service's ``openapi`` contract declares its health path.
 
-    Three things, per core service:
+    **The rule of record, quoted, because this gate is the one thing that survived
+    a deletion order.** ``healthchecks.md § web services also serve GET /health``:
+    *"Where a `web`-network core service **also** declares an `openapi` surface,
+    `GET /health` is part of that surface and belongs in its contract, which the
+    check step asserts as well."* And ``cicd.md § Check Step`` 3.4. This is the
+    *narrowed* form of the deleted ``_gate_health_endpoints``' self-health arm,
+    written by the same doctrine pass that deleted the fan-out.
 
-    1. **Self health** — every OpenAPI provider declares ``GET /health``. § Self
-       health says *every* long-running core service serves it; a `worker` is not
-       checked here because its contract is AsyncAPI, which has no natural place
-       for an HTTP path — not because it is exempt. Its self-health is asserted
-       through its fields instead (3).
-    2. **Fan-out** — every `web`-network core service declares
-       ``GET /health/<codebase>/<service>`` for each of its CORE-targeted `uses`
-       entries that is not itself on `web`. Keyed on core targets specifically:
-       the fan-out proxies a target's own `/health` at a `<codebase>/<service>`
-       path, and a BACKING target has no such form to proxy (mod 047 — a project
-       may still declare one voluntarily). A dead consumer is invisible from
-       outside — requests keep returning 200 while work piles up behind it.
-       Targets on `web` are skipped: they are publicly reachable and answer
-       their own `/health`, so there is nothing to proxy.
-    3. **Probeability** — a core `uses` target declares both `port` and
-       `health_check_path`. Per § Declared by fields those two fields *are* the
-       health declaration. On elastic the `port` is also exactly what makes the
-       target Service-Connect-discoverable, which is what lets a sibling `web`
-       core service reach its `/health` one hop away. Distinct from rule 28, which
-       constrains a core service that *has* `health_check_path`; this requires a
-       core `uses` target to have it at all.
+    **The path comes from the declared ``health_check_path``, never a hardcoded
+    ``/health``.** ``healthchecks.md`` says both, and reading the field is the
+    reading that is never wrong — a project declaring ``/healthz`` conforms, and
+    hardcoding would fail it.
 
+    **"Any one" openapi surface satisfies it — and this is the reading that keeps
+    every contract true.** The doctrine says "an `openapi` surface", singular, and
+    does not contemplate two. Requiring the path in *every* openapi surface would
+    force a `rest_admin` surface to document a route that is not part of the admin
+    boundary — a **false** contract. A contract documenting something outside its
+    own boundary is a worse defect than one omitting something documented next
+    door.
+
+    **`web`-network membership, not role** — consistent with rule 33, and for the
+    same reason: the field is what the reverse proxy reads, and a `role: web` core
+    service off the `web` network has no reverse proxy. A non-`web` `openapi`
+    provider (internal REST, reached by magic ref, `port` required by rule 32's
+    positive arm, `health_check_path` forbidden by rule 33) must **not** declare
+    the path in its contract.
+
+    Two skip conditions, neither of them laxity: an absent ``health_check_path``
+    on a `web`-network core service is rule 33's to report at compile time, and a
+    missing contract file is ``contracts_exist``' to report — so this gate declines
+    both rather than double-reporting.
     """
-    infra = ctx.infra
-    if infra is None:
-        report.add("health_endpoints", True, "no infra.yml — skipped")
+    if ctx.infra is None:
+        report.add("contract_health_path", True, "no infra.yml — skipped")
         return
 
-    problems: list[str] = []
-
-    # --- 1 + 2: what the contracts must declare -------------------------
-    for path in contracts:
-        parsed = _parse_contract_filename(path.name)
-        if parsed is None:
-            continue  # not a contract filename this gate authored
-        cb_name, svc_name, fmt = parsed
-        resolved = _resolve_service(infra, f"{cb_name}.{svc_name}")
-        if resolved is None:
-            continue  # contract for an unknown core service — skip
-        _cbn, _svcn, svc = resolved
-
-        try:
-            doc = yaml.safe_load(path.read_text()) or {}
-        except yaml.YAMLError as exc:
-            problems.append(f"{path.name}: malformed YAML ({exc})")
+    groups: dict[tuple[str, str], list[ContractExpectation]] = {}
+    for exp in contracts:
+        if exp.fmt != "openapi":
             continue
-        paths_map = (doc.get("paths") or {}) if isinstance(doc, dict) else {}
+        groups.setdefault((exp.codebase, exp.service), []).append(exp)
 
-        def _declares(key: str, _paths_map: dict = paths_map) -> bool:
-            node = _paths_map.get(key)
-            return isinstance(node, dict) and "get" in {k.lower() for k in node}
-
-        if fmt == "openapi" and not _declares("/health"):
-            problems.append(
-                f"{path.name}: missing 'GET /health' (contracts.md § Self health "
-                f"— every long-running core service serves it)"
-            )
-
+    problems: list[str] = []
+    checked = 0
+    for key in sorted(groups):
+        group = groups[key]
+        svc = group[0].svc
         if "web" not in (svc.networks or []):
             continue
-        for dotted in sorted(svc.core_uses()):
-            target = _resolve_service(infra, dotted)
-            if target is None:
-                continue
-            t_cb, t_svc_name, t_svc = target
-            if "web" in (t_svc.networks or []):
-                continue  # publicly reachable; nothing to proxy
-            key = f"/health/{t_cb}/{t_svc_name}"
-            if not _declares(key):
-                problems.append(
-                    f"{path.name}: missing 'GET {key}' (required because "
-                    f"{cb_name}.{svc_name} uses non-web {dotted})"
-                )
-
-    # --- 3: what the used core service's FIELDS must declare ------------
-    # Keyed by target so two consumers of one under-declared target produce one
-    # problem naming both, not two problems saying the same thing.
-    underdeclared: dict[str, tuple[list[str], set[str]]] = {}
-    for cb_name, svc_name, _cb, svc in infra.all_core_services():
-        for dotted in sorted(svc.core_uses()):
-            target = _resolve_service(infra, dotted)
-            if target is None:
-                continue
-            _t_cb, _t_svc_name, t_svc = target
-            absent = []
-            if t_svc.port is None:
-                absent.append("port")
-            if (t_svc.model_extra or {}).get("health_check_path") is None:
-                absent.append("health_check_path")
-            if absent:
-                entry = underdeclared.setdefault(dotted, (absent, set()))
-                entry[1].add(ServiceRef(cb_name, svc_name).dotted)
-    for dotted in sorted(underdeclared):
-        absent, consumers = underdeclared[dotted]
-        problems.append(
-            f"core `uses` target {dotted!r} declares no "
-            f"{' and no '.join(absent)} — those fields ARE its health "
-            f"declaration (contracts.md § Declared by fields), and on elastic "
-            f"the port is what makes it Service-Connect-discoverable. "
-            f"Consumed by: {', '.join(sorted(consumers))}."
-        )
-
-    if problems:
-        report.add("health_endpoints", False, "; ".join(problems))
-    else:
-        report.add(
-            "health_endpoints",
-            True,
-            f"all required endpoints present in {len(contracts)} contract(s)",
-        )
-
-
-def _gate_healthcheck_tooling(
-    worktree: Path,
-    ctx: ProjectContext,
-    docker: DockerClient,
-    report: CheckReport,
-) -> None:
-    """Verify every ``health_check_path``-declaring web-service image carries
-    ``curl``.
-
-    Mod 051 (Gap I): ``web.yml``'s ``health_check_path`` field compiles to a
-    Docker healthcheck that probes ``/health`` with ``curl``. On a curl-less
-    base image (python-slim, alpine, distroless) the healthcheck errors on
-    every run, Docker marks the container ``unhealthy``, and Traefik 3.x's
-    docker provider drops the route — the service is silently unreachable with
-    no application-log signal. This gate turns that into a loud, early failure:
-    it builds each qualifying service's ``prod``-target image and runs
-    ``command -v curl`` inside it.
-
-    Scope is every core service that declares ``health_check_path`` —
-    **regardless of network membership**, per ``infrastructure.md``'s "any
-    core service that declares a ``health_check_path`` must carry ``curl``."
-    The curl need follows the field, not the ``web`` network: the compiler
-    emits the curl healthcheck whenever ``health_check_path`` is set (mod 059
-    confirmed a ``web``-role service on a non-``web`` network still gets it),
-    and a curl-less healthcheck marks the container ``unhealthy`` — which drops
-    the Traefik route for a ``web`` service AND breaks any
-    ``depends_on: service_healthy`` waiting on a non-``web`` one. A service that
-    declares no ``health_check_path`` (e.g. a port-less worker) needs no curl.
-    See ``contracts.md § Health Checks`` and ``infrastructure.md § Healthcheck
-    Tooling Requirement``.
-    """
-    infra = ctx.infra
-    if infra is None:
-        report.add("healthcheck_tooling", True, "no infra.yml — skipped")
-        return
-
-    qualifying: list[str] = []
-    for name in sorted(infra.codebases):
-        svc = infra.codebases[name]
-        # ``extra="allow"`` on CoreService surfaces role fields like
-        # ``health_check_path`` in ``model_extra``; absent ⇒ None. Only
-        # ``role: web`` declares the field, but such a core service may sit on
-        # a non-``web`` network and still get the curl healthcheck — so do NOT
-        # filter on web membership (mod 059).
-        #
-        # Mod 096: read the CORE SERVICE. A `getattr(svc, ...)` against the
-        # Codebase goes permanently None once the field is core-service-scoped,
-        # so the gate would pass while checking nothing and Mod 051's curl
-        # protection would be silently defeated. One image per codebase, so
-        # one qualifying entry per codebase — any core service declaring the
-        # field obliges the shared image to carry curl.
-        declares_hc = any(
-            (p.model_extra or {}).get("health_check_path") is not None
-            for p in svc.core_services.values()
-        )
-        if declares_hc:
-            qualifying.append(name)
-
-    if not qualifying:
-        report.add(
-            "healthcheck_tooling",
-            True,
-            "no health_check_path-declaring web services — nothing to check",
-        )
-        return
-
-    problems: list[str] = []
-    for svc in qualifying:
-        svc_dir = worktree / "core" / svc
-        tag = f"docex-hcgate-{svc}:check"
-        build_rc = docker.build_image(svc_dir, target="prod", tag=tag)
-        if build_rc != 0:
-            # The build gate will also catch this; record + move on so the
-            # operator still sees the curl status of any other service.
-            problems.append(f"{svc}: image build failed")
+        hcp = (svc.model_extra or {}).get("health_check_path")
+        if not isinstance(hcp, str) or not hcp:
             continue
-        probe_rc = docker.run_one_shot(
-            tag,
-            ["sh", "-c", "command -v curl >/dev/null 2>&1"],
-            remove=True,
-        )
-        if probe_rc != 0:
+        checked += 1
+        satisfied = False
+        readable = 0
+        searched: list[str] = []
+        for exp in group:
+            searched.append(exp.path.name)
+            try:
+                doc = yaml.safe_load(exp.path.read_text()) or {}
+            except yaml.YAMLError as exc:
+                problems.append(f"{exp.path.name}: malformed YAML ({exc})")
+                continue
+            readable += 1
+            paths_map = (doc.get("paths") or {}) if isinstance(doc, dict) else {}
+            if _declares_get(paths_map, hcp):
+                satisfied = True
+        # A group whose every contract is unreadable already produced one problem
+        # per file. Adding "no contract declares GET <path>" on top would report a
+        # CONSEQUENCE of the parse failure as if it were a second, independent
+        # defect. Where at least one file parsed, the message is earned.
+        if not satisfied and readable:
             problems.append(
-                f"service {svc!r} declares health_check_path but its image "
-                "lacks curl; the Docker healthcheck will fail and Traefik will "
-                "drop the route. Add curl to its Dockerfile "
-                "(apt-get/apk install curl)."
+                f"{ServiceRef(*key).dotted}: no openapi contract declares "
+                f"'GET {hcp}' (its declared health_check_path); searched "
+                f"{', '.join(searched)}"
             )
 
     if problems:
-        report.add("healthcheck_tooling", False, "; ".join(problems))
+        report.add("contract_health_path", False, "; ".join(problems))
     else:
         report.add(
-            "healthcheck_tooling",
+            "contract_health_path",
             True,
-            f"curl present in {len(qualifying)} web-service image(s)",
+            (
+                f"'GET <path>' present for {checked} web-network openapi "
+                f"provider(s)"
+                if checked
+                else "no web-network openapi providers — nothing to check"
+            ),
         )
 
 
@@ -645,15 +589,24 @@ def _gate_codebase_scripts(
     ctx: ProjectContext,
     report: CheckReport,
 ) -> None:
-    """``build.sh`` and ``test.sh`` for every codebase; ``migrate.sh``
-    for any codebase that's a schema owner."""
+    """``build.sh``, ``test.sh`` and ``health.sh`` for every codebase;
+    ``migrate.sh`` for any codebase that's a schema owner.
+
+    `health.sh` is invoked **per core service**, as ``./health.sh <service>`` —
+    the compiler supplies the argv (cicd.md § Check Step 3.1). That changes
+    nothing here (one file per codebase either way), which is exactly why it is
+    worth saying: `build.sh`/`test.sh`/`migrate.sh` are properties of the source
+    tree and so codebase-scoped, while health is a property of a running process.
+    A reader who knows the argv exists would otherwise expect a per-core-service
+    check in this gate and find none.
+    """
     problems: list[str] = []
     all_codebases = codebases(ctx)
     schema_owners = set(codebases_with_schema(ctx))
 
     for cb in all_codebases:
         cb_root = worktree / "core" / cb
-        for script in ("build.sh", "test.sh"):
+        for script in ("build.sh", "test.sh", "health.sh"):
             path = cb_root / script
             if not path.is_file():
                 problems.append(f"core/{cb}/{script} missing")
@@ -672,7 +625,8 @@ def _gate_codebase_scripts(
         report.add(
             "codebase_scripts",
             True,
-            f"build.sh/test.sh present for {len(all_codebases)} codebase(s)",
+            f"build.sh/test.sh/health.sh present for {len(all_codebases)} "
+            f"codebase(s)",
         )
 
 
@@ -834,9 +788,8 @@ def run_check(
         if not empty_origin:
             _gate_version_not_released(project_root, worktree, git, report)
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
-        _gate_health_endpoints(worktree, worktree_ctx, contracts, report)
+        _gate_contract_health_path(worktree_ctx, contracts, report)
         _gate_codebase_scripts(worktree, worktree_ctx, report)
-        _gate_healthcheck_tooling(worktree, worktree_ctx, docker, report)
         _gate_observability_backend_url_reachable(worktree_ctx, report)
 
         # If any gate failed, surface aggregated report and stop.

@@ -602,6 +602,32 @@ suite must be green again between each.
 Record, for each row, the test name and the one-line failure message you actually saw.
 That list goes in your report.
 
+### 7.1 Addendum — three prescribed mutations were wrong (found during execution)
+
+Corrected in review rather than silently, because a red-before-green table whose
+mutations do not bite is worse than no table: it certifies coverage that does not
+exist. The behaviors are all genuinely covered; three of the *mutations* named above
+were badly chosen.
+
+| Row | Why the named mutation stayed green | Mutation that actually bites |
+| --- | ----------------------------------- | ---------------------------- |
+| 5, `test_wrong_extension_is_an_orphan` | Re-accepting `.yaml` in the parser does not move the *expected* filename (built from `_FORMAT_EXTENSIONS`), and `.yaml` is flagged by the extension arm whether or not it parses — so both clauses still fire. | `_FORMAT_EXTENSIONS["openapi"] = "yaml"` → `1 contract(s) present` |
+| 8, `test_non_web_openapi_provider_needs_no_health_path` | § 4.3.16's fixture declares no `health_check_path`, so the *second* skip already exempts it; the network guard is doing no work in that test. | Drop **both** guards → `api.internal: no openapi contract declares 'GET None'`. Better: the new `test_health_path_skipped_for_non_web_service_declaring_the_field` (added in review) declares the field on a non-`web` service — a document rule 33 rejects but which **reaches this gate anyway**, since gates run before compile — so dropping the network guard alone is now red. |
+| 10, `test_check_reaches_compile_when_a_surface_is_skipped` | Moving the gates after `run_compile` leaves compile raising `ValidationError` either way. The test pins **reachability**, not order. | Delete the `run_compile` call from `run_check` → `Failed: DID NOT RAISE ValidationError` |
+
+Row 10 is the substantive correction and Ruling 6's phrasing ("a reorder of
+`run_check`") does not survive contact with the code: a reorder is harmless. The hole
+opens if `run_compile` stops being *reached* — an early return, a `--gates-only` flag
+— or stops validating. The test's docstring and `_expected_contracts`' comment were
+rewritten to say reachability, so neither now claims a protection it does not provide.
+
+Two behaviors added in review, both demonstrated red:
+
+| Behavior | Mutation | Observed |
+| -------- | -------- | -------- |
+| a group whose every contract is unreadable reports the parse failure only | `if not satisfied and readable:` → `if not satisfied:` | `'no openapi contract declares' is contained here: api.web: no openapi contract declares 'GET /health'…` |
+| the `web`-network guard is load-bearing | delete the `"web" not in (svc.networks or [])` guard | `AssertionError: api.internal: no openapi contract declares 'GET /health'…` |
+
 Finally:
 
 - `python -m pytest tests/unit -q` — report the count against the **1036** baseline.

@@ -282,10 +282,13 @@ This makes `sh` and `find` a requirement of the `dev` stage image. `sh` was
 already one (`build.sh` is `#!/bin/sh`, invoked as `./build.sh`); `find` is in
 both coreutils and busybox, so any base carrying a build toolchain has it. It is
 deliberately **not** a doctrine rule: the doctrine's one image requirement
-(`curl`) is backed by a `docex check` gate, and an image requirement with no gate
-is a claim in the rule of record that nothing verifies. Whether `find` should be
-promoted to doctrine *together with* a `check` gate alongside `curl` is a
-coherent question for a future advance — the failure mode meanwhile is loud
+(`health.sh`, per `infrastructure.md § Codebase Containers`) is backed by a
+`docex check` gate (`codebase_scripts`), and an image requirement with no gate is
+a claim in the rule of record that nothing verifies. Mod 126 is the worked
+example — `curl` held this slot until the doctrine stopped mandating it, and its
+gate was deleted rather than narrowed precisely so the pairing stays honest in
+both directions. Whether `find` should be promoted to doctrine *together with* a
+`check` gate alongside `health.sh` is a coherent question for a future advance — the failure mode meanwhile is loud
 (`find: not found`, non-zero exit, immediate build failure), not silent.
 
 It carries the codebase's image ref (identical across the codebase's core

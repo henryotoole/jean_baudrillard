@@ -124,11 +124,21 @@ class VersionAlreadyReleased(DocexError):
 
 
 class ContractMissing(DocexError):
-    """A required ``infra/contracts/<codebase>.<service>.<fmt>.yml`` is absent."""
+    """A required contract file is absent.
+
+    One per declared surface, at
+    ``infra/contracts/<codebase>.<service>.<surface>.<format>.<ext>``.
+    """
 
 
 class ContractInvalid(DocexError):
-    """A contract file is missing a doctrinally required endpoint."""
+    """A contract file is missing a doctrinally required endpoint.
+
+    There is exactly one such endpoint: a `web`-network core service's declared
+    ``health_check_path``, in its ``openapi`` surface's contract. That is
+    ``docex check``'s ``contract_health_path`` gate, which reports through
+    ``CheckReport`` rather than raising this.
+    """
 
 
 class BuildxFailed(DocexError):
