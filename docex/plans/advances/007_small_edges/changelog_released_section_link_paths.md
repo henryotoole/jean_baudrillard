@@ -46,3 +46,34 @@ Two rules collided here and both are sound: *frozen history is not revised*, and
 may be repointed where a **claim** may not — `upgrades/README.md` already says
 exactly this about upgrade guides, and the same distinction should govern the
 changelog. Worth stating once, somewhere both files can cite.
+
+## A third end state, found by mod 132 (appended)
+
+Mod 132 implemented option (1) and, while measuring whether the repo-root files
+could come into scope at all, found a case neither option above contemplates.
+
+`CHANGELOG.md:633` — inside **`[Unreleased]`**, so not frozen and not covered by
+the exclusion — reads:
+
+> `doctrine_excerpts/secrets.md` cited `specifics/release_mechanism.md § Secrets`
+> — a file and a heading that have **never existed** …
+
+That is a changelog entry describing mod 118's *repair* of a dead citation. The
+citation is quoted **in order to be dead**, as evidence. Any checker pointed at
+that file flags it, and no repair is possible: rewording it would destroy the
+evidence, and the entry is a claim rather than a link target.
+
+So repairing the fourteen paths (option 2) is **not sufficient** to bring the
+repo-root files into scope. A checker reaching released history — or any live
+prose that quotes a dead reference — needs an inline suppression marker
+(`<!-- linkcheck-ignore -->` on the line, about two lines of code in
+`scannable_lines`). Mod 132 declined to add one on the grounds that it would have
+exactly one user, and left the root files out of scope for this measured reason
+rather than an aesthetic one.
+
+Whoever takes this brief therefore chooses between three end states, not two:
+(1) exclude frozen sections — **done**; (2) repair the fourteen paths; (3) add a
+suppression marker, which is what option (2) additionally requires if the goal is
+`CHANGELOG.md`, `README.md`, and `RELEASING.md` inside the default scan. Accepting
+a *file* (not only a directory) as a root is a five-line change in
+`linkcheck.py::main`, deliberately not made.

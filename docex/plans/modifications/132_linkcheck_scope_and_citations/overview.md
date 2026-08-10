@@ -405,6 +405,13 @@ buys two lines of prose in files the tool will not flag. Say the word and I will
 fix them in bounded form (both repaired citations verify); otherwise they belong
 to whoever next touches those trees, and this table is the record.
 
+> **Ruled (§ 12.3): sarge takes them**, accepting the reasoning and overriding the
+> conclusion — the debt is owed because downstream projects copy those trees, and
+> the vehicle is mod 130's full cadence (inner commit, `git tag -f`, outer
+> catchup), which exists to keep audit box A.2.1's "on `main`, clean, tag at HEAD"
+> true across exactly this kind of edit. Neither seed repo was entered by this mod;
+> both remain clean.
+
 ## 12. Rulings at design review
 
 Recorded so they are not re-litigated during implementation.
@@ -435,17 +442,124 @@ Recorded so they are not re-litigated during implementation.
    exist *in order to be dead*, as evidence of a repair, so any checker reaching
    released history needs a suppression marker rather than a fix.
 
-## 13. Findings raised rather than fixed
+## 13. Implementation review
 
-1. **`RELEASING.md:74` says "five-artifact alignment check".** The advance plan's
-   Goal 3 SC 1 and `docex_process.md` both say **six** (`doctrine_excerpts` is the
-   sixth). A release gate that under-counts the artifacts it gates is worth one
-   word. Not my file, not my subject.
-2. **The fail-open anchor guard** (§ 3) — fixed in this mod, but recorded as a
+Zero design drift. `linkcheck.py` is **byte-identical** to the specification in
+`implementation.md` (verified by extracting the spec's code fence and diffing).
+Every figure in § 1.1's expected table came out exactly — 127 files, 54 check-3
+files, 237/7/2 exact/truncated/extended, 5 identifier refs, 27 unbounded, 0
+ambiguous, 545 frozen lines, one finding. **No matching rule was loosened to make
+a test pass**, which was the one thing the implementor was told to escalate.
+
+The demonstration is recorded in `implementation.md § Demonstration` with three
+runs, and the count movement is the part that carries it: the reconstructed dead
+citation moved from `exact` (237) into a finding (236), and the repair moved it
+back and then to 238 once `PRE_CUT_CHECKLIST.md` was fixed. **A repair that merely
+deleted a citation would have left `exact` at 237** — so the census, not just the
+exit code, distinguishes fixing a citation from removing one. The implementor also
+mutated three properties in a throwaway copy to prove the positive control is not
+a tautology: stripping `_` → 3 failures, collapsing hyphen runs → 2, scanning the
+raw line instead of the link-collapsed one → 2. Each of the advance's two real
+false-positive classes trips `assert problems == []`.
+
+### 13.1 One thing the design got wrong: there was already a test file
+
+**`docex/tests/unit/test_linkcheck.py` exists** — 7 tests for this executor, in
+`docex`'s suite, and its docstring says why: *"this suite is the only harness the
+release gates actually run."* § 9's argument for colocating ("`linkcheck.py` is
+not `docex` code") was made in ignorance of a deliberate prior decision, and the
+1174 baseline **already included** these tests. One of them,
+`test_two_same_named_doctrine_files_still_reported`, failed under the new rule —
+correctly: it built a fake `tmp_path/doctrine` and passed under the old
+**root-basename** scoping, which a directory *named* `doctrine` satisfied by
+coincidence. § 6's allowlist keys on the real `$jb/doctrine`, so check 3 reported
+`0 files` and exited 0.
+
+Resolved inside this mod, in the territory sarge's kickoff named ("`linkcheck.py`,
+**its tests**"), and the resolution keeps every constraint: the test now
+monkeypatches `DOCTRINE_ROOT` onto the fixture, so it asserts the *rule* rather
+than the coincidence, and the gate count stays at **1174**.
+
+**Both suites stay, and the division is now written into both docstrings** rather
+than left as an accident:
+
+| Home | Seam | Runner |
+| ---- | ---- | ------ |
+| `docex/tests/unit/test_linkcheck.py` (7) | `main()` — argv, exit codes, the module's real defaults | `docex`'s suite, which the release gates habitually run |
+| `skills/cohere/executor/tests/` (21) | `run_checks` — the ladder, slugify, the declined classes, the controls | bare `python3`, no venv; gated from `cohere`'s body |
+
+Two homes for one tool would be drift if they covered the same seam. They do not:
+the colocated tests inject `doctrine_root`, which is precisely what the CLI tests
+cannot do. **A gating gap surfaced while writing that down and is recorded in both
+files:** `RELEASING.md`'s table fires `pytest` on a *docex* change and `cohere` on
+a *doctrine-prose* change, and a change to `linkcheck.py` alone is **neither** —
+it is a `skills/` change, which gates the skill evals. Neither suite is
+automatically gated for the one change class that most needs them.
+
+### 13.2 Three corrections made during review
+
+1. **`SKILL.md`'s preamble contradicted the bullet two lines below it** — "Run
+   both executors first … defaults to `doctrine/` + `skills/`" where there are now
+   three invocations and `linkcheck.py` defaults to five roots. My step 6 told the
+   implementor to leave every other line alone; the instruction was wrong and it
+   correctly reported rather than exceeded it.
+2. **The test invocation gained `-p no:cacheprovider`, and it is load-bearing.**
+   `verify_examples.py` has no skip-dirs guard, so it counts every `.md` under its
+   roots — including `.pytest_cache/README.md`. Telling a cohere agent to run
+   pytest *in the executor directory* would therefore have made the very next
+   bullet's file count read 77 instead of 76: a defect introduced by this mod's own
+   instructions, in the count that bullet tells readers to trust. Suppressing the
+   cache directory fixes it without reaching into a file outside this territory.
+3. **The old fixture comment justifying `sys.dont_write_bytecode`** ("the skills
+   tree has no `.gitignore` covering it") is now stale — this mod adds one. The
+   guard stays, with the reason restated: residue on disk still inflates
+   `verify_examples.py`'s census.
+
+## 14. Findings raised rather than fixed
+
+1. **`verify_examples.py` is RED at HEAD: seven doctrine CICL examples no longer
+   validate — and this advance is what invalidated them.** The failures name
+   **rules 31, 32, and 33** and the `graphql`-format-not-implemented rule, i.e.
+   every rule mod 125 introduced: the examples still declare a `port` on a
+   surface-less worker, a `web` service with no `health_check_path`, and `uses`
+   edges onto core services declaring no `surfaces:`. Fences at
+   `cicl.md:386`, `cicl.md:433`, `shape.md:100`, `specifics/clock.md:17`, and
+   `specifics/transfer_tables.md:553`, `:624`, `:695`.
+
+   Proven independent of mod 132 (the implementor reproduced it byte-identically
+   under `git stash --include-untracked`, and no file under `doctrine/` is touched
+   by this mod). **It is invisible because nothing has run that harness since the
+   doctrine edits landed at `9b16937`** — the standing instruction for this advance
+   has been "`linkcheck doctrine skills` must stay green", and `linkcheck` cannot
+   see a fence that fails to compile. This is precisely the failure the cohere
+   skill's own text warns about: *"Advance 005 found the canonical `cicl.md` example
+   broken twice … and neither was a shipped check at the time."* It is now a shipped
+   check and it is red.
+
+   **Doctrine prose, so untouched by me, and it is a cut blocker rather than a
+   note:** Goal 3 SC 4 requires cohere findings resolved, and a project author
+   copying `cicl.md`'s example writes an `infra.yml` this compiler rejects.
+2. **`RELEASING.md` says "five-artifact alignment check"** at **two** lines, `:10`
+   and `:73` — not the single `:74` my design recorded. `docex_process.md` and the
+   advance plan's Goal 3 SC 1 both say **six** (`doctrine_excerpts` is the sixth,
+   added by mod 111). A release gate that under-counts the artifacts it gates is
+   worth one word. Assigned to sarge at § 12.3; the location is corrected here.
+3. **`verify_examples.py` has no skip-dirs guard** (`rglob("*.md")` at `:315`), so
+   generated residue enters its census: with a `.pytest_cache/README.md` present it
+   reports 77 markdown files where `linkcheck` reports 76. Pre-existing and
+   harmless to correctness — a README has no yml fences — but it inflates a count
+   the `cohere` body tells readers to trust. This mod neutralised the *interaction*
+   it would otherwise have caused (§ 13.2.2) rather than reaching into that file.
+4. **The fail-open anchor guard** (§ 3) — fixed in this mod, but recorded as a
    *finding about the verifier* because that is the more transferable fact: the
    tool the doctrine uses to check itself contained the defect class the doctrine
    spent an advance cataloguing, and it was invisible because failing open prints
-   nothing.
-3. **A quoted dead citation cannot be told from a live one** (decision 2 above) —
+   nothing. Sharpened by review: **mod 121's changelog entry already reports this
+   fail-open as addressed** ("its anchor check silently *failed open* on any target
+   outside the scanned root … anchors resolve across both trees"). Adding `skills/`
+   as a root closed the *instance* and left the guard — and therefore the class —
+   in place. A defect described as fixed in a changelog is harder to find twice
+   than one never mentioned.
+5. **A quoted dead citation cannot be told from a live one** (decision 2 above) —
    appended to the 007 changelog brief, because it is the one structural obstacle
    between this tool and full repo coverage.

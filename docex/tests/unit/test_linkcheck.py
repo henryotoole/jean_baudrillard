@@ -1,8 +1,21 @@
-"""Tests for the cohere executor `linkcheck.py`.
+"""End-to-end CLI tests for the cohere executor `linkcheck.py`.
 
 WHY these live in `docex/tests/unit/` even though `linkcheck.py` is not docex
-code: this suite is the only harness the release gates actually run, and an
-untested check is exactly the defect this module exists to prevent.
+code: this suite is the harness the release gates habitually run, and an untested
+check is exactly the defect this module exists to prevent.
+
+WHY there is a second suite, and what divides them: `linkcheck.py`'s unit tests
+live beside the executor at `skills/cohere/executor/tests/`, run under bare
+`python3` with no virtualenv, and are gated from the `cohere` skill body. They
+test `run_checks` — the matching ladder, slugify, the declined classes — with an
+injected `doctrine_root`. **These tests own the other seam:** `main()` itself, via
+argv and exit codes, against the module's real defaults. Neither file's cases
+belong in the other, and the split is by seam rather than by convenience.
+
+Gating gap worth knowing: `RELEASING.md`'s table fires `pytest` on a *docex*
+change and `cohere` on a *doctrine-prose* change. A change to `linkcheck.py`
+alone is neither — it is a `skills/` change — so run both suites by hand when
+editing the executor.
 """
 
 import importlib.util
@@ -22,7 +35,9 @@ def linkcheck():
     spec = importlib.util.spec_from_file_location("linkcheck_under_test", _LINKCHECK_PATH)
     mod = importlib.util.module_from_spec(spec)
     # WHY: exec_module would otherwise drop a __pycache__ dir into the skills
-    # tree, which has no .gitignore covering it.
+    # tree. `skills/cohere/executor/.gitignore` now covers it, but the guard
+    # stays: residue on disk still inflates the file count `verify_examples.py`
+    # reports, because that executor has no skip-dirs guard.
     prev = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
@@ -128,11 +143,21 @@ def test_two_skill_md_files_are_not_duplicate_findings(
 def test_two_same_named_doctrine_files_still_reported(
     linkcheck, monkeypatch, tmp_path, capsys
 ):
+    """Check 3's scope is the doctrine corpus, so the fake tree must BE it.
+
+    WHY the monkeypatch: check 3 used to be scoped by root *basename* (any root
+    not named `skills`), which a tmp tree called `doctrine` satisfied by
+    coincidence. It is now an allowlist keyed on the real `$jb/doctrine`, so that
+    widening the scan can never make the check fire on a deliberately-mirrored
+    tree. Pointing DOCTRINE_ROOT at the fixture is what makes this test assert the
+    rule rather than the coincidence.
+    """
     doctrine, skills = _corpus(
         tmp_path,
         {"charts/configurable.md": "# A\n", "infra/configurable.md": "# B\n"},
         {"one/SKILL.md": "# One\n"},
     )
+    monkeypatch.setattr(linkcheck, "DOCTRINE_ROOT", str(doctrine))
     assert _run(linkcheck, monkeypatch, [doctrine, skills]) == 1
     out = capsys.readouterr().out
     assert "DUP FILENAME" in out

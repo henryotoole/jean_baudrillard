@@ -340,6 +340,26 @@ rollback-unavailable boundary inside one cut.
 
 ### Fixed
 
+- **`linkcheck.py`'s anchor check failed open, silently, on every target outside
+  the scanned roots (mod 132).** The guard read `if rp in anchors and ...` against
+  a table built only from *scanned* files, so a link into any unscanned tree had
+  its anchor skipped with no output at all — under the headline "No broken links,
+  bad anchors, or duplicate filenames found." Mod 121's entry below reports this
+  same fail-open as addressed by scanning `skills/` as well; that closed the
+  *instance* (skill→doctrine pointers) and left the *class* intact, which is why
+  it is being fixed a second time. Anchors are now resolved on demand for any
+  markdown target, and the count that resolved outside the scanned roots is
+  **printed** — measured exposure was one anchor at each scope, both live, so this
+  was hiding nothing today. The lesson generalised into the file: **a verifier may
+  decline to answer, but it may not decline quietly.** Everything the tool cannot
+  check — unverifiable anchors, ambiguous filenames, unbounded citations — is now
+  counted and reported in a `Declined` block.
+- **A dead prose citation in `PRE_CUT_CHECKLIST.md` that no link check could see
+  (mod 132).** `B.1` cited `infrastructure.md § Codebase Structure` while
+  anchoring correctly at `#repository-structure`; the file has *Repository
+  Structure* and *Codebase Containers* and no *Codebase Structure*. The anchor
+  resolved, so the words were nobody's to verify. Found by the new citation arm on
+  its first run over the file it was built to reach.
 - **The docs describing `check`'s contract and health gates described the deleted
   model (mod 131).** `masterplan.md` still narrated the two-armed provider union,
   format-from-`role`, the openapi fallback, self-health for every openapi provider,
@@ -798,6 +818,36 @@ rollback-unavailable boundary inside one cut.
   worker's implementation and destroy the deferral architecture. Downstream
   projects copy that tree, which is why it is announced rather than left to be
   found.
+- **`linkcheck.py` reads citations, and its two checks now scope independently
+  (mod 132).** A citation has two halves that drift apart — a machine-readable
+  anchor and human-readable words — and only the anchor was ever checked. The tool
+  now resolves the words of a `<file>.md § <Heading>` reference against the target's
+  real headings, in link text and in inline-code spans alike. Three instances of
+  exactly this drift were found *by hand* during advance 006 and a fourth by the
+  arm's first run. Two design facts are worth recording because they are what makes
+  it shippable rather than noisy. First, **the naive version reports 98 false
+  positives**: the dominant form in this corpus is a citation inside markdown link
+  text, whose anchor check 1 already resolves, so matching `<file>.md §` on a raw
+  line duplicates a working check and fires on a clean tree. Second, a citation
+  whose heading text has **no closing delimiter** — bare prose running into the
+  sentence — has its file verified and its heading *counted, never guessed*; three
+  measured shapes each defeat a different guess about where the text ends, and a
+  wrong finding provokes a wrong repair. Bounding a citation in one backtick span
+  is what brings its words into checked scope. Alongside, the duplicate-filename
+  check becomes an **allowlist of the doctrine corpus** instead of every root minus
+  `skills/`: the exemption list had grown twice for one reason (mirrored trees are
+  mandated — by the Agent Skills Standard, by audit box B.14, and by
+  `doctrine_excerpts/`'s design), and as an allowlist, widening the scan can never
+  make the check fire. That is what lets the default scan reach
+  `PRE_CUT_CHECKLIST.md` — which gates both smoke walks — and `doctrine_excerpts/`,
+  the one aligned artifact with no other automated consumer, while still exiting 0
+  on a clean tree. **Released `CHANGELOG.md` sections are excluded from both
+  checks**, here and in the seed projects: they are frozen history, and a link
+  target may be repointed where a claim may not. The executor gains its own unit
+  suite at `skills/cohere/executor/tests/` (21 tests, bare `python3`, no venv),
+  whose centrepiece is a positive control — because this advance produced two
+  tooling *false* positives, and a checker that reports violations where none exist
+  is as corrosive as one that misses them.
 
 ### Removed
 

@@ -896,3 +896,93 @@ Report back, with numbers rather than adjectives:
 5. `linkcheck doctrine skills` → green, 76 files.
 6. Anything you found that is wrong and outside your territory, quoted with
    file:line, **not fixed**.
+
+---
+
+## Demonstration
+
+Step 2, executed. The arm was made to fail on a reconstruction of the real
+instance before any of its passes were believed. Three runs are recorded rather
+than two: step 2 runs *before* step 3, so the immediate post-revert contrast
+still carries the live `PRE_CUT_CHECKLIST.md:182` finding. The green run is the
+same invocation after step 3's one-word repair.
+
+### Red — `docex/doctrine_excerpts/service_discovery.md:22` reverted to its pre-131 dead form
+
+`` `infrastructure/specifics/release.md § Service Connect Consumer Reconcile` ``
+→ `` `cicl.md § Resilience covers reachability, not resolvability` ``
+
+```
+$ docex/.venv/bin/python skills/cohere/executor/linkcheck.py; echo "exit=$?"
+BAD CITATION docex/doctrine_excerpts/service_discovery.md:22  -> cicl.md § Resilience covers reachability, not resolvability  (heading not found in doctrine/infrastructure/cicl.md)
+BAD CITATION docex/test_projects/PRE_CUT_CHECKLIST.md:182  -> infrastructure.md § Codebase Structure  (heading not found in doctrine/infrastructure/infrastructure.md)
+
+Scanned 127 markdown files under doctrine, skills, docex/doctrine_excerpts, docex/plans/core, docex/test_projects
+  links, anchors, citations : 127 files
+  duplicate filenames       : 54 files (the doctrine corpus only)
+  anchors                   : 518 checked, 1 of them outside the scanned roots, 0 unverifiable
+  citations                 : 245 checked (236 exact / 7 truncated / 2 extended), 5 identifier refs, 27 unbounded (file checked, heading not), 0 ambiguous
+  frozen changelog lines    : 545 skipped
+exit=1
+```
+
+The arm names the resolved target file (`doctrine/infrastructure/cicl.md`) rather
+than the cited basename, which is what makes the finding actionable. Note the
+citation count: **245 checked / 236 exact**, one below the clean figure — the
+citation did not vanish from the census, it moved from `exact` into a finding.
+
+### Contrast — the repair restored, step 3 not yet applied
+
+```
+$ git checkout docex/doctrine_excerpts/service_discovery.md
+$ docex/.venv/bin/python skills/cohere/executor/linkcheck.py; echo "exit=$?"
+BAD CITATION docex/test_projects/PRE_CUT_CHECKLIST.md:182  -> infrastructure.md § Codebase Structure  (heading not found in doctrine/infrastructure/infrastructure.md)
+
+Scanned 127 markdown files under doctrine, skills, docex/doctrine_excerpts, docex/plans/core, docex/test_projects
+  links, anchors, citations : 127 files
+  duplicate filenames       : 54 files (the doctrine corpus only)
+  anchors                   : 518 checked, 1 of them outside the scanned roots, 0 unverifiable
+  citations                 : 246 checked (237 exact / 7 truncated / 2 extended), 5 identifier refs, 27 unbounded (file checked, heading not), 0 ambiguous
+  frozen changelog lines    : 545 skipped
+exit=1
+```
+
+The `service_discovery.md` line is gone and `exact` returns to 237. Only the one
+predicted live finding remains — the figures here are § 1.1's expected table
+exactly, in every row.
+
+### Green — after step 3's one-word repair
+
+```
+$ docex/.venv/bin/python skills/cohere/executor/linkcheck.py; echo "exit=$?"
+No broken links, bad anchors, dead citations, or duplicate filenames found.
+
+Scanned 127 markdown files under doctrine, skills, docex/doctrine_excerpts, docex/plans/core, docex/test_projects
+  links, anchors, citations : 127 files
+  duplicate filenames       : 54 files (the doctrine corpus only)
+  anchors                   : 518 checked, 1 of them outside the scanned roots, 0 unverifiable
+  citations                 : 247 checked (238 exact / 7 truncated / 2 extended), 5 identifier refs, 27 unbounded (file checked, heading not), 0 ambiguous
+  frozen changelog lines    : 545 skipped
+exit=0
+```
+
+`exact` rises to 238: the repaired citation is now *verified*, not merely absent
+from the findings. That is the property that distinguishes this repair from
+deleting the citation.
+
+### Fixture sensitivity, checked the same way
+
+The § 5.1 positive control was confirmed to be a control rather than a
+tautology, by mutating `linkcheck.py` in a throwaway copy and observing
+`test_positive_control_reports_nothing` fail each time (the real file was never
+edited):
+
+| Mutation | Reproduces | Result |
+| -------- | ---------- | ------ |
+| `slugify` strips `_` | mod 131's ad-hoc checker | 3 failed, 18 passed |
+| `slugify` collapses whitespace runs (`\s` → `\s+`) | this file's original bug | 2 failed, 19 passed |
+| `prose_citations` scans the raw line instead of collapsing links | the 98-false-positive prototype | 2 failed, 19 passed |
+
+Each mutation trips `assert problems == []` in the positive control, so all three
+false-positive classes this advance produced are pinned by assertion rather than
+by a clean run.
