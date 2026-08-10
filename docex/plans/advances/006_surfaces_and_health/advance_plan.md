@@ -281,6 +281,33 @@ a different measurement apparatus from anything else in this advance.
 9. **Mod 133: `preinfra development` probes the registry's delete capability.**
    `corporal`. Independent of everything above; order is free.
 
+### Carry-forward into mod 131 and the walks
+
+Verification hazards discovered by *doing* the verification, each of which produced
+a result that looked like an answer and was not. They belong in
+`PRE_CUT_CHECKLIST.md` and `docex_process.md` respectively, because every one of
+them would mislead the next person to check the same thing.
+
+1. **`kill -STOP 1` inside a container wedges nothing.** PID 1 in a PID namespace
+   is immune to `SIGSTOP` from inside it. Mod 129's first wedge attempt was a
+   silent no-op and the probe kept reporting green — which would either condemn a
+   correct probe or record a pass from a wedge that never happened. **Wedge from
+   the host, against `{{.State.Pid}}`.**
+2. **After any source edit, `./bin/docex build` before probing.** `envinfra up dev`
+   left the host `dist/` stale, so the stack came up running *pre-mod* entrypoints
+   and the probe answered "no tick file" — indistinguishable from the absent-tick
+   arm working correctly. This is the dev model behaving as designed (source
+   arrives by bind mount; `dist/` is refreshed by `build`), which is exactly why it
+   is a trap rather than a bug. Order: `up` → `build` → restart.
+3. **`pytest` must be invoked as `python -m pytest`.** The bare binary cannot
+   collect this suite and reports **17** deselected instead of 18 — a count near
+   enough to the truth to be believed while nothing ran.
+4. **The default suite is `pytest tests`, not `pytest tests/unit`**, and
+   `-m integration` must run **alone**. See mod 128: sixty fast compile tests live
+   under `tests/integration/` with no marker, so the conventional pair of
+   invocations has a sixty-test hole between them that is invisible from either
+   side.
+
 ## Close-out
 
 10. **Static audits.** `cohere` over the doctrine (RELEASING gates it whenever
