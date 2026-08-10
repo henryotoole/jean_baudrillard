@@ -31,9 +31,32 @@ would mean re-deriving an 18-file audit, a per-file blame ratio, and a
 pass. Tier 2, by contrast, is a clean handoff: seventeen independent claims, each with
 its own file and its own verified truth, none of which depends on anything in Tier 1.
 
-## Escalations — three, and the first one matters
+## Escalations — three, all resolved
 
-### E1. Rule 33 is factually wrong about the ec2_traefik target group, and so is the docstring cited as its authority
+**All three were escalated at the design gate and answered. Decisions are recorded
+inline below.** The split (134 = Tier 1 + Tier 3, 134b = Tier 2) is approved, as are
+all five of the corrections this mod made to the brief it was given.
+
+### E1. Rule 33 was factually wrong about the ec2_traefik target group — RESOLVED at the source
+
+**DECISION: the C.O. fixed rule 33 himself in `7f8d261`. Do not edit rule 33; align
+items 2 and 3 to its new text. Item 5 is dropped. The stale `hcl.py:830-837` docstring
+moves into Tier 1 as this mod's to kill.**
+
+The corrected rule now reads: consumed by the ALB target group on `elastic` + `alb`
+**alone**, and **no consumer at all everywhere else**, uniformly — rather than
+special-cased per proxy. It still requires the field everywhere for portability, and it
+now records that neither traefik path routes on health in any case.
+
+Worth keeping on the record, because it is this advance's own defect class committed
+into the rule of record: the false clause was built on `render_target_group`'s
+docstring, which describes a cleanup that had already happened. **Two docstrings in one
+file contradict each other** — `_destination_applicable`'s is correct,
+`render_target_group`'s is stale — and the stale one was cited as evidence about
+current behavior. It was caught by checking the claim against the code instead of
+against the citation.
+
+#### The original escalation, retained for the record
 
 **Tier 1 item 5 is inverted.** The brief says `ec2_traefik.md:198-203`'s env-tier list
 omits an `aws_lb_target_group` the compiler emits per `web` core service on that path.
@@ -86,7 +109,11 @@ If you would rather rule 33 not move at all this cycle, say so and I will fix on
 `hcl.py` docstring and leave items 2/3 aligned to the rule as written — but then the
 doctrine keeps a measurably false sentence in a numbered rule.
 
-### E2. `${project_version}` is not a compile-time variable, so Tier 1 item 6 cannot be executed as written
+### E2. `${project_version}` is not a compile-time variable — RESOLVED
+
+**DECISION: approved as corrected. Add `${service}` and `${codebase_name}`; do not add
+`${project_version}`. Annotate `transfer_tables.md:793` rather than rewrite it. Fix
+`${networks}`'s "the list" while in the table.**
 
 Item 6 asks for `${service}`, `${codebase}`, and `${project_version}` to be added to
 `transfer_tables.md`'s always-available table. Measured against
@@ -117,7 +144,10 @@ complete set. Two consequences:
   `",".join(svc.networks)` — a string (`compile.py:745`). Factual correction, in-file,
   taking it.
 
-### E3. `PRE_CUT_CHECKLIST` A.2 is a whole release behind, and fixing it names the next version
+### E3. `PRE_CUT_CHECKLIST` A.2 is a whole release behind — RESOLVED
+
+**DECISION: approved. Make A.2 version-agnostic — a box that reads the version rather
+than restating it stops going stale every cut. No version number is baked in.**
 
 A.2 says the seeds "sit at `1.6.0` today" and asks for a repin to `1.7.0`. Measured:
 both seeds **and** `/VERSION` are already `1.7.0` (`test_projects/fixed/project.yml`,
@@ -151,8 +181,15 @@ Ordered so the two items that depend on E1 come after it.
    leaves `RUNNING`". Recast as lifecycle-state load-balancing. Note the surviving true
    claim: traefik does balance across all running task IPs, which DNS round-robin
    cannot; only the *health* framing is false.
-5. **`ec2_traefik.md:198-203` — no edit.** Replaced by the `hcl.py:830-837` docstring
-   fix per E1.
+5. **`ec2_traefik.md:198-203` — no edit; the list is correct.** Replaced by killing
+   **`emit/hcl.py:830-837`**, `render_target_group`'s stale docstring. It claims "We
+   still emit the target group … even when traefik is the front door the target-group
+   resource is harmless (no ALB attaches to it). Future cleanup mod can prune." Mod 070
+   already pruned it: `_destination_applicable` returns `False` for `target_group`
+   whenever `reverse_proxy != "alb"`, so the function is never reached on that path. The
+   two docstrings in this one file contradict each other, and the stale one is what
+   misled the rule of record. It is the thing that will mislead the next reader the same
+   way.
 6. **`transfer_tables.md:50-65`** — add `${service}` and `${codebase_name}`; correct
    `${networks}`; annotate `:793` per E2.
 7. **`docex_process.md`** — `:170-172` says the bare binary "reports **17** deselected
