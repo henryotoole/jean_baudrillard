@@ -685,8 +685,11 @@ Elastic production-side projinfra applies in two phases separated by an operator
   the worker is a target and never a consumer; **there is no `uses` cycle in
   this project.** For each consumer:
   ```bash
+  # NOTE: service names are CLUSTER-PREFIXED. Passing bare `api-web api-clock`
+  # returns an EMPTY services[] with both names in failures[] as MISSING --
+  # and still exits 0, so an empty table reads as data rather than as an error.
   aws ecs describe-services --cluster docex-smoke-elastic-stage \
-    --services api-web api-clock \
+    --services docex-smoke-elastic-stage-api-web docex-smoke-elastic-stage-api-clock \
     --query "services[].[serviceName,deployments[?status=='PRIMARY']|[0].createdAt]"
   aws servicediscovery list-services \
     --query "Services[].[Name,CreateDate]"
@@ -772,8 +775,11 @@ Elastic production-side projinfra applies in two phases separated by an operator
   the worker is a target and never a consumer; **there is no `uses` cycle in
   this project.** For each consumer:
   ```bash
+  # NOTE: service names are CLUSTER-PREFIXED. Passing bare `api-web api-clock`
+  # returns an EMPTY services[] with both names in failures[] as MISSING --
+  # and still exits 0, so an empty table reads as data rather than as an error.
   aws ecs describe-services --cluster docex-smoke-elastic-prod \
-    --services api-web api-clock \
+    --services docex-smoke-elastic-prod-api-web docex-smoke-elastic-prod-api-clock \
     --query "services[].[serviceName,deployments[?status=='PRIMARY']|[0].createdAt]"
   aws servicediscovery list-services \
     --query "Services[].[Name,CreateDate]"
@@ -807,6 +813,11 @@ Elastic production-side projinfra applies in two phases separated by an operator
   > from a 503 rather than read off the operands. Recording both is what lets a
   > walk *confirm* the predicate instead of inferring it from a green fan-out.
 
+- [ ] **Exactly one ACTIVE `-migrate` task-definition family.** Use
+  `aws ecs list-task-definition-families --status ACTIVE --query "families[?contains(@,'migrate')]"`.
+  **`--status ACTIVE` is load-bearing**: without it the call returns INACTIVE families too, and a
+  pre-rename family from an earlier walk shows up as a second hit — a false FAIL against a correct
+  tree. `verify_clean.sh` already filters on ACTIVE; this box was written without a command at all.
 - [ ] `aws ecs describe-services` reports `desired_count = 2` and two RUNNING tasks for prod's `api-worker` (`replicas: 2` is honoured in prod only).
 - [ ] POST a ping to `https://docex-smoke-elastic.luxrnd.tech/pings` — returns 201; after ~5s the prod RDS shows the row with non-NULL `processed_at`. Same body shape as [C.9](#c9-release-prod): the field is `payload` and it is required, so `{"message": …}` returns 422.
   ```bash
@@ -816,7 +827,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 > **Clock — fire → defer → drain.** Same group as [C.9](#c9-release-prod), translated to elastic. The minutely `heartbeat` job exists solely so this path is observable inside a walk window; `prune_pings` is `0 3 * * *` and will **not** fire during the walk, so do not wait for it.
 
-- [ ] **Expect one failed fire before the migration lands, and do not read it as a regression.** The first-release ordering is `SSM → tofu apply → migrate`, so `api-clock` starts before the schema exists; its first `heartbeat` logs `psycopg2.errors.UndefinedTable: relation "jobs" does not exist`. This is the documented ordering ([`migrations.md § First-Time Release of an Env`](../../doctrine/infrastructure/specifics/migrations.md#first-time-release-of-an-env)) and it self-heals ([`clock.md § Caveats`](../../doctrine/infrastructure/specifics/clock.md#caveats)); the next tick ~60 s later succeeds. The same happens on the D.9 `stage` release, where no box reads the clock's log. **A clock still failing two ticks after the migration completed is a genuine finding.**
+- [ ] **Expect one _or more_ failed fires before the migration lands, and do not read them as a regression.** (Advance 006's walk observed **three**, at 60 s intervals, all strictly before the migration and with the very next tick succeeding: `tofu` waits for all five services to reach steady state before migrating, so the clock can live several minutes pre-schema. Count the fires against the migration's timestamp, not against a fixed number.) The first-release ordering is `SSM → tofu apply → migrate`, so `api-clock` starts before the schema exists; its first `heartbeat` logs `psycopg2.errors.UndefinedTable: relation "jobs" does not exist`. This is the documented ordering ([`migrations.md § First-Time Release of an Env`](../../doctrine/infrastructure/specifics/migrations.md#first-time-release-of-an-env)) and it self-heals ([`clock.md § Caveats`](../../doctrine/infrastructure/specifics/clock.md#caveats)); the next tick ~60 s later succeeds. The same happens on the D.9 `stage` release, where no box reads the clock's log. **A clock still failing two ticks after the migration completed is a genuine finding.**
 - [ ] The clock started and its schedule arrived. The `/docex_smoke_elastic/prod/api-clock` CloudWatch log group shows `clock: 2 scheduled job(s): heartbeat, prune_pings; image implements: …`. This line is still the evidence the schedule **arrived**, so read it — but the comparison itself is now **asserted by the clock at startup** ([`clock.md § How the schedule reaches the container`](../../doctrine/infrastructure/specifics/clock.md#how-the-schedule-reaches-the-container)): a scheduled name with no binding makes the task exit non-zero before entering its loop. So the symptom of a mismatch is an **ECS task that never reaches RUNNING steady state**, not a silently-wrong clock — and if the clock is logging this line, the binding check has already passed.
 - [ ] A fire deferred. Within ~65 s the same log group shows `jobs: 'heartbeat' fired` followed by `jobs: 'heartbeat' deferred as job <uuid>`. **Both lines, not one** — "fired" without "deferred" is the clock reaching the queue and failing.
 - [ ] The worker drained it. The `/docex_smoke_elastic/prod/api-worker` log group shows `jobs: 'heartbeat' performed (job <uuid> …)` carrying the **same uuid**. Matching the uuid is what makes this a proof of the deferral path rather than of two unrelated log lines.
