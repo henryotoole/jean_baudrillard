@@ -585,6 +585,107 @@ step 8 and should find the reason, not a gap.
 
 ---
 
+## 8. Review of the implementation
+
+Docs land as designed. Two small drifts fixed at review, five implementor findings
+accepted, and **one defect escalated out of territory**.
+
+### 8.1 Fixed at review
+
+1. **The fixed masterplan's flow 8 overstated the clock's tick.** It read "touches
+   `/tmp/clock.tick` on every iteration"; `clock.py:206` withholds the tick on a
+   pass where *every* due fire raised. `api.md` carried the exception and the
+   masterplan did not, so the two docs disagreed. Reworded.
+2. **The elastic masterplan's EventBridge bullet had a rotted noun** (implementor
+   finding 7, raised for my call rather than changed unilaterally — the right
+   instinct, because § 2d had frozen the bullet as "still true"). It said
+   EventBridge "could not have invoked a **Service-Connect-discoverable** in-VPC
+   target"; the clock is no longer Service-Connect-registered, so the descriptor is
+   now false of the very service the bullet is about. The *argument* survives and
+   gets stronger. Swapped to "an in-VPC Fargate target". **My § 2d instruction was
+   wrong to freeze it**, which is the same "verbatim is a liability when the
+   substrate is what the mod is changing" lesson mod 129 § 8.1 already recorded —
+   arriving one mod later in a different file.
+
+### 8.2 A defect **out of territory** — escalated, not touched
+
+`docex/tables/roles/web.yml:54–55` (mod 127) states, as justification for
+`startPeriod` being elastic-only:
+
+> nothing on fixed acts on it except traefik, which drops the container from its pool
+
+**Both halves are doubtful and the second is now definitely false.**
+
+- **"Nothing else on fixed acts on it" is falsified by mod 128**, three mods later
+  in this same advance. `pipeline/orchestrator_health.py` reads
+  `.State.Health.Status == healthy` over SSH and fails `stagetest` on anything else
+  — its own docstring says so. Mod 128 built the thing that acts on it and did not
+  update the comment that says nothing does.
+- **"Traefik drops the container from its pool" is unsupported by the compiled
+  output.** `grep -rn loadbalancer.healthcheck test_projects/fixed/infra/output/`
+  returns nothing: the compiler emits `loadbalancer.server.port` and no
+  health-aware load-balancing labels at all, so Traefik performs no active health
+  checking of its own. Whether Traefik's Docker provider consults docker's
+  `State.Health` to pool-manage is a claim about a third-party tool that **nothing
+  in this repo verifies**, and I am not asserting it either way — only that the
+  doctrine asserts it and nothing checks it.
+
+The seeds' docs were about to repeat this sentence verbatim; the implementor caught
+it, verified the compiled output, and wrote the accurate version instead — a claim
+about *the compiled stack* ("nothing in the compiled stack restarts it or reroutes
+around it") plus the true actor (`docex stagetest`). That is what shipped.
+
+**The comment itself is `docex`'s tables and is not mine to edit.** Escalated for a
+ruling. It is a six-artifact-alignment defect of the ordinary kind — mod 127's prose
+made true by mod 127 and falsified by mod 128 — and the natural home for the fix is
+mod 131's alignment sweep.
+
+### 8.3 Accepted implementor findings
+
+- **My step-6 grep was wrong in exactly the way mod 129's was**, and this is the
+  **fourth and fifth** instance of the class. I anticipated it for `fan-out`,
+  excluded that one token, and then included `health_check_path` and
+  `health/api/worker` — both of which steps 2c/2d/2f/3b *commission* in negation
+  ("declares **no `health_check_path`**", "had a `/health/api/worker` fan-out and
+  deliberately does not any more"). Eleven hits, all negations or rule-33
+  statements, verified by reading every one. **The generalisation, since three mods
+  have now hit it:** a zero-hits grep written for a mod that commissions prose
+  *about* a deletion is wrong by construction for every token naming the deleted
+  thing. The residue such a grep can honestly check is the *structural* spellings
+  only — `fanout`, `_build_health_app`, `_HEALTH_PORT`, `_STALENESS_SECONDS`,
+  `/health/probe`, `api.web.openapi`, `liveness surface` — and that reduced pattern
+  returns **zero** across both trees' `plans/`.
+- **`CHANGELOG.md`'s `[Unreleased]` section cannot be free of the retired
+  spellings either**, and my step 6.2 said it must be. A changelog entry announcing
+  a rename has to name the old spelling. Step 5's content and step 6.2's assertion
+  were mutually unsatisfiable; step 5 is right.
+- **Two dead `contracts.md §` citations survive, permanently, inside frozen
+  changelog history** (`fixed/CHANGELOG.md:230,235` and `elastic/CHANGELOG.md:266,271`).
+  Correctly left alone — history is a record. **This is a real design constraint on
+  mod 132's arm and is the most useful thing the review surfaced for it:** a
+  prose-citation checker pointed at this repo will flag these four forever, and a
+  tool that always exits non-zero trains readers to ignore it — which is precisely
+  the failure mod 132 exists *not* to ship. The arm needs a changelog-history
+  exclusion, or an allowlist, from the start.
+- Two unlisted in-scope accuracy fixes the implementor made and reported: both
+  `api.md`s said the composition root "exposes **two** build functions" while
+  listing five (now six, correctly), and the fixed masterplan's flow 2 still said
+  the loop "bumps its monotonic tick". Both in territory and both required for
+  truthfulness. Accepted.
+- Out of scope, for mod 131: `test_projects/PRE_CUT_CHECKLIST.md:201` carries a
+  **markdown** link to `contracts.md#health-checks` — a dead anchor, and one
+  `linkcheck` could already catch today if it could reach that file. Which is mod
+  132's whole subject, so it also corroborates that mod's premise.
+
+### 8.4 Verification after review
+
+- Structural retired spellings across both trees' `plans/`: **zero**.
+- `jobs.md` byte-identical across trees.
+- Every `<file>.md § <Heading>` citation written or changed: 14 distinct headings,
+  each grep-confirmed against its target file.
+- Working tree: the eight `infra/output/**` artifacts plus the eight in-scope docs,
+  and nothing else.
+
 ## Design questions
 
 **None blocking.** The one criterion question this mod would have raised — full
