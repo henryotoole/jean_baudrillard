@@ -14,15 +14,25 @@ The doctrine commits to two foundations. Bugs hit each foundation differently �
 Both projects share the **same code** under `core/`. There is **one codebase carrying three core services**:
 
 - **`api`** — one codebase, one image, three core services.
-  - `api.web` (`role: web`) exposes `POST /pings` + `GET /health` + the `/health/api/worker` fan-out. It declares `uses: [appdb, probe, events, api.worker]` — bare entries name backing services, the dotted one names a core service.
-  - `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, **drains the `jobs` queue**, and serves its own `GET /health` off a monotonic loop tick.
-  - `api.clock` (`role: clock`) is a long-running singleton that owns the cron loop. It declares `schedules: {prune_pings: "0 3 * * *", heartbeat: "* * * * *"}` and `uses: [appdb, api.worker]` — and holds **no magic ref** to the worker, because the edge is the *queue*, not the mesh. It defers and never performs: each fire enqueues a row the worker drains. `prune_pings` carries the retired `reaper` codebase's nightly work on its original schedule; `heartbeat` exists so the fire → defer → drain path is observable inside a walk window.
+  - `api.web` (`role: web`) exposes `POST /pings`, `GET /health`, and `/diagnostics/{probe,events}` for the two project-local container backings. It declares **one** surface, `rest` (`api_styles: [rest]`), giving `api.web.rest.openapi.yml`. It declares `uses: [appdb, probe, events, api.worker]` — bare entries name backing services, the dotted one names a core service — and holds five-segment magic refs to the worker (`WORKER_HOST` / `WORKER_PORT`), which is what makes that edge *directly addressed* under rule 32's positive arm.
+  - `api.worker` (`role: worker`, `replicas: 2`) polls the `pings` table, marks rows processed, **drains the `jobs` queue**, and serves `POST /drain` so `api.web` can ask it to drain in the worker's own process (the perform side of the queue belongs to it). It declares **two** surfaces of **one** format — `rpc` and `events`, both `asyncapi` — distinguished by unrelated consumer sets. Its liveness is a **tick file** its poll loop touches, read by `./health.sh worker`; it runs no HTTP server for health purposes.
+
+    `api.worker`'s two surfaces are the repo's only instance of **one format, two unrelated consumer sets** — a reader who assumes one surface per format will misread it. `api.web` calls the `rpc` boundary synchronously and waits for a count; the queues are produced onto by `api.web` and `api.clock` and consumed here, asynchronously and with no reply.
+  - `api.clock` (`role: clock`) is a long-running singleton that owns the cron loop. It declares `schedules: {prune_pings: "0 3 * * *", heartbeat: "* * * * *"}` and `uses: [appdb, api.worker]`, holds **no magic ref** to the worker (the edge is the *queue*, not the mesh), and declares **no `port`, no `health_check_path`, and no `surfaces`**: nothing addresses it, nothing may `uses` it, and it binds **no application socket at all**. Its liveness is `./health.sh clock` over the cron loop's tick file. It defers and never performs: each fire enqueues a row the worker drains. `prune_pings` carries the retired `reaper` codebase's nightly work on its original schedule; `heartbeat` exists so the fire → defer → drain path is observable inside a walk window.
 
   Together these exercise the core-service expansion: **one** build, **one** ECR repo, **one** `-exec` container, **one** `-migrate` task definition, and **three** otelcol sidecars.
 
 They talk through a postgres backing service (`appdb`) — the `pings` table and the queue's `jobs` table — plus two project-local container backings (`probe`, `events`).
 
 `api` is also the doctrine's **reference implementation** of the entrypoint and liveness rules — `src/entrypoints/{web,worker,clock}.py` beside a construct-only `root.py`, with the doctrine-fixed 10 s tick / 30 s staleness thresholds — and of the clock architecture, in `hex/jobs` (the queue and its dispatch) and `hex/retention` (the pruning work a job performs). One standing warning about that pair, because it looks like duplication and is not: the **defer-side** dispatch table in `ContJobsCron` maps a job name to a driving-port method that *enqueues*, while the **perform-side** table in `JobRunnerService` maps a job name to the work itself. Collapsing them would couple the clock to the worker's implementation and destroy the deferral architecture. Downstream projects copy this tree and inherit whatever it fails to explain, so changes here should be made deliberately.
+
+Both numbers are doctrine-fixed and **they now live in two files, deliberately**:
+the ≤10 s tick **cadence** in `src/entrypoints/{worker,clock}.py`, because the loop
+is the only thing that can honour it, and the 30 s staleness **threshold** in
+`core/api/health.sh`, because the probe is the only thing that judges it. Each file
+names the other half, since 30 being three times 10 is what the pair *means* — a
+healthy loop misses two consecutive ticks before it is called stale — and neither
+number shows that alone.
 
 The defer-side table is also the clock's **startup gate**: `entrypoints/clock.py` compares its schedule against `ContJobsCron.unbound(...)` and exits non-zero before entering the loop if any scheduled name has no binding. A typo in `schedules:` fails the deploy rather than surfacing at the job's first due time. The reverse direction — bound but unscheduled — is legitimate and deliberately unchecked, since the driving port is shared with HTTP and CLI.
 
@@ -83,6 +93,15 @@ The newest lesson the seeds teach by example. For two releases [`PRE_CUT_CHECKLI
 **A static claim about the seed's configuration is a copy of that configuration, and copies drift.** So the repair was not to correct the pair; that leaves the drift mechanism fully intact for the next `infra.yml` change. Both boxes now derive the consumer set from the *rule* — a **core-targeted** `uses` entry — and then check themselves against the executor's own output: `release` prints `N consumer(s) checked`, and `N ≠ 2` tells the walker the box is stale before they record anything.
 
 Generalized: **where a box can be keyed on something the tool reports, key it there.** A box that restates configuration can rot with no signal at all; a box that compares the tool's output against an expected value announces its own staleness the first time it is run. This is the [`verify_clean.sh`](#verify_cleansh-a-check-that-cannot-answer-must-fail) rule from the other direction — there, a check that cannot answer must fail rather than report zero; here, a check that has gone stale must say so rather than mislead. Both are instances of advance 005's recurring defect: *something that could not have detected the failure reported success.*
+
+### How to run this repo's own suite
+
+Not a property of the seeds, but the place a reader of this file next reaches for.
+The invocation rules — and the two ways a wrong one reports success while running
+nothing — are stated once, authoritatively, in
+[`docex_process.md` § Running the automated tests](./docex_process.md#running-the-automated-tests).
+Read them there rather than trusting a remembered command; **both** hazards
+produced a number close enough to the truth to be believed.
 
 ## Inception-flow divergences
 

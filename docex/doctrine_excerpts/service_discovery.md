@@ -17,4 +17,7 @@ release redeploys any consumer whose current deployment predates an endpoint it
 uses. Fixed has no equivalent constraint: docker DNS resolves at lookup time.
 
 Doctrine reference: `infrastructure/shape.md`;
-`infrastructure/cicl.md § Resilience covers reachability, not resolvability`.
+`infrastructure/reasoning/elastic_release_pattern.md` (why application-level
+retrying cannot recover from an unresolvable name);
+`infrastructure/specifics/release.md § Service Connect Consumer Reconcile` (what a
+release does about it).

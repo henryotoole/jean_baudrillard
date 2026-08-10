@@ -148,7 +148,7 @@ A few commands compose others rather than duplicate logic:
 - Doctrine prose excerpts that back `docex why`.
 
 **Not bundled (lives in the project):**
-- Per-codebase `build.sh`, `test.sh`, `migrate.sh` — bespoke per codebase and per language.
+- Per-codebase `build.sh`, `test.sh`, `health.sh`, `migrate.sh` — bespoke per codebase and per language (`migrate.sh` only where the codebase owns a schema).
 - Per-codebase `Dockerfile`s.
 - Language runtimes and toolchains for project code — those live inside each codebase's image.
 - Project-local transfer table extensions at `infra/transfer_tables/` (deep-merged with bundled tables at compile time).
@@ -164,13 +164,13 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `project.yml` — name, version, docex_version
 - `infra/infra.yml` — CICL source
 - `infra/transfer_tables/` (optional) — project-local table extensions
-- `infra/contracts/<codebase>.<service>.<fmt>.yml` — per-provider contracts (validated during `check`)
+- `infra/contracts/<codebase>.<service>.<surface>.<format>.<ext>` — one contract per declared surface (validated during `check`)
 - `infra/secrets/<env>.env` — operator-maintained secret values
 - `infra/config/<env>.env` — operator-maintained non-secret per-env config values
 - `infra/tte/<env>.env` — dev/test TTE (transient-to-env) store, read during aggregation (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md))
 - `infra/deploy_creds/<env>` — SSH private key for fixed `release`
 - `infra/stage/{Dockerfile, stage_test.sh, tests/}` — stage tester definition and tests
-- `core/<codebase>/{Dockerfile, build.sh, test.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
+- `core/<codebase>/{Dockerfile, build.sh, test.sh, health.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
 - `CHANGELOG.md` — referenced by `merge` for version-bump validation
 - `.git/` — required by `check`, `merge`, and any command that needs commit identity
 
@@ -281,19 +281,86 @@ DinD is rejected as slower, more dangerous (requires `--privileged`), and unnece
 
 The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` invocations don't collide, and so the developer never has to think about cleanup.
 
-### The contract and health gates
+### The contract and shim gates
 
-Two of those gates read the **core-targeted** half of `uses:`, and their criteria are worth stating here because they are easy to get subtly wrong. The rule of record is [`contracts.md`](../../../doctrine/infrastructure/contracts.md) §§ Contracts and Health Checks; this is how `pipeline/check.py` implements it.
+Three of those gates read a project's declared boundaries and its codebase layout.
+Their criteria are worth stating here because they are easy to get subtly wrong,
+and because an earlier generation of them got several things wrong for months. The
+rule of record is [`contracts.md`](../../../doctrine/infrastructure/contracts.md)
+and [`healthchecks.md`](../../../doctrine/infrastructure/healthchecks.md); this is
+how `pipeline/check.py` implements it.
 
-- **Provider set = (CORE-targeted `uses` entries) ∪ (`web`-network core services)**. Both arms are load-bearing. The first is the declared interface graph. The second catches every publicly reachable boundary even when nothing *inside* the project uses it — drive the set off `uses` alone and a public edge silently loses its contract, taking with it everything the health gate has to validate.
-- **Contract format follows the provider's `role`** — `web` → openapi, `worker` → asyncapi. The role is what fixes the communication mechanism, so it is the honest source. An unrecognized role falls back to openapi rather than raising (raising would deny the operator every *other* gate's result, which is what the aggregation pattern exists to avoid) and the fallback is named in the gate's detail line so it is never silent.
-- **Contract paths are parsed right-anchored** — `<codebase>.<service>.<fmt>.yml`, counting segments from the right. The path is service-keyed unconditionally, because one codebase may run two HTTP core services (a public `api`, an internal `admin`) and both are genuine boundaries.
-- **Self health** is required of every *OpenAPI* provider, web-network or not. A `worker` is not checked in its contract because AsyncAPI has no natural place for an HTTP path — not because it is exempt; its self-health is asserted through its fields instead.
-- **The fan-out** — `GET /health/<codebase>/<service>` — is keyed on **core** `uses` targets, for each target not itself on `web`. Core specifically: the fan-out proxies a target's own `/health` at a `<codebase>/<service>` path, and a *backing* target has no such form to proxy. A dead consumer is invisible from outside — requests keep returning 200 while work piles up behind it. Targets that *are* on `web` are skipped: they are publicly reachable and answer their own `/health`, so there is nothing to proxy.
-- **A core `uses` target must declare both `port` and `health_check_path`.** Those two fields *are* its health declaration, and on elastic the `port` is also exactly what makes it Service-Connect-discoverable. Distinct from rule 28, which constrains a core service that *has* `health_check_path`; this requires a core `uses` target to have it at all.
-- **The curl gate stays keyed off `health_check_path`**, not `role`. The compiler emits the curl healthcheck from the field, so the field is what the requirement follows.
+- **Provider set = the core services that declare `surfaces:`.** Nothing else.
+  Declaring a surface is what makes a core service a provider, and a `uses` edge
+  onto one that declares none is a **compile error** (rule 31) rather than a
+  silently-missing contract. The previous two-armed union —
+  `(core-targeted uses entries) ∪ (web-network core services)` — is gone, and its
+  second arm was **wrong rather than merely redundant**: it forced a contract onto
+  every publicly-reachable core service, including a `frontend.web` that serves a
+  browser and describes no boundary at all.
+- **Format follows the surface's `api_styles`, and the check is derived rather
+  than tabulated** — `len(surface.formats()) == 1` over
+  `model.py::API_STYLE_FORMATS`. `[rest, stream, webhook]` resolves to one format
+  and passes; `[rest, rpc]` fails rule 29 telling the author to split. There is
+  **no fallback**: the retired `_FALLBACK_CONTRACT_FORMAT = "openapi"` meant an
+  unrecognized role silently received the wrong format, and an unrecognized
+  `api_style` is now `rule_29_unknown_api_style` at *compile* time — so by the
+  time the gate runs there is nothing left to guess at.
+- **Contract paths are parsed right-anchored on four segments** —
+  `<codebase>.<service>.<surface>.<format>.<ext>` — and the extension is checked
+  against the **resolved format** rather than against a list of accepted suffixes,
+  because `contracts.md § Standards` fixes exactly one extension per format. So
+  `api.web.rest.openapi.yml` resolves while both `api.web.openapi.yml` (the
+  retired three-segment form) and `api.web.rest.openapi.yaml` do not. The path
+  stays service-keyed unconditionally: one codebase may run two HTTP core services
+  and both are genuine boundaries.
+- **The gate has an orphan arm, and it is the arm that earns its keep on an
+  upgrade.** A contract file matching no declared surface *fails*, naming the
+  four-segment form and saying to rename or delete. This is the only thing that
+  can see a leftover `api.web.openapi.yml` sitting **beside** a correct
+  `api.web.rest.openapi.yml` — an existence-only check is structurally blind to
+  it, because the file it wants is also present.
+- **One health assertion survives, narrowed to a contract-content check.** Where a
+  `web`-network core service *also* declares an `openapi` surface, one of its
+  openapi contracts declares a `GET` on that core service's **declared
+  `health_check_path`** — read from the field, never hardcoded to `/health`, so a
+  project declaring `/healthz` conforms. *Any one* openapi surface satisfies it:
+  requiring the path in **every** surface would force a `rest_admin` contract to
+  document a route outside its own boundary, and a contract that describes
+  something it does not own is a worse defect than one omitting something
+  documented next door. Keyed on `web`-network membership rather than role, for
+  rule 33's reason — the field is what a reverse proxy reads, and a `role: web`
+  core service off the `web` network has nothing in front of it.
+- **`health.sh` is the fourth codebase shim gate**, required unconditionally
+  alongside `build.sh` and `test.sh`; `migrate.sh` stays conditional on schema
+  ownership. One file per codebase like the others, but invoked **per core
+  service** as `./health.sh <service>` — the compiler emits the argv, so the shim
+  never guesses which core service it is running in.
 
-Mod 101 wrote these; before it, `_infer_contract_format` had returned `openapi` unconditionally since the day it was written (its asyncapi branch looked a *codebase* name up in `backing_services`, which `model.py` forbids from overlapping), so the async-contract path had never once executed and the fan-out flaw went unnoticed behind it.
+**Two gates were deleted rather than repaired, and the distinction matters.**
+
+- `_gate_health_endpoints` went **whole**: the `/health/<codebase>/<service>`
+  fan-out, the one-hop recursion rule that existed solely to stop the fan-out
+  looping on the legal `web ↔ worker` cycle, and the probeability arm that
+  demanded both `port` and `health_check_path` on every core `uses` target — which
+  rules 32 and 33 now respectively make conditional and forbid.
+- `_gate_healthcheck_tooling` — the `curl`-in-the-image gate — was **deleted, not
+  narrowed.** `infrastructure.md § Codebase Containers` no longer mandates `curl`;
+  it mandates that the image can run `./health.sh <service>` and leaves the tool
+  to the project. A gate enforcing a requirement the rule of record has withdrawn
+  is worse than no gate, because it reads as a live constraint.
+
+The roster is therefore **nine** gates, not ten.
+
+**History, because it explains how a real defect hid for months.** Mod 101 wrote
+the two-armed union and the fan-out; before it, `_infer_contract_format` had
+returned `openapi` **unconditionally since the day it was written** — its asyncapi
+branch looked a *codebase* name up in `backing_services`, which `model.py` forbids
+from overlapping — so the async-contract path had never once executed, and the
+fan-out flaw went unnoticed behind it. That is why format stayed keyed on `role`
+for as long as it did: nothing had ever exercised the branch that would have shown
+the keying was wrong. Retained as the record of a defect class, not as live
+description.
 
 ## Repository Structure
 

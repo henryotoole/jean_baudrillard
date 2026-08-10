@@ -176,36 +176,240 @@ Run this audit *once per cut*, against each project independently.
 
 > **Two things only this walk covers.** Both are stated here so a decision to shorten the walk is made knowingly, not by accident.
 >
-> 1. **No test anywhere runs a real clock container.** The codebase suite covers the dispatch table and the queue, and unit tests cover the emit — but a clock **process** reading a compiler-delivered `DOCEX_SCHEDULES_YAML`, firing on its own cron loop, and having its `/health` enforced by the container healthcheck exists only in a walk. That probe is the clock's **only** enforcement: nothing `uses` it and it is not on the `web` network, so no health fan-out and no stage test can reach it ([`clock.md § Caveats`](../../doctrine/infrastructure/specifics/clock.md#caveats)). The clock steps in [C.9](#c9-release-prod) and [D.11](#d11-release-prod) are where that is checked.
+> 1. **No test anywhere runs a real clock container.** The codebase suite covers the dispatch table and the queue, and unit tests cover the emit — but a clock **process** reading a compiler-delivered `DOCEX_SCHEDULES_YAML`, firing on its own cron loop, and having **`./health.sh clock` enforced by the container probe** exists only in a walk. A clock has **no `/health`** — it binds no application socket at all; it has a probe. That probe is its **only** enforcement: nothing routes to it, so no stage test can reach it ([`clock.md § Caveats`](../../doctrine/infrastructure/specifics/clock.md#caveats)). Being unreachable from outside is now true of **every** non-`web` core service rather than the clock alone — the worker included — so the clock is no longer a special case; it is the *first* case of the general rule. The clock steps in [C.9](#c9-release-prod) and [D.11](#d11-release-prod) are where that is checked.
 > 2. **No test of any kind covers the fixed replica unroll.** See the note at the top of [C.9](#c9-release-prod).
 
 - [ ] **B.1 Project root layout** — `project.yml`, `README.md`, `CHANGELOG.md`, `.gitignore`, `bin/docex`, `core/`, `infra/`, `plans/` all present. Per [`inception.md`](../../doctrine/practices/inception.md) PART I step 7 and [`infrastructure.md § Codebase Structure`](../../doctrine/infrastructure/infrastructure.md#repository-structure).
 - [ ] **B.2 `project.yml` shape** — declares `name`, `version`, `docex_version`. Per [`infrastructure.md § Project Config`](../../doctrine/infrastructure/infrastructure.md#project-config).
 - [ ] **B.3 `infra.yml` shape** — declares `cicl_version: "3"`; `apex_domain` as a bare apex (no project segment); `domain_default_service` as a **dotted, fully qualified** core service reference (`api.web`), with the 1.6.0 spelling `domain_default_process` absent; and (elastic only) `reverse_proxy` (default `alb`). Old `domain:` field absent. Per [`cicl.md`](../../doctrine/infrastructure/cicl.md) mod 031 and [§ CICL Version](../../doctrine/infrastructure/cicl.md#cicl-version).
-- [ ] **B.3.1 `core_services:` on every codebase** — present and **non-empty** on each. There is no flat form and no single-service shorthand. The codebase level accepts only `{core_services, secrets, config, env}`; anything else there is a hard error. `role`, `command`, `networks`, `resources`, `port`, `uses`, `replicas`, and every role-specific field (`health_check_path`, `schedules`) live on a **core service**. `env:` is the one field valid at both levels. Per [`cicl.md § Core Services`](../../doctrine/infrastructure/cicl.md#core-services) and [`cicl_reasoning.md § Field Scoping`](../../doctrine/infrastructure/reasoning/cicl_reasoning.md#field-scoping).
+- [ ] **B.3.1 `core_services:` on every codebase** — present and **non-empty** on each. There is no flat form and no single-service shorthand. The codebase level accepts only `{core_services, secrets, config, env}`; anything else there is a hard error. `role`, `command`, `networks`, `resources`, `port`, `uses`, `surfaces`, `replicas`, and every role-specific field (`health_check_path`, `schedules`) live on a **core service**. `env:` is the one field valid at both levels. Note that `health_check_path` is keyed on **network membership, not role** ([rule 33](../../doctrine/infrastructure/cicl.md#validation-rules)): a `role: web` core service off the `web` network declares **none**, and every `web`-network one declares it whatever its role. Per [`cicl.md § Core Services`](../../doctrine/infrastructure/cicl.md#core-services) and [`cicl_reasoning.md § Field Scoping`](../../doctrine/infrastructure/reasoning/cicl_reasoning.md#field-scoping).
 - [ ] **B.3.2 `uses` is one relation, keyed on target kind** — a `uses` entry names either a **backing service**, bare (`appdb`), or a **core service**, dotted and fully qualified (`api.worker`). A bare codebase name is an error, not shorthand, and a core service may not use itself (rule 25). **Only core services declare `uses`**; a backing service has no outbound edges at all and is a graph sink. `depends_on:` and `consumes:` are hard errors, not silent aliases — rules 6 and 24 are retired and carry tombstones at their original numbers. Core magic refs are **five-segment** (`${codebases.api.core_services.worker.host}`); backing refs stay at three. Per [`cicl.md § Uses Relationships`](../../doctrine/infrastructure/cicl.md#uses-relationships) and [§ Magic Refs](../../doctrine/infrastructure/cicl.md#magic-refs).
 - [ ] **B.4 CHANGELOG conventions** — follows Keep a Changelog + SemVer (Unreleased section present). Per [`version_control.md § Changelog`](../../doctrine/infrastructure/version_control.md#changelog).
 - [ ] **B.5 `infra.yml` validates** — `docex compile` succeeds with no errors. Per [`cicl.md § Validation Rules`](../../doctrine/infrastructure/cicl.md#validation-rules).
 - [ ] **B.6 Codebase Dockerfiles** — every **codebase** has a Dockerfile with `build`, `dev`, `prod`, `test` stages. One per codebase, not one per core service: the codebase's core services all run the same image. Per [`infrastructure.md § Codebase Containers`](../../doctrine/infrastructure/infrastructure.md#codebase-containers).
+
+  Additionally: the image must be able to run **`./health.sh <service>`** for every
+  core service it hosts — per [`infrastructure.md § Codebase Containers`](../../doctrine/infrastructure/infrastructure.md#codebase-containers),
+  which states the capability and leaves the tool to the project. **`curl` is no
+  longer doctrine-mandated.** The seeds carry it for exactly one line — `health.sh`'s
+  `web` arm curls its own route — and that is a project choice, not conformance. A
+  box that reads "curl is in the image" as a pass would accept an image that cannot
+  run its own probe.
 - [ ] **B.7 Codebase scripts** — scripts are per **codebase**, never per core service: every codebase has one `build.sh` and one `test.sh` (which runs *all* the codebase's tests, across every core service's modules); a codebase owning a relational_db schema additionally has one `migrate.sh` and one `migrations/`, and `migrate.sh` runs **once per codebase** per release regardless of core-service count. Per [`cicd.md § Build Step, § Build Test Step, § Migrate Step`](../../doctrine/infrastructure/cicd.md).
+
+  **`health.sh` is the fourth codebase shim**, required **unconditionally** — unlike
+  `migrate.sh`, which is conditional on schema ownership. It is also **the only shim
+  invoked per core service**, as `./health.sh <service>`. Still one file per codebase
+  like the other three — but a web edge and a queue consumer of one codebase have
+  genuinely different probes, and argv is cheaper than four shims. **The compiler
+  emits the argv**, so the script never guesses which core service it is running in.
+  Confirm the script *branches on `$1`* and that its fall-through case **fails
+  loudly** — a `*)` arm that exits 0 reports every core service healthy forever,
+  which is the one outcome worse than a wrong probe. Per
+  [`healthchecks.md`](../../doctrine/infrastructure/healthchecks.md).
 - [ ] **B.7.1 The three shims read codebase-level `env:` only** — `migrate.sh`, `test.sh`, and `build.sh` are invoked per codebase, so a core-service-scoped `env:` key is simply **absent** in them. Confirm every var they read is declared at the *codebase* level of `infra.yml`. This break is silent: a migration that reads a core-service-scoped `DATABASE_HOST` gets an empty string, not an error. Per [`cicl_reasoning.md § Field Scoping`](../../doctrine/infrastructure/reasoning/cicl_reasoning.md#field-scoping).
+
+  **`health.sh` is the exception, and extending this box to it would be wrong.**
+  `build.sh` / `test.sh` / `migrate.sh` run in the one-off per-codebase `-exec`
+  container, whose `environment:` is the **codebase** env surface — which is why a
+  core-service-scoped key is simply absent in them. `health.sh` runs **inside the
+  running core-service container**, invoked by the orchestrator's probe, so it sees
+  that core service's **full** env surface including its core-service-scoped keys.
+  Stated rather than left inferred because getting it backwards is silent in both
+  directions: a `health.sh` written to the codebase surface would needlessly avoid
+  keys it can read, and a `migrate.sh` reading a core-service key gets an empty
+  string, not an error.
 - [ ] **B.8 `migrate.sh` builds DSN from parts** — including `${DATABASE_SSLMODE}`. No hard-coded `sslmode=disable` or `sslmode=require`. RDS rejects non-SSL on elastic; the doctrine's parts-only model keeps the shim foundation-agnostic. Per [`migrations.md`](../../doctrine/infrastructure/specifics/migrations.md).
-- [ ] **B.9 Provider contracts present** — every provider has a contract at `infra/contracts/<codebase>.<service>.<format>.yml`. The path is keyed on the **core service**, unconditionally. **The provider set is (core-targeted `uses` entries) ∪ (`web`-network core services)** — both arms load-bearing, so a non-web `worker` that another core service uses needs a contract even though nothing routes to it. A **backing**-targeted `uses` entry never makes anything a provider. The format follows from the provider's **`role`**: `role: web` → `openapi`, `role: worker` → **`asyncapi`**. A `clock` is **not exempt from this rule; it falls outside the set by it.** Nothing `uses` a clock and it is not on the `web` network, so it is consumer-only and correctly carries no contract — the same way any other consumer-only core service would. Per [`contracts.md`](../../doctrine/infrastructure/contracts.md).
-- [ ] **B.10 Health endpoints declared** — health is per **core service**, and it has three parts:
-  - **Self health.** Every long-running core service serves `GET /health` on its own `port`, returning `{version: "x.x.x"}`. Every OpenAPI contract must declare it. A `worker`'s AsyncAPI contract does **not** (an HTTP path has no natural place there) — that is not an exemption; its self-health is declared by its **fields** instead.
-  - **Fan-out.** Every `web`-network core service declares `GET /health/<codebase>/<service>` — **two** path segments, not the old one-segment form — once per **core-targeted `uses` entry** that is not itself on the `web` network. A **backing**-targeted entry never produces a fan-out route. One hop only, short hard timeout, never calling the target's own fan-out (the `uses` graph may legally cycle).
-  - **Probeability.** Every **core-targeted `uses`** target declares both `port` and `health_check_path`; those two fields *are* its health declaration, and `docex check` asserts them (plus `curl` in the image, which it keys off `health_check_path` with no network filter).
+- [ ] **B.9 Provider contracts present** — **a core service is a provider iff it
+  declares `surfaces:`.** Nothing else makes one: the old
+  `(core-targeted uses entries) ∪ (`web`-network core services)` union is gone, and a
+  `web`-network core service that declares no surface (a frontend serving a browser)
+  correctly needs **no** contract. A `uses` edge onto a core service declaring no
+  surface is a **compile error** (rule 31), not a missing contract.
 
-  A `clock` is subject to all three parts with **no exemption**, and the walk must treat it that way. It serves `GET /health` on its own `port`; it owns a loop, so the monotonic-tick rule below applies to it unchanged; and because it declares `health_check_path`, `docex check`'s curl gate covers its image like any other. What does *not* reach it is a consequence of its being consumer-only rather than a carve-out: nothing `uses` it and it is not on `web`, so no fan-out route exists and no stage test can call it. Its probe is enforced by the **container healthcheck** alone — docker `healthcheck:` on fixed, ECS container health on elastic — which restarts a wedged clock. That is real enforcement, but it is local ([`clock.md § Caveats`](../../doctrine/infrastructure/specifics/clock.md#caveats)), and it is why [C.9](#c9-release-prod) and [D.11](#d11-release-prod) check it by hand.
+  One contract per surface at
+  `infra/contracts/<codebase>.<service>.<surface>.<format>.<ext>` — **four**
+  segments, parsed right-anchored. The **format follows the surface's `api_styles`**
+  (`rest`/`stream`/`webhook` → `openapi`; `rpc`/`events`/`socket` → `asyncapi`),
+  never the provider's `role`, and there is **no fallback**. Exactly one extension
+  per format, so `api.web.rest.openapi.yml` resolves while `api.web.openapi.yml` and
+  `api.web.rest.openapi.yaml` do not.
 
-  A core service that owns a **loop** rather than a request cycle must report the *loop's* liveness, not the process's: an in-process **monotonic tick** bumped each iteration, ticking at least every **10 s even when idle**, and a handler that returns **503** once the tick is **30 s** stale. Both thresholds are doctrine-fixed — a project-local knob is a finding. Reference implementation: `test_projects/*/core/api/src/entrypoints/{worker,clock}.py`. Per [`contracts.md § Health Checks`](../../doctrine/infrastructure/contracts.md#health-checks).
+  A `clock` carries no contract because it **declares no surface** — not because of
+  an exemption. Nothing addresses it and nothing may `uses` it, so it has no
+  boundary to describe.
+
+  **Key this box on `docex check`'s own output, not on a filename list.** The
+  `contracts_exist` gate reports both directions: a declared surface with no file,
+  **and** a file matching no declared surface (the *orphan* arm, whose message names
+  the four-segment form and says to rename or delete). The orphan arm is the only
+  thing that catches a leftover three-segment contract sitting **beside** its
+  correct replacement — an existence check is blind to that, because the file it
+  wants is also there. Reaching `check` needs the walk's feature-branch restructure
+  ([C.6](#c6-check--containerize) / [D.8](#d8-check--containerize)), so at audit
+  time confirm the *shape* here and record the gate's line when you get there.
+  Per [`contracts.md`](../../doctrine/infrastructure/contracts.md).
+- [ ] **B.10 Health is a command, not an endpoint** — five parts, all per **core
+  service**.
+
+  1. **The container probe.** Every core service's container carries
+     `["CMD", "./health.sh", "<service>"]` on both foundations — a compose
+     `healthcheck:` on fixed, an ECS container `healthCheck` on elastic. It is
+     **compiler-emitted from the role tables' `defaults`, not authored**: a queue
+     consumer or a cron loop gets a probe while declaring nothing. Cadence is
+     doctrine-fixed and uniform; a project-local interval knob is a finding.
+     `startPeriod: 10` appears on **elastic only** — ECS kills and replaces a task
+     whose essential container fails, Docker only reports.
+  2. **`health.sh` exists, branches on argv, and fails loudly on an unknown one.**
+     See **B.7** above.
+  3. **A loop-owning core service reports the LOOP's liveness, not the process's.**
+     The loop touches a known path each iteration **from inside itself**; the probe
+     `stat`s its mtime from a separate process. An **absent** tick file must
+     **fail** — a loop that has never completed an iteration has never been alive.
+     Checking that the process exists proves nothing (a deadlocked process exists),
+     and a separate liveness *thread* proves less than nothing: it answers healthy
+     forever while no work moves, converting a loud failure into a silent one.
+  4. **The 10 s / 30 s pair, and where each number lives.** ≤10 s tick cadence even
+     when idle, 30 s staleness threshold. Both doctrine-fixed — a project-local knob
+     for either is a finding. The **cadence** belongs in the entrypoint (the only
+     thing that can honour it) and the **threshold** in `health.sh` (the only thing
+     that judges it); confirm each file names the other half, because 30 being three
+     times 10 is what the pair means. Reference implementation:
+     `test_projects/*/core/api/{health.sh,src/entrypoints/{worker,clock}.py}`.
+  5. **`GET /health` survives only on the `web` network, and only because a load
+     balancer reads it.** It is one role's requirement, not the universal mechanism.
+     Rule 33 both arms: **every** `web`-network core service declares
+     `health_check_path`, and **no** core service off it does. Where a `web`-network
+     core service also declares an `openapi` surface, that contract declares a `GET`
+     on its **declared** path (not a hardcoded `/health`) — `docex check`'s
+     `contract_health_path` gate, satisfied by *any one* openapi surface.
+
+  **There is no fan-out, and its absence is checked rather than assumed:**
+
+  ```sh
+  grep -rn 'health/api/worker\|/health/<codebase>\|_build_health_app' core/ infra/ plans/ | grep -v CHANGELOG
+  ```
+
+  Zero hits, except prose that names the deletion in negation. Per
+  [`healthchecks.md`](../../doctrine/infrastructure/healthchecks.md).
+
+  ---
+
+  **⚠ How to wedge a probe — read before you try.** Both of these cost mod 129 real
+  time, and both produce a result that *looks* like an answer:
+
+  1. **`kill -STOP 1` inside a container wedges nothing.** PID 1 in a PID namespace
+     is immune to `SIGSTOP` **from inside that namespace**. The first attempt was a
+     silent no-op and the probe kept reporting green — which would either condemn a
+     correct probe or record a pass from a wedge that never happened. **Wedge from
+     the host, against the real pid:**
+     ```bash
+     PID=$(docker inspect --format '{{.State.Pid}}' <container>)
+     sudo kill -STOP "$PID"      # ... observe ...
+     sudo kill -CONT "$PID"      # ALWAYS un-wedge before moving on
+     ```
+  2. **After any source edit, run `./bin/docex build` before probing.**
+     `envinfra up dev` leaves the host `dist/` stale, so the stack runs **pre-mod**
+     entrypoints and the probe answers "no tick file" — indistinguishable from the
+     absent-tick arm working correctly. This is the dev model behaving as designed
+     (source arrives by bind mount; `dist/` is refreshed by `build`), which is
+     exactly why it is a trap and not a bug. Order: `up` → `build` → restart.
+
+  ---
+
+  **Probe census over both seeds' compiled artifacts.** Asserts the *negative* half
+  of the rule — that the probe lands on exactly the core services and on nothing
+  else. **Key this box on what it prints: `VIOLATIONS 0` and exit 0.** The
+  `CONTAINERS` line is a corroborating census and is **deliberately not a hard
+  number** — hard-coding it is the mistake `N ≠ 2` avoids and goes wrong the moment
+  a seed gains an environment or a replica. Run from `docex/`:
+
+  ```python
+  """Probe census over both seeds' compiled artifacts. Run from docex/.
+
+  Prints one PROBE/BARE/ENGINE line per container in every compiled artifact, then
+  a VIOLATIONS count. Expected: VIOLATIONS 0, exit 0.
+
+  Rules asserted (healthchecks.md, exec_service.md):
+    * a core-service container carries exactly ["CMD", "./health.sh", "<service>"]
+    * an `-otelcol` sidecar, an `-exec` block, and a migrate task carry NO probe
+    * a backing service's own engine probe (CMD-SHELL) is not this check's business
+  """
+
+  import glob
+  import json
+  import re
+  import sys
+
+  import yaml
+
+  CORE = {"web", "worker", "clock"}
+  viol: list[str] = []
+  lines: list[str] = []
+
+
+  def judge(artifact: str, name: str, probe: list[str] | None) -> None:
+      core = re.search(r"-api-(web|worker|clock)(-\d+)?$", name) or name in {
+          f"api-{s}" for s in CORE
+      }
+      forbidden = name.endswith("-otelcol") or "-api-exec" in name or name == "api"
+      if probe is None:
+          lines.append(f"BARE  {artifact} {name}")
+          if core:
+              viol.append(f"MISSING   {artifact} {name}")
+          return
+      lines.append(f"PROBE {artifact} {name} {json.dumps(probe)}")
+      if forbidden or not core:
+          viol.append(f"FORBIDDEN {artifact} {name} {json.dumps(probe)}")
+      elif probe[:2] != ["CMD", "./health.sh"] or len(probe) != 3 or probe[2] not in CORE:
+          viol.append(f"MALFORMED {artifact} {name} {json.dumps(probe)}")
+
+
+  for path in sorted(glob.glob("test_projects/*/infra/output/*/docker-compose.yml")):
+      for name, svc in sorted(yaml.safe_load(open(path)).get("services", {}).items()):
+          test = (svc.get("healthcheck") or {}).get("test")
+          if test and test[0] == "CMD-SHELL":
+              lines.append(f"ENGINE {path} {name} {json.dumps(test)}")
+              continue
+          judge(path, name, test)
+
+  for path in sorted(glob.glob("test_projects/elastic/infra/output/*/main.tf")):
+      name: str | None = None
+      probe: list[str] | None = None
+      for raw in open(path):
+          if raw.rstrip("\n") == "    {":
+              name, probe = None, None
+          elif m := re.match(r'^      name = "([^"]+)"$', raw.rstrip("\n")):
+              name = m.group(1)
+          elif m := re.match(r"^        command = (\[\"CMD.*\])$", raw.rstrip("\n")):
+              probe = json.loads(m.group(1))
+          elif raw.rstrip("\n") in ("    },", "    }") and name:
+              judge(path, name, probe)
+              name, probe = None, None
+
+  print("\n".join(lines))
+  print(f"CONTAINERS {len(lines)}")
+  for v in viol:
+      print(v)
+  print(f"VIOLATIONS {len(viol)}")
+  sys.exit(1 if viol else 0)
+  ```
+
+  Two properties of the script worth preserving if you edit it. The HCL arm is a
+  **line-oriented block walk**, not one regex per container name: a first attempt
+  used a single regex and reported four false `FORBIDDEN`s per `main.tf`, because
+  the pattern matched the file's *first* `healthCheck` for every name — a checker
+  that reports violations where none exist is the mirror image of this advance's
+  recurring defect and would have condemned a correct emitter. And `judge`'s
+  `forbidden` **and** `not core` arms are **both** checked, so a probe appearing on
+  something new and unclassified is caught, not only the three shapes known today.
 - [ ] **B.11 Hex layout** — each **codebase** contains **exactly one** `src/root.py` (composition root — never `root_web.py` / `root_worker.py`, which would put two drifting copies of the driven wiring in the tree); each hex module contains `domain/`, `ports/{driving,driven}/`, `adapters/{driving,driven}/`, `alogic/`. Per [`hex_overview.md § Project Structure`](../../doctrine/hexagonal_architecture/hex_overview.md#project-structure) and [`internal_dependency_rules.md § Composition Root`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#composition-root).
 - [ ] **B.11.1 `src/entrypoints/` present, one module per core service** — and each core service's `command` in `infra.yml` invokes exactly one of them. **The composition root constructs; it does not activate**: grep each `root.py` for a `uvicorn.run`, a `serve`, a `while True`, a bound/listening socket, or an `if __name__ == "__main__"` block. Any of those is a failure. **Grep `socket` with judgement, not mechanically:** a health handler that *constructs* a `socket.create_connection` to probe a backing service is legitimate (the seed's `api/src/root.py` does exactly this for `/health/events`) — what the rule forbids is the root *binding* or *listening*. The test is whether the root returns its graph un-activated — the runtime host (uvicorn, a broker's consume loop, a poll loop) belongs to the entrypoint, not to the root and not to an adapter. Without this item the audit cannot catch a project whose `root.py` still starts a server, which is precisely the shape CICL v2 makes inexpressible: with more than one core service sharing one image, at most one could be what `root.py` starts. Per [`internal_dependency_rules.md § Entrypoints`](../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints).
 - [ ] **B.12 Migrations idempotent + reversible** — every `core/<codebase>/migrations/*.sql` has both `-- migrate:up` and `-- migrate:down` sections. Per [`databases.md § Migrations`](../../doctrine/practices/databases.md#migrations).
 - [ ] **B.13 Stage tester present** — `infra/stage/Dockerfile`, `infra/stage/stage_test.sh`, `infra/stage/tests/` all populated. Per [`tests.md § Staging Tests`](../../doctrine/infrastructure/tests.md#staging-tests).
 - [ ] **B.14 Foundation-irrelevant code parity** — `diff -r test_projects/fixed/core test_projects/elastic/core` produces no output (other than `__pycache__` / `dist/` which are gitignored). This covers the entrypoints too: a core service whose entrypoint differs by foundation means the parts-only env model is leaking foundation specifics into application code — that's a doctrine bug.
 - [ ] **B.15 Data-plane names hyphenate** — `grep -rE '{project_name_with_underscores}' infra/output/` (e.g. `docex_smoke_elastic`) finds only AWS record-key identifiers (IAM, SSM, DDB), tags, comments, and ECR repo names. No occurrence of an underscored project segment on a docker network/container/volume name, ECS Service Connect namespace, Route53 zone or record, or ACM cert. Per mod 030's hyphen-on-data-plane rule plus mod 046's leak fix.
-- [ ] **B.16 No compiled compose gates a core service** — `grep -n 'depends_on' infra/output/*/docker-compose.yml` returns hits **only** inside the per-codebase `-exec` block. The compiler emits no `depends_on:` / `condition:` on any core-service block; the exec block still carries a `depends_on` entry over the union of that codebase's **backing-targeted** `uses` edges — `condition: service_healthy` where the target block declares a `healthcheck:`, `condition: service_started` where it does not (the fixed project's committed output shows `appdb → service_healthy`, `probe`/`events` → `service_started`) — and it is the one remaining ordering emission in existence. Per [`cicl.md § Startup ordering is not a doctrine feature`](../../doctrine/infrastructure/cicl.md#startup-ordering-is-not-a-doctrine-feature). Both projects' `infra/output/` are git-tracked, so this is a grep, not a compile.
+- [ ] **B.16 No compiled compose gates a core service** — `grep -n 'depends_on' infra/output/*/docker-compose.yml` returns hits **only** inside the per-codebase `-exec` block. The compiler emits no `depends_on:` / `condition:` on any core-service block; the exec block still carries a `depends_on` entry over the union of that codebase's **backing-targeted** `uses` edges — `condition: service_healthy` where the target block declares a `healthcheck:`, `condition: service_started` where it does not (the fixed project's committed output shows `appdb → service_healthy`, `probe`/`events` → `service_started`) — and it is the one remaining ordering emission in existence. Per [`cicl.md § Uses Relationships`](../../doctrine/infrastructure/cicl.md#uses-relationships), which carries the connection-resilience mandate that replaced the retired startup gate. Both projects' `infra/output/` are git-tracked, so this is a grep, not a compile.
 - [ ] **B.17 The schedule table renders and is delivered as a literal** — `infra/output/{dev,test,stage,prod}/schedules.yml` exists (the git-tracked, diff-visible aggregate an operator reads), and each clock's compose `environment:` / task-definition env carries **`DOCEX_SCHEDULES_YAML` holding the rendered YAML itself, not a path**. Grep for a mount or a `configs:` entry naming `schedules` and confirm there is **none** — a mount would mean the single-variable delivery seam regressed to a file, which is precisely what the design deleted. Per [`clock.md § How the schedule reaches the container`](../../doctrine/infrastructure/specifics/clock.md#how-the-schedule-reaches-the-container).
 
 ---
@@ -257,19 +461,50 @@ Run this audit *once per cut*, against each project independently.
 
 ### C.8 Stagetest
 
-- [ ] `./bin/docex stagetest` — exits 0. The smoke test in `infra/stage/tests/` POSTs to `/pings`, probes `/health`, and probes `/health/probe` + `/health/events` for the project-local backings.
+- [ ] `./bin/docex stagetest` — exits 0. **It now runs the orchestrator
+  liveness/version gate BEFORE the tester image is built**, reading every core
+  service's health and version by `docker inspect` **over SSH** to the deployed host
+  (fixed `stage`/`prod` do not run on the operator's machine). A failure here is
+  `DeployedServiceUnhealthy` (the orchestrator's honest bad answer) or
+  `OrchestratorStateUnreadable` (`docex` could not get an answer at all) and happens
+  **before any image build** — record which one you got, because it is a strictly
+  earlier and cheaper failure than a tester failure.
+  **An empty result set never reads as healthy**: zero core services, zero running
+  containers, and an unreadable container all fail loudly. **There is no flag that
+  disables the gate** — if the walk hurts here, the gate is reporting something.
+- [ ] Then the tester's own probes: `/health` on the web edge,
+  `/diagnostics/{probe,events}` for the two project-local container backings, the
+  `POST /pings` critical path, and the **defer-then-drain round trip** that replaced
+  the deleted liveness fan-out test. That round trip asserts **no exact count** — the
+  worker's own poll loop legitimately races it.
 
 ### C.9 Release prod
 
-> **Do not skip this step.** `replicas` is honoured in **`prod` only** — it clamps to 1 in `dev`, `test`, and `stage`, and every integration test runs against `dev`. **This prod release is the only thing in existence that exercises the fixed replica unroll.** Nothing else — no unit test, no integration test, no stagetest, no elastic walk — ever emits or runs the multi-service form. Stopping the walk after C.8 means shipping that code untested, with the first execution happening in a downstream project's production environment. The unroll is what turns one declared core service into `…-api-worker-1` and `…-api-worker-2`, each with its own `container_name` and its own otelcol sidecar, sharing one network **alias** equal to the unqualified global name (which is what the five-segment magic refs resolve to, so a broken alias breaks `/health/api/worker` and nothing else would tell you).
+> **Do not skip this step.** `replicas` is honoured in **`prod` only** — it clamps to 1 in `dev`, `test`, and `stage`, and every integration test runs against `dev`. **This prod release is the only thing in existence that exercises the fixed replica unroll.** Nothing else — no unit test, no integration test, no stagetest, no elastic walk — ever emits or runs the multi-service form. Stopping the walk after C.8 means shipping that code untested, with the first execution happening in a downstream project's production environment. The unroll is what turns one declared core service into `…-api-worker-1` and `…-api-worker-2`, each with its own `container_name` and its own otelcol sidecar, sharing one network **alias** equal to the unqualified global name (which is what the five-segment magic refs resolve to, so a broken alias breaks `WORKER_HOST` resolution and therefore `api.web`'s `POST /drain` call onto the worker's `rpc` surface — an application path, and a *better* canary than the retired fan-out route was, because it carries real traffic).
 
 - [ ] `./bin/docex release prod` — completes. Three URLs must all return 200 with the same `version` field (prod's `domain_default_service`, `api.web`, answers at all three):
   - `https://api-web.prod.docex-smoke-fixed.luxrnd.tech/health` (canonical, **two-segment** service label)
   - `https://prod.docex-smoke-fixed.luxrnd.tech/health` (bare-env → `domain_default_service`)
   - `https://docex-smoke-fixed.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_service`)
-- [ ] `https://docex-smoke-fixed.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. This is the doctrine-required `uses` fan-out and the **only** externally-observable view of `api.worker`'s liveness — a 503 here with a green `/health` means the worker's poll loop is wedged or its tick is stale, which is exactly the failure the loop-liveness rule exists to catch.
+- [ ] **Every core service's container probe reports healthy.** This is the probe's
+  enforcement point and, for the two non-`web` core services, the **only**
+  externally-available statement about their liveness:
+  ```bash
+  for c in api-web api-worker-1 api-worker-2 api-clock; do
+    printf '%s\t' "$c"
+    docker inspect --format '{{.State.Health.Status}}' "…-prod-$c"
+  done
+  ```
+  All `healthy`. A `starting` that never converges on a worker or the clock means the
+  loop has not completed a first iteration — `health.sh` fails an absent tick file
+  deliberately. There is no fan-out route to check and no stage test that can reach
+  these two; the probe **is** the check.
+- [ ] **The defer → drain round trip is the externally-observable proof of worker
+  liveness** — the clock group below already walks it. A wedged worker shows as
+  `jobs: 'heartbeat' deferred` with no matching `performed`, plus an `unhealthy`
+  probe above.
 - [ ] `docker ps` shows **two** worker containers, `…-prod-api-worker-1` and `…-prod-api-worker-2`, plus one otelcol sidecar each. `docker network inspect …-prod-internal` shows both carrying the alias `…-prod-api-worker`.
-- [ ] POST a ping to `https://docex-smoke-fixed.luxrnd.tech/pings` — returns 201. The body field is `payload` and it is required (`infra/contracts/api.web.openapi.yml`, `required: [payload]`); a `{"message": …}` body returns **422**, not 201.
+- [ ] POST a ping to `https://docex-smoke-fixed.luxrnd.tech/pings` — returns 201. The body field is `payload` and it is required (`infra/contracts/api.web.rest.openapi.yml`, `required: [payload]`); a `{"message": …}` body returns **422**, not 201.
   ```bash
   curl -sS -X POST https://docex-smoke-fixed.luxrnd.tech/pings \
     -H 'Content-Type: application/json' -d '{"payload": "walk-ping"}'
@@ -282,7 +517,32 @@ Run this audit *once per cut*, against each project independently.
 - [ ] A fire deferred. Within ~65 s the same log shows `jobs: 'heartbeat' fired` followed by `jobs: 'heartbeat' deferred as job <uuid>`. **Both lines, not one** — "fired" without "deferred" is the clock reaching the queue and failing.
 - [ ] The worker drained it. `docker logs …-prod-api-worker-1` (or `-2`) shows `jobs: 'heartbeat' performed (job <uuid> …)` carrying the **same uuid**. Matching the uuid is what makes this a proof of the deferral path rather than of two unrelated log lines.
 - [ ] Confirmed in the database: the `jobs` row for that uuid has non-NULL `finished_at` and NULL `error`. Use the same prod postgres access the ping check above already established.
-- [ ] The clock answers its own probe: `docker inspect --format '{{.State.Health.Status}}' …-prod-api-clock` is `healthy`. **This is the only enforcement a clock gets** — no fan-out and no stage test can reach it — so an operator who skips this box has verified nothing about the clock's liveness surface.
+- [ ] The clock answers its own probe: `docker inspect --format '{{.State.Health.Status}}' …-prod-api-clock` is `healthy`, and so does `…-prod-api-worker-1` / `-2`. **This is the only enforcement any non-`web` core service gets** — nothing routes to them, so no stage test can reach them — so an operator who skips this box has verified nothing about their liveness surface. The clock stopped being a special case here: it is the *first* case of what is now the general rule, and the worker is the second.
+
+> **⚑ Data collection, not a gate.** `cicl.md` rule 33 states that nothing on fixed
+> reroutes traffic away from an unhealthy container, and that whether traefik's
+> Docker provider **passively** withholds routing is a property of that tool the
+> doctrine does not verify. The fixed walk can answer it empirically for the price
+> of four commands. **Record the observation either way** — *neither outcome fails
+> the cut.* A walk that answers this converts a doctrinal hedge into a fact about
+> the traefik version in use; a walk that skips it leaves the hedge exactly as
+> strong as it already is, which is the honest fallback.
+
+- [ ] **Does an unhealthy container still receive traffic on fixed?**
+  1. Wedge `api-web`'s probe **from the host** per **B.10**'s wedging block —
+     `kill -STOP` against `{{.State.Pid}}`. (Inside the container it is a no-op.)
+  2. Poll until Docker reports it: `docker inspect --format '{{.State.Health.Status}}' …-prod-api-web`
+     is `unhealthy`. Three failed 30 s intervals, so allow ~2 minutes.
+  3. `curl -sS -o /dev/null -w '%{http_code}\n' https://docex-smoke-fixed.luxrnd.tech/health`
+     — **record the code**, and record the traefik image tag from
+     `docker inspect --format '{{.Config.Image}}' …-traefik`.
+  4. `kill -CONT` the pid; confirm the status returns to `healthy`.
+
+  Write the result into the walk log as an observation about that traefik version,
+  **not** as a doctrine claim. If traffic still arrives, rule 33's "do not rely on
+  it" is confirmed as necessary. If it does not, the doctrine may later be able to
+  state the passive behavior — but only after a second walk reproduces it, since one
+  observation of one version is not a doctrine.
 
 ### C.10 Rollback walk
 
@@ -345,9 +605,11 @@ Elastic production-side projinfra applies in two phases separated by an operator
 > **`docex build` is required first on a fresh or restructured codebase.** The dev compose bind-mounts `./core/<codebase>/dist:/service/dist`, so the **host's** `dist/` shadows whatever `docker build` put in the image. A codebase whose entrypoints changed (or that is new) leaves a stale host `dist/`, and every core service crash-loops with `python: can't open file '/service/dist/entrypoints/<service>.py'` — taking its netns-paired otelcol sidecar down with it (`cannot join network namespace of container … is restarting`).
 >
 > `docex build` gates on the *whole stack* being up, not the individual container, so the working order is: `envinfra up dev` (backings come up, core crash-loops) → `docex build` → `envinfra up dev` again. Running `build` first does not work — there is nothing to `compose run` against.
+>
+> **This is the same trap as B.10's second wedging hazard, and it bites the probe too:** a stale host `dist/` means the stack runs **pre-mod** entrypoints, so a loop-owner's probe answers "no tick file" — indistinguishable from the absent-tick arm working correctly. Stated in full once, in **B.10**.
 
 - [ ] `./bin/docex build` — see the note above; run it before or after a failed first `envinfra up dev`.
-- [ ] `./bin/docex envinfra up dev` — stack comes up locally. With the A.4.2 child-zone records in place, `https://dev.docex-smoke-elastic.luxrnd.tech/health` and the two-segment `https://api-web.dev.…/health` both answer 200, and `/health/api/worker` exercises the fan-out on the fixed-style dev stack — worth probing here, because it isolates a *foundation-specific* fan-out failure from an application one.
+- [ ] `./bin/docex envinfra up dev` — stack comes up locally. With the A.4.2 child-zone records in place, `https://dev.docex-smoke-elastic.luxrnd.tech/health` and the two-segment `https://api-web.dev.…/health` both answer 200, and `/diagnostics/probe` + `/diagnostics/events` answer for the two project-local container backings. There is **no** `/health/<codebase>/<service>` route to probe — the fan-out is deleted, and the diagnostics routes deliberately do not live under `/health/` so no reader concludes it survived under a narrower name.
 - [ ] `./bin/docex envinfra down dev`.
 
 ### D.7 Test
@@ -414,7 +676,18 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 ### D.10 Stagetest
 
-- [ ] `./bin/docex stagetest` — exits 0. Covers `/health`, `/health/probe`, `/health/events`, and the POST `/pings` critical path.
+- [ ] `./bin/docex stagetest` — exits 0. **It now runs the orchestrator
+  liveness/version gate BEFORE the tester image is built**, reading every core
+  service's health and version through ECS `list_tasks` / `describe_tasks` /
+  `describe_task_definition`. A failure here is `DeployedServiceUnhealthy` or
+  `OrchestratorStateUnreadable` and happens **before any image build** — record which
+  one you got. **An empty result set never reads as healthy**: zero core services,
+  zero RUNNING tasks, and an unreadable container all fail loudly. **There is no flag
+  that disables the gate** — if the walk hurts here, the gate is reporting something.
+- [ ] Then the tester's own probes: `/health` on the web edge,
+  `/diagnostics/{probe,events}`, the POST `/pings` critical path, and the
+  **defer-then-drain round trip** that replaced the deleted liveness fan-out test
+  (it asserts **no exact count** — the worker's own poll loop legitimately races it).
 
 ### D.11 Release prod
 
@@ -423,7 +696,25 @@ Elastic production-side projinfra applies in two phases separated by an operator
   - `https://api-web.prod.docex-smoke-elastic.luxrnd.tech/health` (canonical, **two-segment** service label)
   - `https://prod.docex-smoke-elastic.luxrnd.tech/health` (bare-env → `domain_default_service`)
   - `https://docex-smoke-elastic.luxrnd.tech/health` (bare-project → prod's bare env → `domain_default_service`)
-- [ ] `https://docex-smoke-elastic.luxrnd.tech/health/api/worker` returns 200 with a matching `version`. On elastic this additionally proves Service Connect resolved the sibling core service — the `api.worker` `port` is exactly what makes it discoverable, so a missing port surfaces here and nowhere else.
+- [ ] **Every core service's ECS container health is `HEALTHY`**, and for
+  `api-worker` / `api-clock` this is the only externally-available statement about
+  their liveness:
+  ```bash
+  aws ecs list-tasks --cluster docex-smoke-elastic-prod --query 'taskArns[]' --output text \
+    | xargs aws ecs describe-tasks --cluster docex-smoke-elastic-prod --tasks \
+    --query 'tasks[].{group:group,health:healthStatus,containers:containers[].{n:name,h:healthStatus}}'
+  ```
+  On elastic the probe is load-bearing in a way it is not on fixed: **ECS kills and
+  replaces** a task whose essential container fails, so a wrong probe is a crash
+  loop rather than a stale status. `startPeriod: 10` is what keeps a normal start
+  from tripping it.
+- [ ] **Service Connect still resolves the sibling core service.** The old fan-out
+  box proved this incidentally; nothing else does, so assert it directly: `api.web`
+  reaching `api.worker`'s `rpc` surface (`POST /drain`) is what the worker's `port`
+  makes discoverable. The defer → drain round trip below is the end-to-end proof; a
+  resolution failure shows as `api-web` logging a connection error to
+  `WORKER_HOST`, **while both services report healthy** — no external signal at all,
+  which is why [D.9](#d9-release-stage)'s reconcile box exists.
 - [ ] **Record both reconcile operands, and the verdict.** The consumers are the
   core services that declare a **core-targeted** `uses` entry — here `api-web`
   and `api-clock`, both targeting `api.worker`. `api.worker` itself declares
@@ -480,7 +771,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 - [ ] A fire deferred. Within ~65 s the same log group shows `jobs: 'heartbeat' fired` followed by `jobs: 'heartbeat' deferred as job <uuid>`. **Both lines, not one** — "fired" without "deferred" is the clock reaching the queue and failing.
 - [ ] The worker drained it. The `/docex_smoke_elastic/prod/api-worker` log group shows `jobs: 'heartbeat' performed (job <uuid> …)` carrying the **same uuid**. Matching the uuid is what makes this a proof of the deferral path rather than of two unrelated log lines.
 - [ ] Confirmed in the database: the `jobs` row for that uuid has non-NULL `finished_at` and NULL `error`. Use the same prod RDS access the ping check above already established.
-- [ ] The clock answers its own probe: `aws ecs describe-tasks` reports the `api-clock` task's container health status as `HEALTHY`. **This is the only enforcement a clock gets** — no fan-out and no stage test can reach it — so an operator who skips this box has verified nothing about the clock's liveness surface.
+- [ ] The clock answers its own probe: `aws ecs describe-tasks` reports the `api-clock` task's container health status as `HEALTHY` — and so does `api-worker`'s. **This is the only enforcement any non-`web` core service gets** — nothing routes to them, so no stage test can reach them — so an operator who skips this box has verified nothing about their liveness surface. The clock stopped being a special case here: it is the *first* case of what is now the general rule, and the worker is the second.
 - [ ] `aws ecs describe-services` reports `desired_count = 1` for `api-clock`. A clock declares no `replicas` and rule 26 forbids it — a 2 here means two cron loops and a double fire on every tick.
 
 ### D.12 Rollback walk

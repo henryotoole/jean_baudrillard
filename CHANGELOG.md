@@ -42,6 +42,127 @@ rollback-unavailable boundary inside one cut.
 
 ### Changed
 
+#### Vocabulary — codebases and core services
+
+- **A codebase is a `codebase`; a process type is a `core service`.** The two
+  central nouns of the doctrine's service vocabulary trade places. What 1.6.0
+  called a *core service* — one source tree, one build artifact, one image — is
+  now a **codebase**; what it called a *process type* — one named,
+  independently-scaled deployment of that artifact — is now a **core service**.
+  Nothing structural moves: still one image per codebase, still N invocations of
+  it, each with its own role, `command`, port, networks, and resources.
+
+  1.6.0 introduced process types because `web` and `worker` needed to share a
+  build artifact. That was the right structural move but left the vocabulary a
+  notch out of alignment, load-bearingly so: the doctrine's "core service" had no
+  port, no command, no replica count, and nothing ever routed to it, so a reader
+  who knew what a service *is* had to unlearn it to read `infra.yml`. The
+  clearest symptom was already written down — `cicl.md § Magic Refs` had to
+  explain that "a **bare** core service name is illegal rather than shorthand",
+  which is the doctrine noticing its own noun was wrong. A service you cannot
+  address is not a service.
+
+  **Breaking — every `infra.yml` must be rewritten.** Top-level `core_services:`
+  → `codebases:`; nested `processes:` → `core_services:`;
+  `domain_default_process` → `domain_default_service`; core magic refs go from
+  four segments to five (`${codebases.<cb>.core_services.<svc>.<part>}`).
+  Backing refs and `schema_owned_by` are unchanged. This rename is one of three
+  changes sharing the `cicl_version` `"2"` → `"3"` bump in this cut.
+
+  On the emitted surface, **no name, label, or path changes** — the two elastic
+  env-tier tag *keys* move (`service` → `codebase`, `process` → `service`) while
+  their values stay put, so OpenTofu updates tags in place rather than recreating
+  resources. Two changes do reach consumers: the OTel resource attributes
+  `docex.core_service` / `docex.process_type` become `docex.codebase` /
+  `docex.service` (**this splits existing telemetry time series** — dashboards
+  and alerts need updating), and `docex describe --format llm` renames its
+  `core_service` JSON key to `codebase`.
+
+#### One relation: `uses`
+
+- **`depends_on` and `consumes` merge into one relation, `uses`.** An author
+  asked one question — *what does this core service talk to?* — and had to answer
+  it in two fields with two cycle rules, two halves of one validation rule, and a
+  comparison table explaining the split to itself. Now a core service declares
+  `uses:`, naming a **backing service** bare (`database`) or a **core service**
+  dotted and fully qualified (`api.worker`).
+
+  The merge is sound because the cycle rule keys on **target kind**, which the
+  compiler knows for every edge. Better: a backing service may no longer declare
+  outbound edges at all, which makes it a graph **sink** — so acyclicity across
+  backing-targeted edges falls out structurally rather than needing enforcement.
+  The doctrine previously argued the two relations *could not* merge; that
+  argument is retired along with the field.
+
+  **Project-level startup ordering is no longer a doctrine feature.** The
+  compiler emits no compose `depends_on:` / `condition:` on any core-service
+  block — removed, not deprecated. The connection-resilience mandate was always
+  the real guarantee, and a silently-emitted gate made `dev` and `test`
+  systematically more forgiving than elastic `prod`, sheltering exactly the
+  non-resilient boot code the mandate exists to expose. The **per-codebase exec
+  block keeps its gate** (derived from that codebase's backing-targeted `uses`
+  edges): `migrate.sh` and friends are one-off batch jobs whose whole contract is
+  an exit code, and for a batch job "be tolerant" means "wait until ready".
+
+  **Breaking — every `infra.yml` must be rewritten.** `depends_on:` → `uses:`,
+  merged with any `consumes:` list on the same core service; `depends_on` deleted
+  from backing services. Both old field names are hard errors, not silent
+  aliases. `cicl_version` moves `"2"` → `"3"`.
+
+  Rules 6 and 24 retire; rule 7 collapses to a single clause; rule 25 becomes the
+  `uses` shape rule. Retired rules keep their numbers and carry a tombstone —
+  rule numbers are stable identities cited from other doctrine files, the pre-cut
+  checklist, and `docex`'s own validation issue ids.
+
+- **`docex` implements the `uses` merge.** The compiler, validator, emitters,
+  `describe` renderers, and CI gates now read the single relation; the exec
+  block's health-gated readiness derivation is the only ordering the compiler
+  still emits.
+
+#### `role: clock` replaces `role: scheduler`
+
+- **`role: scheduler` retires; the clock is an ordinary core service.** A
+  schedule is a property of an *invocation*, not of a deployment, and
+  `role: scheduler` was a process type that was not a process — every carve-out
+  it forced traced to that one fact. It is replaced by **`role: clock`**: a
+  long-running singleton core service, one per codebase with scheduled work,
+  whose entrypoint owns a cron loop and reads a compiler-delivered schedule
+  table. A compose service on fixed, `task_definition` + `ecs_service` on
+  elastic.
+
+  Schedules are declared on the clock as `schedules:` — a map of job name to a
+  **bare 5-field UTC cron string**. With EventBridge gone there is **no dialect
+  translation anywhere**: no 6-field forms, no `?`-day substitution, no
+  provider-specific day-of-week renumbering. The compiled table reaches the
+  container as **one literal env var, `DOCEX_SCHEDULES_YAML`, identical on both
+  foundations** — a compose `environment:` entry on fixed, a task-definition env
+  entry on elastic. No mount, no path, no per-foundation branch.
+
+  **Every carve-out dies.** The clock serves `GET /health` off a monotonic tick
+  like any loop-owning service, gets an OTel sidecar so job telemetry stops being
+  deferred, and is a normal container with normal bind mounts in `dev` and
+  `test`. Gone with the role: the Ofelia trigger container and its INI, the
+  EventBridge path and its per-service invocation IAM role, the `test`-env
+  suppression, and the "scheduler-only codebase that nothing builds" special
+  case.
+
+  Two rules are prose rather than validation, because the compiler cannot see
+  what a port method does: **the clock defers, it does not work** (its only job
+  is to call a driving port that enqueues — only the codebase owning a schema may
+  write it), and **one clock per codebase**, not one per project.
+
+  **Breaking.** Every `role: scheduler` service becomes a `clock` core service
+  plus one or more driving-port operations; each job's `command` argv becomes a
+  port method. `specifics/scheduler.md` is replaced by `specifics/clock.md`.
+  Rule 26 is replaced (`replicas` forbidden on a clock) and rule 27 now covers
+  `worker` and `clock`.
+
+  One consequence worth knowing: a clock is consumer-only, so nothing `uses` it
+  and no `web` core service fans out to it. Its liveness is enforced by its
+  container healthcheck, but **staging tests do not see it**.
+
+#### Surfaces replace role-derived contracts
+
 - **A core service declares `surfaces:`; rules 29-33 join the CICL rule set
   (mod 125).** A surface is a named boundary with one or more `api_styles`, and
   it compiles to exactly one contract file. Format follows the styles the
@@ -117,6 +238,8 @@ rollback-unavailable boundary inside one cut.
   codebase shim (`migrate.sh` stays conditional on schema ownership). The gate
   roster goes from ten to nine.
 
+#### Health leaves HTTP
+
 - **The container probe is a command — `./health.sh <service>` — on both
   foundations (mod 127).** Every core service's container health check is now
   `["CMD", "./health.sh", "<service>"]`: a compose `healthcheck:` on fixed, an
@@ -131,8 +254,9 @@ rollback-unavailable boundary inside one cut.
   `health_check_path` narrows to **one** surviving translation: `elastic` →
   `target_group`, the ALB's own HTTP probe, the one consumer that genuinely
   cannot run a command inside a container. Its fixed translation — the
-  `curl -f http://localhost:$PORT$PATH` probe — is deleted; on fixed, traefik
-  takes target health from the container probe. The field stays *declared* on the
+  `curl -f http://localhost:$PORT$PATH` probe — is deleted; on fixed the field has
+  **no consumer at all**, because the compiler emits no health-aware traefik labels
+  (only `loadbalancer.server.port`). The field stays *declared* on the
   `web` role so a fixed project may still carry it and stay portable, and is
   removed from `worker` and `clock` entirely, which is how rule 33's negative arm
   is enforced at the table layer by rule 4 with no second rule.
@@ -151,9 +275,9 @@ rollback-unavailable boundary inside one cut.
   `startPeriod` is emitted on elastic and has no fixed counterpart, because the
   two orchestrators do different things with a failing probe: **ECS kills and
   replaces the task; Docker only reports.** A start grace prevents a container
-  being killed before it has written its first tick; on fixed there is no
-  consequence to prevent, and traefik dropping a not-yet-ready container from its
-  pool is the behavior you want.
+  being killed before it has written its first tick; on fixed nothing acts on a
+  failing probe at all — Docker reports and restarts nothing of its own accord — so
+  there is no wrong consequence for a start grace to prevent.
 
   Prose that outlived the fan-out is reworded, and the logic behind it does not
   move: the elastic release's Service Connect reconcile still fires on exactly the
@@ -162,6 +286,8 @@ rollback-unavailable boundary inside one cut.
   healthy** — no external signal at all, the release looking clean, and the work
   silently not arriving. That is strictly worse than a 503, which is why the
   reconcile matters more after this change than before it.
+
+#### The smoke seeds move onto both models
 
 - **Both smoke-test seed projects move onto the new model (mod 129).** Source,
   contracts, and `infra.yml` in `test_projects/{fixed,elastic}` — the two trees
@@ -212,120 +338,51 @@ rollback-unavailable boundary inside one cut.
   through the real ingress, asserting **no exact count**, because the worker's own
   poll loop legitimately races it.
 
-- **A codebase is a `codebase`; a process type is a `core service`.** The two
-  central nouns of the doctrine's service vocabulary trade places. What 1.6.0
-  called a *core service* — one source tree, one build artifact, one image — is
-  now a **codebase**; what it called a *process type* — one named,
-  independently-scaled deployment of that artifact — is now a **core service**.
-  Nothing structural moves: still one image per codebase, still N invocations of
-  it, each with its own role, `command`, port, networks, and resources.
-
-  1.6.0 introduced process types because `web` and `worker` needed to share a
-  build artifact. That was the right structural move but left the vocabulary a
-  notch out of alignment, load-bearingly so: the doctrine's "core service" had no
-  port, no command, no replica count, and nothing ever routed to it, so a reader
-  who knew what a service *is* had to unlearn it to read `infra.yml`. The
-  clearest symptom was already written down — `cicl.md § Magic Refs` had to
-  explain that "a **bare** core service name is illegal rather than shorthand",
-  which is the doctrine noticing its own noun was wrong. A service you cannot
-  address is not a service.
-
-  **Breaking — every `infra.yml` must be rewritten.** Top-level `core_services:`
-  → `codebases:`; nested `processes:` → `core_services:`;
-  `domain_default_process` → `domain_default_service`; core magic refs go from
-  four segments to five (`${codebases.<cb>.core_services.<svc>.<part>}`).
-  Backing refs and `schema_owned_by` are unchanged. This rename is one of three
-  changes sharing the `cicl_version` `"2"` → `"3"` bump in this cut.
-
-  On the emitted surface, **no name, label, or path changes** — the two elastic
-  env-tier tag *keys* move (`service` → `codebase`, `process` → `service`) while
-  their values stay put, so OpenTofu updates tags in place rather than recreating
-  resources. Two changes do reach consumers: the OTel resource attributes
-  `docex.core_service` / `docex.process_type` become `docex.codebase` /
-  `docex.service` (**this splits existing telemetry time series** — dashboards
-  and alerts need updating), and `docex describe --format llm` renames its
-  `core_service` JSON key to `codebase`.
-
-- **`depends_on` and `consumes` merge into one relation, `uses`.** An author
-  asked one question — *what does this core service talk to?* — and had to answer
-  it in two fields with two cycle rules, two halves of one validation rule, and a
-  comparison table explaining the split to itself. Now a core service declares
-  `uses:`, naming a **backing service** bare (`database`) or a **core service**
-  dotted and fully qualified (`api.worker`).
-
-  The merge is sound because the cycle rule keys on **target kind**, which the
-  compiler knows for every edge. Better: a backing service may no longer declare
-  outbound edges at all, which makes it a graph **sink** — so acyclicity across
-  backing-targeted edges falls out structurally rather than needing enforcement.
-  The doctrine previously argued the two relations *could not* merge; that
-  argument is retired along with the field.
-
-  **Project-level startup ordering is no longer a doctrine feature.** The
-  compiler emits no compose `depends_on:` / `condition:` on any core-service
-  block — removed, not deprecated. The connection-resilience mandate was always
-  the real guarantee, and a silently-emitted gate made `dev` and `test`
-  systematically more forgiving than elastic `prod`, sheltering exactly the
-  non-resilient boot code the mandate exists to expose. The **per-codebase exec
-  block keeps its gate** (derived from that codebase's backing-targeted `uses`
-  edges): `migrate.sh` and friends are one-off batch jobs whose whole contract is
-  an exit code, and for a batch job "be tolerant" means "wait until ready".
-
-  **Breaking — every `infra.yml` must be rewritten.** `depends_on:` → `uses:`,
-  merged with any `consumes:` list on the same core service; `depends_on` deleted
-  from backing services. Both old field names are hard errors, not silent
-  aliases. `cicl_version` moves `"2"` → `"3"`.
-
-  Rules 6 and 24 retire; rule 7 collapses to a single clause; rule 25 becomes the
-  `uses` shape rule. Retired rules keep their numbers and carry a tombstone —
-  rule numbers are stable identities cited from other doctrine files, the pre-cut
-  checklist, and `docex`'s own validation issue ids.
-
-- **`docex` implements the `uses` merge.** The compiler, validator, emitters,
-  `describe` renderers, and CI gates now read the single relation; the exec
-  block's health-gated readiness derivation is the only ordering the compiler
-  still emits.
-
-- **`role: scheduler` retires; the clock is an ordinary core service.** A
-  schedule is a property of an *invocation*, not of a deployment, and
-  `role: scheduler` was a process type that was not a process — every carve-out
-  it forced traced to that one fact. It is replaced by **`role: clock`**: a
-  long-running singleton core service, one per codebase with scheduled work,
-  whose entrypoint owns a cron loop and reads a compiler-delivered schedule
-  table. A compose service on fixed, `task_definition` + `ecs_service` on
-  elastic.
-
-  Schedules are declared on the clock as `schedules:` — a map of job name to a
-  **bare 5-field UTC cron string**. With EventBridge gone there is **no dialect
-  translation anywhere**: no 6-field forms, no `?`-day substitution, no
-  provider-specific day-of-week renumbering. The compiled table reaches the
-  container as **one literal env var, `DOCEX_SCHEDULES_YAML`, identical on both
-  foundations** — a compose `environment:` entry on fixed, a task-definition env
-  entry on elastic. No mount, no path, no per-foundation branch.
-
-  **Every carve-out dies.** The clock serves `GET /health` off a monotonic tick
-  like any loop-owning service, gets an OTel sidecar so job telemetry stops being
-  deferred, and is a normal container with normal bind mounts in `dev` and
-  `test`. Gone with the role: the Ofelia trigger container and its INI, the
-  EventBridge path and its per-service invocation IAM role, the `test`-env
-  suppression, and the "scheduler-only codebase that nothing builds" special
-  case.
-
-  Two rules are prose rather than validation, because the compiler cannot see
-  what a port method does: **the clock defers, it does not work** (its only job
-  is to call a driving port that enqueues — only the codebase owning a schema may
-  write it), and **one clock per codebase**, not one per project.
-
-  **Breaking.** Every `role: scheduler` service becomes a `clock` core service
-  plus one or more driving-port operations; each job's `command` argv becomes a
-  port method. `specifics/scheduler.md` is replaced by `specifics/clock.md`.
-  Rule 26 is replaced (`replicas` forbidden on a clock) and rule 27 now covers
-  `worker` and `clock`.
-
-  One consequence worth knowing: a clock is consumer-only, so nothing `uses` it
-  and no `web` core service fans out to it. Its liveness is enforced by its
-  container healthcheck, but **staging tests do not see it**.
-
 ### Fixed
+
+- **The docs describing `check`'s contract and health gates described the deleted
+  model (mod 131).** `masterplan.md` still narrated the two-armed provider union,
+  format-from-`role`, the openapi fallback, self-health for every openapi provider,
+  the `/health/<codebase>/<service>` fan-out, and "a core `uses` target must declare
+  both `port` and `health_check_path`" — every sentence false after mods 125-127.
+  Rewritten against what shipped. Mod 101's account of `_infer_contract_format`
+  having returned `openapi` unconditionally **since the day it was written** — so
+  the async-contract path never once executed and the fan-out flaw hid behind it —
+  is kept as **history**, because it explains how a real defect survived months of
+  green runs.
+
+  Three more instances of one drift class were repaired with it. The pre-cut
+  checklist told the walker to assert `GET /health/api/worker` returns 200 on
+  **both** walks: a route deleted in mod 129, so a walker following the box
+  literally would record a failure **against correct code** and stop the cut — the
+  most expensive kind of checklist defect, because it burns a walk to teach you
+  something false. `upgrade_1.7.0.md` listed **contract path** under "what does not
+  move" while every contract in the release is renamed. And a false claim about
+  traefik reading container health — true of no shipped configuration, since the
+  compiler emits no health-aware traefik labels — had propagated to **five** sites
+  (`tables/roles/web.yml` twice, `compiler.md`, and two of this cut's own changelog
+  entries) from a single plausible sentence.
+
+  Also: `doctrine_excerpts/` — the one aligned artifact with **no automated
+  consumer** — was found stale in **nine of its eighteen** entries, and only **one**
+  of the nine was caused by this advance. A dead prose citation `linkcheck` cannot
+  see (it is prose, not a link); a shim list missing `health.sh`; an **inverted**
+  fixed-side traefik topology ("machine-wide traefik", the opposite of the
+  project-tier traefik the doctrine specifies) propagated across **four** files; a
+  subdomain scheme predating `apex_domain` that omits the project segment entirely;
+  and `example.env` still described as compile-emitted a full advance after mod 092
+  deleted that emit. Five fixed here, four booked at
+  [`007_small_edges/doctrine_excerpts_stale_entries.md`](./docex/plans/advances/007_small_edges/doctrine_excerpts_stale_entries.md)
+  because each needs a rewrite rather than a corrected clause.
+
+  **The vocabulary grep three mods relied on found exactly one of the nine**, which
+  is the finding worth keeping. `docex_process.md` now records the verdict
+  (`surface` earns **no** `index.yml` entry, with reasons) and two standing rules for
+  sweeping this artifact: **a grep for the new thing cannot find a list that lacks
+  it**, so a completeness pass must read every entry naming a *set* and ask whether
+  the set is still complete; and an artifact with no automated consumer drifts **at
+  the rate nobody looks**, not at the rate its subject changes — so a sweep should
+  expect damage from releases other than the one it is sweeping for.
 
 - **The ECS cluster name is one expression instead of five (mod 128).** The
   `<project>-<env>` cluster name — which is *also* the env's Service Connect

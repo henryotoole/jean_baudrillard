@@ -13,7 +13,7 @@ The rough, toplevel process for change is this:
 	3. There is no "manual test" phase for `docex` mod cycles. Do not pause for operator manual tests.
 	4. When checking for drift after a mod implementation, check all [artifacts](#additional-artifacts) for alignment.
 3. **Run expensive tests** - When mod cycles are complete, run the "expensive" tests. These include:
-	1. End-to-end integration tests. These are automated and hit with `pytest -m integration`
+	1. End-to-end integration tests — see [§ Running the automated tests](#running-the-automated-tests) for the invocation, which is **not** the obvious one.
 	2. The ["test project" tests](#test-project-tests), which call for you to manually step through critical `docex` steps for two distinct sample projects with different foundations.
 4. **Cut a new version** - a `docex` change ships in a doctrine-wide release; see [`RELEASING.md`](../../../RELEASING.md) and § [Versioning & Releasing](#versioning--releasing) below.
 
@@ -71,7 +71,83 @@ The retired `scheduler` role had none, so its deletion removed nothing. Both
 decisions are recorded here rather than left implicit, because on this artifact
 a silent "no" is indistinguishable from an oversight.
 
+Applying it again at advance 006 (mods 125–131): **`surface` gets no entry**, and
+the same answer covers `api_styles`, `health.sh`, and the container probe — stated
+together so the next mod does not re-ask it one noun at a time. Three reasons, each
+ruling out a different wrong answer. **Nothing is deployed for a surface:** it has
+no container, no DNS name, no ARN, and no `[resource]` box in `shape.md` —
+`api.worker`'s two surfaces are two documents in the repo and one process. **It is
+a CICL field**, which this criterion excludes by name; `cicl.md § Surfaces` and
+§ Service Fields specify it, and a third hand-maintained restatement would buy
+nothing. And **a probe is a property of a resource, not a resource** — the one
+sentence it earned went into the existing `core_service.md` entry rather than a new
+one. Mods 126, 127 and 128 each concluded independently that they introduced no
+resource; mod 128 recorded its row expressly so this verdict could aggregate them.
+
+**How this artifact is swept, and the limit that was found the hard way.** Three
+mods of advance 006 grepped all eighteen excerpts for
+*health / contract / surface / curl* and got zero hits, and concluded nothing
+contradicted the new model. That reasoning is sound for a **changed** claim and
+structurally blind to an **omission**: `codebase.md` listed the codebase's shims as
+"`build.sh` / `test.sh` / `migrate.sh`" and was wrong by omitting `health.sh` — a
+line containing none of the four grep terms, only three filenames. **A grep for the
+new thing cannot find a list that lacks it.** So a sweep of this artifact needs a
+second pass that reads every entry naming a set — files, stages, roles, fields —
+and asks whether the set is still complete. The vocabulary grep cannot answer that
+question and will keep returning zero while the omission stands.
+
+**Advance 006's sweep found defects in half of this directory, which is what this
+row is for.** Only **one** of them was caused by the advance. The tally, because the
+proportion is the argument:
+
+| Defect | Files | Found by |
+| --- | --- | --- |
+| Dead prose citation to an anchor the doctrine rewrite deleted | `service_discovery.md` | the advance's own vocabulary grep |
+| Shim list missing `health.sh` | `codebase.md` | the completeness pass |
+| **Inverted** fixed-side traefik topology — "machine-wide traefik", the opposite of the project-tier traefik `shape.md` specifies | `reverse_proxy.md`, `cert_manager.md`, `host_machine.md`, `network_web.md` | the completeness pass |
+| Stale subdomain scheme (a `domain:` field that no longer exists; no project segment; `prod → www.`) | `dns.md`, `registrar.md` | the completeness pass; **booked**, not fixed |
+| `example.env` described as compile-emitted and committed — mod 092 deleted that emit | `secrets.md` | the completeness pass; **booked**, not fixed |
+| `docex up` for `docex envinfra up` | `environment_config.md` | the completeness pass; **booked**, not fixed |
+
+Nine of eighteen entries, and **the vocabulary grep found exactly one of them.** The
+inverted topology claim had propagated to four files and predated the advance
+entirely; the stale subdomain scheme predates `apex_domain`. Two lessons follow.
+First, an artifact with no automated consumer does not drift *at* the rate its
+subject changes — it drifts at the rate nobody looks, so a sweep should expect to
+find damage from releases other than the one it is sweeping for. Second, **the
+completeness pass is not optional and is not a formality**: it found eight of the
+nine. The four still open are booked at
+[`007_small_edges/doctrine_excerpts_stale_entries.md`](../advances/007_small_edges/doctrine_excerpts_stale_entries.md),
+because each needs a rewrite rather than a corrected clause.
+
 Keep them aligned. Fixing the code while leaving the rule stale (or vice versa) is the failure mode this process guards against.
+
+## Running the automated tests
+
+Two invocations, and **three ways to get a number that looks like an answer and is
+not.** All three were paid for during advance 006; none of them fails loudly.
+
+```sh
+python -m pytest tests                  # the default suite
+python -m pytest tests -m integration   # the integration suite — run ALONE
+```
+
+1. **`python -m pytest`, never bare `pytest`.** The bare binary cannot collect this
+   suite. It reports **17** deselected instead of 18 and runs nothing — a count near
+   enough to the truth to be believed.
+2. **The default suite is `tests`, not `tests/unit`.** Sixty-plus fast compile tests
+   live under `tests/integration/` carrying **no** marker, so the conventional pair
+   `pytest tests/unit` + `pytest tests -m integration` has a sixty-test hole between
+   them that is invisible from either side. Mod 128 found twelve tests red behind a
+   green report that way. The structural cause is filed at
+   [`007_small_edges/misfiled_compile_tests.md`](../advances/007_small_edges/misfiled_compile_tests.md).
+3. **`-m integration` must run alone.** Run concurrently with anything else it
+   produces five convincing false failures in migrate, up/down and build — they
+   contend for real docker state.
+
+The common shape is this advance's own recurring defect arriving in the measurement
+apparatus rather than the code: *something that could not have detected the failure
+reported success.*
 
 ## Versioning & Releasing
 

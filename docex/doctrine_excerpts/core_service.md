@@ -11,4 +11,12 @@ Two strict doctrine rules:
 
 Core services declare `resources:` (CPU, memory, optional disk/GPU) in `infra.yml`; the compiler translates this to compose `deploy.resources` or Fargate task settings per `transfer_tables.md § Resources Translation`.
 
+Every core service's container carries a health probe the compiler emits on both
+foundations — `./health.sh <service>`, a compose `healthcheck:` on fixed and an ECS
+container `healthCheck` on elastic. The core service declares nothing for it; the
+argv is supplied so one codebase's shim can probe a web edge and a queue consumer
+differently. For a core service off the `web` network this probe is its **only**
+liveness enforcement: nothing routes to it, so no load balancer and no staging test
+can reach it.
+
 Doctrine reference: `infrastructure/infrastructure.md` § Repository Structure; `infrastructure/cicl.md` § Core Services.
