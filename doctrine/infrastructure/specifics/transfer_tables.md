@@ -331,7 +331,7 @@ roles:
           # Every core service gets the same container-level probe, keyed on
           # nothing but its own name — see healthchecks.md.
           healthcheck:
-            test: ["CMD", "./health.sh", "${service_name}"]
+            test: ["CMD", "./health.sh", "${service}"]
             interval: 30s
             timeout: 5s
             retries: 3
