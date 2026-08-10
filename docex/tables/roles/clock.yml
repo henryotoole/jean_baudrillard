@@ -37,37 +37,57 @@ roles:
         fixed: [compose_service]
         elastic: [task_definition, ecs_service, container_definition]
       defaults:
-        fixed: {}
+        # The container probe is a DEFAULT, not a field: `health.sh` is
+        # emitted for every core service on both foundations and needs
+        # nothing from infra.yml but the service's own name. Cadence is
+        # doctrine-fixed and uniform across every core service — it is not a
+        # project-tunable knob. See healthchecks.md § The orchestrator
+        # carries the result.
+        #
+        # This is how a clock gets a probe at all. It declares no
+        # `health_check_path` — rule 33 confines that field to `web`-network
+        # core services, and rule 27 forbids `web` on a clock — so a cron
+        # loop's liveness is a loop-tick question, not an HTTP-route one.
+        fixed:
+          healthcheck:
+            test: ["CMD", "./health.sh", "${service}"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
         elastic:
           launch_type: FARGATE
           network_mode: awsvpc
+          # `CMD`, not `CMD-SHELL`: a command probe needs no shell and no
+          # `|| exit 1` exit-code laundering. Exec form on both foundations is
+          # what makes the two emissions one translation rather than two
+          # adaptations. `./health.sh` resolves against WORKDIR /service,
+          # which infrastructure.md § Codebase Containers fixes for every
+          # codebase image.
+          #
+          # `startPeriod` is elastic-only ON PURPOSE. ECS KILLS a task whose
+          # essential container fails its probe and the service replaces it —
+          # a wedged cron loop gets the task killed and replaced — so a start
+          # grace prevents a container being killed before it has written its
+          # first tick. Docker only REPORTS `unhealthy`; nothing on fixed acts
+          # on it, so a fixed `start_period` would suppress correct behavior
+          # rather than prevent a wrong consequence.
+          healthCheck:
+            command: ["CMD", "./health.sh", "${service}"]
+            interval: 30
+            timeout: 5
+            retries: 3
+            startPeriod: 10
       fields:
-        health_check_path:
-          fixed:
-            healthcheck:
-              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
-              interval: 30s
-              timeout: 5s
-              retries: 3
-          elastic:
-            # NOT target_group — a clock has none. Routes to the ECS
-            # container-level healthCheck, so a wedged cron loop gets the
-            # task killed and replaced by the service.
-            target: container_definition
-            healthCheck:
-              command: ["CMD-SHELL", "curl -f http://localhost:${port}${field_value} || exit 1"]
-              interval: 30
-              timeout: 5
-              retries: 3
-              startPeriod: 10
         schedules:
           fixed: {}      # consumed procedurally by emit/schedules.py
           elastic: {}    # ditto — one delivery mechanism, both foundations
       provides:
         # A clock that declares a `port` registers as Service-Connect-
         # discoverable on elastic (shape.md § service_discovery), the same as
-        # `worker`. Nothing is expected to `uses:` a clock, but nothing
-        # structurally prevents it either — no exemptions.
+        # `worker`, which is what lets a consumer holding a magic ref to this
+        # clock's `host`/`port` parts actually address it — rule 32's positive
+        # arm. Nothing is expected to `uses:` a clock, but nothing structurally
+        # prevents it either — no exemptions.
         host:
           fixed: "${global_service_name}"
           elastic: "${global_service_name}"

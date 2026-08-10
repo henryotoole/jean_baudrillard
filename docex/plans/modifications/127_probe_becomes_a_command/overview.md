@@ -17,7 +17,7 @@ and the tests for all of it.
 **Not touched.** `pipeline/stagetest.py` (mod 128), `test_projects/` (mods 129–130),
 `pipeline/check.py` (done, mod 126), `plans/core/masterplan.md` § *The contract and
 health gates* (mod 131). No doctrine file is edited; two doctrine findings are
-raised in [§ 8](#8-doctrine-findings-raised-not-taken).
+raised in [§ 8](#8-doctrine-findings--raised-and-routed).
 
 **Rule of record.** Already committed and authoritative:
 [`healthchecks.md`](../../../../doctrine/infrastructure/healthchecks.md) — *"The
@@ -27,8 +27,10 @@ task definition on `elastic`"*; and
 [`transfer_tables.md`](../../../../doctrine/infrastructure/specifics/transfer_tables.md)
 — *"The container probe is a default, not a field."*
 
-**Baseline, re-derived not inherited.** Unit **1041 passed**. Integration
-re-derived at design time (see the implementation doc's verification step).
+**Baseline, re-derived not inherited.** Unit **1041 passed**; integration
+**18 passed, green**. Both measured on this branch at `fa5d3fb` rather than carried
+from advance 005's report — which is the habit that found the rotted integration
+member in mod 126.
 
 ---
 
@@ -123,7 +125,7 @@ having:
 `container_definition` **stays** in `worker`/`clock`'s `emits.elastic` even though
 no shipped field routes to it any more. It is a declaration of an available
 destination, its renderer emits nothing, and deleting it would be a capability
-removal this mod was not asked for. See [§ 8](#8-doctrine-findings-raised-not-taken)
+removal this mod was not asked for. See [§ 8](#8-doctrine-findings--raised-and-routed)
 for the doctrine sentence this leaves stale.
 
 ### 1.4 The `provides:` comments
@@ -500,3 +502,36 @@ So on fixed a start grace would **suppress correct behavior** rather than preven
 wrong consequence: it would route traffic at a container during the window in which
 its own probe is still saying no. The asymmetry is kept, and this is the reason of
 record for it — not the example.
+
+---
+
+## Rulings (sarge, at design review)
+
+Recorded so they are not re-litigated.
+
+1. **Q1 — the emitter read is APPROVED, and the brief is withdrawn.** Sarge's
+   instruction ("reaches the container def through the `container_definition` merge
+   target") carried recon's summary forward without checking it against
+   `transfer_tables.md` § Anatomy, which forbids `defaults:` routing off the default
+   target. The rule of record contradicted the instruction; stopping was correct.
+   Two conditions on the implementation, both met: the read sits **ahead** of the
+   merge so a field still overrides a default, and its comment **names the
+   inconsistency it creates** — `healthCheck` is honored and `launch_type` is not,
+   and a reader must not infer the second from the first.
+2. **Hardcoding the probe in `hcl.py` beside `launch_type` — considered and
+   rejected.** It would avoid the inconsistency entirely, but `healthchecks.md` says
+   probe cadence *"lives in the transfer tables rather than here"*, so hardcoding the
+   numbers would put the doctrine's own values where the doctrine says they do not go.
+   Table plus explicit read is correct.
+3. **Q2 — asymmetry kept, but the reasoning is replaced.** An argument from a worked
+   example is not admissible when that example has been shown defective twice in the
+   same advance. The mechanism argument (ECS kills, Docker only reports) is the reason
+   of record, and it was verified against the code.
+4. **Both `transfer_tables.md` defects are sarge's to take**, after this change lands,
+   so the text describes what shipped rather than what was intended. Not mod 131's.
+5. **The inert-defaults finding gets its own brief** at
+   [`advances/007_small_edges/inert_elastic_defaults.md`](../../advances/007_small_edges/inert_elastic_defaults.md),
+   stating the question and both answers without choosing. Not fixed in this mod.
+6. **Re-deriving test counts rather than inheriting them is standing practice** — the
+   habit is why mod 126 discovered an integration member that had been red since
+   before the advance began.

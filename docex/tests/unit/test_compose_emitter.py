@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
 from docex.cicl.compile import run_compile
@@ -438,3 +439,215 @@ def test_backing_service_compose_environment_lacks_project_version(tmp_path: Pat
         appdb = _find_core_service_block(services, "appdb")
         environment = appdb.get("environment") or {}
         assert "PROJECT_VERSION" not in environment, (env, environment)
+
+
+# ---------------------------------------------------------------------------
+# Mod 127 — the container probe is `./health.sh <service>`, emitted from the
+# role tables' `defaults` for every core service on both foundations.
+# ---------------------------------------------------------------------------
+
+
+def test_web_fixed_probe_is_the_health_shim(tmp_path: Path):
+    """A `web` core service's compose probe is `./health.sh <service>`.
+
+    The probe is a role-table DEFAULT, not a field translation: it needs
+    nothing from infra.yml but the core service's own name, and the cadence is
+    doctrine-fixed and uniform rather than project-tunable
+    (healthchecks.md § The orchestrator carries the result). `./health.sh`
+    resolves against WORKDIR /service, which infrastructure.md § Codebase
+    Containers fixes for every codebase image.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("dev", "test", "stage", "prod"):
+        services = _compose_services(root, env)
+        web = _find_core_service_block(services, "api-web")
+        hc = web.get("healthcheck")
+        assert hc is not None, (env, sorted(web))
+        assert hc["test"] == ["CMD", "./health.sh", "web"], (env, hc)
+        assert hc["interval"] == "30s", (env, hc)
+        assert hc["timeout"] == "5s", (env, hc)
+        assert hc["retries"] == 3, (env, hc)
+        # Elastic-only on purpose: ECS KILLS a task whose essential container
+        # fails its probe, so a start grace prevents a container being killed
+        # before it has written its first tick. Docker only REPORTS
+        # `unhealthy`, and the one consumer that acts on it — traefik — drops
+        # the container from its pool, which is the correct treatment of a
+        # container that is not ready. See overview.md Q2.
+        assert "start_period" not in hc, (env, hc)
+
+
+def test_probe_does_not_follow_health_check_path(tmp_path: Path):
+    """The probe is invariant under `health_check_path`, and no curl survives.
+
+    `health_check_path` narrowed to its ELASTIC translation only (the ALB
+    target group). Its fixed translation — a `curl -f http://localhost:...`
+    healthcheck — is gone, so a project declaring `/healthz` still gets
+    `./health.sh web` and the compiled compose document contains no `curl`
+    anywhere. This is the assertion that catches a half-done table edit which
+    left the fixed translation in place beside the new default.
+
+    The whole-document `curl` sweep is deliberately broad, and it is sound only
+    because this fixture's one backing service is postgres (`pg_isready`). The
+    bundled `object_store`/minio engine's healthcheck IS a curl and is
+    out of scope here — health.sh is a codebase shim and no project writes one
+    for a backing service. If a minio service is ever added to this fixture,
+    narrow the sweep to the core-service blocks rather than deleting it.
+    """
+    root = _copy_fixture(tmp_path)
+    infra_yml = root / "infra" / "infra.yml"
+    infra_yml.write_text(
+        infra_yml.read_text().replace(
+            "health_check_path: /health\n", "health_check_path: /healthz\n", 1,
+        )
+    )
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("dev", "test", "stage", "prod"):
+        path = root / "infra" / "output" / env / "docker-compose.yml"
+        raw = path.read_text()
+        services = yaml.safe_load(raw)["services"]
+        web = _find_core_service_block(services, "api-web")
+        assert web["healthcheck"]["test"] == ["CMD", "./health.sh", "web"], env
+        assert "/healthz" not in raw, env
+        assert "curl" not in raw, env
+
+
+def test_backing_service_gets_no_health_shim_probe(tmp_path: Path):
+    """`health.sh` is a CODEBASE shim; no project writes one for a database.
+
+    A backing service's healthcheck stays its engine's own — postgres's
+    `pg_isready` — and nothing anywhere in a compiled backing block invokes
+    `./health.sh`. The positive control is in the same document: the core
+    service does carry the shim probe.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    appdb = _find_core_service_block(services, "appdb")
+    hc = appdb.get("healthcheck")
+    assert hc is not None, sorted(appdb)
+    assert any("pg_isready" in str(part) for part in hc["test"]), hc
+    assert not any("health.sh" in str(part) for part in hc["test"]), hc
+
+    # Positive control — otherwise this passes against a change that emits no
+    # probes at all.
+    web = _find_core_service_block(services, "api-web")
+    assert web["healthcheck"]["test"] == ["CMD", "./health.sh", "web"]
+
+
+def test_exec_block_carries_no_healthcheck(tmp_path: Path):
+    """The per-codebase `-exec` block gets no probe, on purpose.
+
+    `exec_service.md`: *"`health.sh` is the one codebase shim that does not run
+    here… its own liveness question is answered by the exit code it was invoked
+    for."* The second consequence is the load-bearing one: an exec block
+    carrying a `healthcheck:` changes what `depends_on: service_healthy` means
+    for anything gating on it, and compose would report a `--rm` one-shot as
+    `health: starting`.
+
+    This passes **by construction**, not by a filter: `emit/compose.py` builds
+    `exec_block` as a fresh dict and reads exactly one key off a core service
+    (`head.body.get("image", "")`), so it cannot inherit a `healthcheck:` from
+    the role table's defaults. The test exists to keep that true, not to have
+    made it true.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("dev", "test", "stage", "prod"):
+        services = _compose_services(root, env)
+        exec_keys = [k for k in services if k.endswith("-exec")]
+        assert exec_keys, (env, sorted(services))
+        for key in exec_keys:
+            assert "healthcheck" not in services[key], (env, key, services[key])
+
+        # Positive control in the SAME document: the codebase's core service
+        # does carry one, so this cannot pass vacuously.
+        web = _find_core_service_block(services, "api-web")
+        assert web["healthcheck"]["test"] == ["CMD", "./health.sh", "web"], env
+
+
+def test_exec_gate_names_no_core_service(tmp_path: Path):
+    """The readiness predicate did not leak when every core service got a probe.
+
+    `emit/compose.py` resolves `service_healthy` vs `service_started` by asking
+    whether a target block contains a `healthcheck:`, and it reads **backing**
+    blocks only — `exec_deps` is `uses_backing`, a partition derived from
+    `"." in entry` that cannot contain a core service. "Every core service now
+    has a healthcheck" is exactly the kind of change that leaks into a
+    predicate written when only some did, so the non-leak is asserted rather
+    than reasoned about: no `-exec` block's `depends_on` may name a core
+    service, in a document where every core service demonstrably carries one.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    services = _compose_services(root, "dev")
+    core_keys = {
+        k for k, b in services.items()
+        if b.get("healthcheck", {}).get("test", [None])[:2] == ["CMD", "./health.sh"]
+    }
+    # Positive control: the fixture really does have probed core services.
+    assert core_keys, sorted(services)
+
+    for key in [k for k in services if k.endswith("-exec")]:
+        deps = services[key].get("depends_on") or {}
+        assert not (set(deps) & core_keys), (key, sorted(deps), sorted(core_keys))
+
+
+def test_service_template_on_a_backing_engine_fails_loudly(tmp_path: Path):
+    """`${service}` is `None` for a backing service, and that fails LOUDLY.
+
+    `contexts[key]["service"]` is the core service name, deliberately `None`
+    for a backing service (`standard_tags` omits the `service` tag there). The
+    three roles that carry a `${service}` probe template — `web`, `worker`,
+    `clock` — are core-only, so this cannot bite them. The test pins the
+    FAILURE MODE for the future table author who tries it anyway: a compile
+    error quoting the template, never a container probing `./health.sh None`.
+    "Cannot happen" and "fails safe if it does" are different claims, and only
+    the second survives a table edit nobody reviewed.
+    """
+    import yaml as _yaml
+    from docex.errors import SubstitutionError
+
+    root = _copy_fixture(tmp_path)
+    tt_dir = root / "infra" / "transfer_tables"
+    tt_dir.mkdir(parents=True, exist_ok=True)
+    (tt_dir / "service_template.yml").write_text(_yaml.safe_dump({
+        "roles": {
+            "sidechannel": {
+                "noop": {
+                    "foundation": "fixed",
+                    "emits": {"fixed": ["compose_service"]},
+                    "defaults": {"fixed": {
+                        "image": "busybox:latest",
+                        "environment": {"WHO": "${service}"},
+                    }},
+                    "provides": {"host": {"fixed": "${global_service_name}"}},
+                    "naming": "docker",
+                },
+            },
+        },
+    }))
+    infra_yml = root / "infra" / "infra.yml"
+    infra_yml.write_text(infra_yml.read_text() + (
+        "\n  sidechannel:\n"
+        "    role: sidechannel\n"
+        "    engine: noop\n"
+        "    networks: [internal]\n"
+        "    port: 9000\n"
+    ))
+
+    ctx = load_project_context(root)
+    with pytest.raises(SubstitutionError) as exc:
+        run_compile(ctx)
+    assert "${service}" in str(exc.value)
+    assert "is None" in str(exc.value)

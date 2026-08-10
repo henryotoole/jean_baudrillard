@@ -194,6 +194,25 @@ codebases:
     assert "tt_rule_4_undeclared_field" in _rules(src)
 
 
+def test_health_check_path_on_clock_rejected_by_rule_4():
+    """Mod 127 deleted `health_check_path` from the clock role table entirely.
+
+    Rule 4 (`tt_rule_4_undeclared_field`) therefore rejects it on a clock,
+    which is how rule 33's NEGATIVE arm — the field is confined to `web`-network
+    core services — is enforced at the table layer with no second rule. Same
+    mechanism this file already relies on for `schedules`.
+
+    Membership, not exclusivity: rule 33 fires here too, and asserting a single
+    rule id would make the test brittle against the aggregation the validator
+    is built on.
+    """
+    src = _VALID.replace(
+        "        role: clock\n",
+        "        role: clock\n        health_check_path: /health\n",
+    )
+    assert "tt_rule_4_undeclared_field" in _rules(src)
+
+
 def test_replicas_on_clock_rejected():
     src = _VALID.replace(
         "        role: clock\n", "        role: clock\n        replicas: 2\n"
@@ -230,25 +249,21 @@ def _compose(root: Path, env: str = "dev") -> dict:
 
 def test_fixed_clock_is_an_ordinary_compose_service(fixed_project: Path):
     """A clock is a long-running container with every ordinary attribute —
-    command, image, build context, restart policy and networks, exactly as a
-    `worker`. It gets NO container probe (interim state): rule 33 forbids
-    `health_check_path` off the `web` network, and the compose healthcheck is
-    emitted only from that field.
+    command, image, build context, restart policy, networks, and a container
+    probe, exactly as a `worker`.
 
-    # MOD 127: this asserts the interim state. When the probe moves into the
-    # role tables' `defaults`, this becomes
-    #   block["healthcheck"]["test"] == ["CMD", "./health.sh", "clock"]
-    # The assertion is deliberately left FAILING-ON-CHANGE rather than
-    # deleted: a deletion loses the coverage silently, and an xfail would flip
-    # to XPASS, which reads as noise. This stops the suite at exactly the
-    # moment attention is warranted.
+    The probe is `./health.sh clock`, emitted from the role table's `defaults`.
+    A clock declares no `health_check_path` (rule 33 forbids it off the `web`
+    network, and rule 27 forbids `web` on a clock at all) and gets one anyway,
+    which is the point: the probe needs nothing from infra.yml but the core
+    service's own name.
     """
     doc = _compose(fixed_project)
     block = doc["services"]["sample-dev-api-clock"]
     assert block["command"] == ["python", "-m", "entrypoints.clock"]
     assert block["image"] == "sample/api:0.1.0"
     assert block["build"]["context"] == "./core/api"
-    assert "healthcheck" not in block
+    assert block["healthcheck"]["test"] == ["CMD", "./health.sh", "clock"]
     assert block["restart"] == "unless-stopped"
     assert block["labels"] == ["docex.project=sample"]
     assert block["logging"]["driver"] == "json-file"

@@ -24,18 +24,51 @@ roles:
         # Traefik discovery labels (fixed) and an ALB target group + listener
         # rule (elastic) for ANY service on the `web` network, with
         # per-service subdomains. See networks.md and cicl.md § Domain.
-        fixed: {}
+        #
+        # The container probe is a DEFAULT, not a field: `health.sh` is
+        # emitted for every core service on both foundations and needs
+        # nothing from infra.yml but the service's own name. Cadence is
+        # doctrine-fixed and uniform across every core service — it is not a
+        # project-tunable knob. See healthchecks.md § The orchestrator
+        # carries the result.
+        fixed:
+          healthcheck:
+            test: ["CMD", "./health.sh", "${service}"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
         elastic:
           launch_type: FARGATE
           network_mode: awsvpc
+          # `CMD`, not `CMD-SHELL`: a command probe needs no shell and no
+          # `|| exit 1` exit-code laundering. Exec form on both foundations is
+          # what makes the two emissions one translation rather than two
+          # adaptations. `./health.sh` resolves against WORKDIR /service,
+          # which infrastructure.md § Codebase Containers fixes for every
+          # codebase image.
+          #
+          # `startPeriod` is elastic-only ON PURPOSE. ECS KILLS a task whose
+          # essential container fails its probe and the service replaces it,
+          # so a start grace prevents a container being killed before it has
+          # written its first tick. Docker only REPORTS `unhealthy` — nothing
+          # on fixed acts on it except traefik, which drops the container
+          # from its pool, and that is the correct treatment of a container
+          # that is not ready yet. A fixed `start_period` would suppress
+          # correct behavior rather than prevent a wrong consequence.
+          healthCheck:
+            command: ["CMD", "./health.sh", "${service}"]
+            interval: 30
+            timeout: 5
+            retries: 3
+            startPeriod: 10
       fields:
         health_check_path:
-          fixed:
-            healthcheck:
-              test: ["CMD", "curl", "-f", "http://localhost:${port}${field_value}"]
-              interval: 30s
-              timeout: 5s
-              retries: 3
+          # No fixed translation. On fixed, traefik takes target health from
+          # the container healthcheck in `defaults` above, so the path has no
+          # fixed consumer — but the field is still DECLARED here, which is
+          # what makes rule 4 accept it in a fixed project's infra.yml and
+          # keeps a project portable across foundations. Rule 33 requires it
+          # on every `web`-network core service on both foundations.
           elastic:
             target: target_group
             health_check:

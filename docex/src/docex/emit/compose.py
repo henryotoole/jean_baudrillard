@@ -617,7 +617,24 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
         # log to rotate), `command` (supplied at the call site — the core
         # service Dockerfiles declare no ENTRYPOINT, so `run --rm …-exec
         # ./migrate.sh` executes the script directly under WORKDIR /service),
-        # and `restart`.
+        # `restart`, and `healthcheck`.
+        #
+        # `healthcheck` is the one that needs stating, because mod 127 made
+        # `./health.sh <service>` a role-table DEFAULT, so every core service
+        # block now carries one and this block sits beside them. Per
+        # specifics/exec_service.md and healthchecks.md, `health.sh` is the one
+        # codebase shim that does NOT run here: the exec container is a
+        # one-off that runs a script and exits, and its own liveness question
+        # is answered by the exit code it was invoked for. A `healthcheck:`
+        # here would additionally change what `depends_on: service_healthy`
+        # means for anything gating on this block, and compose would report a
+        # `--rm` one-shot as `health: starting`.
+        #
+        # WHY it is safe: `exec_block` is built key-by-key as a fresh dict and
+        # reads exactly ONE key off a core service (`head.body.get("image")`),
+        # so it inherits nothing from `svc.body` and cannot pick a role
+        # default up by accident. This comment is what keeps that true —
+        # anyone reaching for a whole-body copy here has to read it first.
         services[f"{head.codebase_global_name}-exec"] = exec_block
 
     # Build top-level dict without the x-logging key (we render it by hand

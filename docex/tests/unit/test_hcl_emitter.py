@@ -726,6 +726,95 @@ def test_aws_lb_target_group_emits_health_check_from_target_extras(tmp_path: Pat
 # above, which asserts the block's contents.
 
 
+# ---------------------------------------------------------------------------
+# Mod 127 — the container probe is a role-table DEFAULT, and `health_check_path`
+# survives only as the ALB target-group translation.
+# ---------------------------------------------------------------------------
+
+
+def _container_block(hcl: str, td_name: str, container_name: str) -> str:
+    """Return the text of ONE container entry inside a task definition.
+
+    `container_definitions = jsonencode([...])` is HCL object syntax, not JSON,
+    so it is sliced textually. Mirrors the helper of the same name in
+    `test_worker_role.py` and `test_hcl_sidecar.py`.
+    """
+    marker = f'resource "aws_ecs_task_definition" "{td_name}" {{'
+    idx = hcl.index(marker)
+    body = hcl[idx:]
+    body = body[: body.index("\n}\n") + 2]
+    start = body.index("container_definitions = jsonencode([\n")
+    start += len("container_definitions = jsonencode([\n")
+    end = body.index("\n  ])", start)
+    for chunk in body[start:end].split("\n    },\n"):
+        if f'name = "{container_name}"' in chunk:
+            return chunk
+    raise AssertionError(f"container {container_name!r} not in {td_name!r}")
+
+
+def test_web_elastic_probe_is_the_health_shim(tmp_path: Path):
+    """The `api-web` app container's ECS `healthCheck` is `./health.sh web`.
+
+    Emitted from the role table's `defaults.elastic`, which lands on the
+    engine's DEFAULT target (`task_definition`) and is lifted onto the
+    container by an explicit named read in `render_task_definition` — NOT via
+    the `container_definition` merge target, which `defaults:` structurally
+    cannot route to. See `plans/modifications/127_probe_becomes_a_command/
+    overview.md` § 2; a reader who assumes the merge target will look in the
+    wrong place when this breaks.
+
+    `startPeriod` is elastic-only on purpose: ECS kills and replaces a task
+    whose essential container fails, so the start grace prevents a container
+    being killed before it has written its first tick (overview.md Q2).
+    """
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    ctx = load_project_context(dest)
+    assert run_compile(ctx) == 0
+
+    for env in ("stage", "prod"):
+        tf = (dest / "infra" / "output" / env / "main.tf").read_text()
+        app = _container_block(tf, "api-web", "api-web")
+        assert "healthCheck" in app, (env, app)
+        assert '["CMD", "./health.sh", "web"]' in app, (env, app)
+        assert "startPeriod" in app, (env, app)
+        # `CMD`, not `CMD-SHELL`: a command probe needs no shell and no
+        # `|| exit 1` exit-code laundering, which is what makes the fixed and
+        # elastic emissions one translation rather than two adaptations.
+        assert "CMD-SHELL" not in app, (env, app)
+
+
+def test_health_check_path_still_reaches_the_alb_target_group(tmp_path: Path):
+    """Narrowing `health_check_path` must not drop its ONE real consumer.
+
+    Mod 127 deleted the field's `fixed:` translation (the curl probe) and kept
+    only `elastic:` → `target_group`. The ALB check is what survives, and it
+    still follows the declared path — a project declaring `/healthz` gets
+    `/healthz` on the target group while its container probe stays
+    `./health.sh`.
+    """
+    dest = tmp_path / "project"
+    shutil.copytree(_FIXTURE_ELASTIC, dest, symlinks=False, dirs_exist_ok=False)
+    infra_yml = dest / "infra" / "infra.yml"
+    infra_yml.write_text(
+        infra_yml.read_text().replace(
+            "health_check_path: /health\n", "health_check_path: /healthz\n", 1,
+        )
+    )
+    ctx = load_project_context(dest)
+    assert run_compile(ctx) == 0
+
+    tf = (dest / "infra" / "output" / "prod" / "main.tf").read_text()
+    tg = _tg_block(tf, "api-web")
+    assert "health_check {" in tg, tg
+    assert 'path = "/healthz"' in tg, tg
+    assert "healthy_threshold = 2" in tg, tg
+    # The container probe is invariant under the field.
+    app = _container_block(tf, "api-web", "api-web")
+    assert "./health.sh" in app, app
+    assert "/healthz" not in app, app
+
+
 def _tg_block(tf: str, service: str) -> str:
     """Slice the `aws_lb_target_group.<service>` resource body out of HCL."""
     start = tf.find(f'resource "aws_lb_target_group" "{service}"')

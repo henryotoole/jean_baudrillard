@@ -47,6 +47,26 @@ def _slice_task_def(hcl: str, resource_name: str) -> str:
     return rest[: end + 2]
 
 
+def _container_block(hcl: str, td_name: str, container_name: str) -> str:
+    """Return the text of ONE container entry inside a task definition.
+
+    The `container_definitions = jsonencode([...])` body is HCL object syntax
+    (unquoted keys, `=` separators), not JSON, so it is sliced textually.
+    Entries sit at indent 4 and are comma-separated. Mirrors the helper of the
+    same name in `test_worker_role.py`.
+    """
+    body = _slice_task_def(hcl, td_name)
+    start = body.index("container_definitions = jsonencode([\n")
+    start += len("container_definitions = jsonencode([\n")
+    end = body.index("\n  ])", start)
+    for chunk in body[start:end].split("\n    },\n"):
+        if f'name = "{container_name}"' in chunk:
+            return chunk
+    raise AssertionError(
+        f"container {container_name!r} not found in task definition {td_name!r}"
+    )
+
+
 def test_task_def_has_paired_sidecar_container(tmp_path: Path):
     """`aws_ecs_task_definition.api` carries both `api` and
     `api-web-otelcol` containers in container_definitions."""
@@ -184,25 +204,68 @@ def test_migration_task_def_has_no_sidecar(tmp_path: Path):
 
 def test_sidecar_has_no_healthcheck(tmp_path: Path):
     """Mod 024: same image-level constraint as on fixed. The
-    otel/opentelemetry-collector image has no probe tool, so the
-    sidecar container has no `healthCheck` entry. The core container's
-    `dependsOn` uses START (asserted separately) to gate startup
-    without waiting on an unhealable health check."""
+    otel/opentelemetry-collector image is built FROM scratch and has no probe
+    tool, so the sidecar container has no `healthCheck` entry — a probe there
+    would leave the container reporting `starting` forever
+    (telemetry_infra.md). The core container's `dependsOn` uses START
+    (asserted separately) to gate startup without waiting on an unhealable
+    health check.
+
+    Mod 127 NARROWED this test. It previously asserted `"healthCheck" not in
+    api_td` over the whole task definition, which was equivalent to "not on
+    the sidecar" only while no core container had a probe at all. Now every
+    core service carries `./health.sh`, so the assertion is scoped to the
+    sidecar container and gains the positive control that makes it
+    non-vacuous for the first time: the app container DOES carry one.
+    """
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
 
     hcl = _stage_hcl(root)
-    api_td = _slice_task_def(hcl, "api-web")
-    # No healthCheck key anywhere in the api task definition.
-    assert "healthCheck" not in api_td
+    sidecar = _container_block(hcl, "api-web", "api-web-otelcol")
+    assert "healthCheck" not in sidecar, sidecar
     # No `http://localhost:13133` either — it only appeared inside the
     # healthcheck command before mod 024. (The otelcol config's own
     # `endpoint: 127.0.0.1:13133` is encoded inside the OTEL_CONFIG_YAML
     # value, but that value uses literal double-quotes around its newline
     # payload, so the substring `"127.0.0.1:13133"` shows up there.
     # Search for the healthCheck-specific form instead.)
-    assert "wget" not in api_td
+    assert "wget" not in sidecar, sidecar
+
+    # Positive control, same document: absence on the sidecar is only
+    # meaningful beside presence on the app container.
+    app = _container_block(hcl, "api-web", "api-web")
+    assert "healthCheck" in app, app
+    assert "./health.sh" in app, app
+
+
+def test_migration_task_def_has_no_healthcheck(tmp_path: Path):
+    """The elastic one-shot gets no probe — the analogue of the fixed `-exec`
+    block (exec_service.md, healthchecks.md).
+
+    `migrate.sh` runs and exits; its liveness question is answered by the exit
+    code it was invoked for. An essential container with a failing probe would
+    additionally get the task KILLED and replaced by ECS, which is exactly the
+    wrong treatment of a job that is supposed to end.
+
+    Passes **by construction**, not by a filter:
+    `render_migration_task_definitions` builds its container key-by-key and
+    never passes `body` through, so it cannot inherit the role table's
+    `defaults.elastic.healthCheck`. The test exists to keep that true.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    hcl = _stage_hcl(root)
+    mig_td = _slice_task_def(hcl, "api_migrate")
+    assert "healthCheck" not in mig_td, mig_td
+    assert "health.sh" not in mig_td, mig_td
+
+    # Positive control, same document.
+    app = _container_block(hcl, "api-web", "api-web")
+    assert "healthCheck" in app, app
 
 
 def test_backing_service_task_def_has_no_sidecar(tmp_path: Path):

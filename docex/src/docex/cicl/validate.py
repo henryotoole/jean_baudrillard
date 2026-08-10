@@ -507,9 +507,9 @@ def _validate_magic_refs(
                     # Rule 7, core target. ONE-DIRECTIONAL by construction: the
                     # walk is over refs, looking each up in the `uses` set.
                     # There is no walk in the other direction and none may be
-                    # added — `api.web` declares `uses: [api.worker]` for
-                    # the contract and the health fan-out while holding no ref
-                    # to the worker, because it reaches it through the broker.
+                    # added — `api.web` declares `uses: [api.worker]` for the
+                    # contract while holding no ref to the worker, because it
+                    # reaches it through the broker.
                     # A bidirectional rule would reject the most common
                     # web/worker topology in existence.
                     if uses is None:

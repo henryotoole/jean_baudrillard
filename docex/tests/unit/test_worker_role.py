@@ -1,18 +1,23 @@
-"""Tests for the `worker` role and the `container_definition` destination
-(mod 095).
+"""Tests for the `worker` role.
 
 Covers the role table's shape, the fixed (compose) healthcheck emit, the
-elastic (ECS container-level healthCheck) emit and its deliberate absence of
-a target group, and the no-op `container_definition` renderer.
+elastic (ECS container-level healthCheck) emit and its deliberate absence of a
+target group, and — in `test_container_definition_emits_no_resource` and
+`test_merge_target_leaves_no_gap_when_not_last` alone — the no-op
+`container_definition` destination (mod 095). That destination is no longer the
+probe's delivery path and no shipped field routes to it; it remains a declared,
+available merge target.
 
 Mod 125: rule 28 (`health_check_path` obliges a `port`) is RETIRED and its
 three tests are gone with it, along with `_WORKER_DOC`. Rule 33 confines
 `health_check_path` to `web`-network core services and rule 15 already requires
 a `port` on those, so there is no document left in which rule 28 could fire;
-rule 33's own coverage lives in `test_validate.py`. The same change means the
-injected worker declares no `health_check_path`, so the two probe-emit tests
-below assert its ABSENCE until mod 127 moves the probe into the role tables'
-`defaults`.
+rule 33's own coverage lives in `test_validate.py`.
+
+Mod 127: the injected worker declares no `health_check_path` — rule 33 forbids
+it — and gets a probe anyway, because the probe is a role-table DEFAULT rather
+than a field translation. The field is now gone from the worker table
+entirely, so rule 4 rejects it there (asserted below).
 
 Unit tests only — nothing here crosses docker, AWS, or git.
 
@@ -178,23 +183,25 @@ def test_worker_role_table_shape():
 
 
 def test_worker_fixed_compose_healthcheck(tmp_path: Path):
-    """A non-`web` worker gets NO compose probe at all (interim state).
+    """A worker's compose probe is `./health.sh worker`, declaring NOTHING.
 
-    Rule 33 forbids `health_check_path` off the `web` network, and the compose
-    healthcheck is emitted only from that field, so nothing is emitted.
+    The probe is a role-table default, so the worker gets one without
+    declaring any field at all — which is the whole point of the move. The
+    injected worker declares no `health_check_path` (rule 33 forbids it off
+    the `web` network) and still gets a probe.
 
-    # MOD 127: this asserts the interim state. When the probe moves into the
-    # role tables' `defaults`, this becomes
-    #   block["healthcheck"]["test"] == ["CMD", "./health.sh", "worker"]
-    # (compose) / the container definition's healthCheck command (elastic).
-    # The assertion is deliberately left FAILING-ON-CHANGE rather than
-    # deleted: a deletion loses the coverage silently, and an xfail would flip
-    # to XPASS, which reads as noise. This stops the suite at exactly the
-    # moment attention is warranted.
+    Asserted on the LITERAL rather than on presence: the command must name
+    this core service (`${service}` -> `worker`), because the shim is invoked
+    per core service and a probe naming the wrong one would answer the wrong
+    question while looking healthy.
     """
     doc = _dev_compose(_compile_with_worker(_FIXED, tmp_path))
     svc = doc["services"]["sample-dev-api-worker"]
-    assert "healthcheck" not in svc
+    hc = svc["healthcheck"]
+    assert hc["test"] == ["CMD", "./health.sh", "worker"]
+    assert hc["interval"] == "30s"
+    assert hc["timeout"] == "5s"
+    assert hc["retries"] == 3
     # One codebase, one image: the worker runs `api`'s artifact.
     assert svc["image"] == "sample/api:0.1.0"
     assert svc["command"] == ["python", "-m", "entrypoints.worker"]
@@ -215,26 +222,31 @@ def test_worker_fixed_no_traefik_labels(tmp_path: Path):
 
 
 def test_worker_elastic_container_healthcheck(tmp_path: Path):
-    """A non-`web` worker gets NO container probe at all (interim state).
+    """A worker's ECS container `healthCheck` is `./health.sh worker`.
 
-    Rule 33 forbids `health_check_path` off the `web` network, and the ECS
-    container-level `healthCheck` is merged in only from that field.
+    **It does NOT arrive via `container_definition`.** `defaults:` cannot route
+    to a non-default target (transfer_tables.md), so the probe lands on the
+    engine's default elastic target — `task_definition` — and is lifted onto the
+    container by an explicit named read in `render_task_definition`. A reader who
+    assumes the merge target will look in the wrong place when this breaks. See
+    `plans/modifications/127_probe_becomes_a_command/overview.md` § 2.
 
-    # MOD 127: this asserts the interim state. When the probe moves into the
-    # role tables' `defaults`, this becomes
-    #   block["healthcheck"]["test"] == ["CMD", "./health.sh", "worker"]
-    # (compose) / the container definition's healthCheck command (elastic).
-    # The assertion is deliberately left FAILING-ON-CHANGE rather than
-    # deleted: a deletion loses the coverage silently, and an xfail would flip
-    # to XPASS, which reads as noise. This stops the suite at exactly the
-    # moment attention is warranted.
+    `startPeriod` is elastic-only: ECS kills and replaces a task whose essential
+    container fails, so the start grace prevents a wedged-looking container being
+    killed before it has written its first tick (overview.md Q2).
     """
     hcl = _stage_hcl(_compile_with_worker(_ELASTIC, tmp_path))
     assert 'resource "aws_ecs_task_definition" "api-worker" {' in hcl
     assert 'resource "aws_ecs_service" "api-worker" {' in hcl
 
     app = _container_block(hcl, "api-worker", "api-worker")
-    assert "healthCheck" not in app
+    assert "healthCheck" in app, app
+    assert '["CMD", "./health.sh", "worker"]' in app, app
+    assert "startPeriod" in app, app
+    # `CMD`, not the retired `CMD-SHELL` curl wrapper: a command probe needs
+    # no shell and no `|| exit 1` exit-code laundering.
+    assert "CMD-SHELL" not in app, app
+    assert "curl" not in app, app
 
 
 def test_worker_elastic_no_target_group(tmp_path: Path):
@@ -321,6 +333,42 @@ backing_services:
     port: 5432
     schema_owned_by: api
 """
+
+
+_FIXED_WORKER_DOC = """
+cicl_version: "3"
+foundation: fixed
+apex_domain: example.com
+container_registry: registry.example.com
+observability_backend_url: "https://obs.example.com"
+codebases:
+  api:
+    core_services:
+      worker:
+        role: worker
+        command: ["python", "-m", "entrypoints.worker"]
+        networks: [internal]
+        health_check_path: /health
+        resources:
+          cpu: 0.25
+          memory: 512MB
+"""
+
+
+def test_health_check_path_on_worker_rejected_by_rule_4():
+    """Mod 127 deleted `health_check_path` from the worker role table entirely.
+
+    Rule 4 (`tt_rule_4_undeclared_field`) therefore rejects it on a worker,
+    which is how rule 33's NEGATIVE arm — the field is confined to `web`-network
+    core services — is enforced at the table layer with no second rule. The same
+    mechanism `clock.yml` already documents for `schedules`.
+
+    Membership, not exclusivity: rule 33 fires here too, and asserting a single
+    rule id would make the test brittle against the aggregation the validator is
+    built on.
+    """
+    issues = validate_document(_doc(_FIXED_WORKER_DOC), _tables())
+    assert "tt_rule_4_undeclared_field" in [i.rule for i in issues]
 
 
 def test_field_target_container_definition_undeclared_rejected(tmp_path: Path):

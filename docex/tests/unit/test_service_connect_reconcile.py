@@ -423,8 +423,15 @@ def test_walk_regression_first_prod_release(
 
     `api-web`'s PRIMARY deployment was created 14:06:40; `api-worker`'s Cloud
     Map name at 14:07:02.391 — 22 seconds later. `api-web` returned 503 on the
-    fan-out for 20+ minutes and TWO clean `release prod` runs repaired nothing.
-    This must fire.
+    health fan-out for 20+ minutes and TWO clean `release prod` runs repaired
+    nothing. This must fire.
+
+    Mod 127 note: the 503 is preserved as the historical record of how this was
+    DETECTED, not as a description of current behavior — the fan-out is gone.
+    That makes this test matter more, not less. The same unresolvable-target
+    condition now produces no external signal at all: both services report
+    healthy, the release looks clean, and the work silently does not arrive. The
+    reconcile is the only thing standing between that state and production.
     """
     fake_aws.service_connect_endpoint_ages = {
         "sample-prod-api-web": datetime(2026, 8, 6, 14, 6, 41, tzinfo=timezone.utc),

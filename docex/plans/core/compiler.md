@@ -450,6 +450,54 @@ failure over silent truncation, and it fails at the earliest layer.
 
 The same internal form passed through the `iam` policy (a doctrine record-key identifier) would stay `docex_smoke_elastic_stage_web` (underscores preserved). This decouples docex's internal join convention from each AWS resource type's identifier convention — without this layer, a policy's choice of `_` vs `-` would leak across every emit site.
 
+## The container probe
+
+Mod 127. Every core service's container health check is `["CMD", "./health.sh", "<service>"]`
+on both foundations, with a doctrine-fixed and uniform cadence
+([`healthchecks.md`](../../../doctrine/infrastructure/healthchecks.md)). It reaches the
+compiled output as a **transfer-table `defaults` entry** on `web`, `worker`, and `clock`
+— never a `fields:` translation, because it needs nothing from `infra.yml` but the core
+service's own name, which the substitution context already supplies as `${service}`.
+
+**The two foundations deliver it by different routes, and one of them is not obvious.**
+
+- **fixed** — `defaults.fixed.healthcheck` lands in `svc.body`, and
+  `emit/compose.py::_service_block` passes the body through whole. Nothing had to change.
+- **elastic** — `defaults.elastic.healthCheck` also lands in `svc.body`, but
+  `render_task_definition` does **not** pass the body through: it builds its container
+  definition key-by-key and reads only the keys it names. So the probe reaches the
+  container through an **explicit named read** of `body["healthCheck"]`, positioned ahead
+  of the `container_definition` merge so a field routed there still overrides a table
+  default.
+
+It emphatically does *not* travel through the `container_definition` merge target, which
+is where a reader familiar with mod 095 will look first. It cannot: a `defaults:` block
+is unable to route off the engine's default target at all
+([`transfer_tables.md § Anatomy of a Role Definition`](../../../doctrine/infrastructure/specifics/transfer_tables.md#anatomy-of-a-role-definition)),
+and on elastic that default target is `task_definition`.
+
+**Three derivatives must not inherit the probe**, each pinned by a test with a positive
+control in the same compiled document:
+
+| Derivative | Why not | Safe because |
+| --- | --- | --- |
+| the per-codebase `-exec` block | a one-off that runs a script and exits; its liveness is the exit code it was invoked for ([`exec_service.md`](../../../doctrine/infrastructure/specifics/exec_service.md)). A probe here would also change what `depends_on: service_healthy` means for anything gating on it | built key-by-key as a fresh dict, reads one key off a core service (`image`) |
+| the elastic `_migrate` task definition | same reason, plus ECS would *kill* an essential container that fails — the wrong treatment of a job meant to end | same construction |
+| the paired `-otelcol` sidecar | the collector image is `FROM scratch` and carries no probe tool, so a probe would report `starting` forever ([`telemetry_infra.md`](../../../doctrine/infrastructure/specifics/telemetry_infra.md)) | both emitters build it as a dict literal |
+
+`health_check_path` survives as **one** translation only: `elastic` → `target_group`, the
+ALB's own HTTP probe. It has no fixed translation — traefik takes target health from the
+container probe — but stays *declared* on the `web` engine so rule 4 accepts it in a fixed
+project's `infra.yml`. It is gone from `worker` and `clock` entirely, which is how
+[rule 33](#validation)'s negative arm is enforced at the table layer by rule 4, with no
+second rule.
+
+The **exec readiness gate is untouched**: `emit/compose.py` resolves `service_healthy`
+vs. `service_started` by asking whether a target block carries a `healthcheck:`, and it
+reads `uses_backing` — backing services only, whose probes come from engine defaults. A
+test asserts no `-exec` block's `depends_on` ever names a core service, so "every core
+service now has a probe" cannot leak into that predicate unobserved.
+
 ## Structural vs engine emit
 
 Two distinct kinds of identifiers get formed:
@@ -580,7 +628,8 @@ A compile-time error is always preferable to a tofu/AWS-side error. A load-time 
 | What compose YAML looks like | `src/docex/emit/compose.py` |
 | What env-tier HCL looks like | `src/docex/emit/hcl.py` + `templates/main.tf.j2` |
 | How a specific AWS resource type is rendered | `src/docex/emit/hcl.py` — the matching `render_<destination>` function (one per entry in `EMIT_DESTINATIONS["elastic"]`). Dispatch is keyed off the engine's `emits.elastic` list via `_DESTINATION_RENDERERS`. Mod 013. |
-| How a transfer-table field lands *inside* an ECS container definition instead of as its own resource | `src/docex/emit/hcl.py::render_task_definition` — the `container_def.update(svc.target_extras["container_definition"])` merge, placed ahead of the `dockerLabels` / `mountPoints` / `dependsOn` assignments so those compiler-owned keys win. `container_definition` is a **merge target**, not a resource: its `_DESTINATION_RENDERERS` entry is a deliberate no-op, registered only so the dispatch loop and transfer-table rule 12 are satisfied. Mod 095. |
+| How a transfer-table field lands *inside* an ECS container definition instead of as its own resource | `src/docex/emit/hcl.py::render_task_definition` — the `container_def.update(svc.target_extras["container_definition"])` merge, placed ahead of the `dockerLabels` / `mountPoints` / `dependsOn` assignments so those compiler-owned keys win. `container_definition` is a **merge target**, not a resource: its `_DESTINATION_RENDERERS` entry is a deliberate no-op, registered only so the dispatch loop and transfer-table rule 12 are satisfied. Mod 095. Since mod 127 **no shipped field routes here** — it stays a declared, available destination. |
+| How the container health probe is emitted | [The container probe](#the-container-probe). Not through the merge target above — that is the wrong answer and the code says so at the read site. |
 | What project-tier HCL looks like | `src/docex/emit/hcl.py::emit_hcl_project` + `templates/project.tf.j2` |
 | How ec2_traefik discovers routes (the ECS-provider `traefik.*` labels on web-service task defs; the instance's `providers.ecs` static config) | `src/docex/emit/hcl.py::render_task_definition` (the `dockerLabels` block) + `templates/ec2_traefik_user_data.sh.j2`. Mod 070. Routing is label-driven, not release-pushed — there is no SSM routing param. |
 | What ansible playbook looks like | `src/docex/emit/ansible.py` + `templates/playbook.yml.j2` |

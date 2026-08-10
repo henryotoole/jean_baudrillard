@@ -117,6 +117,52 @@ rollback-unavailable boundary inside one cut.
   codebase shim (`migrate.sh` stays conditional on schema ownership). The gate
   roster goes from ten to nine.
 
+- **The container probe is a command — `./health.sh <service>` — on both
+  foundations (mod 127).** Every core service's container health check is now
+  `["CMD", "./health.sh", "<service>"]`: a compose `healthcheck:` on fixed, an
+  ECS container `healthCheck` on elastic. It is emitted from the `web`, `worker`,
+  and `clock` role tables' **`defaults`** rather than from a field translation,
+  because it needs nothing from `infra.yml` but the core service's own name — so
+  a queue consumer or a cron loop gets a probe while declaring nothing, where
+  before it had to declare `health_check_path` (which rule 33 now forbids it) and
+  run an HTTP server it needed for nothing else. Cadence is doctrine-fixed and
+  uniform, not a project-tunable field.
+
+  `health_check_path` narrows to **one** surviving translation: `elastic` →
+  `target_group`, the ALB's own HTTP probe, the one consumer that genuinely
+  cannot run a command inside a container. Its fixed translation — the
+  `curl -f http://localhost:$PORT$PATH` probe — is deleted; on fixed, traefik
+  takes target health from the container probe. The field stays *declared* on the
+  `web` role so a fixed project may still carry it and stay portable, and is
+  removed from `worker` and `clock` entirely, which is how rule 33's negative arm
+  is enforced at the table layer by rule 4 with no second rule.
+
+  **Three derivatives deliberately get no probe**, each now pinned by a test with
+  a positive control rather than by construction alone: the per-codebase `-exec`
+  block and the elastic `_migrate` task definition (a one-off's liveness is the
+  exit code it was invoked for — and on ECS, an essential container failing a
+  probe gets the task *killed*, the wrong treatment of a job meant to end), and
+  the paired `-otelcol` sidecar (a `FROM scratch` image with no probe tool would
+  report `starting` forever). The exec block's `depends_on: service_healthy`
+  gate is unchanged and reads backing services only; a test asserts no `-exec`
+  block's `depends_on` ever names a core service, so "every core service now has
+  a probe" cannot leak into that predicate unobserved.
+
+  `startPeriod` is emitted on elastic and has no fixed counterpart, because the
+  two orchestrators do different things with a failing probe: **ECS kills and
+  replaces the task; Docker only reports.** A start grace prevents a container
+  being killed before it has written its first tick; on fixed there is no
+  consequence to prevent, and traefik dropping a not-yet-ready container from its
+  pool is the behavior you want.
+
+  Prose that outlived the fan-out is reworded, and the logic behind it does not
+  move: the elastic release's Service Connect reconcile still fires on exactly the
+  same condition, but its stated symptom is no longer "the fan-out returns 503".
+  It is that a consumer cannot resolve a name it `uses` **while both sides report
+  healthy** — no external signal at all, the release looking clean, and the work
+  silently not arriving. That is strictly worse than a 503, which is why the
+  reconcile matters more after this change than before it.
+
 - **A codebase is a `codebase`; a process type is a `core service`.** The two
   central nouns of the doctrine's service vocabulary trade places. What 1.6.0
   called a *core service* — one source tree, one build artifact, one image — is

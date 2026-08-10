@@ -451,14 +451,17 @@ def _reconcile_service_connect_consumers(
         try:
             aws.ecs_force_new_deployment(cluster_name, consumer)
         except Exception as exc:
-            # Hard failure: the health fan-out is doctrine-mandated, and an env
-            # whose consumers cannot reach their targets is not released.
+            # Hard failure: the reconcile is mandated because a consumer that
+            # cannot resolve a name it `uses` is broken, and an env whose
+            # consumers cannot reach their targets is not released.
             print(
                 f"error: could not force a new deployment of {consumer!r}: "
                 f"{exc}. Its `uses` target {target!r} was registered after "
                 f"{consumer!r}'s current deployment was created, "
-                f"so {consumer!r} cannot resolve it until redeployed — the "
-                f"/health/<codebase>/<service> fan-out will return 503. Re-run "
+                f"so {consumer!r} cannot resolve it until redeployed — and "
+                f"NOTHING EXTERNAL WILL SHOW IT: both services report healthy, "
+                f"the release looks clean, and the work silently does not "
+                f"arrive. Re-run "
                 f"`docex release {env}`, or redeploy it by hand.",
                 file=sys.stderr,
             )
@@ -475,8 +478,10 @@ def _reconcile_service_connect_consumers(
         print(
             f"warning: reconciled {len(services)} consumer(s) but they had not "
             f"reached steady state within {_RECONCILE_STABLE_TIMEOUT_S}s. The "
-            f"deployments were accepted and should converge; the "
-            f"/health/<codebase>/<service> fan-out may return 503 until they do."
+            f"deployments were accepted and should converge; until they do, "
+            f"those consumers may fail to resolve their `uses` targets with no "
+            f"external signal at all — both sides report healthy and the work "
+            f"silently does not arrive."
         )
     return 0
 

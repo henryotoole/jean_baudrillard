@@ -245,8 +245,10 @@ def test_6_self_use_rejected_and_shares_the_rule_clause():
     hits = _hits(src, "rule_25_")
     assert [i.rule for i in hits] == ["rule_25_self_uses"]
     assert magic_refs._SELF_REF_RULE in hits[0].message
-    # Its OWN consequence: the health fan-out would proxy its own /health.
-    assert "/health/api/web" in hits[0].message
+    # Its OWN consequence: the core service would be its own `uses` target, so
+    # rules 31/32 would be satisfied against itself.
+    assert "rules 31 and 32" in hits[0].message
+    assert "against itself" in hits[0].message
 
     # The sibling states the same rule and a different consequence.
     ref_src = _src(
@@ -355,9 +357,9 @@ def test_8_malformed_uses_entry_does_not_also_produce_a_rule_7_miss():
 
 def test_9_one_directional_edge_without_a_ref_is_clean():
     """ref ⇒ edge, never edge ⇒ ref. `api.web` declares `uses:
-    [api.worker]` for the contract and the health fan-out while holding no
-    magic ref to the worker, because it reaches it through the broker. A
-    bidirectional rule would reject the most common topology in existence."""
+    [api.worker]` for the contract while holding no magic ref to the worker,
+    because it reaches it through the broker. A bidirectional rule would
+    reject the most common topology in existence."""
     src = _src(_api(web=_proc("web", "web", uses=["api.worker"])))
     assert _issues(src) == []
 

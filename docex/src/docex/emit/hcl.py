@@ -368,10 +368,35 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     if secret_entries:
         container_def["secrets"] = secret_entries
 
+    # The container probe, per healthchecks.md § The orchestrator carries the
+    # result. It arrives in `body` because the probe is a transfer-table
+    # DEFAULT (transfer_tables.md: `defaults:` cannot route to a non-default
+    # target), and a default lands on the engine's default target — which on
+    # elastic is `task_definition`, i.e. this renderer.
+    #
+    # WHY an explicit read and not a body merge: `body` is NOT generically
+    # consumed here. This renderer names every key it lifts onto the container
+    # definition — `image`, `command`, `cpu`/`memory`/`ephemeral_storage` on
+    # the task def, and this. Everything else in `defaults.<foundation>` is
+    # INERT: `launch_type` and `network_mode` sit in all three core roles'
+    # `defaults.elastic` and are read by nothing, because the task definition
+    # hardcodes FARGATE/awsvpc below. Do not infer from `healthCheck` being
+    # honored that a sibling key would be.
+    #
+    # WHY this position — ahead of the `container_definition` merge: a field
+    # routed to that target must still override a table default, which is the
+    # same precedence `_deep_merge(body, resolved)` gives on the default
+    # target. Moving this read below the merge silently inverts it.
+    healthcheck = body.get("healthCheck")
+    if healthcheck:
+        container_def["healthCheck"] = healthcheck
+
     # Mod 095: transfer-table fields routed to the `container_definition`
-    # destination land here — today that is the `worker` role's
-    # health_check_path -> ECS container-level `healthCheck`. Mirrors how
-    # render_target_group reads target_extras["target_group"].
+    # destination land here. No SHIPPED field routes there any more — mod 127
+    # retired the `worker`/`clock` roles' health_check_path -> ECS
+    # container-level `healthCheck` translation, since the probe became a
+    # default. The destination stays as a declared, available merge target.
+    # Mirrors how render_target_group reads target_extras["target_group"].
     #
     # WHY this position: it sits after `environment`/`secrets` but ahead of
     # the dockerLabels / mountPoints / dependsOn whole-key assignments below,

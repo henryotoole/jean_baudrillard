@@ -162,7 +162,13 @@ def test_sidecar_has_no_healthcheck(tmp_path: Path):
     `wget --spider ...` could never succeed. The sidecar emit block
     drops the healthcheck entirely; otelcol's `health_check` extension
     on 127.0.0.1:13133 remains available for in-band probes from
-    inside the shared netns."""
+    inside the shared netns.
+
+    Mod 127 added the positive control below. The absence assertion was
+    written when NO block in this document carried a `healthcheck:`, so it
+    would have passed vacuously against a change that emitted none anywhere.
+    Now the app container demonstrably carries `./health.sh` and the sidecar
+    demonstrably does not, in the same compiled document."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -171,6 +177,9 @@ def test_sidecar_has_no_healthcheck(tmp_path: Path):
     services = doc["services"]
     sidecar = next(services[k] for k in services if k.endswith("-otelcol"))
     assert "healthcheck" not in sidecar
+
+    app = services["sample-dev-api-web"]
+    assert app["healthcheck"]["test"] == ["CMD", "./health.sh", "web"], app
 
 
 def test_sidecar_resource_limits(tmp_path: Path):

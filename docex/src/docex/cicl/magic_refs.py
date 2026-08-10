@@ -203,8 +203,9 @@ def self_uses_message(ref: ServiceRef) -> str:
         f"core service {ref.dotted!r} lists itself in `uses:`. "
         f"{_SELF_REF_RULE}: a self-edge makes both derivations `uses` "
         f"feeds nonsensical — the core service would be its own contract "
-        f"provider, and its health fan-out would proxy its own `/health` at "
-        f"`/health/{ref.codebase}/{ref.service}`. "
+        f"provider, and its own `uses` target, so rules 31 and 32 (the target "
+        f"declares a surface; a directly-addressed target declares a `port`) "
+        f"would be satisfied by {ref.dotted!r} against itself. "
         f"See cicl.md § Uses Relationships."
     )
 
