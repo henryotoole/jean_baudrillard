@@ -743,4 +743,7 @@ inside a worktree.
 the [rename](../docex/plans/advances/005_process_type_solidification/codebase_core_service_rename.md),
 the [`uses` merge](../docex/plans/advances/005_process_type_solidification/uses_relation_merge.md),
 and the [clock](../docex/plans/advances/005_process_type_solidification/clock_core_service.md)
-— carry the reasoning behind each decision. Nothing in this guide requires them.
+from advance 005, and
+[surfaces and health](../docex/plans/advances/006_surfaces_and_health/surfaces_and_health.md)
+from advance 006, which covers steps 7–11 — carry the reasoning behind each
+decision. Nothing in this guide requires them.
