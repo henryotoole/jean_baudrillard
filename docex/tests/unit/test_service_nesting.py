@@ -154,9 +154,9 @@ def test_7_cicl_version_1_rejected_with_upgrade_pointer():
         _doc(_BASE.replace('cicl_version: "3"', 'cicl_version: "1"'))
     msg = str(exc.value)
     # Both guides, in chain order — a v1 document migrates through 1.6.0's
-    # `core_services:` nesting AND 1.7.0's relation merge before it compiles.
+    # `core_services:` nesting AND 2.0.0's relation merge before it compiles.
     assert "upgrade_1.6.0.md" in msg
-    assert "upgrade_1.7.0.md" in msg
+    assert "upgrade_2.0.0.md" in msg
     assert "core_services:" in msg
     assert "`uses`" in msg
     # It must land the author on the CURRENT generation, not an intermediate.
@@ -351,7 +351,7 @@ def test_rule_5_derivatives_do_not_over_reject():
 
 
 # ---------------------------------------------------------------------------
-# 12-14 — DELETED (mod 113). Rules 6 and 24 are RETIRED in 1.7.0 and their
+# 12-14 — DELETED (mod 113). Rules 6 and 24 are RETIRED in 2.0.0 and their
 # numbers tombstoned, never reused.
 #
 #   test_12_core_to_core_depends_on_rejected_and_names_consumes

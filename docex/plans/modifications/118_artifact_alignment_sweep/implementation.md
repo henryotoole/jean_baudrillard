@@ -243,7 +243,7 @@ and line 262 is the proof of what that costs:
    `_RECOGNIZED_OLDER_CICL`. Note the `WHY` docstring: the message is
    parameterized on the target's own generation *specifically so it cannot go
    stale at a CICL bump*.
-2. `$jb/upgrades/upgrade_1.7.0.md:456-479` — § Rollback is unavailable across
+2. `$jb/upgrades/upgrade_2.0.0.md:456-479` — § Rollback is unavailable across
    the boundary. Mod 120 wrote this by **quoting the rendered output** of
    `_boundary_message` rather than composing prose. Your wording must agree
    with the strings quoted there.
@@ -278,7 +278,7 @@ Every operand moves: the break is the **v2→v3** break at doctrine **1.7.0**;
 every extant older tag is **v2**, not v1; the clearing condition is a **second
 v3 version**. Keep the existing justification sentence ("the alternative was a
 read-only flat-form parser maintained permanently to serve one code path") —
-it is still true. Cross-reference `upgrade_1.7.0.md § Rollback is unavailable
+it is still true. Cross-reference `upgrade_2.0.0.md § Rollback is unavailable
 across the boundary` so the two statements are visibly one statement.
 
 **D1f — line 261**, failure-mode table. `rollback aborted — cannot roll back

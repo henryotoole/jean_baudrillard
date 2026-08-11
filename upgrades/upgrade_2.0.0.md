@@ -1,11 +1,11 @@
 ---
-version: "1.7.0"
-severity: minor
+version: "2.0.0"
+severity: major
 kind: incremental
 scope: [machine, project]
 ---
 
-# Upgrading to doctrine 1.7.0
+# Upgrading to doctrine 2.0.0
 
 ## Summary
 
@@ -101,7 +101,7 @@ Worth stating plainly, because the blast radius *sounds* larger than it is:
 
 ### 1. Repin + sync the shim
 
-Standard: bump `docex_version` in `project.yml` to `1.7.0` and re-run the shim
+Standard: bump `docex_version` in `project.yml` to `2.0.0` and re-run the shim
 install. `cicl_version` is bumped in step 12 — **not yet**, or every compile fails
 until the rest of the edits land.
 
@@ -352,7 +352,7 @@ mistake a hand-migration makes:
 
 ```
 ${codebases.api.worker.host}
-  -> This looks like the pre-1.7.0 four-segment form.
+  -> This looks like the pre-2.0.0 four-segment form.
      Did you mean ${codebases.api.core_services.worker.host}?
 
 ${codebases.api.processes.worker.host}
@@ -366,17 +366,17 @@ Same value (`api.web`), same meaning (the core service answering the bare
 `<env>.<project>.<apex>` host).
 
 > **A trap for anyone reading old configs.** 1.6.0 renamed this field the *other*
-> direction — `domain_default_service` → `domain_default_process` — so the 1.7.0
+> direction — `domain_default_service` → `domain_default_process` — so the 2.0.0
 > name is the **pre-1.6.0 spelling with a different value shape**:
 >
 > | Version | Field | Value |
 > | ------- | ----- | ----- |
 > | < 1.6.0 | `domain_default_service` | `web` — **bare** |
 > | 1.6.0 | `domain_default_process` | `api.web` — dotted |
-> | ≥ 1.7.0 | `domain_default_service` | `api.web` — dotted |
+> | ≥ 2.0.0 | `domain_default_service` | `api.web` — dotted |
 >
 > So the *name* round-trips but the *value* does not. A pre-1.6.0 config carrying
-> `domain_default_service: web` is **not** valid 1.7.0 config, and it will not
+> `domain_default_service: web` is **not** valid 2.0.0 config, and it will not
 > look wrong at a glance. Rule 12 rejects the bare form, so the error is loud —
 > but do not assume a `domain_default_service` in an old file means what it means
 > now.
@@ -653,7 +653,7 @@ than removing it.
 
 ### Rollback is unavailable across the boundary
 
-For exactly **one release cycle** after adopting 1.7.0, prod has no rollback
+For exactly **one release cycle** after adopting 2.0.0, prod has no rollback
 path. `docex rollback` refuses at cheap pre-flight — before any worktree is
 created and before any apply — because rollback recompiles the *target* version's
 `infra.yml` with the *current* docex (`cicd.md § Rollback` step 3), and every

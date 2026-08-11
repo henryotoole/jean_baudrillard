@@ -583,7 +583,7 @@ Run this audit *once per cut*, against each project independently.
 
 Exercises `docex rollback` against the real fixed-foundation prod env. The current version was just deployed (C.9); to roll back, we need a *prior* version in the registry. Bump the test project once and re-deploy so two versions coexist, then roll back to the older one.
 
-**Coverage note.** Both versions in this rollback are created *after* the `cicl_version` `"2"` → `"3"` bump, so the cross-generation rollback refusal documented in [`upgrade_1.7.0.md`](../../upgrades/upgrade_1.7.0.md) is **not** exercised here. A green rollback walk is not evidence that the trap is gone.
+**Coverage note.** Both versions in this rollback are created *after* the `cicl_version` `"2"` → `"3"` bump, so the cross-generation rollback refusal documented in [`upgrade_2.0.0.md`](../../upgrades/upgrade_2.0.0.md) is **not** exercised here. A green rollback walk is not evidence that the trap is gone.
 
 - [ ] Bump the test project's `project.yml` version (e.g. 0.0.X → 0.0.X+1). Inner-repo commit per `test_projects.md § Commit cadence`; force-move (or re-create) the `v<version>` tag at the new HEAD.
 - [ ] `./bin/docex containerize` — pushes `v0.0.X+1` to the registry alongside `v0.0.X`.
@@ -717,7 +717,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
   declares a core `uses` target …``). Whichever line you get must agree with the
   two timestamps you recorded.
 
-  > **Why this box exists.** The 1.7.0 walk measured the wrong timestamp (task
+  > **Why this box exists.** Advance 005's walk measured the wrong timestamp (task
   > `startedAt`, mod 114) and `force-new-deployment` overwrote the evidence
   > before anyone knew which one mattered — so the failure had to be inferred
   > from a 503 rather than read off the operands. Recording both is what lets a
@@ -807,7 +807,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
   declares a core `uses` target …``). Whichever line you get must agree with the
   two timestamps you recorded.
 
-  > **Why this box exists.** The 1.7.0 walk measured the wrong timestamp (task
+  > **Why this box exists.** Advance 005's walk measured the wrong timestamp (task
   > `startedAt`, mod 114) and `force-new-deployment` overwrote the evidence
   > before anyone knew which one mattered — so the failure had to be inferred
   > from a 503 rather than read off the operands. Recording both is what lets a
@@ -839,7 +839,7 @@ Elastic production-side projinfra applies in two phases separated by an operator
 
 Same intent as C.10 but against elastic prod. The rollback path pushes SSM and runs an unrestricted `tofu apply` against the recompiled v0.0.X HCL — no migration RunTask, no pre-migrate targeted apply.
 
-**Coverage note.** Both versions in this rollback are created *after* the `cicl_version` `"2"` → `"3"` bump, so the cross-generation rollback refusal documented in [`upgrade_1.7.0.md`](../../upgrades/upgrade_1.7.0.md) is **not** exercised here. A green rollback walk is not evidence that the trap is gone.
+**Coverage note.** Both versions in this rollback are created *after* the `cicl_version` `"2"` → `"3"` bump, so the cross-generation rollback refusal documented in [`upgrade_2.0.0.md`](../../upgrades/upgrade_2.0.0.md) is **not** exercised here. A green rollback walk is not evidence that the trap is gone.
 
 - [ ] Bump the test project's `project.yml` version (e.g. 0.0.X → 0.0.X+1). Inner-repo commit + tag move.
 - [ ] `./bin/docex containerize` — pushes `v0.0.X+1` to ECR alongside `v0.0.X`.

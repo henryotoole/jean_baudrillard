@@ -9,7 +9,7 @@ which holds the design and the locked decisions. This file is the *how*.
 > protected tokens identical to pristine HEAD, zero residual old vocabulary.
 >
 > **Step 6 (release surface) is deliberately NOT started.** It flips
-> `cicl_version` 2 → 3 and writes `upgrade_1.7.0.md` — and
+> `cicl_version` 2 → 3 and writes `upgrade_2.0.0.md` — and
 > [`uses_relation_merge.md`](./uses_relation_merge.md) is *also* a 2 → 3 change
 > that must ride the same cut. Doing step 6 now would mean two 2 → 3 bumps and an
 > upgrade guide amended mid-flight. Awaiting the operator's sequencing call.
@@ -70,7 +70,7 @@ would falsify history:
 - `docex/plans/advances/{003_envmageddon,004_next}/**` — same reasoning.
 - `upgrades/upgrade_{1.2.0,1.5.0,1.6.0,1.6.1}.md` — each instructs an upgrade
   *to a version that used the old vocabulary*. Rewriting them makes their
-  instructions wrong. `upgrade_1.7.0.md` is the one that explains the rename.
+  instructions wrong. `upgrade_2.0.0.md` is the one that explains the rename.
 - `skill_iter/eval/outcome/project-cohere/full.run.2x.sonnet-sub.json` — a
   recorded run result.
 - `codebase_core_service_rename.md` — this advance's own design record, which is
@@ -158,7 +158,7 @@ begins.
    rest. Rename headings and fix all inbound anchors in the same commit.
 5. **Skills** (6) and **eval fixtures** — 8 live `evals.json` plus `queries.json`
    must be reworded or the outcome evals fail against the new vocabulary.
-6. **Release surface** — `upgrade_1.7.0.md`, `CHANGELOG.md`, `VERSION` → 1.7.0,
+6. **Release surface** — `upgrade_2.0.0.md`, `CHANGELOG.md`, `VERSION` → 1.7.0,
    `cicl_version` → 3.
 
 ### Step 1 outcome — five bug classes a scripted rename produces

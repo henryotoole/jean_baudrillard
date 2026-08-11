@@ -183,7 +183,7 @@ else
   # declares. The old loop was hardcoded to `for service in api`, so repos
   # retired by a rename — `reaper`, `web`, `worker` — were structurally
   # invisible to it, and that is where 26 of the 30 leaked tags found by the
-  # 1.7.0 fixed walk actually sat.
+  # 2.0.0 fixed walk actually sat.
   repos=""
   registry_get "/v2/_catalog?n=1000"
   if [[ "$REGISTRY_STATUS" != "200" ]]; then

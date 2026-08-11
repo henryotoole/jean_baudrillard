@@ -7,7 +7,7 @@ red test, it is a reader acting on a sentence that was true two weeks ago.
 
 **Territory.** `docex/plans/core/*`, `docex/doctrine_excerpts/*` + `index.yml`,
 `docex/test_projects/PRE_CUT_CHECKLIST.md`, `docex/tables/roles/web.yml` (comments
-only), `upgrades/upgrade_1.7.0.md`, root `CHANGELOG.md`.
+only), `upgrades/upgrade_2.0.0.md`, root `CHANGELOG.md`.
 **Not** the seed trees (mods 129–130, committed), **not** `src/`, **not**
 `linkcheck.py` (mod 132), **not** doctrine prose (raised to sarge, never edited).
 
@@ -29,7 +29,7 @@ reader is misled, not by file.
 | 2 | `PRE_CUT_CHECKLIST.md` D.11 (l. 426) | A walk box asserts `GET /health/api/worker` returns 200. **That route is deleted.** A walker following it records a failure against correct code. | **Blocks the cut on a phantom** |
 | 3 | `PRE_CUT_CHECKLIST.md` C.9 (l. 270) | Same, on the fixed walk, plus "the **only** externally-observable view of `api.worker`'s liveness". | Same |
 | 4 | `PRE_CUT_CHECKLIST.md` B.9 / B.10 | The pre-walk audit gates the walk on the retired model — format-from-role, the three-part health model, fan-out routes, `port` **and** `health_check_path` on every core `uses` target. **B is the gate on both walks**, so this is the highest-leverage file in the mod. | Same |
-| 5 | `upgrade_1.7.0.md` "what does not move" | *"No container name, hostname, image ref, **contract path**, `Name` tag … changes."* Contract paths change on every provider in the release. | **Downstream project skips a required rename** |
+| 5 | `upgrade_2.0.0.md` "what does not move" | *"No container name, hostname, image ref, **contract path**, `Name` tag … changes."* Contract paths change on every provider in the release. | **Downstream project skips a required rename** |
 | 6 | `tables/roles/web.yml` × 2 sites | "nothing on fixed acts on it except traefik, which drops the container from its pool" (`defaults`) and "traefik takes target health from the container healthcheck" (`fields`). Both halves wrong per `cicl.md` rule 33 as amended at `bce7b74`. | Table author copies a false rationale |
 | 7 | `compiler.md` l. 489, `CHANGELOG.md` × 2 | The same traefik claim, three more times. | Same |
 | 8 | `compiler.md` l. 603–604 | "`uses` drives CI (contracts, health fan-out, rule 7)" and "`check.py`'s contract / health gates … read through `core_uses()`". **`check.py` no longer reads `core_uses` at all** — verified by grep, zero hits. | Reader looks for a consumer that does not exist |
@@ -332,7 +332,7 @@ collection, not a gate — so that a walker under time pressure does not read a
   is stating a **rule** that only changes when doctrine changes, not a count or a
   pair of names that changes when `infra.yml` moves.
 
-## 5. `upgrades/upgrade_1.7.0.md` — extended, not replaced
+## 5. `upgrades/upgrade_2.0.0.md` — extended, not replaced
 
 1.7.0 is untagged and unreleased, so both advances ship in one guide and one
 `cicl_version`. The guide's own conventions are mirrored: the numbered change

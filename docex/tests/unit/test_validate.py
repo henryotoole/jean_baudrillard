@@ -165,7 +165,7 @@ def test_rule_web_service_needs_port():
 # rule 15, its sibling: 15 requires the port a web-network core service is
 # routed to, 33 requires the path the reverse proxy probes on it.
 #
-# Rule 28 (`health_check_path` obliges a `port`) is RETIRED in 1.7.0 and its
+# Rule 28 (`health_check_path` obliges a `port`) is RETIRED in 2.0.0 and its
 # number tombstoned, exactly as rule 6's is above. Its tests are deleted with
 # it — not merely because it is obsolete but because it is now REDUNDANT: rule
 # 33 confines the field to `web`-network core services and rule 15 already
@@ -315,7 +315,7 @@ def test_rule_3_unresolved_magic_ref_unknown_part():
     assert "rule_3_unresolved_magic_ref" in rules
 
 
-# Rule 6 (`depends_on` cycles) is RETIRED in 1.7.0 and its number tombstoned.
+# Rule 6 (`depends_on` cycles) is RETIRED in 2.0.0 and its number tombstoned.
 # `test_rule_6_depends_on_cycle` is deleted with it: a backing service declares
 # no outbound edges, so it is a graph SINK and there is no backing-graph cycle
 # left to construct. Acyclicity across backing-targeted edges is now a property

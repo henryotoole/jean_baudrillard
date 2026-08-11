@@ -524,7 +524,7 @@ Recorded so they are not re-litigated during implementation or review.
    *precisely because the new file also exists*. Two directives:
    1. The failure message must **name the expected four-segment form** and say
       "rename or delete", so the operator does not have to infer which.
-   2. `upgrades/upgrade_1.7.0.md` gets a Verification line grepping for surviving
+   2. `upgrades/upgrade_2.0.0.md` gets a Verification line grepping for surviving
       three-segment filenames. **Mod 131's**, booked by sarge; recorded here so it is
       recorded twice.
 5. **`_FORMAT_EXTENSIONS` in `check.py` — agreed, for the stated reason.** Mod 125 put

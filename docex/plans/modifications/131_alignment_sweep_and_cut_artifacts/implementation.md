@@ -26,7 +26,7 @@ unless prefixed `docex/`.
 | `docex/doctrine_excerpts/*.md` + `index.yml` | `docex/src/**`, `docex/tests/**` |
 | `docex/test_projects/PRE_CUT_CHECKLIST.md` | `docex/test_projects/{fixed,elastic}/**` (mods 129–130, committed) |
 | `docex/tables/roles/web.yml` — **comments only** | any other file under `docex/tables/` |
-| `upgrades/upgrade_1.7.0.md` | `linkcheck.py` (mod 132) |
+| `upgrades/upgrade_2.0.0.md` | `linkcheck.py` (mod 132) |
 | `CHANGELOG.md` (root) | released `CHANGELOG.md` sections — see step 40 |
 | one new file: `docex/plans/advances/007_small_edges/reverse_proxy_excerpt_elastic_gap.md` | |
 
@@ -1036,7 +1036,7 @@ hit you leave and why.**
 
 ---
 
-# Part I — `upgrades/upgrade_1.7.0.md`
+# Part I — `upgrades/upgrade_2.0.0.md`
 
 Extended, not replaced. Mirror the guide's existing conventions exactly: numbered
 change table, "what does not move", ordered project steps, cause→expected-difference
@@ -1406,7 +1406,7 @@ Add under `### Fixed`, in this mod's own voice:
   **both** walks: a route deleted in mod 129, so a walker following the box
   literally would record a failure **against correct code** and stop the cut — the
   most expensive kind of checklist defect, because it burns a walk to teach you
-  something false. `upgrade_1.7.0.md` listed **contract path** under "what does not
+  something false. `upgrade_2.0.0.md` listed **contract path** under "what does not
   move" while every contract in the release is renamed. And a false claim about
   traefik reading container health — true of no shipped configuration, since the
   compiler emits no health-aware traefik labels — had propagated to **five** sites
@@ -1464,14 +1464,14 @@ Known targets to confirm: `doctrine/infrastructure/healthchecks.md`
 `doctrine/infrastructure/infrastructure.md` (`#codebase-containers`),
 `doctrine/infrastructure/specifics/release.md` (`### Service Connect Consumer
 Reconcile`), `docex_process.md#running-the-automated-tests`, and every renumbered
-`upgrade_1.7.0.md` self-anchor from step 46.
+`upgrade_2.0.0.md` self-anchor from step 46.
 
 ## Step 55 — the falsehood greps, run once more over everything touched
 
 ```sh
 cd /home/ubuntu/.claude/jean_baudrillard
 grep -rn "fan.out\|fanout\|/health/api/\|/health/<codebase>\|_gate_health_endpoints\|_FALLBACK_CONTRACT\|_CONTRACT_FORMAT_BY_ROLE\|healthcheck_tooling" \
-  docex/plans/core/ docex/doctrine_excerpts/ docex/test_projects/PRE_CUT_CHECKLIST.md upgrades/upgrade_1.7.0.md
+  docex/plans/core/ docex/doctrine_excerpts/ docex/test_projects/PRE_CUT_CHECKLIST.md upgrades/upgrade_2.0.0.md
 ```
 
 Every surviving hit must be **explicitly historical or explicitly a statement of
@@ -1506,7 +1506,7 @@ docex/doctrine_excerpts/core_service.md
 docex/doctrine_excerpts/reverse_proxy.md
 docex/test_projects/PRE_CUT_CHECKLIST.md
 docex/tables/roles/web.yml
-upgrades/upgrade_1.7.0.md
+upgrades/upgrade_2.0.0.md
 CHANGELOG.md
 docex/plans/advances/007_small_edges/reverse_proxy_excerpt_elastic_gap.md   (new)
 docex/plans/modifications/131_alignment_sweep_and_cut_artifacts/            (already committed)

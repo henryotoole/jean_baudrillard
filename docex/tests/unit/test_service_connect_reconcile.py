@@ -419,7 +419,7 @@ def test_consumer_absent_from_deployment_map_is_redeployed(
 def test_walk_regression_first_prod_release(
     web_uses_worker, fake_aws, fake_tofu_init, fake_tofu_apply,
 ):
-    """The 1.7.0 elastic smoke walk, with its real numbers.
+    """The 2.0.0 elastic smoke walk, with its real numbers.
 
     `api-web`'s PRIMARY deployment was created 14:06:40; `api-worker`'s Cloud
     Map name at 14:07:02.391 — 22 seconds later. `api-web` returned 503 on the

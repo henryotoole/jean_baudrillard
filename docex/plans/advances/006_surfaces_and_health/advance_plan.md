@@ -1,6 +1,6 @@
 # Advance 006 — Surfaces and Health
 
-Ships in the **unreleased 1.7.0 cut**, alongside advance 005. The design record is
+Ships in the **unreleased 2.0.0 cut**, alongside advance 005. The design record is
 [`surfaces_and_health.md`](./surfaces_and_health.md); it is settled and this plan
 does not re-open it. Doctrine steps 3 (load-bearing edits) and 4 (sweep) are
 **done** and committed at `9b16937`.
@@ -87,14 +87,14 @@ where a load balancer reads it; the fan-out and everything enforcing it is gone;
 > the clock fixtures — but it is a real gap in the seeds and is stated here rather
 > than discovered in a B-audit.
 
-## Goal 3: the 1.7.0 cut stays shippable
+## Goal 3: the 2.0.0 cut stays shippable
 
 ### Success Criteria
 
 1. Six-artifact alignment held (doctrine / `plans/core` / `tables` / `src` /
    `tests` / `doctrine_excerpts`), with the `doctrine_excerpts` verdict — including
    any deliberate "no entry" — written into `docex_process.md`.
-2. `upgrades/upgrade_1.7.0.md` extended to cover both breaking halves.
+2. `upgrades/upgrade_2.0.0.md` extended to cover both breaking halves.
 3. `PRE_CUT_CHECKLIST.md` boxes B.9, B.10, B.6/B.7, C.8, C.9, D.6, D.9, D.10, D.11
    rewritten against the new model before either walk starts.
 4. Unit + integration suites green; both smoke walks green; `cohere` findings
@@ -251,7 +251,7 @@ So every source edit below is made twice, identically.
      D.11. Per `test_projects.md`'s own lesson, key each box on **what the tool
      prints**, not on a restated configuration: D.9/D.11's "if N is not 2" becomes
      wrong the moment the reconcile consumer set changes.
-   - `upgrades/upgrade_1.7.0.md` — extended, not replaced (1.7.0 is unreleased, so
+   - `upgrades/upgrade_2.0.0.md` — extended, not replaced (1.7.0 is unreleased, so
      both advances ship in one guide). Mirror its own conventions: the numbered
      change table, "what does not move", cause→expected-difference on recompile,
      and a Verification section that greps for zero occurrences of the retired
@@ -348,7 +348,7 @@ Recorded so they are not re-litigated mid-advance.
   never been released, so folding `surfaces:` into it costs nothing and a `"4"` bump
   would manufacture a second rollback-unavailable boundary inside one cut. The
   upgrade guide states this explicitly rather than leaving it inferred.
-- **`upgrades/upgrade_1.7.0.md` is extended, not replaced.** 1.7.0 is untagged, so
+- **`upgrades/upgrade_2.0.0.md` is extended, not replaced.** 2.0.0 is untagged, so
   both advances ship in one guide.
 
 ## Defects found in the committed doctrine edits

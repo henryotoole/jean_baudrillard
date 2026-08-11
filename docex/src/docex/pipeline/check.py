@@ -412,7 +412,7 @@ def _gate_contracts(
 
     WHY the orphan arm exists: an existence-only gate is blind to a half-renamed
     contracts directory *precisely because the new file also exists*, and a
-    leftover three-segment ``api.web.openapi.yml`` is the likeliest 1.7.0 upgrade
+    leftover three-segment ``api.web.openapi.yml`` is the likeliest 2.0.0 upgrade
     mistake in this advance.
 
     Returns (existing_expectations, providers) — the expectations whose file DOES

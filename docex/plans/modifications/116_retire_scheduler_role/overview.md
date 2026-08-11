@@ -250,7 +250,7 @@ any unexplained difference rather than accepting the number.
   117.** Neither the unit nor the integration suite reads them, so both stay
   green. `test_projects/elastic/infra/output/dev/docker-compose.yml` carries a
   committed Ofelia INI; it is compiled output and is 117's to regenerate.
-- `PRE_CUT_CHECKLIST.md`, `upgrades/upgrade_1.7.0.md` — Mod 117.
+- `PRE_CUT_CHECKLIST.md`, `upgrades/upgrade_2.0.0.md` — Mod 117.
 - `doctrine_excerpts/index.yml` — Mod 118 (and it has nothing to delete).
 - The `docex build` bytecode-residue bug (integration 18/1) — Mod 119.
 - `docex/plans/core/*.md` — the core planning docs are this mod's own

@@ -15,7 +15,7 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
-## [Unreleased]
+## [2.0.0] - 2026-08-11
 
 "Process type solidification" (advance 005, mods 111-124) — finishes what CICL v2
 started. The two central nouns trade places (a *core service* becomes a
@@ -27,10 +27,10 @@ behavioural change rides along: the elastic Service Connect reconcile now
 triggers off durable AWS state rather than an in-process snapshot, and every
 `aws_ecs_service` carries `wait_for_steady_state = true`. **This is a breaking
 format change:** `cicl_version: "3"` is required and `"2"` is rejected rather
-than shimmed, and for exactly one release cycle after 1.7.0 prod has no rollback
+than shimmed, and for exactly one release cycle after 2.0.0 prod has no rollback
 path (the v2→v3 boundary is refused at pre-flight, with a fix-forward message).
 Downstream projects upgrade per
-[`upgrades/upgrade_1.7.0.md`](./upgrades/upgrade_1.7.0.md) — a repin plus an
+[`upgrades/upgrade_2.0.0.md`](./upgrades/upgrade_2.0.0.md) — a repin plus an
 `infra.yml` rewrite, and, for any project with a scheduler, application-code work.
 
 "Surfaces and health" (advance 006, mods 125-133) ships in the same cut. A core
@@ -541,7 +541,7 @@ manifest-delete probe (mod 133).
   **both** walks: a route deleted in mod 129, so a walker following the box
   literally would record a failure **against correct code** and stop the cut — the
   most expensive kind of checklist defect, because it burns a walk to teach you
-  something false. `upgrade_1.7.0.md` listed **contract path** under "what does not
+  something false. `upgrade_2.0.0.md` listed **contract path** under "what does not
   move" while every contract in the release is renamed. And a false claim about
   traefik reading container health — true of no shipped configuration, since the
   compiler emits no health-aware traefik labels — had propagated to **five** sites
@@ -598,7 +598,7 @@ manifest-delete probe (mod 133).
   true: the elastic seed gives `api.worker` `uses: [appdb]` only, so it is a
   target and never a consumer, and there is no cycle anywhere in the project.
   The actual consumers are **`api-web` and `api-clock`**, both targeting
-  `api.worker`, exactly as `release` reported during the 1.7.0 walk. A walker
+  `api.worker`, exactly as `release` reported during the 2.0.0 walk. A walker
   following the box literally would have looked for an `api-worker` reconcile
   line, not found one, and read a correct release as a regression.
 
@@ -654,7 +654,7 @@ manifest-delete probe (mod 133).
   deliberately unchecked, since the driving port is shared with HTTP and CLI.
 - **The canonical `infra.yml` example did not compile** (mod 121). `cicl.md`'s
   reference fence — the one every project author copies first, and the one
-  `upgrade_1.7.0.md` sends readers straight to — used `database` as a backing
+  `upgrade_2.0.0.md` sends readers straight to — used `database` as a backing
   service name, which the postgres engine **reserves**; indented with literal
   **tabs**, which YAML forbids; and violated **its own rule 7**, holding a magic
   ref to a `bucket` that two of its three core services never declared. Sibling
@@ -753,7 +753,7 @@ manifest-delete probe (mod 133).
   stamped at ECS *service* creation, so a task of that service always starts
   after it, and `startedAt <= CreateDate` cannot hold whenever consumer and
   target are created by the same apply — every first release, and every release
-  that bumps the consumer's image. The 1.7.0 elastic smoke walk found the check
+  that bumps the consumer's image. The 2.0.0 elastic smoke walk found the check
   inert on `prod`: a 503 fan-out for 20+ minutes that two clean `release prod`
   runs printed nothing about and repaired nothing of.
 
@@ -800,7 +800,7 @@ manifest-delete probe (mod 133).
 
   Also corrected: the CICL v1 rejection message, which described 1.6.0's v2
   (top-level `core_services:`, four-segment refs) while the parser enforces
-  1.7.0's v2, so an operator who followed it produced a document the compiler
+  2.0.0's v2, so an operator who followed it produced a document the compiler
   rejects; it now describes the accepted shape and chains both upgrade guides.
   `validate.py`'s two `_STANDARD_*` field sets were inverted against their own
   contents and are swapped. `CompiledService.service_env` holds the
@@ -994,7 +994,7 @@ manifest-delete probe (mod 133).
   and after `tofu apply` on an elastic env's first release, where a clock is
   **guaranteed** to meet the window. Because a clock fires on its own schedule
   rather than in response to a request, it is the service that reaches a cold
-  schema first: the 1.7.0 elastic walk watched `api-clock` fire `heartbeat`
+  schema first: the 2.0.0 elastic walk watched `api-clock` fire `heartbeat`
   against a schema that did not exist yet and log
   `relation "jobs" does not exist`. That is the documented ordering working as
   designed, not a fault — it self-heals on the next slot with no operator

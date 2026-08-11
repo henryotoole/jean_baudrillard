@@ -117,7 +117,7 @@ recoverable from the diff.
 | 3 | How do core magic refs spell their namespace? | **Full literal path**: `${codebases.<cb>.core_services.<svc>.<part>}`. The ref mirrors the document exactly. |
 | 4 | Do the emitted elastic tag keys change? | **Yes.** `service`→`codebase`, `process`→`service`. |
 | 5 | Do `$pr/core/` and the in-container `/service` root change? | **Neither.** Both stay. |
-| 6 | Version? | **1.7.0**, `cicl_version` 2 → 3, `upgrades/upgrade_1.7.0.md`. |
+| 6 | Version? | **1.7.0**, `cicl_version` 2 → 3, `upgrades/upgrade_2.0.0.md`. |
 
 ### On decision 3 — why the long form
 
@@ -188,7 +188,7 @@ The authoritative old→new table. Anything not listed here does not change.
 | ----- | ------ |
 | **Codebase** | Promote to primary noun: the source of a core-service family and the single build artifact compiled from it. One codebase never imports code from another. Declares one or more core services. |
 | **Core Service** | Redefine: a named, independently-scaled deployment of a codebase's build artifact — its own role, command, resources, networks, and port. |
-| **Process Type** | **Delete the row.** The mapping is preserved in `upgrade_1.7.0.md`; the doctrine holds one canonical name per concept. |
+| **Process Type** | **Delete the row.** The mapping is preserved in `upgrade_2.0.0.md`; the doctrine holds one canonical name per concept. |
 | **Entrypoint** | Reword: the code module a **core service's** `command` invokes. One entrypoint per core service. |
 | **Service** | Unchanged — still "both core services and backing services", still true. |
 | **Application Service** | **Unchanged this mod.** It collides with the hexagonal meaning (an alogic class implementing a driving port), but resolving that is a second vocabulary change and is deliberately out of scope. See [Resolved items](#resolved-items) #1. |
@@ -214,7 +214,7 @@ The authoritative old→new table. Anything not listed here does not change.
 | elastic env tag key `process` *(carried process-type name)* | `service` |
 | `shape_name` values `core_service` / `backing_service` | *(unchanged — they name a deployed resource, so `core_service` is already correct)* |
 | OTel resource attr `docex.core_service` | `docex.codebase` — clean cut, no dual-write ([E1](./codebase_core_service_rename_adjudication.md#e1--docexcore_service--docexprocess_type-are-otel-resource-attributes)) |
-| OTel resource attr `docex.process_type` | `docex.service` — **splits existing telemetry time series**; `upgrade_1.7.0.md` must require dashboard/alert updates |
+| OTel resource attr `docex.process_type` | `docex.service` — **splits existing telemetry time series**; `upgrade_2.0.0.md` must require dashboard/alert updates |
 | `docex describe --format llm` JSON key `core_service` | `codebase` — see [E2](./codebase_core_service_rename_adjudication.md#e2--docex-describe---format-llm-emits-a-core_service-json-key) |
 | every emitted name, label, and path | *(byte-identical — see [decision 4](#on-decision-4--why-the-tag-churn-is-cheap))* |
 
@@ -296,7 +296,7 @@ The `core_service` direction has one protected token of its own:
 - `docex/plans/advances/{003,004}/**` (6 files) — same reasoning.
 - `upgrades/upgrade_{1.2.0,1.5.0,1.6.0,1.6.1}.md` — each describes an upgrade
   *to a version that used the old vocabulary*. Rewriting them would make their
-  instructions wrong. `upgrade_1.7.0.md` is the one that explains the rename.
+  instructions wrong. `upgrade_2.0.0.md` is the one that explains the rename.
 - `skill_iter/eval/outcome/project-cohere/full.run.2x.sonnet-sub.json` — a
   recorded run result.
 

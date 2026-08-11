@@ -71,7 +71,7 @@ _REF_SEGMENT_WORD = {"codebases": "five-segment", "backing_services": "three-seg
 # The literal collection segment a core ref must carry at body position 1.
 # WHY a literal rather than a wildcard: the ref is a path walk, so the segment
 # that names the nested key is part of the grammar, not a name the author
-# chooses. Rejecting anything else here is what makes the pre-1.7.0
+# chooses. Rejecting anything else here is what makes the pre-2.0.0
 # four-segment form a loud, migratable error instead of a "codebase not found".
 _CORE_COLLECTION = "core_services"
 
@@ -129,13 +129,13 @@ class MagicRefMatch:
             f"{_REF_SEGMENT_WORD[self.kind]} form `{_REF_FORM[self.kind]}`."
         )
         if self.kind == "codebases":
-            # The pre-1.7.0 four-segment form, `${codebases.api.web.host}`.
+            # The pre-2.0.0 four-segment form, `${codebases.api.web.host}`.
             # Naming the exact replacement is the whole migration story for
             # this ref, so spell it out rather than restating the grammar.
             if len(segs) == 3 and all(s.strip() for s in segs) \
                     and segs[1] != _CORE_COLLECTION:
                 msg += (
-                    f" This looks like the pre-1.7.0 four-segment form. Did "
+                    f" This looks like the pre-2.0.0 four-segment form. Did "
                     f"you mean ${{codebases.{segs[0]}.{_CORE_COLLECTION}."
                     f"{segs[1]}.{segs[2]}}}?"
                 )

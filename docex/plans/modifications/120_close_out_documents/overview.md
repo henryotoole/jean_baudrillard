@@ -5,7 +5,7 @@ The document half of the split approved at Mod 117. **No code, no tests, no
 
 1. `docex/test_projects/PRE_CUT_CHECKLIST.md` — the operator's walk procedure.
 2. `docex/plans/core/test_projects.md` — § Shape becomes one codebase.
-3. `upgrades/upgrade_1.7.0.md` — the fragment becomes a shippable guide.
+3. `upgrades/upgrade_2.0.0.md` — the fragment becomes a shippable guide.
 4. `CHANGELOG.md` — `[Unreleased]` rolled into one coherent account.
 
 Plus a link-integrity pass over everything the advance touched.
@@ -197,7 +197,7 @@ keeps `#shape` resolving for any future link.
 
 ---
 
-## 3. `upgrades/upgrade_1.7.0.md`
+## 3. `upgrades/upgrade_2.0.0.md`
 
 Every box in its own "Before this ships" checklist is worked, then the banner
 and the `status:` frontmatter field are deleted.
@@ -333,7 +333,7 @@ one release rather than six mods:
 
 1. **A lead paragraph**, matching the 1.6.0 entry's shape: what the release is,
    that it is breaking on `cicl_version` 2 → 3, that the rollback window applies
-   for one cycle, and a pointer to `upgrades/upgrade_1.7.0.md`.
+   for one cycle, and a pointer to `upgrades/upgrade_2.0.0.md`.
 2. **Two stale intra-release statements repaired** in the rename entry — it
    currently tells a reader of the *shipped release* that "`consumes:` … are
    unchanged" (it is gone) and that "`cicl_version` stays `"2"`" (it is `"3"`).
@@ -416,7 +416,7 @@ without predicting the outcome.
    `cicl_version: "2"`, or "five-artifact"; every count (repos, images, ECS
    services, test runs) checked against the tracked compiled output rather than
    against prose.
-4. `upgrade_1.7.0.md` has no `status:` field, no banner, no unticked box, and no
+4. `upgrade_2.0.0.md` has no `status:` field, no banner, no unticked box, and no
    link whose resolution is required to follow a step.
 5. `git status` shows changes **only** under `docex/plans/`,
    `docex/test_projects/PRE_CUT_CHECKLIST.md`, `upgrades/`, and `CHANGELOG.md`.

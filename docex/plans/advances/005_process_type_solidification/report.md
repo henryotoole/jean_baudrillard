@@ -110,7 +110,7 @@ blind.
   projects repinned and their inner repos clean with tags at HEAD.
 - **Unit 1009, integration 20/0.** `linkcheck` and the example-compile harness
   both green and both now shipped as executors.
-- `upgrades/upgrade_1.7.0.md` is complete and shippable; its fragment banner and
+- `upgrades/upgrade_2.0.0.md` is complete and shippable; its fragment banner and
   `status:` frontmatter are gone.
 - AWS account `256071447730` verified empty, twice, by a `verify_clean.sh` that
   has been shown capable of failing.

@@ -375,7 +375,7 @@ def _reconcile_service_connect_consumers(
     the deployment's task-set ARN — so a task replaced inside a stale deployment
     comes up just as unable to resolve. Mod 114 compared task ``startedAt``
     against the same registration and could not fire when consumer and target
-    were created by one apply, which is every first release; the 1.7.0 elastic
+    were created by one apply, which is every first release; the 2.0.0 elastic
     walk found it inert on `prod`.
 
     Both operands are still post-apply durable state, so the step remains

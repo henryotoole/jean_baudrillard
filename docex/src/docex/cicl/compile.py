@@ -474,7 +474,7 @@ class CompiledService:
     # WHY one field with two derived accessors, and not two fields: the
     # backing/core split below is DERIVED FROM TARGET KIND, not authored.
     # There is one relation in `infra.yml` (the two-field
-    # `depends_on`/`consumes` split was retired in 1.7.0), and storing the
+    # `depends_on`/`consumes` split was retired in 2.0.0), and storing the
     # split would invite a construction site that populates the two lists
     # inconsistently. Nothing can land in the wrong list because nothing is
     # placed into a list at all.

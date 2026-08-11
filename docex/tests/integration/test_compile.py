@@ -904,7 +904,7 @@ def test_describe_dag_and_llm(tmp_path: Path):
         run_describe(ctx, env="prod", fmt="dag")
     out = buf.getvalue()
     assert "sample" in out
-    # Mod 128: `depends_on` was retired in 1.7.0 (advance 005); `uses` is the one
+    # Mod 128: `depends_on` was retired in 2.0.0 (advance 005); `uses` is the one
     # surviving relation, so the DAG's edge section is what proves it names edges.
     assert "uses edges" in out
     assert "api.web -> appdb" in out

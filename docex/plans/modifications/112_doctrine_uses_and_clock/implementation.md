@@ -862,7 +862,7 @@ Expected: changes confined to `doctrine/**`, `skills/**`, and this mod folder.
 - Do not run or modify the test suite. This mod changes no code.
 - Do not update `docex/plans/core/*.md` or `doctrine_excerpts/` + `index.yml`.
   Mod 118 owns the artifact-alignment sweep.
-- Do not touch `upgrades/upgrade_1.7.0.md`. Mod 117 owns the guide.
+- Do not touch `upgrades/upgrade_2.0.0.md`. Mod 117 owns the guide.
 - Do not restructure the flat-form `infra.yml` examples in `transfer_tables.md`
   (~615, ~687) beyond the field rename. Mod 118.
 - Do not rewrite § Resilience covers reachability, not resolvability beyond the

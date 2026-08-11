@@ -15,7 +15,7 @@ is the executable plan and assumes no prior context.
   `CHANGELOG.md`, `project.yml` and `plans/` legitimately differ; **nothing
   under `core/` may.**
 - **Do not touch** `PRE_CUT_CHECKLIST.md`, `docex/plans/core/test_projects.md`,
-  `upgrades/upgrade_1.7.0.md`, or the root `CHANGELOG.md`. Those are Mod 120.
+  `upgrades/upgrade_2.0.0.md`, or the root `CHANGELOG.md`. Those are Mod 120.
 - **Do not touch** either project's `plans/core/**` or `CHANGELOG.md`. The
   mod-developer writes those in the documentation step.
 - **Do not commit.** The mod-developer owns the inner/outer commit cadence.

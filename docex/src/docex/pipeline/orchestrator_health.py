@@ -233,7 +233,7 @@ def _check_fixed(
                 raise OrchestratorStateUnreadable(
                     f"container {container!r} on {host!r} is running but "
                     "declares no healthcheck, so its health is unknowable. Its "
-                    "image is likely a pre-1.7.0 build from before every core "
+                    "image is likely a pre-2.0.0 build from before every core "
                     f"service owed a probe ({image}). See healthchecks.md."
                 )
             if health == "starting":
@@ -367,12 +367,12 @@ def _check_elastic(
                 # aggregates healthStatus only over containers that declare a
                 # health check, and reports UNKNOWN when none does. Reachable
                 # here only for a task that IS running, which is what makes the
-                # pre-1.7.0 diagnosis below trustworthy.
+                # pre-2.0.0 diagnosis below trustworthy.
                 raise OrchestratorStateUnreadable(
                     f"ECS task {arn!r} of service {svc.global_name!r} reports "
                     "healthStatus=UNKNOWN while RUNNING: no container in this "
                     "task declares a health check, so its health is "
-                    "unknowable. Its task definition is likely a pre-1.7.0 "
+                    "unknowable. Its task definition is likely a pre-2.0.0 "
                     "revision from before every core service owed a probe. "
                     "See healthchecks.md."
                 )

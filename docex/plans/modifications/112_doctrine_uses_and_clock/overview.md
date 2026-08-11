@@ -354,7 +354,7 @@ neither design record specifies.
 ## What this mod does not touch
 
 - `docex` source, tables, tests, fixtures, and both smoke projects (Mods 113–117).
-- `upgrades/upgrade_1.7.0.md` (Mod 117) and the version artifacts (close-out).
+- `upgrades/upgrade_2.0.0.md` (Mod 117) and the version artifacts (close-out).
 - `docex/plans/core/*.md` and `doctrine_excerpts/` + `index.yml` (Mod 118, the
   artifact-alignment sweep). Drift this mod knowingly creates there is listed in
   the final report rather than fixed here.

@@ -87,7 +87,7 @@ targeted message, not `tt_rule_4_undeclared_field`). Both models are
 `extra="allow"`, so without this the fields land silently in `model_extra`.
 
 Message must: name the offending field, state there is one relation named
-`uses`, and point at `upgrades/upgrade_1.7.0.md`. On `_ServiceBase` it must also
+`uses`, and point at `upgrades/upgrade_2.0.0.md`. On `_ServiceBase` it must also
 say a backing service declares **no** outbound edges and that engine-level
 container needs belong in the engine's transfer-table `defaults` block.
 **Never accept either field as a silent alias.**
@@ -473,7 +473,7 @@ the tests whose subject no longer exists:
 **Add:**
 - a bare `uses` entry naming an unknown service → `rule_25_unresolved_uses`
   (this is the surviving `rule_6_unknown_depends_on`; it must have a test).
-- `depends_on:` on a core service → hard error naming `upgrade_1.7.0.md`.
+- `depends_on:` on a core service → hard error naming `upgrade_2.0.0.md`.
 - `consumes:` on a core service → same.
 - `uses:` on a backing service → `rule_uses_on_backing_service`.
 - `cicl_version: "2"` → rejected, message names `"3"`.

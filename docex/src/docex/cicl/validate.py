@@ -7,7 +7,7 @@ infra.yml plus the transfer tables and the foundation context:
     Rule 2: roles defined in tables.
     Rule 3: magic refs resolve.
     Rule 4: engines known + match foundation.
-    Rule 6: RETIRED in 1.7.0 (number tombstoned). A backing service declares
+    Rule 6: RETIRED in 2.0.0 (number tombstoned). A backing service declares
             no outbound edges, so it is a graph sink and acyclicity across
             backing-targeted edges is a property of the graph's shape.
     Rule 7: a magic ref must be matched by a `uses` entry on the referencing
@@ -17,11 +17,11 @@ infra.yml plus the transfer tables and the foundation context:
     Rule 10: every core service has cpu+memory (covered by pydantic;
              re-checked here as defense-in-depth).
     Rule 11: resources.gpu not declared under elastic foundation.
-    Rule 24: RETIRED in 1.7.0 (number tombstoned). There is one relation now
+    Rule 24: RETIRED in 2.0.0 (number tombstoned). There is one relation now
              and its shape rule is rule 25.
     Rule 25: `uses` names either a backing service, bare, or a core service
              fully qualified as `<codebase>.<service>`, and never itself.
-    Rule 28: RETIRED in 1.7.0 (number tombstoned). Formerly required a `port`
+    Rule 28: RETIRED in 2.0.0 (number tombstoned). Formerly required a `port`
              alongside `health_check_path`. Rule 33 confines that field to
              `web`-network core services and rule 15 already requires a `port`
              on those, so the obligation is REDUNDANT rather than merely
@@ -658,7 +658,7 @@ def _validate_magic_refs(
 # qualified, and never itself. Plus the standing scope rule that only a core
 # service may declare `uses` at all.
 #
-# Rules 6 and 24 are RETIRED (1.7.0) and their numbers are tombstoned, never
+# Rules 6 and 24 are RETIRED (2.0.0) and their numbers are tombstoned, never
 # reused. Rule 6's cycle DFS is gone because a backing service declares no
 # outbound edges and is therefore a graph SINK: acyclicity across
 # backing-targeted edges falls out of the graph's shape rather than being
@@ -1836,7 +1836,7 @@ def _validate_service_role_rules(doc: CICLDocument) -> list[ValidationIssue]:
 # ---------------------------------------------------------------------------
 # Rule 33 (Mod 125) — `health_check_path` is a web-network field.
 #
-# Rule 28 is RETIRED (1.7.0) and its number tombstoned, never reused. It
+# Rule 28 is RETIRED (2.0.0) and its number tombstoned, never reused. It
 # required a `port` alongside `health_check_path`. Rule 33 confines the field to
 # `web`-network core services and rule 15 already requires a `port` on those, so
 # the old obligation is REDUNDANT rather than merely obsolete — there is no

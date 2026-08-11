@@ -1,6 +1,6 @@
 # Advance 006 — Report
 
-**Target cut: 1.7.0**, shipping alongside advance 005 in one release. Eleven mods
+**Target cut: 2.0.0**, shipping alongside advance 005 in one release. Eleven mods
 (125–135), two close-out audits, two skill gates, and a pre-cut walk. Status at
 writing: **mods complete; walk sections A and B green; C, D, E outstanding.**
 
@@ -31,7 +31,7 @@ version from the orchestrator before it builds the tester image, with 22
 can't-answer modes each demonstrated red.
 
 **Goal 3 — the cut stays shippable.** Substantially achieved, walks outstanding.
-Six-artifact alignment swept; `upgrades/upgrade_1.7.0.md` extended to cover both
+Six-artifact alignment swept; `upgrades/upgrade_2.0.0.md` extended to cover both
 advances; `PRE_CUT_CHECKLIST.md` rewritten and then repaired again by its own first
 execution. `cicl_version` stays `"3"` — generation 3 was introduced by advance 005
 and never released, so folding `surfaces:` into it avoids manufacturing a second

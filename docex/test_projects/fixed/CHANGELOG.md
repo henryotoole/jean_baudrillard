@@ -116,7 +116,7 @@ say what the seed actually does.
 
 ## [0.0.19] - 2026-08-06
 
-Repairs found by the `1.7.0` pre-cut fixed-foundation smoke walk. No feature
+Repairs found by the `2.0.0` pre-cut fixed-foundation smoke walk. No feature
 change; every edit here makes an existing check or test able to do its job.
 
 ### Fixed
@@ -151,7 +151,7 @@ change; every edit here makes an existing check or test able to do its job.
 ## [0.0.17] - 2026-08-06
 
 This entry covers **four doctrine changes at once**, because the seed was carried
-through the whole `1.7.0` advance before being committed. They landed in the
+through the whole `2.0.0` advance before being committed. They landed in the
 doctrine as separate mods; they reach this project together.
 
 ### Changed

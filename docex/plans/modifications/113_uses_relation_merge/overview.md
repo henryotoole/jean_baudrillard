@@ -124,7 +124,7 @@ surface as `tt_rule_4_undeclared_field` — an unrelated message about
 transfer-table field declarations.
 
 The message names the field, says there is one relation now, and points at
-`upgrades/upgrade_1.7.0.md`. **Never a silent alias.**
+`upgrades/upgrade_2.0.0.md`. **Never a silent alias.**
 
 Ordering matters: a genuine v2 document also declares `cicl_version: "2"`, and
 `CICLDocument._validate_cicl_version` is a document-level `mode="before"`
@@ -407,7 +407,7 @@ Knowingly created here; not this mod's to fix.
 | Code rules 26/27 still keyed on `scheduler`; doctrine says `clock` | **Mods 115–116** |
 | `release.py`'s reconcile *predicate logic* untouched — rename only | **Mod 114** |
 | `doctrine_excerpts/index.yml` gains no `uses` entry | **Mod 118** |
-| `upgrades/upgrade_1.7.0.md` not completed; root `CHANGELOG.md` gets a brief `[Unreleased]` line only | **Mod 117** |
+| `upgrades/upgrade_2.0.0.md` not completed; root `CHANGELOG.md` gets a brief `[Unreleased]` line only | **Mod 117** |
 | `docex/plans/core/compiler.md` (l.57, 58, 260, 341, 355, 356, 482, 489, 490, 491), `masterplan.md` (l.239–249), `test_projects.md` (l.16) updated for this mod only | sweep in **Mod 118** |
 | `sample_project_scheduler_{fixed,elastic}` fixtures migrated to `uses:` here rather than deleted — **Mod 116** deletes them, and leaving them uncompilable in the interim would red the suite at this mod's boundary | **Mod 116** |
 | `skill_iter/eval/outcome/infra-compile/evals.json:7,11` hard-code *"adds `cache` to web's `depends_on`"* as expected output, and `skill_iter/eval/queries.json:70` asks for `depends_on`. **These will fail their outcome eval after this mod.** Not caught by either pytest suite | advance **close-out** (the skill-eval decision sarge already flagged) |

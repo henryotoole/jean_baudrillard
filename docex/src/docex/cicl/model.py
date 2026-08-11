@@ -207,7 +207,7 @@ class CoreService(BaseModel):
     # service, a dotted entry names a core service, fully qualified. Only core
     # services declare it — a backing service has no outbound edges and is a
     # graph SINK, which is what makes the cycle rule fall out of the graph's
-    # shape instead of being enforced against it (rule 6, retired 1.7.0).
+    # shape instead of being enforced against it (rule 6, retired 2.0.0).
     uses: list[str] = Field(default_factory=list)
     # cicl.md § Surfaces. Declaring a surface is what makes a core service a
     # PROVIDER; the empty default is a non-provider, which is exactly a clock's
@@ -231,7 +231,7 @@ class CoreService(BaseModel):
         # WHY: extra="allow" means a stray `depends_on:`/`consumes:` would land
         # silently in model_extra and resurface as `tt_rule_4_undeclared_field`
         # — an unrelated message about transfer-table field declarations. The
-        # 1.7.0 merge is a one-time migration mistake, so it earns a targeted
+        # 2.0.0 merge is a one-time migration mistake, so it earns a targeted
         # message. NEVER accept either as a silent alias.
         if not isinstance(data, dict):
             return data
@@ -243,7 +243,7 @@ class CoreService(BaseModel):
                     f"(`database`) or a core service dotted and fully qualified "
                     f"(`api.worker`). Merge this service's `depends_on:` and "
                     f"`consumes:` entries into a single `uses:` list (cicl.md "
-                    f"§ Uses Relationships). See upgrades/upgrade_1.7.0.md."
+                    f"§ Uses Relationships). See upgrades/upgrade_2.0.0.md."
                 )
         return data
 
@@ -315,7 +315,7 @@ class _ServiceBase(BaseModel):
                     f"another container beneath it, that is an engine concern "
                     f"and belongs in the engine's transfer-table `defaults` "
                     f"block, not in infra.yml. Delete this field. See "
-                    f"upgrades/upgrade_1.7.0.md."
+                    f"upgrades/upgrade_2.0.0.md."
                 )
         return data
 
@@ -459,7 +459,7 @@ class CICLDocument(BaseModel):
                 "nests a `core_services:` block under each entry in `codebases:`, "
                 "carries the single `uses` relation, and takes five-segment core "
                 "magic refs (${codebases.<cb>.core_services.<svc>.<part>}). Follow "
-                "upgrades/upgrade_1.6.0.md then upgrades/upgrade_1.7.0.md to "
+                "upgrades/upgrade_1.6.0.md then upgrades/upgrade_2.0.0.md to "
                 f"migrate this infra.yml, then set cicl_version: "
                 f"\"{CURRENT_CICL_VERSION}\"."
             )

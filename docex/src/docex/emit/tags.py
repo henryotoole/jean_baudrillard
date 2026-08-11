@@ -47,7 +47,7 @@ def standard_tags(
     #
     # WHY: the segment order is (codebase, service) — the same order the old
     # (service, process) pair rendered in — so every emitted Name is
-    # byte-identical across the 1.7.0 rename. Only the tag KEYS moved.
+    # byte-identical across the 2.0.0 rename. Only the tag KEYS moved.
     name_seg = descriptor if codebase == "etc" else codebase
     if service is not None and codebase != "etc":
         name_seg = f"{codebase}_{service}"

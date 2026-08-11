@@ -134,7 +134,7 @@ say what the seed actually does.
 
 ## [0.0.20] - 2026-08-06
 
-Repairs found by the `1.7.0` pre-cut **fixed**-foundation smoke walk, applied
+Repairs found by the `2.0.0` pre-cut **fixed**-foundation smoke walk, applied
 here because the `core/` trees are byte-identical across seeds — and because
 this seed's `verify_clean.sh` turned out to carry a larger version of the same
 defect. No feature change.
@@ -169,7 +169,7 @@ defect. No feature change.
 ## [0.0.19] - 2026-08-06
 
 This entry covers **four doctrine changes at once**, because the seed was carried
-through the whole `1.7.0` advance before being committed. They landed in the
+through the whole `2.0.0` advance before being committed. They landed in the
 doctrine as separate mods; they reach this project together.
 
 ### Changed

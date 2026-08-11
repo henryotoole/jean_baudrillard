@@ -101,14 +101,14 @@ cicl_version '1' is no longer supported. The current generation nests a
 `core_services:` block under each entry in `codebases:`, and adds the `consumes`
 relation and five-segment core magic refs
 (${codebases.<cb>.core_services.<svc>.<part>}). Follow upgrades/upgrade_1.6.0.md
-then upgrades/upgrade_1.7.0.md to migrate this infra.yml, then set
+then upgrades/upgrade_2.0.0.md to migrate this infra.yml, then set
 cicl_version: "2".
 ```
 
 `CURRENT_CICL_VERSION` stays `"2"`. The message previously described 1.6.0's v2
 (four-segment refs, `core_services:` at top level) while the parser enforces
 1.7.0's v2 — so an operator who followed it landed on a document the compiler
-rejects. `upgrades/upgrade_1.7.0.md` is a pre-cut fragment, but it is the
+rejects. `upgrades/upgrade_2.0.0.md` is a pre-cut fragment, but it is the
 document that explains the shape, so citing it is correct even before the guide
 is finalized.
 
@@ -275,7 +275,7 @@ Settled with the operator before drafting.
 
 | # | Question | Decision |
 | - | -------- | -------- |
-| 1 | The v1 rejection message describes 1.6.0's v2 while the parser enforces 1.7.0's v2 | **Describe current v2, cite both guides** as a chain (`upgrade_1.6.0.md` → `upgrade_1.7.0.md`). Accurate today; the 2 → 3 mod rewrites it again regardless. |
+| 1 | The v1 rejection message describes 1.6.0's v2 while the parser enforces 1.7.0's v2 | **Describe current v2, cite both guides** as a chain (`upgrade_1.6.0.md` → `upgrade_2.0.0.md`). Accurate today; the 2 → 3 mod rewrites it again regardless. |
 | 2 | `docex why codebase` has no excerpt | **Add `codebase.md` this mod**, indexed. The doctrine's primary noun should answer. |
 | 3 | Both test projects' `CHANGELOG.md` still say "process types" | **Freeze.** A changelog entry records a release as it shipped; keepachangelog convention does not revise past entries. |
 

@@ -585,7 +585,7 @@ def test_retired_relation_on_a_core_service_is_a_hard_error(field):
     msg = str(exc.value)
     assert field in msg
     assert "`uses`" in msg
-    assert "upgrade_1.7.0.md" in msg
+    assert "upgrade_2.0.0.md" in msg
 
 
 @pytest.mark.parametrize("field", ["depends_on", "consumes"])
@@ -602,7 +602,7 @@ def test_retired_relation_on_a_backing_service_is_a_hard_error(field):
     msg = str(exc.value)
     assert field in msg
     assert "sink" in msg.lower()
-    assert "upgrade_1.7.0.md" in msg
+    assert "upgrade_2.0.0.md" in msg
 
 
 def test_cicl_version_2_is_rejected_and_the_message_names_3():

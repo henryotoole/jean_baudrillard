@@ -100,7 +100,7 @@ def _empty_core_ctx(tmp_path: Path):
     proj = tmp_path / "empty"
     (proj / "infra").mkdir(parents=True)
     (proj / "project.yml").write_text(
-        'name: empty_proj\nversion: "0.0.1"\ndocex_version: "1.7.0"\n'
+        'name: empty_proj\nversion: "0.0.1"\ndocex_version: "2.0.0"\n'
     )
     (proj / "infra" / "infra.yml").write_text(
         'cicl_version: "3"\n'
@@ -250,7 +250,7 @@ def test_task_health_unknown_is_unreadable_not_unhealthy(elastic_ctx):
     with pytest.raises(OrchestratorStateUnreadable) as exc:
         assert_deployed_healthy(elastic_ctx, env="stage", aws=aws, ssh=None)
     assert "no container in this task declares a health check" in str(exc.value)
-    assert "pre-1.7.0" in str(exc.value)
+    assert "pre-2.0.0" in str(exc.value)
 
 
 def test_task_unhealthy_is_the_honest_answer(elastic_ctx):
@@ -271,7 +271,7 @@ def test_task_not_running_is_the_honest_answer(elastic_ctx):
 
 def test_starting_task_is_not_misdiagnosed_as_a_probeless_image(elastic_ctx):
     """A task listed by `desiredStatus=RUNNING` that has not reached RUNNING yet
-    reports `healthStatus=UNKNOWN` — the *same* value a pre-1.7.0 task
+    reports `healthStatus=UNKNOWN` — the *same* value a pre-2.0.0 task
     definition reports. Judged health-first, a slow rollout would be diagnosed
     as a missing probe and the operator sent to look at their `health.sh`.
 
@@ -286,7 +286,7 @@ def test_starting_task_is_not_misdiagnosed_as_a_probeless_image(elastic_ctx):
     assert "lastStatus='PENDING'" in msg
     # The wrong diagnosis must NOT appear.
     assert "declares no health check" not in msg
-    assert "pre-1.7.0" not in msg
+    assert "pre-2.0.0" not in msg
 
 
 def test_unreadable_task_definition_propagates(elastic_ctx):
@@ -492,7 +492,7 @@ def test_nohealth_sentinel_is_unreadable_not_unhealthy(sample_ctx):
     with pytest.raises(OrchestratorStateUnreadable) as exc:
         assert_deployed_healthy(sample_ctx, env="stage", aws=None, ssh=ssh)
     assert "declares no healthcheck" in str(exc.value)
-    assert "pre-1.7.0" in str(exc.value)
+    assert "pre-2.0.0" in str(exc.value)
 
 
 def test_health_starting_has_its_own_message(sample_ctx):
@@ -534,7 +534,7 @@ def test_exited_probeless_container_is_reported_as_down_not_as_probeless(sample_
     msg = str(exc.value)
     assert "is not running" in msg
     assert "state='exited'" in msg
-    assert "pre-1.7.0" not in msg
+    assert "pre-2.0.0" not in msg
 
 
 def test_fixed_version_mismatch_quotes_the_full_ref(sample_ctx):

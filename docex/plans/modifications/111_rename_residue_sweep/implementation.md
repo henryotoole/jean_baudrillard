@@ -409,7 +409,7 @@ if version == "1":
         "nests a `core_services:` block under each entry in `codebases:`, "
         "and adds the `consumes` relation and five-segment core magic refs "
         "(${codebases.<cb>.core_services.<svc>.<part>}). Follow "
-        "upgrades/upgrade_1.6.0.md then upgrades/upgrade_1.7.0.md to "
+        "upgrades/upgrade_1.6.0.md then upgrades/upgrade_2.0.0.md to "
         "migrate this infra.yml, then set cicl_version: \"2\"."
     )
 ```

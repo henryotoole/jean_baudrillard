@@ -10,7 +10,7 @@ the tree compilable again.
 
 > **Scope — this mod is the CODE half. Split approved.** The three large
 > documents (`PRE_CUT_CHECKLIST.md`, `test_projects.md`,
-> `upgrades/upgrade_1.7.0.md`) plus the root `CHANGELOG.md` are **Mod 120**.
+> `upgrades/upgrade_2.0.0.md`) plus the root `CHANGELOG.md` are **Mod 120**.
 > Their brief is built from
 > [Deferred to Mod 120](#deferred-to-mod-120) below, so anything missing from
 > that section is something Mod 120 has to rediscover — it is maintained as a
@@ -349,7 +349,7 @@ absent here is something Mod 120 must rediscover.
   per codebase, the two-repo counts, the per-codebase `migrate.sh`/`test.sh`
   fan-out), so a future reader finds a reason rather than a discrepancy and does
   not "restore" the second codebase.
-- **`upgrades/upgrade_1.7.0.md`** — work its own "Before this ships" checklist:
+- **`upgrades/upgrade_2.0.0.md`** — work its own "Before this ships" checklist:
   fold the `uses` migration in interleaved with the rename's step 2 (rename
   first), **rewrite step 6's "expect exactly four differences" table** (the
   byte-identical guarantee was the rename's property alone; `uses` breaks it),

@@ -18,7 +18,7 @@ close-out.
 | Decision | Choice |
 | -------- | ------ |
 | Escalation mechanism | **Field radio.** Decisions exceeding a corporal's authority ripple to sarge; sarge escalates to the operator over `field_radio` and waits on a tokenless background poll. |
-| Version level | **MINOR → 1.7.0.** One cut, one upgrade guide (`upgrades/upgrade_1.7.0.md` already exists as a fragment and must be completed, not replaced). |
+| Version level | **MINOR → 1.7.0.** One cut, one upgrade guide (`upgrades/upgrade_2.0.0.md` already exists as a fragment and must be completed, not replaced). |
 | Service Connect empirical claim | **Verified first**, by a dedicated recon step against real AWS, before Mod C is designed. See [Step 0](#step-0--recon-the-service-connect-name-freeze). |
 | `schedules:` value shape | **Bare cron strings** (`nightly_cleanup: "0 3 * * *"`). Clock record open question 1 — closed. |
 | "The clock defers only" | **Doctrine prose, not a validation rule.** The compiler cannot see what a port method does; a rule it cannot enforce is a lie in the rule list. Clock record open question 2 — closed. |
@@ -139,7 +139,7 @@ singleton core service reading a compiler-delivered schedule table — replaces 
 4. Both smoke walks complete per `PRE_CUT_CHECKLIST.md` — **through prod release
    and teardown**, not stopping at stagetest — and both `verify_clean.sh` runs
    exit 0.
-5. `upgrades/upgrade_1.7.0.md` is a complete, shippable guide: the fragment
+5. `upgrades/upgrade_2.0.0.md` is a complete, shippable guide: the fragment
    banner and `status:` frontmatter are gone, and every box in its own "Before
    this ships" checklist is ticked.
 
@@ -362,7 +362,7 @@ modules, 5 fixture `infra.yml`s, both smoke projects' `infra.yml`.
 
 - One `uses` field on core services only; backing services lose the field
   entirely (graph sink). `depends_on:` and `consumes:` become hard errors with
-  a message pointing at `upgrade_1.7.0.md` — not silent aliases.
+  a message pointing at `upgrade_2.0.0.md` — not silent aliases.
 - Rule 7 collapses to one clause keyed on target kind, reusing the branch
   structure already at `validate.py:362-457`. Rule 24 deleted. Rule 6 narrowed.
 - **Delete `compose.py:756-782` outright** — no core-service block carries
@@ -479,7 +479,7 @@ error rather than a new-feature error.
 **Touches:** `test_projects/{fixed,elastic}/**` (core code, `infra.yml`,
 contracts, `plans/core/masterplan.md`, `CHANGELOG.md`, `verify_clean.sh`,
 compiled `infra/output/`), `test_projects/PRE_CUT_CHECKLIST.md`,
-`docex/plans/core/test_projects.md`, `upgrades/upgrade_1.7.0.md`,
+`docex/plans/core/test_projects.md`, `upgrades/upgrade_2.0.0.md`,
 root `CHANGELOG.md`.
 
 - **`reaper` is deleted; `api` gains `api.clock`.** The whole `core/reaper`
@@ -609,7 +609,7 @@ to the consolidated fix mod below.
 | `cicl.md:376-382` — `uses: [database, …]` with `database` undeclared | Same class as the row above, in a fence Mod 118's own design doc had listed as "verified correct" — on a *read*. |
 
 **Long-standing is not the same as low-priority.** `cicl.md`'s canonical fence is
-the one every project author copies first, and `upgrade_1.7.0.md` sends readers
+the one every project author copies first, and `upgrade_2.0.0.md` sends readers
 straight to it. Shipping the release whose entire subject is *how to author
 `infra.yml`* with a self-rejecting, unparseable canonical example is the wrong
 trade, whatever its age.
@@ -653,7 +653,7 @@ invocation-IAM-role resources are genuinely gone rather than orphaned.
 
 → **GATE:** `verify_clean.sh` green on both. A teardown filter left keyed on a
 removed role or a renamed tag matches zero resources and fails **silently** —
-the exact failure class `upgrade_1.7.0.md` already flags for the rename.
+the exact failure class `upgrade_2.0.0.md` already flags for the rename.
 
 ### 6. Ready-to-cut handoff
 Version artifacts staged (`VERSION`, `docex/pyproject.toml`,

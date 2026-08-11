@@ -353,7 +353,7 @@ def test_orphan_contract_for_undeclared_surface_fails(tmp_path):
 
 
 def test_stale_three_segment_contract_fails(tmp_path):
-    """The 1.7.0 upgrade case: the renamed file exists, so an existence-only
+    """The 2.0.0 upgrade case: the renamed file exists, so an existence-only
     gate is blind to the leftover beside it."""
     src = _codebase(
         "api",

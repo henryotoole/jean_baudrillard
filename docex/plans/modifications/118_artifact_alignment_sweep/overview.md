@@ -305,7 +305,7 @@ cycle with no rollback path because every extant older tag declares the prior
 generation — so re-anchoring to v2→v3 restates a known consequence rather than
 reasoning a new one.
 
-The requirement: Mod 120 already stated this trap in `upgrade_1.7.0.md:456-479`,
+The requirement: Mod 120 already stated this trap in `upgrade_2.0.0.md:456-479`,
 and sourced it by **quoting the rendered output of `rollback.py::_boundary_message`
 rather than composing it**. The new wording must agree with that and with the
 code. Three descriptions of one behaviour that drift apart are worse than one
@@ -387,7 +387,7 @@ provenance.
 Two things to carry with them:
 
 **The `cicl.md` canonical example is the fence every project author copies
-first**, and `upgrade_1.7.0.md` sends readers to it. Being simultaneously
+first**, and `upgrade_2.0.0.md` sends readers to it. Being simultaneously
 unparseable *and* self-rejecting matters more in the release whose entire
 subject is how to author `infra.yml` than its age would suggest. Long-standing
 is not the same as low-priority.

@@ -405,7 +405,7 @@ Add one sentence to each rollback step (a note line, not a checkbox):
 
 > **Coverage note.** Both versions in this rollback are created *after* the
 > `cicl_version` `"2"` → `"3"` bump, so the cross-generation rollback refusal
-> documented in [`upgrade_1.7.0.md`](../../upgrades/upgrade_1.7.0.md) is **not**
+> documented in [`upgrade_2.0.0.md`](../../upgrades/upgrade_2.0.0.md) is **not**
 > exercised here. A green rollback walk is not evidence that the trap is gone.
 
 ### 1.21 D.6 — delete the workaround, keep the ordering note
@@ -581,7 +581,7 @@ two **foundations**, not two codebases — do not edit it.)
 
 ---
 
-## Step 3 — `upgrades/upgrade_1.7.0.md`
+## Step 3 — `upgrades/upgrade_2.0.0.md`
 
 The fragment becomes the shippable guide. **Audience rule:** it must be readable
 start-to-finish by someone who has never heard of advance 005 and must not
@@ -857,7 +857,7 @@ relation named `uses`, and the retirement of a process type that was not a
 process); that it is **breaking**, `cicl_version` `"2"` → `"3"`, rejected rather
 than shimmed; that **rollback is unavailable for one release cycle** across that
 boundary; and that downstream projects upgrade per
-[`upgrades/upgrade_1.7.0.md`](./upgrades/upgrade_1.7.0.md).
+[`upgrades/upgrade_2.0.0.md`](./upgrades/upgrade_2.0.0.md).
 
 ### 6.2 Two stale intra-release statements — the important fix
 
@@ -919,11 +919,11 @@ Run all of it. Every item is a gate.
    permitted survivors.
 4. **Checklist numbering unchanged.** `grep -n "^### [A-E]\." docex/test_projects/PRE_CUT_CHECKLIST.md`
    — every existing step keeps its number; only `B.16` and `B.17` are new.
-5. **Guide is shippable.** `upgrade_1.7.0.md` has no `status:` field, no
+5. **Guide is shippable.** `upgrade_2.0.0.md` has no `status:` field, no
    `FRAGMENT` banner, no `## Before this ships` section, and no unticked
-   checkbox. `grep -c "advances/005" upgrades/upgrade_1.7.0.md` — any survivor
+   checkbox. `grep -c "advances/005" upgrades/upgrade_2.0.0.md` — any survivor
    must be optional further reading, never a step's prerequisite.
-6. **Guide reads cold.** Read `upgrade_1.7.0.md` start to finish as someone who
+6. **Guide reads cold.** Read `upgrade_2.0.0.md` start to finish as someone who
    has never seen this advance. Every step must be actionable without opening a
    design record.
 7. **Inner repos untouched.**
@@ -934,7 +934,7 @@ Run all of it. Every item is a gate.
    `docex/plans/core/test_projects.md`,
    `docex/plans/advances/005_process_type_solidification/{uses_relation_merge,service_connect_reconcile_trigger}.md`,
    `docex/test_projects/PRE_CUT_CHECKLIST.md`, `upgrades/upgrade_1.6.0.md`,
-   `upgrades/upgrade_1.7.0.md`, `upgrades/README.md`, and `CHANGELOG.md`.
+   `upgrades/upgrade_2.0.0.md`, `upgrades/README.md`, and `CHANGELOG.md`.
    **`advance_plan.md` must NOT appear.**
 9. **No regression.** No `docex` source changed, so the suites are untouched;
    run them once as a no-regression check: `pytest tests/unit` ≥ 988 and

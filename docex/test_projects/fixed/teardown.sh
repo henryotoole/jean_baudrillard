@@ -134,7 +134,7 @@ else
   # Enumerate what the registry HOLDS, not what the project currently
   # declares. The old loop was hardcoded to `for service in api`, so repos
   # retired by a rename — `reaper`, `web`, `worker` — could never be purged
-  # at all, and that is where 26 of the 30 tags leaked by the 1.7.0 fixed
+  # at all, and that is where 26 of the 30 tags leaked by the 2.0.0 fixed
   # walk actually sat.
   catalog_status="$(curl -sS -K "$REGISTRY_CURL_CONFIG" \
     -o /tmp/${PROJECT_NAME}-catalog.json -w '%{http_code}' \

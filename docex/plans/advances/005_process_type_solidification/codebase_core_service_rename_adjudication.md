@@ -133,7 +133,7 @@ failures rather than errors:
   matching new data** without erroring — they return an empty or truncated result
   set, which reads as "no traffic" rather than "wrong key". Any alert built on
   the old keys therefore fails *silent and green*.
-- `upgrade_1.7.0.md` must carry an explicit operator step: **update saved queries,
+- `upgrade_2.0.0.md` must carry an explicit operator step: **update saved queries,
   dashboards, and alerts to the new attribute keys**, called out as a required
   manual action, not a note.
 
