@@ -174,7 +174,13 @@ while True:
         try:
             # Drive the host's configured credential machinery (whatever it is).
             proc = subprocess.run(
-                ["git", "-C", project_root, "credential", "fill"],
+                # -c useHttpPath=true so the repo PATH survives git's normalization
+                # of the incoming request before the host helper sees it (gate 2).
+                # Makes both gates agree by construction instead of depending on the
+                # host's git config (the shim mounts only ~/.gitconfig, not the
+                # box's --system config where this often lives). Mod 136.
+                ["git", "-C", project_root, "-c", "credential.useHttpPath=true",
+                 "credential", "fill"],
                 input=request, capture_output=True, env=env,
             )
             conn.sendall(proc.stdout)  # fail-open: empty on miss
@@ -216,12 +222,17 @@ PYFWD
       MOUNTS+=(-v "$CRED_DIR:$CRED_DIR")
       # git appends the operation (get/store/erase) as the final arg, so
       # forward.py sees argv = [forward.py, <sock>, <op>]. Reset any inherited
-      # helper and force useHttpPath=false (same reasons as mod 061).
+      # helper, and force useHttpPath=true so the repo PATH survives into the
+      # credential request: a path-scoped host helper (e.g. a per-repo broker)
+      # cannot authorize a request that names no repo. Mod 061 forced =false to
+      # match a static pathless `store` file it baked into the container; mod 068
+      # deleted that store but carried the line over verbatim, silently breaking
+      # path-scoped helpers. Fixed in mod 136.
       RUN_FLAGS+=(
         -e GIT_CONFIG_COUNT=3
         -e GIT_CONFIG_KEY_0=credential.helper -e GIT_CONFIG_VALUE_0=
         -e GIT_CONFIG_KEY_1=credential.helper -e "GIT_CONFIG_VALUE_1=!python3 $CRED_DIR/forward.py $CRED_SOCK"
-        -e GIT_CONFIG_KEY_2=credential.useHttpPath -e GIT_CONFIG_VALUE_2=false
+        -e GIT_CONFIG_KEY_2=credential.useHttpPath -e GIT_CONFIG_VALUE_2=true
       )
       echo "docex: brokering per-call git credentials via the host for $ORIGIN_URL" >&2
     fi

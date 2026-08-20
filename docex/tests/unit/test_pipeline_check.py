@@ -333,3 +333,44 @@ def test_check_requires_health_sh_executable(
     out = capsys.readouterr().out
     assert rc == 1, out
     assert "codebase_scripts" in out
+
+
+# ---------------------------------------------------------------------------
+# Mod 136: `check` treats a fetch failure the way `merge` does — fatal, not a
+# warning that then misfires first-release mode.
+# ---------------------------------------------------------------------------
+
+
+def test_check_fetch_failure_is_fatal(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """A failed `git fetch origin` is fatal (origin present). It must NOT be
+    downgraded to a warning and masquerade as an empty origin/main — that false
+    green is exactly what let the git-creds bug land mid-pipeline (mod 136)."""
+    ctx, fake_git = worktree_setup
+    fake_git.exit_codes[("fetch", "origin")] = 128
+    rc = run_check(ctx, fake_docker, fake_git)
+    assert rc == 128
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert "skipped (empty origin/main)" not in out
+    assert "first-release" not in out
+    # The fetch aborts at step 2, before the worktree is ever created.
+    assert not [c for c in fake_git.calls if c[0] == "worktree_add"]
+
+
+def test_check_no_origin_skips_fetch(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """No `origin` remote (the test projects): skip the fetch entirely, no error.
+    First-release mode is reached via absent origin/main, as before — now without
+    the spurious fetch-failure warning."""
+    ctx, fake_git = worktree_setup
+    fake_git.has_origin = False
+    fake_git.refs = {"main", "HEAD"}
+    rc = run_check(ctx, fake_docker, fake_git)
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert rc == 0, out
+    assert not [c for c in fake_git.calls if c[0] == "fetch"]
+    assert "no 'origin' remote" in out

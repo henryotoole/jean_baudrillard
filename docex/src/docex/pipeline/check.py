@@ -715,12 +715,27 @@ def run_check(
         )
         return 1
 
-    # 2. Fetch ----------------------------------------------------------
-    rc = git.fetch(project_root, remote="origin")
-    if rc != 0:
+    # 2. Fetch (only when an origin remote exists) ----------------------
+    # A fetch *failure* is fatal here, exactly as it is in `merge` (which runs
+    # `check` defensively first). `check` exists to predict whether `merge` will
+    # succeed; if `merge` would die at `git fetch origin` — a path-scoped
+    # credential helper, or a genuine network/auth failure — `check` must not
+    # report green. Downgrading it to a warning let a failed fetch masquerade as
+    # an empty origin/main and misfire first-release mode (mod 136). A repo with
+    # no `origin` (the test projects) skips the fetch and does NOT error.
+    if git.remote_exists(project_root, "origin"):
+        rc = git.fetch(project_root, remote="origin")
+        if rc != 0:
+            print(
+                f"error: 'git fetch origin' exited {rc}; cannot verify against "
+                "the trunk. `docex merge` would fail at the same fetch — resolve "
+                "git credentials/network and retry.",
+                file=sys.stderr,
+            )
+            return rc
+    else:
         print(
-            f"warning: 'git fetch origin' exited {rc}; "
-            "continuing with potentially stale origin/main.",
+            "check: no 'origin' remote — comparing against local trunk only.",
             file=sys.stderr,
         )
 
