@@ -1,7 +1,7 @@
 ---
 name: doctrine-advance
 description: Orchestrates many subagents in pursuit of one or more goals forming an "advance" in a doctrine-based project. Use this agent to drive an advance.
-model: opus
+model: claude-opus-4-8
 skills:
   - chain-of-command
 rank: sergeant

@@ -1,7 +1,7 @@
 ---
 name: mod-developer
 description: Performs doctrine-standard mod cycles. Oversees design, oversees implementation, checks for drift afterwards, and updates core planning docs with resultant changes. Use this agent to drive mod cycles.
-model: opus
+model: claude-opus-4-8
 skills:
   - chain-of-command
 rank: corporal

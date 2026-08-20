@@ -1,7 +1,7 @@
 ---
 name: mod-implementor
 description: Performs the implementation-execution step of the doctrine mod cycle. Use this agent to execute the doctrine-standard `implementation.md`.
-model: opus
+model: claude-opus-4-8
 disallowedTools: Agent
 skills:
   - chain-of-command
