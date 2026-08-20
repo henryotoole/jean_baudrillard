@@ -153,15 +153,14 @@ subject changes — it drifts at the rate nobody looks, so a sweep should expect
 find damage from releases other than the one it is sweeping for. Second, **the
 completeness pass is not optional and is not a formality**: every defect above except
 that one came from it — count the rows of the table, not this sentence. The four still
-open are booked at
-[`007_small_edges/doctrine_excerpts_stale_entries.md`](../advances/007_small_edges/doctrine_excerpts_stale_entries.md),
-because each needs a rewrite rather than a corrected clause.
+open needed a rewrite rather than a corrected clause, so they were folded into the
+full overhaul below rather than booked separately.
 
 Mod 134 then audited all eighteen entries against the doctrine rather than against a
 term list, and found the drift is far wider than the rows above: **15 of 18 carry
 defects and three actively misinstruct.** That audit is booked as a full overhaul at
-[`007_small_edges/doctrine_excerpts_overhaul.md`](../advances/007_small_edges/doctrine_excerpts_overhaul.md),
-which supersedes the narrower booking above. Two findings belong here rather than
+[`008_housekeeping/doctrine_excerpts_overhaul.md`](../advances/008_housekeeping/references/doctrine_excerpts_overhaul.md),
+which subsumes the four still-open defects above. Two findings belong here rather than
 there, because they are about *this* process and not about the excerpts. First, **94% of
 the defects predate advance 006 and 14 of them trace to a single commit** — the
 directory's original authoring — which is the drift-at-the-rate-nobody-looks claim
@@ -194,7 +193,7 @@ python -m pytest tests -m integration   # the integration suite — run ALONE
    `pytest tests/unit` + `pytest tests -m integration` has a sixty-test hole between
    them that is invisible from either side. Mod 128 found twelve tests red behind a
    green report that way. The structural cause is filed at
-   [`007_small_edges/misfiled_compile_tests.md`](../advances/007_small_edges/misfiled_compile_tests.md).
+   [`008_housekeeping/misfiled_compile_tests.md`](../advances/008_housekeeping/references/misfiled_compile_tests.md).
 3. **`-m integration` must run alone.** Run concurrently with anything else it
    produces five convincing false failures in migrate, up/down and build — they
    contend for real docker state.

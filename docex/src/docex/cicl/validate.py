@@ -871,7 +871,7 @@ def _validate_uses_addressing(doc: CICLDocument) -> list[ValidationIssue]:
     service nobody uses may declare a decorative `port` and this rule stays
     silent. Extending past that sentence would be a doctrine edit wearing a
     validator's clothes; the question is filed as
-    007_small_edges/rule_32_unused_target_port.md.
+    advances/008_housekeeping/references/rule_32_unused_target_port.md.
     """
     issues: list[ValidationIssue] = []
     # dotted target -> the dotted consumers holding a magic ref to it.

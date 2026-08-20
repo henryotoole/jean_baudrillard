@@ -62,7 +62,7 @@ _WORKER: dict[str, Any] = {
     # Rule 33 forbids `health_check_path` off the `web` network, so the injected
     # worker declares none. `port: 8090` stays: the injected worker is nobody's
     # `uses` target, so rule 32 is silent on it (the declined asymmetry, filed as
-    # 007_small_edges/rule_32_unused_target_port.md).
+    # 008_housekeeping/references/rule_32_unused_target_port.md).
     "port": 8090,
     "networks": ["internal"],
     "uses": ["appdb"],

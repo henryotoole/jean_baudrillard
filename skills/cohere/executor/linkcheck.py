@@ -77,7 +77,7 @@ than the other two declined classes give, and it matters more than it looks,
 because `doctrine_excerpts/`'s house style is unbounded in 14 of its 16
 `Doctrine reference:` lines — so the citation check is close to blind in the one
 directory whose dead citation motivated building it. Enumerating them is logged
-at `docex/plans/advances/007_small_edges/unbounded_citation_enumeration.md`.
+at `docex/plans/advances/008_housekeeping/references/unbounded_citation_enumeration.md`.
 
 That rule is written here because the opposite shipped in this file: the anchor
 check used to read `if rp in anchors and ...`, where `anchors` held only the
