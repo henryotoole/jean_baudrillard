@@ -226,10 +226,22 @@ is no manual-test pause in a `docex` mod cycle.
    `configurable-vars` for Mod 141, `inception` for Mod 142, `preinfra-setup` for
    Mod 143, `cicd-pipeline` for Mod 144) fires `skill-iteration`'s trigger eval,
    plus an outcome eval for any that changed materially.
-4. **Smoke walks.** Mod 143 needs the live preinfra host; Mod 144 needs a **fixed**
-   smoke walk. Whether the full both-foundation walk set is mandatory depends on
-   the final cut's scope — decided at cut time. Real AWS, real cost,
-   operator-supervised; the plan's largest risk sits here.
+4. **Smoke walks.** **Both walks are mandatory** (operator ruling at sergeant
+   setup) — the cut target is a **minor** (2.1.0), and `test_projects.md`'s
+   Lifecycle table requires both foundations green for a minor, so this was never a
+   cut-time question. Consequence, folded in now rather than at cut time: Mod 143's
+   live-host gate and Mod 144's **fixed** smoke walk are **instrumentation inside
+   the mandatory pre-cut walk**, not standalone verification runs — Mod 143 asserts
+   its ACME-order-scoping check against the same live preinfra host the walk uses,
+   and Mod 144 reads `StartedAt`-vs-migration timestamps during the fixed walk's
+   `release stage`/`release prod`. Real AWS, real cost, operator-supervised; the
+   plan's largest risk sits here.
+   → RULING (ACME host mitigation): **keep with the plan** — the immediate host
+     mitigation is **not** applied early. The pollution has run live for over a
+     week; a few more hours costs no meaningful additional LE rate-limit burn, and
+     the mitigation lands with Mod 143's doctrine edit in Phase 4 as written. The
+     mitigation touches shared preinfra serving other projects, so it stays
+     operator-supervised with the rest of Phase 4.
 5. **Hand back for the cut**, per `RELEASING.md`.
 
 ---
