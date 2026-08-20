@@ -15,6 +15,25 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [2.0.1] - 2026-08-20
+
+### Fixed
+- **The docex shim preserves the git-credential repo path** (`bin/docex`). The per-call
+  credential passthrough (`DOCEX_GIT_CREDENTIAL_PASSTHROUGH`) forced
+  `credential.useHttpPath=false`, stripping the repository path from the credential
+  request; a **path-scoped** host helper (e.g. a per-repo broker) cannot authorize a
+  request that names no repo, so `docex merge` died at its first fetch with
+  `fatal: could not read Username`. The shim now forces `useHttpPath=true` at both the
+  container gate and the host `git credential fill` call, so the path survives and
+  path-scoped helpers are supported. Residue of mod 061's retired pathless-`store`
+  design, carried across mod 068; it survived 1.4.3 → 2.0.0. (mod 136)
+- **`docex check` fails on a git-fetch failure instead of reporting green.** `check` had
+  downgraded a failed `git fetch origin` to a warning and then misfired "first-release
+  mode", reporting all gates green on a box where `merge` — which runs `check`
+  defensively and treats the same failure as fatal — could not proceed. `check` now
+  mirrors `merge`: it skips the fetch when there is no `origin` remote and treats a real
+  fetch failure as fatal. (mod 136)
+
 ## [2.0.0] - 2026-08-11
 
 "Process type solidification" (advance 005, mods 111-124) — finishes what CICL v2
