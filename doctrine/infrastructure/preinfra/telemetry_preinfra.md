@@ -48,6 +48,7 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
    ```yaml
    labels:
      - "traefik.enable=true"
+     - "docex.project=telemetry"
      - "traefik.docker.network=hyperdx-internal"
      - "traefik.http.routers.hyperdx.rule=Host(`hyperdx.${BASE_DOMAIN}`)"
      - "traefik.http.routers.hyperdx.entrypoints=websecure"
@@ -70,6 +71,7 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
    ```yaml
    labels:
      - "traefik.enable=true"
+     - "docex.project=telemetry"
      - "traefik.docker.network=hyperdx-internal"
      - "traefik.http.routers.hyperdx_otlp.rule=Host(`hyperdx.${BASE_DOMAIN}`) && PathPrefix(`/v1/`)"
      - "traefik.http.routers.hyperdx_otlp.entrypoints=websecure"
@@ -253,6 +255,12 @@ The following describes how to set up HyperDX in fixed-foundation projects.
         docker:
           exposedByDefault: false
           network: hyperdx-internal
+          # Scope discovery to this preinfra "project" only — otherwise, over the
+          # shared docker socket, this dedicated traefik discovers every project's
+          # traefik.enable=true containers and opens unsatisfiable ACME orders.
+          # Every container this traefik serves must carry docex.project=telemetry
+          # (the HyperDX UI/app service and the otel-collector service below).
+          constraints: "Label(`docex.project`,`telemetry`)"
 
       certificatesResolvers:
         doctrine:
@@ -363,6 +371,8 @@ The following describes how to set up HyperDX for elastic-foundation projects.
         docker:
           exposedByDefault: false
           network: hyperdx-internal
+          # See the Fixed block above.
+          constraints: "Label(`docex.project`,`telemetry`)"
 
       certificatesResolvers:
         doctrine:

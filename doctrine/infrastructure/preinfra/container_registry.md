@@ -90,6 +90,12 @@ providers:
   docker:
     exposedByDefault: false
     network: container_registry-internal
+    # Scope discovery to this preinfra "project" only. Without it, over the
+    # shared docker socket this traefik discovers EVERY project's
+    # traefik.enable=true containers and opens ACME orders it can never
+    # satisfy — spamming project traefiks and burning Let's Encrypt
+    # rate-limit budget. Mirrors the docex-emitted project-traefik constraint.
+    constraints: "Label(`docex.project`,`registry`)"
 
 certificatesResolvers:
   doctrine:
@@ -129,6 +135,7 @@ services:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     labels:
       - "traefik.enable=true"
+      - "docex.project=registry"
       - "traefik.docker.network=container_registry-internal"
       - "traefik.http.routers.registry.rule=Host(`registry.${BASE_DOMAIN}`)"
       - "traefik.http.routers.registry.entrypoints=websecure"

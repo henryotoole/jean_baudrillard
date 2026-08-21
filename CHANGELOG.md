@@ -79,6 +79,26 @@ fixes. Cut target **2.1.0**.
   secret is inherently guessable from any hash of it. (mod 141)
 
 ### Fixed
+- **Preinfra dedicated traefiks are now scoped to their own preinfra "project", so they
+  stop polluting every other project's ACME.** The doctrine's dedicated traefiks — the
+  container registry's `registry-traefik` (`container_registry.md`) and HyperDX's dedicated
+  traefik on both foundations (`telemetry_preinfra.md`) — were prescribed with a Docker
+  provider carrying **no discovery constraint**. Over the shared docker socket that traefik
+  discovered *every* project's `traefik.enable=true` containers and opened ACME orders it
+  could never satisfy — spamming `Cannot retrieve the ACME challenge` on every project
+  traefik and burning Let's Encrypt failed-authorization rate-limit budget against shared
+  registrable domains. `docex` already emits a `docex.project` constraint for **project**
+  traefiks; this adds the equivalent to the **preinfra dedicated** traefiks the doctrine
+  configures by hand: a `constraints: Label(docex.project, <registry|telemetry>)` on each
+  dedicated traefik's docker provider, and a matching `docex.project=` label on every
+  container it serves (registry: the registry container; telemetry: the HyperDX UI/app
+  service and the otel-collector service). Doctrine-only — these traefiks are not emitted by
+  `docex`, so there is no code change. **Verification is DEFERRED / PENDING an
+  operator-supervised live preinfra-host walk**: a preinfra dedicated traefik must open ACME
+  orders for *only* its own host(s), and the `Cannot retrieve the ACME challenge` spam / LE
+  429 burn on project traefiks must stop. The immediate host mitigation (editing the live
+  `/opt/docex-preinfra/.../traefik.yml` + labels and restarting) is the operator's, applied
+  at that walk — not part of this change. (mod 143)
 - **A project's first production release no longer dies in `docex merge`.** On a brand-new
   project `origin/main` did not exist, so merge fell into a seed-trunk path that ran
   `git checkout main && git merge --ff-only <feature>` — and the checkout failed with
