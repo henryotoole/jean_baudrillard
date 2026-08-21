@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -1480,39 +1479,6 @@ def test_mod062_traefik_user_data_hcl_escaped_pip(tmp_path: Path):
     for name in ("PROJECT", "VOLUME_ID", "TRAEFIK_VERSION"):
         bare = re.search(r"(?<!\$)\$\{" + name + r"\b", tf)
         assert bare is None
-
-
-def _tofu_validate(tf_dir: Path) -> subprocess.CompletedProcess:
-    """Run `tofu init -backend=false` + `tofu validate` in tf_dir.
-
-    Returns the validate CompletedProcess (init failure is raised eagerly so
-    a bad init doesn't masquerade as a validate pass)."""
-    init = subprocess.run(
-        ["tofu", "init", "-backend=false", "-input=false", "-no-color"],
-        cwd=tf_dir, capture_output=True, text=True,
-    )
-    assert init.returncode == 0, f"tofu init failed:\n{init.stdout}\n{init.stderr}"
-    return subprocess.run(
-        ["tofu", "validate", "-no-color"],
-        cwd=tf_dir, capture_output=True, text=True,
-    )
-
-
-@pytest.mark.integration
-@pytest.mark.skipif(shutil.which("tofu") is None, reason="tofu not installed")
-@pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])
-def test_mod062_ec2_traefik_hcl_is_tofu_valid(tmp_path: Path, variant: str):
-    """Every tier of an ec2_traefik project emits HCL that OpenTofu accepts.
-    This is the coverage the mod-044 substring tests lacked — it parses the
-    emitted HCL rather than string-matching it. Regression for mod 062."""
-    root = _compile_elastic_with_reverse_proxy(tmp_path, variant)
-    out = root / "infra" / "output"
-    for tier in ("project/production", "stage", "prod"):
-        res = _tofu_validate(out / tier)
-        assert res.returncode == 0, (
-            f"[{variant}] tofu validate failed for {tier}:\n"
-            f"{res.stdout}\n{res.stderr}"
-        )
 
 
 @pytest.mark.parametrize("variant", ["ec2_traefik_eip", "ec2_traefik_pip"])

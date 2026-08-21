@@ -409,3 +409,23 @@ def test_generated_residue_is_not_a_document(tmp_path):
     _, _, stats = check(tmp_path)
     assert stats["files"] == 1
     assert stats["check3_files"] == 1
+
+
+def test_linkcheck_ignore_marker_suppresses_a_line(tmp_path):
+    """A LIVE line that quotes a dead reference as evidence is suppressed per
+    line — skipped, but counted in stats['suppressed']."""
+    write(tmp_path, {
+        "doctrine/a.md":
+            "Quoted as evidence: [x](./gone.md) <!-- linkcheck-ignore -->\n",
+    })
+    problems, declined, stats = check(tmp_path)
+    assert problems == [], problems
+    assert declined == [], declined
+    assert stats["suppressed"] == 1
+
+
+def test_line_without_marker_still_reports(tmp_path):
+    write(tmp_path, {"doctrine/a.md": "[x](./gone.md)\n"})
+    problems, declined, stats = check(tmp_path)
+    only(problems, declined, "BROKEN FILE")
+    assert stats["suppressed"] == 0

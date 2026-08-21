@@ -168,3 +168,28 @@ def test_slugify_preserves_double_hyphen_on_slash_heading(linkcheck):
     """`/` is stripped, leaving two spaces -> two hyphens. Collapsing runs was
     the original false-positive bug; it must stay uncollapsed."""
     assert linkcheck.slugify("Driven Port / Adapter Patterns") == "driven-port--adapter-patterns"
+
+
+def test_single_markdown_file_root_is_scanned_and_enforced(
+    linkcheck, monkeypatch, tmp_path, capsys
+):
+    """A ROOT may be a single .md file — how CHANGELOG/README/RELEASING enter the
+    scan. The live [Unreleased] link is enforced; the frozen section's is not."""
+    (tmp_path / "doctrine").mkdir()
+    (tmp_path / "doctrine" / "alpha.md").write_text("# Alpha\n")
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "live [ok](./doctrine/alpha.md) and [bad](./doctrine/nope.md)\n\n"
+        "## [1.0.0] - 2026-01-01\n\n"
+        "frozen [also-bad](./doctrine/frozen-nope.md)\n"
+    )
+    assert _run(linkcheck, monkeypatch, [changelog]) == 1
+    out = capsys.readouterr().out
+    assert "BROKEN FILE" in out and "nope.md" in out
+    assert "frozen-nope.md" not in out  # released section stays frozen-skipped
+
+
+def test_missing_file_root_is_rejected(linkcheck, monkeypatch, tmp_path, capsys):
+    assert _run(linkcheck, monkeypatch, [tmp_path / "does_not_exist.md"]) == 2
+    assert "root not found" in capsys.readouterr().err

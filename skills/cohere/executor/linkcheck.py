@@ -14,7 +14,14 @@ Examples that do not compile (check 4) are `verify_examples.py`'s job.
 Usage:
     python3 linkcheck.py [ROOT ...]
 
-ROOTs default to DEFAULT_ROOTS below. Exits non-zero if any problem is found.
+A ROOT may be a directory (walked for `.md` files) or a single `.md` file — the
+latter is how the repo-root files (CHANGELOG.md, README.md, RELEASING.md) join
+the scan. ROOTs default to DEFAULT_ROOTS below. Exits non-zero if any problem is
+found.
+
+A line carrying the marker `<!-- linkcheck-ignore -->` is skipped and counted
+(never silently): the one repair for a LIVE line that quotes a dead reference as
+evidence, which cannot be fixed without destroying the evidence.
 
 THE SCOPES ARE INDEPENDENT, ON PURPOSE
 --------------------------------------
@@ -96,21 +103,29 @@ JB_ROOT = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "..", ".."))
 DOCTRINE_ROOT = os.path.join(JB_ROOT, "doctrine")
 SKILLS_ROOT = os.path.join(JB_ROOT, "skills")
 
-# WHY these five: every live doctrine-adjacent markdown artifact. Frozen records
-# (mod/advance docs, released changelog sections, upgrade guides) and
-# deliberately-broken fixtures (skill_iter's drift fixtures) stay out — their
-# stale links are the record or the fixture, not a finding.
+# WHY these roots: every live doctrine-adjacent markdown artifact. Five directory
+# roots plus the three repo-root markdown files. Frozen records (mod/advance docs,
+# upgrade guides) and deliberately-broken fixtures (skill_iter's drift fixtures)
+# stay out — their stale links are the record or the fixture, not a finding.
 #   doctrine_excerpts/  is REQUIRED: the dead citation that motivated check 1b
 #                       lived there, and it is the one aligned artifact with no
 #                       other automated consumer.
 #   test_projects/      brings PRE_CUT_CHECKLIST.md — which gates both smoke
 #                       walks — inside the shipped default reach.
+#   CHANGELOG/README/RELEASING  are file roots (see markdown_files). CHANGELOG.md
+#                       is scanned, but its RELEASED sections stay frozen-skipped
+#                       (scannable_lines) — only the live [Unreleased] section, and
+#                       any line NOT carrying a `<!-- linkcheck-ignore -->` marker,
+#                       is enforced.
 DEFAULT_ROOTS = [
     DOCTRINE_ROOT,
     SKILLS_ROOT,
     os.path.join(JB_ROOT, "docex", "doctrine_excerpts"),
     os.path.join(JB_ROOT, "docex", "plans", "core"),
     os.path.join(JB_ROOT, "docex", "test_projects"),
+    os.path.join(JB_ROOT, "CHANGELOG.md"),
+    os.path.join(JB_ROOT, "README.md"),
+    os.path.join(JB_ROOT, "RELEASING.md"),
 ]
 
 # WHY: generated residue is not a document. Two untracked `.pytest_cache/README.md`
@@ -130,6 +145,7 @@ CHANGELOG_RELEASED_RE = re.compile(r"^##\s+\[(?!Unreleased\b)[^\]]+\]")
 # checked. Applied only AFTER every heading-matching rule has failed.
 IDENTIFIER_RE = re.compile(r"^[a-z0-9_.\-/]+$")
 EXTERNAL_PREFIXES = ("http://", "https://", "mailto:", "#!")
+LINKCHECK_IGNORE = "<!-- linkcheck-ignore -->"
 
 
 def slugify(heading):
@@ -179,7 +195,14 @@ def heading_text(lines):
 
 
 def markdown_files(root):
-    """Every `.md` under `root`, generated residue skipped."""
+    """Every `.md` under `root`, generated residue skipped.
+
+    A `root` may be a single `.md` file, not only a directory — this is how the
+    repo-root files (CHANGELOG.md, README.md, RELEASING.md) enter the scan. A file
+    root yields just itself; a non-`.md` file root yields nothing.
+    """
+    if os.path.isfile(root):
+        return [os.path.realpath(root)] if root.endswith(".md") else []
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
@@ -297,6 +320,12 @@ def scannable_lines(path, stats):
         if frozen:
             stats["frozen_lines"] += 1
             continue
+        # Per-line suppression: a LIVE line that QUOTES a dead reference as
+        # evidence cannot be repaired without destroying the evidence. Skipped,
+        # but counted — a verifier may decline, not decline quietly.
+        if LINKCHECK_IGNORE in line:
+            stats["suppressed"] += 1
+            continue
         yield i, line
 
 
@@ -375,6 +404,7 @@ def run_checks(roots, doctrine_root=None, index_root=None):
     problems, declined = [], []
     stats = {
         "files": len(md_files), "check3_files": 0, "frozen_lines": 0,
+        "suppressed": 0,
         "anchors": 0, "anchors_offroot": 0, "anchors_unverifiable": 0,
         "exact": 0, "truncated": 0, "extended": 0, "identifier": 0,
         "empty": 0, "unbounded": 0, "ambiguous": 0,
@@ -472,8 +502,8 @@ def main():
     roots = sys.argv[1:] if len(sys.argv) > 1 else DEFAULT_ROOTS
     roots = [os.path.realpath(r) for r in roots]
     for r in roots:
-        if not os.path.isdir(r):
-            print(f"ERROR: root not found: {r}", file=sys.stderr)
+        if not (os.path.isdir(r) or (os.path.isfile(r) and r.endswith(".md"))):
+            print(f"ERROR: root not found (or not a .md file): {r}", file=sys.stderr)
             return 2
 
     problems, declined, stats = run_checks(roots)
@@ -505,6 +535,7 @@ def main():
           f"{stats['unbounded']} unbounded (file checked, heading not), "
           f"{stats['ambiguous']} ambiguous")
     print(f"  frozen changelog lines    : {stats['frozen_lines']} skipped")
+    print(f"  linkcheck-ignore lines    : {stats['suppressed']} suppressed")
     return 1 if problems else 0
 
 

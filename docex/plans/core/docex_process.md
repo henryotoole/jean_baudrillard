@@ -188,12 +188,17 @@ python -m pytest tests -m integration   # the integration suite — run ALONE
    `python -m pytest tests -q` prints the deselected count, and
    `python -m pytest tests -q -m integration` prints how many actually run. The
    two must agree.
-2. **The default suite is `tests`, not `tests/unit`.** Sixty-plus fast compile tests
-   live under `tests/integration/` carrying **no** marker, so the conventional pair
-   `pytest tests/unit` + `pytest tests -m integration` has a sixty-test hole between
-   them that is invisible from either side. Mod 128 found twelve tests red behind a
-   green report that way. The structural cause is filed at
-   [`008_housekeeping/misfiled_compile_tests.md`](../advances/008_housekeeping/references/misfiled_compile_tests.md).
+2. **The default suite is `tests`, not `tests/unit`.** This once hid a real hole:
+   sixty-plus fast compile tests lived under `tests/integration/` carrying **no**
+   marker, so the conventional pair `pytest tests/unit` + `pytest tests -m integration`
+   skipped them from both sides — mod 128 found twelve tests red behind a green
+   report that way. Mod 139 relocated those compile tests to `tests/unit/` and added
+   `tests/unit/test_collection_partition.py`, a guard that asserts the two buckets
+   **partition** the suite
+   (`collected(tests/unit) + collected(-m integration) == collected(tests)`), so a
+   test invisible to both standard invocations — or double-counted by both — now
+   fails loudly wherever it lives. The hole is closed and guarded; `pytest tests`
+   remains the canonical full suite regardless.
 3. **`-m integration` must run alone.** Run concurrently with anything else it
    produces five convincing false failures in migrate, up/down and build — they
    contend for real docker state.

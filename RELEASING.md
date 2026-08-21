@@ -111,6 +111,22 @@ The release that first introduces this document is special: it has no prior
 payload. It is performed by following this procedure against itself — once it
 lands, every subsequent release is ordinary.
 
+## Editing Frozen History: Targets vs. Claims
+
+Released `CHANGELOG.md` sections and shipped `upgrades/` guides are **frozen
+history** — the record of what was true at a past release, never revised. One
+narrow, mechanical exception governs both: a link **target** may be repointed when
+a later release moves or renames the file it addresses; a **claim** — any prose,
+including the visible link text and any version it asserts — may not change. The
+target is a pointer into living doctrine, and a dangling one preserves nothing
+while making the record unusable; the words are the artifact and stand as written.
+Where a target's file is gone with no honest replacement, or repointing would
+misrepresent the claim (e.g. the link text names the file that moved), the dead
+reference is left as record rather than falsified.
+
+Stated here once so both [`upgrades/README.md`](./upgrades/README.md) and
+[`CHANGELOG.md`](./CHANGELOG.md) can cite it.
+
 ## How Operators Consume a Release
 
 Two operator-triggered skills close the loop; they are the consumer-side mirror

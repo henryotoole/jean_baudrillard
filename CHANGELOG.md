@@ -30,6 +30,19 @@ fixes. Cut target **2.1.0**.
   engine and stray key. Scoped to the three core roles (`web`/`worker`/`clock`); backing
   engines' rich elastic defaults (RDS instance class, storage, encryption) route to their own
   renderers untouched. (mod 138)
+- **A CI guard asserts the two standard pytest invocations *partition* the suite**
+  (`tests/unit/test_collection_partition.py`). It collection-only-counts `tests/unit`,
+  `tests -m integration`, and all of `tests`, and fails unless `unit + integration == all` —
+  so a test invisible to both standard invocations (an unmarked test under
+  `tests/integration/`) or double-counted by both (an integration-marked test under
+  `tests/unit/`) now fails loudly wherever it lives. This is the durable fix for the
+  collection hole that hid twelve red compile tests behind a green report across two advances
+  (mod 128). (mod 139)
+- **`linkcheck.py` accepts a single `.md` file as a scan root, and honors a per-line
+  `linkcheck-ignore` HTML-comment marker** (the line is skipped but counted, never silently).
+  Together these let the repo-root markdown files join the default scan while a live line that
+  merely *quotes* a dead reference as evidence can be exempted without destroying the evidence.
+  (mod 139)
 - **A project name must already be a valid DNS label.** `ProjectManifest.name` now rejects a
   non-conforming name at load — lowercase alphanumerics with interior hyphens/underscores
   (underscores are converted to hyphens on emit) — aligning the name to the DNS-label rule of
@@ -64,6 +77,12 @@ fixes. Cut target **2.1.0**.
   (`orchestrate/aggregate.py::_host_for`, `orchestrate/up.py`) re-derived it by hand; both now
   read the compiler-owned `CompiledEnv.subdomain` via `env_subdomain_for`. Reader-only
   duplication, so it failed loudly rather than silently — removed regardless. (mod 137)
+- **Sixteen dead relative links in released `CHANGELOG.md` sections repaired** (link targets
+  only — no prose or claim altered). Historical residue from before the 1.3.0 versioning move,
+  when this file sat at `docex/`: `../doctrine/…` escaped the repo root and `plans/…` resolved
+  only from `docex/`. Two links whose targets were retired with no honest replacement were left
+  as frozen record rather than falsified. These sections are frozen-skipped by `linkcheck`, so
+  the repair is courtesy for human readers. (mod 139)
 
 ### Changed
 - **Doctrine prose aligned to what `docex` enforces** (no behavior change). `healthchecks.md`'s
@@ -73,6 +92,19 @@ fixes. Cut target **2.1.0**.
   field reference now documents the fixed/elastic asymmetry: the block merges generically on
   fixed, but on elastic's `task_definition` target the renderer reads a named closed set and
   rejects other keys. Rule 32 itself is deliberately left unchanged (won't-fix). (mod 138)
+- **`linkcheck` now scans `CHANGELOG.md`, `README.md`, and `RELEASING.md`** as file roots in
+  its `DEFAULT_ROOTS`. `CHANGELOG.md`'s released sections stay frozen-skipped, so only its live
+  `[Unreleased]` section (and any non-suppressed line) is enforced. (mod 139)
+- **The target-vs-claim rule for frozen history is stated once in `RELEASING.md`**
+  ("Editing Frozen History: Targets vs. Claims") — a link *target* may be repointed when a
+  file moves or is renamed; a *claim* (prose, visible link text, an asserted version) may not.
+  `upgrades/README.md` now cites the shared statement rather than only stating it locally.
+  (mod 139)
+- **The 60 fast, hermetic compile tests moved from `tests/integration/` to `tests/unit/`**,
+  leaving only the one genuine `tofu`-shelling integration test in
+  `tests/integration/test_compile_tofu.py`. The directory name is now honest; collection
+  totals across `pytest tests` and `pytest tests -m integration` are unchanged by the move.
+  (mod 139)
 
 ## [2.0.1] - 2026-08-20
 
@@ -381,7 +413,7 @@ manifest-delete probe (mod 133).
   rewritten, with their spec versions raised to the minimums `contracts.md`
   fixes — the seeds were shipping OpenAPI 3.0.3 and AsyncAPI 2.6.0 in violation
   of it, which nothing enforces mechanically
-  ([`007_small_edges/contract_spec_version_ungated.md`](./docex/plans/advances/007_small_edges/contract_spec_version_ungated.md)).
+  ([`007_small_edges/contract_spec_version_ungated.md`](./docex/plans/advances/008_housekeeping/references/contract_spec_version_ungated.md)).
 
   **Health leaves HTTP in the seeds.** A new `core/api/health.sh` — the fourth
   codebase shim — branches on its argv: `web` curls its own route, `worker` and
@@ -2462,7 +2494,7 @@ test-project smoke walks per `PRE_CUT_CHECKLIST.md`.
 
 Patch cut bundling three runtime bugs surfaced during the post-1.0.2
 elastic-foundation smoke walk on the test project. Full narrative in
-[`plans/modifications/048_elastic_walk_polish/`](plans/modifications/048_elastic_walk_polish/).
+[`plans/modifications/048_elastic_walk_polish/`](docex/plans/modifications/048_elastic_walk_polish/).
 Combined with mod 047's fixed-side bug bundle, both smoke walks now
 run clean against this cut from D.1/C.1 through D.13/C.11.
 
@@ -2489,7 +2521,7 @@ run clean against this cut from D.1/C.1 through D.13/C.11.
   Without these fixes, the migration RunTask on the first elastic
   release failed with `no VPC tagged project='<n>'`.
 - **Bare-project A-record missing on prod env-tier ALB emit (mod 048,
-  bug 7).** The doctrine ([`elastic_route53_zone.md`](../doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md))
+  bug 7).** The doctrine ([`elastic_route53_zone.md`](./doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md))
   commits to five A-records on prod — including
   `<project>.<apex_domain>` (bare-project) for `domain_default_service`
   ergonomics. `main.tf.j2`'s env-tier ALB block emitted only the env
@@ -2525,7 +2557,7 @@ Patch cut bundling four runtime bugs surfaced during the post-1.0.1
 fixed-foundation smoke walk on the test project. None were caught by
 unit tests; they only appeared once the projinfra → envinfra → release
 pipeline ran against a real host. The mod docs at
-[`docex/plans/modifications/047_smoke_walk_polish/`](plans/modifications/047_smoke_walk_polish/)
+[`docex/plans/modifications/047_smoke_walk_polish/`](docex/plans/modifications/047_smoke_walk_polish/)
 carry the full narrative.
 
 ### Fixed
@@ -2549,7 +2581,7 @@ carry the full narrative.
 - **`docex check` `health_endpoints` gate over-strict (mod 047).** The
   gate required `/health/<dep>` on the provider's contract for *every*
   non-web downstream dep, including backing services. Doctrine
-  [`contracts.md § Health Checks`](../doctrine/infrastructure/contracts.md#health-checks)
+  [`contracts.md § Health Checks`](./doctrine/infrastructure/contracts.md#health-checks)
   is explicit: only CORE-service downstream deps need the endpoint.
   Narrowed `_gate_health_endpoints` to look up `infra.core_services`
   only. Backings don't trip the gate; projects that voluntarily add
@@ -2674,7 +2706,7 @@ and per-mod planning docs live at
   EIP variant pins a stable public IP; PIP variant uses an
   auto-assigned IP plus a boot-time systemd unit that rewrites the
   five A-records via a Route53 batch on IP changes. Per
-  [`projinfra/ec2_traefik.md`](../doctrine/infrastructure/specifics/projinfra/ec2_traefik.md).
+  [`projinfra/ec2_traefik.md`](./doctrine/infrastructure/specifics/projinfra/ec2_traefik.md).
 - **`templates/ec2_traefik_user_data.sh.j2`** (~280 lines, mod 044):
   doctrine-managed user_data covering EBS ACME volume tag-attach,
   traefik install + static config (DNS-01 LE via Route53), systemd
@@ -2684,7 +2716,7 @@ and per-mod planning docs live at
   (mod 044).** Resolves to the ALB SG or the traefik SG depending on
   variant; env-tier consumers stay variant-agnostic.
 - **New commands `preinfra`, `projinfra`, `envinfra` (mod 034).** Per
-  [`docex.md`](../doctrine/infrastructure/docex.md) — `preinfra <side>`
+  [`docex.md`](./doctrine/infrastructure/docex.md) — `preinfra <side>`
   checks prerequisite infrastructure existence (real per-foundation
   checks landed in mod 042); `projinfra <direction> <side>` brings
   project-tier infra up/down (real behavior for fixed in mod 036,
@@ -2701,7 +2733,7 @@ and per-mod planning docs live at
 - **Per-project traefik + four `-web` networks (mod 036).** Replaces
   the obsolete machine-wide-traefik model with the doctrine's
   per-project traefik per
-  [`projinfra/fixed_reverse_proxy.md`](../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md).
+  [`projinfra/fixed_reverse_proxy.md`](./doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md).
   Container named `${project}-traefik` joined to all four
   `${project}-${env}-web` networks plus `docex-ingress`. DNS-01 LE
   with cert resolver named `doctrine`, project-named acme volume,
@@ -2748,7 +2780,7 @@ and per-mod planning docs live at
   Compose form: `${project}-${env}-${svc}-otelcol`; ECS form:
   `${svc}-otelcol`.
 - **Command surface refreshed (mod 034).** Per the doctrine's
-  [`docex.md`](../doctrine/infrastructure/docex.md). `--help`
+  [`docex.md`](./doctrine/infrastructure/docex.md). `--help`
   regrouped from the internal phase scheme to purpose-based
   (Introspection / Infrastructure / Development / Pipeline).
 - **Compiler output split by side (mod 035).** Project-tier output
@@ -2784,7 +2816,7 @@ and per-mod planning docs live at
   drops ~100 lines of per-project VPC stack; replaced with tag-based
   data sources for the master VPC + public/private subnets +
   primary-AZ subnet. Per
-  [`cicl.md § Simplifications`](../doctrine/infrastructure/cicl.md#simplifications),
+  [`cicl.md § Simplifications`](./doctrine/infrastructure/cicl.md#simplifications),
   ECS workloads pin to `[primary_private_subnet_id]` (single-AZ);
   RDS/ElastiCache subnet groups and EFS mount targets keep multi-AZ
   per AWS requirements. The `docex-preinfra` skill needs an update
@@ -2876,7 +2908,7 @@ Single-fix patch following the 0.12.0 PRE_CUT walks.
 ## [0.12.0] - 2026-06-04
 
 The rollback campaign. Mod 029 ships the `docex rollback` command per
-the doctrine's [`cicd.md § Rollback`](../doctrine/infrastructure/cicd.md#rollback)
+the doctrine's [`cicd.md § Rollback`](./doctrine/infrastructure/cicd.md#rollback)
 narrow-window thesis — emergency-only, code-only (no reverse migrations),
 at most one minor version behind, explicit target version. The command
 is a thin shell over existing release machinery: an ephemeral worktree
@@ -2901,7 +2933,7 @@ unreachable), and the CHANGELOG-only changes that document the new shape.
 
 - `./bin/docex rollback <env> <target_version>` — emergency reversion to
   a prior version, code-only, at most one minor back. Per doctrine
-  [`cicd.md § Rollback`](../doctrine/infrastructure/cicd.md#rollback).
+  [`cicd.md § Rollback`](./doctrine/infrastructure/cicd.md#rollback).
   Resolves the `v<target_version>` tag in an ephemeral worktree,
   recompiles that version's `infra.yml` with the current `docex`, and
   applies via the standard release machinery with the migrate step
@@ -3587,8 +3619,8 @@ apply time.
 
 - **`docex` creates the project's Route53 hosted zone.** Previously
   ambiguous in the doctrine; now explicit per
-  [`shape.md`](../doctrine/infrastructure/shape.md) and
-  [`elastic_bootstrap.md`](../doctrine/infrastructure/specifics/elastic_bootstrap.md):
+  [`shape.md`](./doctrine/infrastructure/shape.md) and
+  [`elastic_bootstrap.md`](./doctrine/infrastructure/specifics/projinfra/elastic_route53_zone.md):
   the zone is project-tier, `docex` provisions it, and the operator
   performs the NS delegation between the two bootstrap phases.
 - **ECR repositories are project-tier.** `docex containerize` no
