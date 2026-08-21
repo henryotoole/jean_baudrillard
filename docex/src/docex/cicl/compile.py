@@ -798,6 +798,35 @@ def compile_env(
         # 1. Start with engine defaults — these always land on the
         #    engine's default target.
         default_target = engine.default_target(foundation)
+
+        # Mod 138: fail loud on an inert `defaults.elastic` key. The ECS
+        # task-definition renderer reads a NAMED, closed set of keys off the
+        # merged body (emit/hcl.py::TASK_DEF_DEFAULT_READ_KEYS) — it does NOT
+        # merge the block generically the way the fixed compose path does. A
+        # key outside that set would fall on the floor with no warning (mod
+        # 127's healthCheck near-miss: it would have shipped a fleet with no
+        # container probe). Scope: only the ECS task-definition path, so
+        # backing engines' rich defaults.elastic (RDS instance_class, storage,
+        # encryption, ...) route to their own renderers and are untouched. The
+        # import is function-local to avoid the compile.py <-> emit.hcl import
+        # cycle (same idiom as the emit imports further down this module).
+        if foundation == "elastic" and default_target == "task_definition":
+            from docex.emit.hcl import TASK_DEF_DEFAULT_READ_KEYS
+            stray = set(engine.defaults_for("elastic")) - TASK_DEF_DEFAULT_READ_KEYS
+            if stray:
+                raise ValidationError([ValidationIssue(
+                    rule="rule_elastic_defaults_unread_key",
+                    message=(
+                        f"engine {engine.engine!r} of role {engine.role!r}: "
+                        f"defaults.elastic contains key(s) {sorted(stray)} that "
+                        f"the ECS task-definition renderer does not read. It "
+                        f"reads only {sorted(TASK_DEF_DEFAULT_READ_KEYS)}. "
+                        f"Remove the key(s), or route them through a `fields:` "
+                        f"translation with a `target:`."
+                    ),
+                    where=f"tables/roles/{engine.role}.yml defaults.elastic",
+                )])
+
         body: dict[str, Any] = engine.defaults_for(foundation)
         body = _apply_substitution(body, ctx, foundation, resolver, name)
         target_extras: dict[str, dict[str, Any]] = {}

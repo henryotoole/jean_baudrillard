@@ -322,7 +322,7 @@ data "aws_subnet" "primary_public" {
 }
 
 resource "aws_security_group" "project_traefik" {
-  name        = "{{ project | replace('_', '-') }}-traefik"
+  name        = "{{ project_dns_label }}-traefik"
   description = "Project EC2-traefik ingress (80/443 from internet); egress all."
   vpc_id      = data.aws_vpc.master.id
   ingress {

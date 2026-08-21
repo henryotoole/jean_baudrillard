@@ -48,6 +48,7 @@ from docex.naming import (
     NamingPolicies,
     NamingPolicy,
     apply_policy,
+    dns_label,
     ecs_cluster_name,
 )
 
@@ -313,6 +314,20 @@ def _container_env_entries(
 # ---------------------------------------------------------------------------
 
 
+# The closed set of `defaults.elastic` keys the ECS task-definition / service
+# renderer reads off the merged service body. `image`, `command`, and the
+# cpu/memory/ephemeral_storage sizing are injected by the compiler (see
+# compile.py's elastic branch and _resources_to_fixed); `healthCheck` comes
+# from the role table's defaults.elastic. FARGATE / awsvpc are compiler-owned
+# literals, not table keys. This set is the guard's known-read set: the
+# compile-time guard (compile.py) rejects any defaults.elastic key NOT here on
+# a task_definition-target engine, so an inert key (mod 127's healthCheck
+# near-miss) cannot ship silently. If you add a new read below, add it here.
+TASK_DEF_DEFAULT_READ_KEYS = frozenset(
+    {"cpu", "memory", "ephemeral_storage", "image", "command", "healthCheck"}
+)
+
+
 def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     """Emit one ``aws_ecs_task_definition`` — exactly one, nothing else.
 
@@ -382,11 +397,16 @@ def render_task_definition(svc: CompiledService, ctx: _RenderCtx) -> str:
     # WHY an explicit read and not a body merge: `body` is NOT generically
     # consumed here. This renderer names every key it lifts onto the container
     # definition — `image`, `command`, `cpu`/`memory`/`ephemeral_storage` on
-    # the task def, and this. Everything else in `defaults.<foundation>` is
-    # INERT: `launch_type` and `network_mode` sit in all three core roles'
-    # `defaults.elastic` and are read by nothing, because the task definition
-    # hardcodes FARGATE/awsvpc below. Do not infer from `healthCheck` being
-    # honored that a sibling key would be.
+    # the task def, and this. That closed read-set is `TASK_DEF_DEFAULT_READ_KEYS`
+    # above. Because the merge is by-name rather than generic, any OTHER
+    # `defaults.elastic` key would fall on the floor unread. Mod 138 removed the
+    # two keys that had done exactly that — `launch_type` and `network_mode`
+    # sat in all three core roles' `defaults.elastic` and were read by nothing
+    # (the task definition hardcodes FARGATE/awsvpc below) — and added a
+    # compile-time guard (compile.py) that now REJECTS any unread
+    # `defaults.elastic` key on the task-definition path, so this class of inert
+    # key cannot return. Do not infer from `healthCheck` being honored that a
+    # sibling key would be.
     #
     # WHY this position — ahead of the `container_definition` merge: a field
     # routed to that target must still override a table default, which is the
@@ -1208,6 +1228,7 @@ def emit_hcl_project(
     # `docex-smoke-elastic.<apex_domain>` here.
     http_host_p = naming_policies.get("http_host")
     project_subdomain = f"{apply_policy(project, http_host_p)}.{apex_domain}"
+    project_dns_label = dns_label(project)
 
     # WHY: ECR repo names are structural — `${project}/${service}` with each
     # segment verbatim and `/` as joiner. The single-separator policy
@@ -1277,6 +1298,7 @@ def emit_hcl_project(
 
     rendered = tpl.render(
         project=project,
+        project_dns_label=project_dns_label,
         project_subdomain=project_subdomain,
         project_version=project_version,
         apex_domain=apex_domain,
@@ -1358,6 +1380,7 @@ def emit_hcl(
 
     rendered = tpl.render(
         project=compiled.project,
+        project_dns_label=compiled.project_dns_label,
         project_version=compiled.project_version,
         env=compiled.env,
         apex_domain=compiled.apex_domain,

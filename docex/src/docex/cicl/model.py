@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Memory string: decimal MB or GB only. See cicl.md § Resources.
 _MEMORY_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(MB|GB)$")
@@ -23,6 +23,13 @@ _DISK_RE = _MEMORY_RE  # same format
 # Service-name pattern. Underscores or hyphens, letters, digits. Keep
 # permissive; engine ``naming`` rules normalize on emit.
 _SERVICE_NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
+
+# Project-name pattern. A project name enters data-plane identifiers (SG names,
+# Service Connect namespaces) via ``dns_label``, so it must compile to exactly
+# one spelling of its own project segment. Lowercase alphanumerics with interior
+# hyphens/underscores; underscores are converted to hyphens by ``dns_label``. A
+# mixed-case name would compile to two disagreeing spellings — reject it at load.
+_PROJECT_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$")
 
 # The one generation of the CICL format this docex compiles. Rule 21's
 # validator and rollback's pre-flight precondition both compare against
@@ -122,6 +129,20 @@ class ProjectManifest(BaseModel):
     name: str
     version: str
     docex_version: str
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, v: str) -> str:
+        if not _PROJECT_NAME_RE.match(v):
+            raise ValueError(
+                f"project name {v!r} is not a valid DNS label: it must be "
+                f"lowercase and match {_PROJECT_NAME_RE.pattern} (letters a-z, "
+                f"digits, hyphen, underscore; underscores are converted to "
+                f"hyphens when the name enters a data-plane identifier). A "
+                f"mixed-case name compiles to two disagreeing spellings of its "
+                f"own project segment."
+            )
+        return v
 
 
 class GPUSpec(BaseModel):

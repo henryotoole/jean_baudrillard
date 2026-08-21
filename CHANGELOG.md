@@ -21,6 +21,20 @@ Advance 008 ("Housekeeping") — a backlog-clearing advance of small, mostly-ind
 fixes. Cut target **2.1.0**.
 
 ### Added
+- **`docex compile` rejects an inert `defaults.elastic` key** on the ECS task-definition
+  path (`rule_elastic_defaults_unread_key`). That renderer reads a *named, closed* set of
+  keys — `{cpu, memory, ephemeral_storage, image, command, healthCheck}` — rather than
+  merging the block generically the way the fixed compose path does, so any other key fell
+  on the floor unread. That is how mod 127's `healthCheck` near-miss could have shipped a
+  fleet with no container probe; the guard turns the silence into a compile error naming the
+  engine and stray key. Scoped to the three core roles (`web`/`worker`/`clock`); backing
+  engines' rich elastic defaults (RDS instance class, storage, encryption) route to their own
+  renderers untouched. (mod 138)
+- **A project name must already be a valid DNS label.** `ProjectManifest.name` now rejects a
+  non-conforming name at load — lowercase alphanumerics with interior hyphens/underscores
+  (underscores are converted to hyphens on emit) — aligning the name to the DNS-label rule of
+  record (`cicl.md § Domain`) so it compiles to exactly one spelling of its project segment.
+  A mixed-case name that compiled today now errors; no real project carries one. (mod 138)
 - **`docex check` gates a contract's declared spec version** against the doctrine floor —
   OpenAPI ≥ 3.2, AsyncAPI ≥ 3.0 (`contracts.md § Standards`). Each floor is what makes a
   promised `api_style` implementable (openapi 3.2 → `itemSchema` for `stream`; asyncapi 3.0
@@ -32,6 +46,15 @@ fixes. Cut target **2.1.0**.
   image) is exempt structurally while `minio` requires it. (mod 137)
 
 ### Fixed
+- **A mixed-case project name no longer compiles to two disagreeing spellings of its own
+  project segment.** Four HCL template sites (`project.tf.j2`, `main.tf.j2`) each re-derived
+  the segment inline and two omitted `| lower`, so `MyProject` emitted both `MyProject-…` and
+  `myproject-…` — *different resources* on case-sensitive AWS names (SG, ASG). All four now
+  read a single threaded `project_dns_label`, and the load-time name validation forbids the
+  mixed-case input outright, so the DNS-label rule has one expression. The two inert
+  `defaults.elastic` keys the near-miss guard now forbids (`launch_type`/`network_mode`) were
+  deleted from the three core roles in the same mod — they were read by nothing, as the
+  emitter hardcodes FARGATE/awsvpc. (mod 138)
 - **`object_store`/`minio` no longer ignores `version:`.** The `minio` engine hardcoded
   `minio/minio:latest` and pinned nothing from `version:` — an unpinned tag on a stateful
   backing service breaks the determinism promise. `version:` now pins the tag
@@ -41,6 +64,15 @@ fixes. Cut target **2.1.0**.
   (`orchestrate/aggregate.py::_host_for`, `orchestrate/up.py`) re-derived it by hand; both now
   read the compiler-owned `CompiledEnv.subdomain` via `env_subdomain_for`. Reader-only
   duplication, so it failed loudly rather than silently — removed regardless. (mod 137)
+
+### Changed
+- **Doctrine prose aligned to what `docex` enforces** (no behavior change). `healthchecks.md`'s
+  "a core service needs a `port` only when something addresses it directly" overstated CICL
+  rule 32, which scopes the requirement to `uses` targets — softened so a core service nobody
+  uses may carry a decorative port without contradiction. `transfer_tables.md`'s `defaults`
+  field reference now documents the fixed/elastic asymmetry: the block merges generically on
+  fixed, but on elastic's `task_definition` target the renderer reads a named closed set and
+  rejects other keys. Rule 32 itself is deliberately left unchanged (won't-fix). (mod 138)
 
 ## [2.0.1] - 2026-08-20
 

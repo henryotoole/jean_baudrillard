@@ -55,8 +55,6 @@ roles:
             timeout: 5s
             retries: 3
         elastic:
-          launch_type: FARGATE
-          network_mode: awsvpc
           # `CMD`, not `CMD-SHELL`: a command probe needs no shell and no
           # `|| exit 1` exit-code laundering. Exec form on both foundations is
           # what makes the two emissions one translation rather than two

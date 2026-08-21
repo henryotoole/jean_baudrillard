@@ -94,7 +94,7 @@ Worth stating plainly, because these are the shapes a health system tends to gro
 
 - **No service reports on another.** There is no proxying, no `/health/<codebase>/<service>`, no fan-out. A consumer's health says nothing about its dependencies, and it is not asked to. `docex` reads every core service's state from the orchestrator directly, so nothing needs an in-network proxy to reach an internal service.
 - **No health check crosses the public internet.** Liveness is read from the orchestrator's API, not fetched through the reverse proxy. [Staging tests](./cicd.md#staging-tests) assert ingress and behavior from outside; they do not assert liveness, and they cannot reach a non-`web` core service at all.
-- **No HTTP requirement for non-`web` services.** A core service needs a `port` only when something addresses it directly. Health is not such a thing.
+- **No HTTP requirement for non-`web` services.** A core service is required to declare a `port` only when another service addresses it directly, and health never does. (`docex` scopes this narrowly: [CICL rule 32](./cicl.md#validation-rules) requires a `port` only on a `uses` target a consumer addresses directly — a core service nobody uses may still carry a decorative one.)
 - **No per-project thresholds.** The 10s tick and 30s staleness window are fixed, as is probe cadence.
 
 ## Backing services

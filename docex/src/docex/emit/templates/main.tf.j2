@@ -60,7 +60,7 @@ data "terraform_remote_state" "project" {
 resource "aws_security_group" "{{ short }}" {
   # WHY: data-plane name per networks.md § Compiled Names — hyphenated form
   # regardless of the project's underscore form.
-  name        = "{{ project | replace('_', '-') }}-{{ env }}-{{ short }}"
+  name        = "{{ project_dns_label }}-{{ env }}-{{ short }}"
   description = "{{ short }} network for {{ project }} {{ env }}"
   vpc_id      = data.terraform_remote_state.project.outputs.vpc_id
   # WHY: aws_security_group denies egress when no egress block is given,
@@ -125,9 +125,9 @@ resource "aws_service_discovery_private_dns_namespace" "env" {
   # (underscores → hyphens, lowercased) — the joiner is already a hyphen
   # per mod 040, but underscores inside an underscored project name would
   # survive without this filter and AWS would reject the resource.
-  name        = "{{ project | replace('_', '-') | lower }}-{{ env }}"
+  name        = "{{ project_dns_label }}-{{ env }}"
   vpc         = data.terraform_remote_state.project.outputs.vpc_id
-  description = "ECS Service Connect namespace for {{ project | replace('_', '-') | lower }} {{ env }}"
+  description = "ECS Service Connect namespace for {{ project_dns_label }} {{ env }}"
 {{ tagblock(standard_tags("environment", shape_name="service_discovery", descriptor="namespace", project=project, env=env, codebase="etc", role="etc")) }}
 }
 

@@ -280,3 +280,87 @@ def test_env_hcl_service_connect_namespace_uses_dns_label(tmp_path: Path):
     assert 'name        = "my-test-proj-stage"' in rendered, rendered
     # The buggy form must not appear in the namespace block.
     assert 'name        = "my_test_proj-stage"' not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Mod 138: a MIXED-CASE + underscored project segment compiles to ONE spelling
+# ---------------------------------------------------------------------------
+#
+# The emitters take `project` as a raw string, bypassing ProjectManifest's
+# load-time DNS-label validator. Before mod 138, three template sites re-derived
+# the project segment inline: `project | replace('_', '-')` (no lower) at
+# project.tf.j2's traefik name and main.tf.j2's SG name, and
+# `... | lower` elsewhere — so a mixed-case name yielded TWO disagreeing
+# spellings. These assert every project-segment site now reads the single
+# `project_dns_label` (lowercased + hyphenated), so no uppercase leaks.
+
+
+def test_project_hcl_traefik_name_single_lowercased_spelling(tmp_path: Path):
+    """A mixed-case+underscored name renders one lowercase-hyphen traefik name."""
+    out = tmp_path / "project.tf"
+    emit_hcl_project(
+        project="My_Proj",
+        project_version="0.1.0",
+        apex_domain="example.com",
+        codebase_names=["api"],
+        naming_policies=_policies(),
+        out_path=out,
+        reverse_proxy="ec2_traefik_pip",
+    )
+    rendered = out.read_text()
+    assert 'name        = "my-proj-traefik"' in rendered, rendered
+    # No uppercase / underscored spelling of the traefik resource name. The
+    # exact pre-fix spelling was `My-Proj-traefik` (`replace('_','-')`, no
+    # `| lower`).
+    assert "My-Proj-traefik" not in rendered
+    assert "My_Proj-traefik" not in rendered
+    assert "my_proj-traefik" not in rendered
+
+
+def test_env_hcl_mixed_case_project_single_lowercased_spelling(tmp_path: Path):
+    """SG names and the Service Connect namespace share one lowercase spelling."""
+    project_dns_label = "my-proj"
+    svc = _core_svc(
+        project_dns_label, "stage", "api",
+        networks=["internal", "web"],
+        foundation="elastic",
+    )
+    compiled = CompiledEnv(
+        env="stage",
+        foundation="elastic",
+        apex_domain="example.com",
+        subdomain="stage.my-proj.example.com",
+        bare_project_subdomain="my-proj.example.com",
+        project="My_Proj",
+        project_dns_label=project_dns_label,
+        project_version="0.1.0",
+        container_registry=None,
+        services={"api": svc},
+        networks={"web", "internal"},
+        observability_backend_url="https://hyperdx.example.com",
+        reverse_proxy="alb",
+    )
+    out = tmp_path / "main.tf"
+    emit_hcl(compiled, out, naming_policies=_policies())
+    rendered = out.read_text()
+    # Service Connect namespace name — one lowercased-hyphen spelling.
+    assert 'name        = "my-proj-stage"' in rendered, rendered
+    # SG names (the site that, pre-mod-138, hyphenated but did NOT lowercase)
+    # now carry the fully lowercased `my-proj-stage-<short>` form.
+    assert 'name        = "my-proj-stage-internal"' in rendered, rendered
+    assert 'name        = "my-proj-stage-web"' in rendered, rendered
+    # The exact pre-fix SG spelling (`project | replace('_','-')` with no
+    # `| lower`) leaked case into the data-plane name — it must not appear.
+    assert "My-Proj-stage" not in rendered
+    # `My_Proj` DOES legitimately survive in record-key identifiers (the
+    # CloudWatch log group path, SSM path, tag `Name`) — those preserve
+    # underscores/case by policy — but never in a DNS-resolvable resource name.
+    for line in rendered.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("name") and "= " in stripped:
+            value = stripped.split("= ", 1)[1]
+            # Data-plane resource-name sites: hyphen-separator project segment.
+            # Record-key sites (log group `/My_Proj/...`, SSM) use `/` and are
+            # not `<project>-...` names, so this narrows to the DNS-plane ones.
+            if value.startswith('"my-proj-') or value.startswith('"My'):
+                assert "My" not in value and "_proj" not in value, line
