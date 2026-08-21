@@ -57,6 +57,15 @@ fixes. Cut target **2.1.0**.
   — now a compile error (`rule_version_required`), aligning the compiler to `cicl.md § Service
   Fields`'s existing "required" claim. Derived from the engine's `fields:` block, so `s3` (no
   image) is exempt structurally while `minio` requires it. (mod 137)
+- **`docex why` gained entries for five infrastructural resources** that `shape.md` names but
+  the excerpts never covered — `master_network`, `web_demux`, `observability_backend`,
+  `telemetry_sidecar`, and `nat_gateway`. (mod 140)
+- **The `doctrine_excerpts` artifact got its first automated consumer**
+  (`tests/unit/test_doctrine_excerpts_index.py`): a pure unit test asserting every `index.yml`
+  key resolves to a `shape.md` resource (or one of the documented exceptions `codebase` /
+  `secrets`), that every referenced file exists, and that no excerpt file is orphaned. This is
+  the check that catches the `network_web` / `vpc` class of key drift, so this artifact is no
+  longer the one aligned artifact with no automated consumer. (mod 140)
 
 ### Fixed
 - **A mixed-case project name no longer compiles to two disagreeing spellings of its own
@@ -105,6 +114,22 @@ fixes. Cut target **2.1.0**.
   `tests/integration/test_compile_tofu.py`. The directory name is now honest; collection
   totals across `pytest tests` and `pytest tests -m integration` are unchanged by the move.
   (mod 139)
+- **The `docex why` doctrine excerpts were overhauled to match current doctrine** (prose only;
+  `docex why` behavior unchanged). Mod 134's audit found 15 of 18 entries carried defects and
+  three actively misinstructed; all were rewritten — `aws_account`'s one-project-per-account
+  inversion, the pre-`apex_domain` `www.` subdomain scheme in `dns` / `registrar`, `secrets`'
+  deleted-`example.env` restatement, and the ALB-only / single-wildcard-cert elastic claims in
+  `reverse_proxy` / `cert_manager` were all corrected. `index.yml`'s `network_web` /
+  `network_internal` keys were renamed to `web_network` / `internal_network` to match
+  `shape.md`. Every `Doctrine reference:` footer was converted to bounded form (path and `§`
+  in one inline-code span), taking the directory to 0 unbounded citations and the repo-wide
+  `linkcheck` count from 25 unbounded to 10. (mod 140)
+
+### Removed
+- **The `docex why vpc` entry was retired.** `shape.md` has no `[vpc]` resource — the elastic
+  private network is the shared `master_network` (a master VPC), not a per-project VPC — and
+  the old entry actively misinstructed (per-project VPC, per-AZ NAT). `docex why vpc` now exits
+  1; its content lives in the new `master_network` entry. (mod 140)
 
 ## [2.0.1] - 2026-08-20
 

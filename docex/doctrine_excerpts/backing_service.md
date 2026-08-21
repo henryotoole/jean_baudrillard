@@ -9,4 +9,4 @@ Backing services do **not** declare a `resources:` block in v1 — sizing comes 
 
 The `schema_owned_by:` field on database roles (e.g. `relational_db`) names the codebase that owns and migrates the schema; this is doctrine-enforced as a 1:1 invariant to prevent two codebases racing on the same database. It names a codebase rather than a core service because `migrate.sh` runs once per codebase, not once per invocation.
 
-Doctrine reference: `infrastructure/cicl.md` § Service Fields; `infrastructure/specifics/transfer_tables.md`.
+Doctrine reference: `infrastructure/cicl.md § Service Fields`; `infrastructure/specifics/transfer_tables.md`.

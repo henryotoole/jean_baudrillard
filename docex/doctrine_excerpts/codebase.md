@@ -10,4 +10,4 @@ What stays codebase-scoped rather than per-core-service: the image ref and its r
 
 A codebase lives at `$pr/core/<name>/` and ships a Dockerfile declaring the four canonical stages (`build`, `dev`, `prod`, `test`).
 
-Doctrine reference: `infrastructure/infrastructure.md` § Repository Structure; `infrastructure/cicl.md` § Core Services; `lexicon.md`.
+Doctrine reference: `infrastructure/infrastructure.md § Repository Structure`; `infrastructure/cicl.md § Core Services`; `lexicon.md`.

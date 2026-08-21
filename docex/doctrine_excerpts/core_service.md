@@ -19,4 +19,4 @@ differently. For a core service off the `web` network this probe is its **only**
 liveness enforcement: nothing routes to it, so no load balancer and no staging test
 can reach it.
 
-Doctrine reference: `infrastructure/infrastructure.md` § Repository Structure; `infrastructure/cicl.md` § Core Services.
+Doctrine reference: `infrastructure/infrastructure.md § Repository Structure`; `infrastructure/cicl.md § Core Services`.

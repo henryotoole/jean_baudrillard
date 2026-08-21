@@ -4,6 +4,6 @@ A docker container image built from a `codebase`'s source via `docker buildx`, t
 
 Build images are **project-tier infrastructure**: one set per project, replicated across environments by tag reference rather than by rebuild. The same `myproject/api:0.4.2` runs in every env, with only `environment_config` and `secrets` differing.
 
-The image's Dockerfile must declare four canonical stages (`build`, `dev`, `prod`, `test`) — this is a strict doctrine rule, not a convention. See `infrastructure/infrastructure.md` § Codebase Containers.
+The image's Dockerfile must declare four canonical stages (`build`, `dev`, `prod`, `test`) — this is a strict doctrine rule, not a convention. See `infrastructure/infrastructure.md § Codebase Containers`.
 
-Doctrine reference: `infrastructure/cicd.md` § Build Step.
+Doctrine reference: `infrastructure/cicd.md § Build Step`.

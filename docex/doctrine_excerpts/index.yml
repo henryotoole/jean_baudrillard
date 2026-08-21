@@ -1,22 +1,31 @@
 # Maps `docex why <resource>` to the corresponding markdown file in
 # this directory. Resource names should be lowercase, underscore-
 # separated, and match the doctrine's `[resource]` notation in
-# shape.md where possible.
+# shape.md. Two keys are deliberate exceptions that are NOT shape.md
+# [resource] tokens — see tests/unit/test_doctrine_excerpts_index.py:
+#   codebase  — the unit-of-code concept (shape's deployed nouns are
+#               core_service / backing_service); a useful `why` lookup.
+#   secrets   — a source of the configurable_vars resource, not itself
+#               a [resource]; retained as a useful `why` lookup.
 registrar: registrar.md
 dns: dns.md
 host_machine: host_machine.md
+web_demux: web_demux.md
+master_network: master_network.md
+nat_gateway: nat_gateway.md
 reverse_proxy: reverse_proxy.md
 cert_manager: cert_manager.md
 container_registry: container_registry.md
 service_discovery: service_discovery.md
+observability_backend: observability_backend.md
+telemetry_sidecar: telemetry_sidecar.md
 build_image: build_image.md
 network: network.md
-network_web: network_web.md
-network_internal: network_internal.md
+web_network: web_network.md
+internal_network: internal_network.md
 codebase: codebase.md
 core_service: core_service.md
 backing_service: backing_service.md
 environment_config: environment_config.md
 secrets: secrets.md
 aws_account: aws_account.md
-vpc: vpc.md

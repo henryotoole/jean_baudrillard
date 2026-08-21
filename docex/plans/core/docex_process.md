@@ -48,9 +48,9 @@ Unfortunately, the unique nature of `docex` means that it has six successive lay
 | `tables/roles/*.yml` | Transfer tables — how a role/engine compiles per foundation. |
 | `src/docex/**` | Compiler / orchestration code that executes the rule. |
 | `tests/**` | Proof the executor matches the rule. |
-| `doctrine_excerpts/*.md` + `index.yml` | The prose `docex why <resource>` serves. A *restatement* of the doctrine, so it drifts silently — nothing compiles or tests it. |
+| `doctrine_excerpts/*.md` + `index.yml` | The prose `docex why <resource>` serves. A *restatement* of the doctrine that long drifted silently — until mod 140 added `tests/unit/test_doctrine_excerpts_index.py`, which now checks its `index.yml` keys against `shape.md`'s resources. |
 
-The sixth is the one most easily forgotten, precisely because nothing fails when it goes stale: it is the only artifact in the list with no automated consumer. When a doctrine change introduces, retires, or renames a **resource**, `index.yml` needs the corresponding entry added, removed, or moved in the same mod. Mod 110 drifted here; mod 111 added the missing `codebase` entry and wrote this row.
+The sixth is the one most easily forgotten, precisely because nothing fails when it goes stale: it was long the only artifact in the list with no automated consumer. When a doctrine change introduces, retires, or renames a **resource**, `index.yml` needs the corresponding entry added, removed, or moved in the same mod. Mod 110 drifted here; mod 111 added the missing `codebase` entry and wrote this row. Mod 140 later gave the artifact its first automated consumer (see the mod-140 note below), so "no automated consumer" now describes its history, not its present.
 
 **What earns an entry.** `doctrine_excerpts/` indexes **infrastructural
 resources** — the nouns a deployed stack is physically made of, tracking
@@ -117,7 +117,13 @@ the tool's `Declined` block: `cite()` increments a counter and returns, so a run
 reports that N headings went unchecked and never *which*. Mod 133 converted its own
 line to the bounded form (`unbounded` 25 → 24, `exact` 238 → 239); doing the
 remaining thirteen would turn a silent count into thirteen checked citations and is
-the cheapest available improvement to this artifact's verifiability.
+the cheapest available improvement to this artifact's verifiability. Mod 140 did
+exactly that across the whole directory: the overhaul's rewrites put every
+`Doctrine reference:` footer's `§` inside the path's inline-code span, taking the
+directory to **0 unbounded** citations (34 checked — 33 exact / 1 truncated) and
+moving the repo-wide count from 25 unbounded / 250 exact to 10 / 279. (This
+converts the footers to bounded form; the separate half of that finding —
+enumerating unbounded citations in `linkcheck` itself — remains booked.)
 
 **How this artifact is swept, and the limit that was found the hard way.** Three
 mods of advance 006 grepped all eighteen excerpts for
@@ -160,7 +166,17 @@ Mod 134 then audited all eighteen entries against the doctrine rather than again
 term list, and found the drift is far wider than the rows above: **15 of 18 carry
 defects and three actively misinstruct.** That audit is booked as a full overhaul at
 [`008_housekeeping/doctrine_excerpts_overhaul.md`](../advances/008_housekeeping/references/doctrine_excerpts_overhaul.md),
-which subsumes the four still-open defects above. Two findings belong here rather than
+which subsumes the four still-open defects above. **Mod 140 landed that overhaul.**
+All 18 entries were audited against current doctrine and rewritten; the four
+still-open defects above are fixed, `aws_account`'s one-project-per-account
+inversion and the pre-`apex_domain` `www.` subdomain scheme in `dns` / `registrar`
+were corrected, and `secrets`' deleted-`example.env` restatement (mod 092) was
+rewritten to the `docex secrets scaffold` model. `vpc` was retired (no `[vpc]`
+resource; its content folded into a new `master_network` entry), `index.yml`'s
+`network_web` / `network_internal` keys were renamed to `web_network` /
+`internal_network` to match `shape.md`, and five missing resource entries were
+added: `master_network`, `web_demux`, `observability_backend`, `telemetry_sidecar`,
+`nat_gateway`. Two findings belong here rather than
 there, because they are about *this* process and not about the excerpts. First, **94% of
 the defects predate advance 006 and 14 of them trace to a single commit** — the
 directory's original authoring — which is the drift-at-the-rate-nobody-looks claim
@@ -168,6 +184,22 @@ measured rather than asserted. Second, `git blame` **flatters** a sweeping advan
 mod 131 edited two of these lines without fixing the stale token already on them, so
 blame attributes months-old content to the sweep that touched it. An advance cannot
 use blame to bound what it is responsible for.
+
+**Applying the "what earns an entry" criterion at mod 140.** Two `shape.md`
+resources were deliberately left without an entry, recorded here so a silent "no"
+is not mistaken for oversight. **`repo` gets no entry** — `cicl.md § Git Repo URL`
+states it "currently only serves a documentary role" and is unmanaged prerequisite
+infra, so a `docex why repo` would restate a field, not describe a deployed
+resource anyone provisions. **`configurable_vars` gets no entry** — it is the
+*aggregate* of TTE vars, secrets, and config, already served by the `secrets` entry
+plus the generated `docex secrets` / `docex config` tooling; a third
+hand-maintained restatement is exactly the silent-drift surface this criterion
+refuses. (`ecs_cluster` is *not* a `shape.md` `[resource]` token and so was never a
+candidate for an entry — the table row is not the notation the criterion tracks.)
+Separately, `codebase` and `secrets` remain indexed although neither is a
+`[resource]` token — `codebase` is the unit-of-code concept mod 111 deliberately
+added, `secrets` a source of `configurable_vars`; both are useful `docex why`
+lookups and are the documented `EXCEPTIONS` in the new consumer test.
 
 Keep them aligned. Fixing the code while leaving the rule stale (or vice versa) is the failure mode this process guards against.
 

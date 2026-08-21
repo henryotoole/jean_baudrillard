@@ -1,21 +1,17 @@
 # secrets
 
-Environment-specific runtime values — database passwords, API keys, signing keys — that must not be committed. Doctrine uses a unified `.env`-as-source-of-truth model across both foundations.
+Environment-specific runtime values — database passwords, API keys, signing keys — that must never be committed. Doctrine uses a `.env`-per-environment source-of-truth model across both foundations, stored at `$pr/infra/secrets/<env>.env` (gitignored).
 
-```
-infra/secrets/
-  example.env       # auto-emitted by `docex compile`; committed
-  dev.env           # operator-maintained, gitignored
-  test.env          # operator-maintained, gitignored
-  stage.env         # operator-maintained, gitignored
-  prod.env          # operator-maintained, gitignored
-```
+The **schema** of each `<env>.env` — which keys must exist — is derived deterministically from two sources: the `secrets:` blocks codebases declare in `infra.yml`, and doctrine-mandated keys such as `TELEMETRY_API_KEY`. `docex` manages that schema; only the values are supplied by hand.
 
-The compiler reads each backing service's transfer-table `env:` block and emits `example.env` with one section per service listing every required key. The operator copies it to `<env>.env` and fills in real values per environment.
+- `docex secrets scaffold <env>` reconciles the required key set into `<env>.env`, preserving any values already present. There is **no** committed `example.env` — the schema lives in `docex`, not in a checked-in template.
+- The operator fills values by editing `<env>.env` directly, or via `docex secrets set <env> <KEY>` (write-only, so values never enter an agent's context).
 
 Materialization at release:
 
-- **Fixed:** Ansible renders `<env>.env` onto the host as `/opt/<project>/<env>/.env`; docker-compose reads it at container start.
-- **Elastic:** `docex release` pushes each key to SSM Parameter Store at `/<project>/<env>/<KEY>` as a `SecureString`; ECS task definitions reference those SSM paths via `secrets[]`.
+- **Fixed:** Ansible renders `<env>.env` onto the host; docker-compose reads it at container start.
+- **Elastic:** `docex release` pushes each key to SSM Parameter Store at `/<project>/<env>/<KEY>` as a `SecureString`; ECS task definitions reference those paths via `secrets[]`.
 
-The `.env` wins on every release — manual edits to the deployed copy are clobbered. This keeps the deterministic doctrine intact but means rotation requires editing the `.env`. See `infrastructure/specifics/release.md`.
+The `.env` is authoritative on every release — manual edits to the deployed copy are clobbered — so rotation means editing the `.env`.
+
+Doctrine reference: `infrastructure/configurable.md § Secrets`.
