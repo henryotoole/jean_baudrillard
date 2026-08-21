@@ -106,11 +106,54 @@ def test_playbook_compose_tasks_are_project_scoped(tmp_path: Path):
     for env in ("stage", "prod"):
         scoped = f"sample-{env}"
         pull = _find_task(root, env, "Pull all images")
-        assert pull["community.docker.docker_compose_v2"]["project_name"] == scoped, pull
+        assert pull["community.docker.docker_compose_v2_pull"]["project_name"] == scoped, pull
         up = _find_task(root, env, "Bring up the stack")
         assert up["community.docker.docker_compose_v2"]["project_name"] == scoped, up
         migrate = _find_migration_task(root, env, "api")
         assert f"docker compose -p {scoped} run --rm" in migrate["ansible.builtin.command"]["cmd"]
+
+
+def test_playbook_pull_task_starts_nothing(tmp_path: Path):
+    """Mod 144: the fixed release must pull images WITHOUT starting the stack, so
+    the per-codebase migration runs while the OLD containers still serve — and a
+    failed migration aborts before any new code goes live. The bug was a
+    `community.docker.docker_compose_v2` pull task carrying `state: present`,
+    which converges the stack to running. A valid-YAML/green playbook cannot
+    catch that; the defect lives in the meaning of one module argument, so assert
+    on the module + args directly.
+
+    Guarantees:
+      - "Pull all images" uses the pure-pull module and carries NO
+        service-starting `state:`.
+      - "Bring up the stack" still carries `state: present` (it is the one task
+        that starts the stack) and comes AFTER the migrate task in task order.
+    """
+    root = _copy_fixture(tmp_path)
+    ctx = load_project_context(root)
+    run_compile(ctx)
+
+    for env in ("stage", "prod"):
+        doc = _playbook_doc(root, env)
+        tasks = doc[0]["tasks"]
+        names = [t.get("name") for t in tasks]
+
+        pull = _find_task(root, env, "Pull all images")
+        # A pure pull: the pull-only module, and never the up module.
+        assert "community.docker.docker_compose_v2_pull" in pull, pull
+        assert "community.docker.docker_compose_v2" not in pull, pull
+        # No service-starting `state:` anywhere in the pull task's args.
+        assert "state" not in pull["community.docker.docker_compose_v2_pull"], pull
+
+        # The stack comes up only at the up task, which keeps `state: present`.
+        up = _find_task(root, env, "Bring up the stack")
+        assert up["community.docker.docker_compose_v2"]["state"] == "present", up
+
+        # Ordering: pull -> migrate -> up. The up task must follow the migrate
+        # task; otherwise new code would serve against an unmigrated schema.
+        pull_i = names.index("Pull all images")
+        migrate_i = names.index("Run migrations for api")
+        up_i = names.index("Bring up the stack")
+        assert pull_i < migrate_i < up_i, names
 
 
 def _find_task(root: Path, env: str, name: str) -> dict:

@@ -42,11 +42,10 @@
       when: agg_env_file is defined
 
     - name: Pull all images
-      community.docker.docker_compose_v2:
+      community.docker.docker_compose_v2_pull:
         project_src: "{{ '{{' }} deploy_root {{ '}}' }}"
         project_name: "{{ compose_project_name }}"
-        pull: always
-        state: present
+        policy: always
 {% for svc in migrations %}
     - name: Run migrations for {{ svc.codebase }}
       ansible.builtin.command:

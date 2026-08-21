@@ -69,7 +69,17 @@ Note the path is absolute here (`/service/migrate.sh`) while `dev`/`test` use th
 
 If any migration fails, the playbook aborts before `docker compose up -d` runs the new stack. Old containers continue serving, the release fails loudly with a clear error, and the operator can fix and re-run.
 
-> **⚠ Known divergence — the emitted playbook does not currently do this.** The task that pulls images uses a compose module argument that also *starts* the stack, so the real fixed ordering is **up → migrate**, and the abort guarantee above does not hold: a failed migration leaves the new code up against an unmigrated schema. Found by advance 006's fixed smoke walk; longstanding rather than new. This paragraph states the **intended** contract and is left standing as the target, because the fix belongs with a walk that can verify it — see [`fixed_release_migrates_after_up.md`](../../../docex/plans/advances/008_housekeeping/references/fixed_release_migrates_after_up.md). Until then, treat a fixed `stage`/`prod` release as **not** protected against a failing migration.
+> **✔ Fixed by mod 144 — pending walk verification.** The emitter previously
+> pulled images with a compose module argument that also *started* the stack, so
+> the real fixed ordering was **up → migrate** and the abort guarantee above did
+> not hold (found by advance 006's fixed smoke walk). Mod 144 changed the "Pull
+> all images" task to a pure pull (`community.docker.docker_compose_v2_pull`), so
+> the stack now comes up only after migration, at the "Bring up the stack" task —
+> the ordering this section describes. Real-machine verification is still
+> **pending** an operator-supervised fixed smoke walk (compare container
+> `StartedAt` against migration completion; confirm the clock's first fire on a
+> first release raises no `UndefinedTable`); a green playbook exit code does not
+> prove the ordering. See [`fixed_release_migrates_after_up.md`](../../../docex/plans/advances/008_housekeeping/references/fixed_release_migrates_after_up.md).
 
 ## Stage and Prod on Elastic Foundation
 

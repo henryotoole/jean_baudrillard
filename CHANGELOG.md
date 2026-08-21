@@ -134,6 +134,18 @@ fixes. Cut target **2.1.0**.
   only from `docex/`. Two links whose targets were retired with no honest replacement were left
   as frozen record rather than falsified. These sections are frozen-skipped by `linkcheck`, so
   the repair is courtesy for human readers. (mod 139)
+- **A fixed `stage`/`prod` release now pulls images without starting the stack, so migrations
+  run before new code goes live.** The emitted playbook's "Pull all images" task used
+  `community.docker.docker_compose_v2` with `state: present`, which converges the whole stack
+  to *running* — so the real ordering was **up → migrate**, and the doctrine's abort guarantee
+  (a failed migration aborts before new code serves) was void: new code went live against the
+  unmigrated schema and the later "Bring up the stack" task was a no-op. The task is now a pure
+  pull (`community.docker.docker_compose_v2_pull`, `policy: always`, no `state:`), so the stack
+  comes up only at "Bring up the stack", after the per-codebase migrate task. `migrations.md`'s
+  known-divergence note is softened accordingly. Real-machine verification is **pending** an
+  operator-supervised fixed smoke walk (container `StartedAt` vs. migration completion; a first
+  release's clock fire raising no `UndefinedTable`) — a green playbook exit code does not prove
+  the ordering. Found by advance 006's fixed smoke walk. (mod 144)
 
 ### Changed
 - **Doctrine prose aligned to what `docex` enforces** (no behavior change). `healthchecks.md`'s
