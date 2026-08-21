@@ -131,39 +131,37 @@ def test_merge_deletes_feature_branch_local_and_remote(
     assert any(c[3] is True for c in deletes), deletes  # remote
 
 
-def test_merge_seeds_main_on_empty_origin(
+def test_merge_fails_when_origin_main_absent(
     sample_ctx, fake_docker, fake_git, patched_check
 ):
-    """First release: origin/main doesn't exist. Merge skips rebase,
-    fast-forwards a fresh local main to the feature tip, tags, and
-    pushes — publishing origin/main for the first time."""
+    """First release with origin present but no origin/main: merge must
+    fail loudly (inception should have established main) rather than seed
+    a trunk. No rebase, no tag, no push."""
     fake_git.branch = "feature/x"
-    fake_git.refs = set()  # empty remote
+    fake_git.refs = set()  # origin present (default), but empty — no origin/main
     rc = run_merge(sample_ctx, fake_docker, fake_git)
-    assert rc == 0
-    # rebase must NOT have been attempted.
-    assert not [c for c in fake_git.calls if c[0] == "rebase"]
-    # Fast-forward DID run, targeting main from the feature tip.
-    ffs = [c for c in fake_git.calls if c[0] == "fast_forward"]
-    assert ffs, "expected fast_forward to seed main"
-    # Push still happens — that's what publishes the new main + tag.
-    pushes = [c for c in fake_git.calls if c[0] == "push"]
-    assert pushes, "expected push of main + tag"
+    assert rc != 0
+    methods = {c[0] for c in fake_git.calls}
+    assert "rebase" not in methods, fake_git.calls
+    assert "fast_forward" not in methods, fake_git.calls
+    assert "tag" not in methods, fake_git.calls
+    assert "push" not in methods, fake_git.calls
 
 
-def test_merge_skips_remote_feature_delete_on_empty_origin(
+def test_merge_fails_when_no_origin_and_no_local_main(
     sample_ctx, fake_docker, fake_git, patched_check
 ):
-    """When seeding origin/main from scratch, there's no remote feature
-    branch to delete — skip the remote delete to avoid a noisy warning."""
+    """No origin AND no local main: nothing to rebase onto. Merge fails
+    loudly instead of seeding a trunk."""
     fake_git.branch = "feature/x"
-    fake_git.refs = set()
+    fake_git.has_origin = False
+    fake_git.refs = {"HEAD"}  # neither origin/main nor main exist
     rc = run_merge(sample_ctx, fake_docker, fake_git)
-    assert rc == 0
-    deletes = [c for c in fake_git.calls if c[0] == "delete_branch"]
-    # Local delete happens; remote delete is skipped.
-    assert any(c[3] is False for c in deletes), deletes
-    assert not any(c[3] is True for c in deletes), deletes
+    assert rc != 0
+    methods = {c[0] for c in fake_git.calls}
+    assert "rebase" not in methods, fake_git.calls
+    assert "fast_forward" not in methods, fake_git.calls
+    assert "tag" not in methods, fake_git.calls
 
 
 # --- Gap C: no-`origin` remote --------------------------------------
@@ -210,20 +208,3 @@ def test_merge_no_origin_deletes_local_branch_only(
     deletes = [c for c in fake_git.calls if c[0] == "delete_branch"]
     assert any(c[3] is False for c in deletes), deletes  # local
     assert not any(c[3] is True for c in deletes), deletes  # no remote
-
-
-def test_merge_no_origin_seeds_main_when_local_main_absent(
-    sample_ctx, fake_docker, fake_git, patched_check
-):
-    """No origin AND no local ``main`` → fall through to the seed path
-    (ff a fresh main to the feature tip), no rebase."""
-    fake_git.branch = "feature/x"
-    fake_git.has_origin = False
-    fake_git.refs = {"HEAD"}  # neither origin/main nor main exist
-
-    rc = run_merge(sample_ctx, fake_docker, fake_git)
-    assert rc == 0
-
-    assert not [c for c in fake_git.calls if c[0] == "rebase"]
-    assert [c for c in fake_git.calls if c[0] == "fast_forward"]
-    assert "tag" in [c[0] for c in fake_git.calls]

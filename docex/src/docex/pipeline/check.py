@@ -860,9 +860,7 @@ def run_check(
             # No trunk to rebase onto — just check out at HEAD.
             print(
                 "check: origin/main does not exist yet — running in "
-                "first-release mode (trunk-comparing gates are "
-                "skipped). `docex merge` will seed origin/main from "
-                "this feature branch.",
+                "first-release mode (trunk-comparing gates are skipped).",
                 file=sys.stderr,
             )
             # Trunk-comparing gates get a single PASS line each so the

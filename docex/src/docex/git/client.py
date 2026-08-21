@@ -76,8 +76,8 @@ class GitClient(Protocol):
 
         Used to distinguish a brand-new project (no ``origin/main`` yet
         because the remote is empty) from an established one. Lets
-        ``check`` and ``merge`` switch into a "first release on empty
-        remote" path that seeds main from the feature branch.
+        ``check`` run its "first release on empty remote" mode, which
+        skips the trunk-comparing gates.
         """
         ...
 

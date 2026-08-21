@@ -81,49 +81,44 @@ def run_merge(
         )
         trunk_ref = "main"
 
-    # 4. Decide between rebase-onto-trunk or seed-trunk ----------------
-    trunk_missing = not git.ref_exists(project_root, trunk_ref)
-    if trunk_missing:
-        # No trunk to rebase onto — either a first release on an empty
-        # remote (origin/main absent) or a no-remote repo with no local
-        # ``main`` yet. Seed it by fast-forwarding a freshly-created
-        # local main to the feature tip; with origin, the push at step 6
-        # publishes it. The defensive recheck above already passed in
-        # "first-release mode" (gates skipped), so the tree is valid.
+    # 4. Rebase onto the trunk, then fast-forward it -------------------
+    # Inception establishes an empty ``main`` (pushed to origin), so a
+    # doctrine project always has a trunk to rebase onto by first release
+    # (see inception.md PART I). If it's absent, fail loudly rather than
+    # inventing one: a repo with no ``main`` was not set up via inception,
+    # which is outside doctrine. This replaces an older seed-trunk path
+    # that tried to create ``main`` here and was itself broken (its
+    # ``git checkout main`` could not check out a branch that didn't
+    # exist).
+    if not git.ref_exists(project_root, trunk_ref):
         print(
-            f"merge: {trunk_ref} does not exist — seeding main from the "
-            f"current feature branch ({feature!r}).",
+            f"error: {trunk_ref} not found. A doctrine project is set up via "
+            "inception, which establishes an empty 'main'; see inception.md "
+            "PART I. Cannot merge without a trunk.",
             file=sys.stderr,
         )
-        rc = git.fast_forward(project_root, "main", feature)
-        if rc != 0:
-            print(
-                f"error: failed to create 'main' at {feature!r} (exit {rc}). "
-                "Manual recovery needed.",
-                file=sys.stderr,
-            )
-            return rc
-    else:
-        rc = git.rebase(project_root, trunk_ref)
-        if rc != 0:
-            # Abort so we don't leave the working tree mid-rebase.
-            git.rebase_abort(project_root)
-            print(
-                f"error: 'git rebase {trunk_ref}' exited {rc}. Resolve the "
-                "conflict on your feature branch and retry.",
-                file=sys.stderr,
-            )
-            return rc
+        return 1
 
-        # Fast-forward main to the rebased tip -------------------------
-        rc = git.fast_forward(project_root, "main", feature)
-        if rc != 0:
-            print(
-                f"error: fast-forward of 'main' to {feature!r} exited {rc}. "
-                "Manual recovery needed.",
-                file=sys.stderr,
-            )
-            return rc
+    rc = git.rebase(project_root, trunk_ref)
+    if rc != 0:
+        # Abort so we don't leave the working tree mid-rebase.
+        git.rebase_abort(project_root)
+        print(
+            f"error: 'git rebase {trunk_ref}' exited {rc}. Resolve the "
+            "conflict on your feature branch and retry.",
+            file=sys.stderr,
+        )
+        return rc
+
+    # Fast-forward main to the rebased tip -----------------------------
+    rc = git.fast_forward(project_root, "main", feature)
+    if rc != 0:
+        print(
+            f"error: fast-forward of 'main' to {feature!r} exited {rc}. "
+            "Manual recovery needed.",
+            file=sys.stderr,
+        )
+        return rc
 
     # We're now on main with HEAD == feature's tip.
 
@@ -162,11 +157,10 @@ def run_merge(
             "delete the local branch by hand if needed.",
             file=sys.stderr,
         )
-    # No remote feature branch to delete when there's no origin at all,
-    # or on an empty-origin seed (nothing was ever pushed). Skip the
-    # remote delete in those cases to avoid a warning operators can't
-    # act on.
-    if has_origin and not trunk_missing:
+    # No remote feature branch to delete when there's no origin at all;
+    # skip the remote delete then to avoid a warning operators can't act
+    # on.
+    if has_origin:
         rc_remote = git.delete_branch(project_root, feature, remote=True)
         if rc_remote != 0:
             print(

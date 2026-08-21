@@ -79,6 +79,17 @@ fixes. Cut target **2.1.0**.
   secret is inherently guessable from any hash of it. (mod 141)
 
 ### Fixed
+- **A project's first production release no longer dies in `docex merge`.** On a brand-new
+  project `origin/main` did not exist, so merge fell into a seed-trunk path that ran
+  `git checkout main && git merge --ff-only <feature>` — and the checkout failed with
+  `pathspec 'main' did not match` because there was no `main` to check out, leaving merge to
+  exit "Manual recovery needed". The root cause was upstream: `inception.md` never established
+  the trunk. PART I now establishes an empty `main` (an empty initial commit pushed so
+  `origin/main` exists) *before* branching `inception_and_first_draft`, so the first `docex
+  merge` takes the ordinary rebase-onto-`origin/main` path. The broken seed-trunk path in
+  `merge.py` was removed as dead code; a missing trunk now fails loudly (pointing at inception)
+  rather than trying to invent one. `fast_forward` is retained for the normal rebase path.
+  (mod 142)
 - **A mixed-case project name no longer compiles to two disagreeing spellings of its own
   project segment.** Four HCL template sites (`project.tf.j2`, `main.tf.j2`) each re-derived
   the segment inline and two omitted `| lower`, so `MyProject` emitted both `MyProject-…` and

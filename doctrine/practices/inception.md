@@ -31,8 +31,21 @@ __PART I__: Setup
 	+ The repo should **always** be private - if it can not be made private, do not proceed.
 4. Clone the new repository into the "projects" directory. The folder created by the clone operation will be the "project root" or `$pr`. All further work will happen out of this directory.
 5. Change directory into the project folder e.g. `cd ${project_name}`
-6. Create a branch called "inception_and_first_draft" and switch to it.
-7. Set up some basic structure for the project:
+6. Establish `main` as the doctrine trunk. The clone from step 4 is an empty
+   repo with no commits yet; ensure the branch you are about to commit on is
+   named `main` (GitHub's default for new repos — rename with `git branch -m
+   main` if your git's `init.defaultBranch` differs), make an empty initial
+   commit, and push it so `origin/main` exists:
+	```
+	git commit --allow-empty -m "Initial commit"
+	git push -u origin main
+	```
+	Every Part I–IV commit still lands on the feature branch created next; only
+	this empty trunk root is added ahead of it, so the first `docex merge` at
+	PART V rebases onto an existing (empty) `origin/main` instead of having to
+	invent the trunk.
+7. Create a branch called "inception_and_first_draft" and switch to it.
+8. Set up some basic structure for the project:
 	1. Create or update `.gitignore` file with the [default](#gitignore-defaults) below.
 	2. Add the critical `project.yml` file from the [default](#projectyml-default) below.
 	3. Add a `README.md` with a brief couple of sentences that describe the project.
@@ -43,9 +56,9 @@ __PART I__: Setup
 			+ `secrets`, `config`, `tte`, and `deploy_creds` should each be given [infra `.gitignore`](#infra-gitignore-files) files.
 		3. `plans` folder, all direct child subfolders but no files.
 	6. Write `masterplan.md` verbatim into its place at `$pr/plans/core/masterplan.md`.
-8. Install `docex` (see [install instructions](../infrastructure/docex.md#project-installation)).
+9. Install `docex` (see [install instructions](../infrastructure/docex.md#project-installation)).
 	1. Test that it works with `./bin/docex --version`.
-9. Make a commit with the message "Inception Part I: setup complete".
+10. Make a commit with the message "Inception Part I: setup complete".
 
 __PART II__: Design
 The project has now been set up. Basic structure exists and the `masterplan.md` is in the defined place. Everything from this point on goes wherever the `doctrine` prescribes.
@@ -174,7 +187,7 @@ One file to apply to `infra/secrets`, `infra/config`, `infra/tte`, and `infra/de
 name: ${project_name}
 version: "0.0.1"
 ```
-The `docex_version` field is appended to this file by `docex_install.sh` in PART I step 8 — do not write it by hand.
+The `docex_version` field is appended to this file by `docex_install.sh` in PART I step 9 — do not write it by hand.
 
 ### `CHANGELOG.md` Default
 
