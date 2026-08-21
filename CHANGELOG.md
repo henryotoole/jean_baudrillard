@@ -66,6 +66,17 @@ fixes. Cut target **2.1.0**.
   `secrets`), that every referenced file exists, and that no excerpt file is orphaned. This is
   the check that catches the `network_web` / `vpc` class of key drift, so this artifact is no
   longer the one aligned artifact with no automated consumer. (mod 140)
+- **`docex secrets` value fingerprints** — a `status <env> --fingerprint` column and a new
+  `docex secrets fingerprints [--format json]` cross-env matrix let a value-blind caller
+  verify a secret propagated (`dev`→`stage`→`prod`) or detect drift without ever reading the
+  value. A fingerprint is `hex(sha256(SALT || value))[:8]` under a fixed, project-local,
+  non-secret salt derived from the project name — stable and comparable within a project,
+  differing across projects. Scoped to the secret category only (config is already
+  value-visible), computed from a value `status` already had in hand so no new value-read path
+  is opened, and `copy` now prints matching source/destination fingerprints to confirm a
+  value-blind transfer landed. Documented honestly as an **equality/drift check, not a
+  confidentiality guarantee**: it reveals no value directly, but a low-entropy or placeholder
+  secret is inherently guessable from any hash of it. (mod 141)
 
 ### Fixed
 - **A mixed-case project name no longer compiles to two disagreeing spellings of its own

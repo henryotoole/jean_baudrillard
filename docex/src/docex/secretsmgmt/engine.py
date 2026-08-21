@@ -18,6 +18,7 @@ materialization (aggregation, Mods 080-082).
 from __future__ import annotations
 
 import getpass
+import hashlib
 import json
 import sys
 from dataclasses import dataclass
@@ -52,6 +53,34 @@ SECRET_POLICY = CategoryPolicy(
 CONFIG_POLICY = CategoryPolicy(
     "config", "config", values_visible=True, set_positional_ok=True
 )
+
+
+# Fingerprints are a value-blind equality/drift check, NOT a confidentiality
+# guarantee. 8 hex chars over a project-name-derived (guessable) salt reveal no
+# value directly, but a LOW-ENTROPY / placeholder secret is inherently
+# dictionary-attackable from any hash of it. Use them to compare whether two
+# envs hold the SAME value, never to prove a value is safe to disclose.
+_FP_LEN = 8  # hex chars (32 bits) — enough to spot drift, far too short to
+             # brute-force a high-entropy secret back out.
+
+
+def _salt(ctx: ProjectContext) -> bytes:
+    """Fixed, project-local, NON-secret salt. Project-local so a value
+    fingerprints identically within one project (the whole point — cross-env
+    equality) but differently across projects, defeating a global rainbow
+    table of common tokens. Derived purely from the public project name, so it
+    is stable and carries no confidential material."""
+    return ("docex-secret-fingerprint:" + ctx.project.name).encode("utf-8")
+
+
+def fingerprint(ctx: ProjectContext, value: str) -> str:
+    """Short, salted, one-way fingerprint of a secret value, safe to display.
+
+    ``hex(sha256(SALT || value))[:8]``. Equality/drift comparison only —
+    reveals no value directly, but is NOT a confidentiality guarantee for a
+    low-entropy value (see ``_FP_LEN``)."""
+    digest = hashlib.sha256(_salt(ctx) + value.encode("utf-8")).hexdigest()
+    return digest[:_FP_LEN]
 
 
 def _side(env: str) -> str:
@@ -112,12 +141,22 @@ def scaffold(ctx: ProjectContext, policy: CategoryPolicy, env: str) -> int:
 
 
 def status(
-    ctx: ProjectContext, policy: CategoryPolicy, env: str, *, fmt: str = "text"
+    ctx: ProjectContext, policy: CategoryPolicy, env: str, *,
+    fmt: str = "text", show_fingerprint: bool = False,
 ) -> int:
     """Redacted read: per key SET/UNSET, source, description. Never prints a
-    secret value (no length/hash either) unless ``policy.values_visible``."""
+    secret value (no length/hash either) unless ``policy.values_visible``.
+
+    With ``show_fingerprint`` (the ``--fingerprint`` flag), append a salted,
+    non-revealing value fingerprint column for equality/drift comparison. That
+    column is **secret-category only** — never computed when
+    ``policy.values_visible`` (config is already value-visible)."""
     manifest = _manifest(ctx, policy)
     existing = read_env_file(_file(ctx, policy, env))
+
+    # Fingerprints are a secret-only affordance; config never gets one even if
+    # the flag is forced on.
+    fp_on = show_fingerprint and not policy.values_visible
 
     rows = []
     for e in manifest:
@@ -130,6 +169,8 @@ def status(
             item = {"key": key, "state": state, "source": source, "desc": desc}
             if policy.values_visible:
                 item["value"] = val
+            if fp_on:
+                item["fingerprint"] = fingerprint(ctx, val) if val != "" else None
             out.append(item)
         print(json.dumps(out, indent=2))
         return 0
@@ -140,7 +181,56 @@ def status(
         # Only config exposes the value; secrets stay value-blind here.
         if policy.values_visible and val != "":
             line += f"  = {val}"
+        elif fp_on:
+            line += f"  {fingerprint(ctx, val) if val != '' else ''}"
         print(line)
+    return 0
+
+
+_MATRIX_ENVS = ("dev", "test", "stage", "prod")
+_UNSET_CELL = "—"  # em dash — the one text sentinel for an unset cell
+
+
+def fingerprints(ctx: ProjectContext, *, fmt: str = "text") -> int:
+    """Cross-env fingerprint matrix for the SECRET category: one row per key,
+    one column per env, each cell a fingerprint or the unset sentinel.
+
+    The primary "did it propagate / has it drifted?" view. Value-blind:
+    fingerprints carry no secret material. NOT a confidentiality guarantee for a
+    low-entropy value (see ``fingerprint``)."""
+    manifest = _manifest(ctx, SECRET_POLICY)
+    # env -> {key: value}
+    per_env = {
+        env: read_env_file(_file(ctx, SECRET_POLICY, env)) for env in _MATRIX_ENVS
+    }
+
+    def cell(env: str, key: str) -> str | None:
+        val = per_env[env].get(key, "")
+        return fingerprint(ctx, val) if val != "" else None
+
+    if fmt == "json":
+        out = [
+            {
+                "key": e.key,
+                "fingerprints": {env: cell(env, e.key) for env in _MATRIX_ENVS},
+            }
+            for e in manifest
+        ]
+        print(json.dumps(out, indent=2))
+        return 0
+
+    key_w = max((len(e.key) for e in manifest), default=3)
+    col_w = max(len("dev"), _FP_LEN)  # each env column at least fp-wide
+    header = f"{'KEY':<{key_w}}  " + "  ".join(
+        f"{env:<{col_w}}" for env in _MATRIX_ENVS
+    )
+    print(header)
+    for e in manifest:
+        rendered = []
+        for env in _MATRIX_ENVS:
+            fp = cell(env, e.key)
+            rendered.append(f"{(fp if fp is not None else _UNSET_CELL):<{col_w}}")
+        print(f"{e.key:<{key_w}}  " + "  ".join(rendered))
     return 0
 
 
@@ -248,4 +338,9 @@ def copy_key(
     had = key in read_env_file(tgt_file)
     set_env_key(tgt_file, key, src_val)
     print(f"{'overwrote' if had else 'set'} {key} in {tgt_env} ({policy.subdir})")
+    if not policy.values_visible:
+        # Value-blind confirmation the transfer landed: identical fingerprints
+        # prove src and tgt now hold the same value, without revealing it.
+        fp = fingerprint(ctx, src_val)
+        print(f"  fingerprint {src_env}={fp}  {tgt_env}={fp}")
     return 0

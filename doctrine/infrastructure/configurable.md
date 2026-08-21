@@ -59,9 +59,18 @@ The `./bin/docex secrets ...` command gives the agent tooling to work with secre
 | Op | What it does | Who runs it | 
 | -- | ------------ | ----------- |
 | `docex secrets scaffold <env>` | reconcile key set into `<env>.env`, preserve values | agent freely |
-| `docex secrets status <env> [--format json]` | **redacted read** — per key: `SET`/`UNSET`, declaring codebase, description; **never the value** | agent freely |
+| `docex secrets status <env> [--format json] [--fingerprint]` | **redacted read** — per key: `SET`/`UNSET`, declaring codebase, description; **never the value**. `--fingerprint` adds a non-revealing value fingerprint column | agent freely |
 | `docex secrets set <env> <KEY>` | **write-only set** — set one key, read/emit nothing else | agent *invokes*, human *supplies* |
 | `docex secrets copy <src_env> <tgt_env> <KEY>` | **value-blind copy** — set `tgt.KEY` = `src.KEY` without exposing the value | agent freely |
+| `docex secrets fingerprints [--format json]` | **cross-env fingerprint matrix** — one row per key, one column per env; each cell a salted, non-revealing fingerprint of the value (or unset). Compares propagation/drift across envs | agent freely |
+
+A **fingerprint** is `hex(sha256(SALT || value))[:8]` under a fixed,
+project-local, **non-secret** salt derived from the project name — safe to
+display, stable within a project, and comparable across its environments. It
+lets a value-blind caller confirm two envs hold the *same* value, or detect
+drift, without ever reading the value. It is an **equality/drift check, not a
+confidentiality guarantee**: it reveals no value directly, but a low-entropy or
+placeholder secret is inherently guessable from any hash of it.
 
 ### Config
 

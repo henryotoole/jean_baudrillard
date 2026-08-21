@@ -106,7 +106,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | Command | Foundation behavior | Reads | Writes / acts on |
 | ------- | ------------------- | ----- | ---------------- |
 | `compile` | both | `infra.yml`, transfer tables (bundled + project-local), `project.yml` | `infra/output/<env>/...` |
-| `secrets <scaffold\|status\|set\|copy> <env>` | both | `infra.yml` + transfer tables (via `secret_manifest`), `infra/secrets/<env>.env` | `infra/secrets/<env>.env` (value-blind: `set` reads a no-echo tty prompt or `--from-file`; `status` never prints a value) |
+| `secrets <scaffold\|status\|set\|copy\|fingerprints> <env>` | both | `infra.yml` + transfer tables (via `secret_manifest`), `infra/secrets/<env>.env` | `infra/secrets/<env>.env` (value-blind: `set` reads a no-echo tty prompt or `--from-file`; `status` never prints a value; `status --fingerprint` / `fingerprints` show non-revealing value fingerprints for cross-env drift) |
 | `config <scaffold\|status\|set\|get\|copy> <env>` | both | `infra.yml` + transfer tables (via `config_manifest`), `infra/config/<env>.env` | `infra/config/<env>.env` (values visible: `set` takes a positional value, `get`/`status` print them) |
 | `describe [<env>] [--format <format>]` | both | `infra.yml`, transfer tables | stdout (DAG or LLM-JSON) |
 | `why <resource>` | both | bundled doctrine excerpts | stdout |

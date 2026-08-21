@@ -699,9 +699,11 @@ def _cmd_role(args: list[str]) -> int:
 
 
 def _cmd_secrets(args: list[str]) -> int:
-    """``docex secrets <scaffold|status|set|copy> ...`` — value-blind secret
-    management. ``set`` never accepts a positional value (tty prompt or
-    ``--from-file`` only) and nothing here ever prints a secret value."""
+    """``docex secrets <scaffold|status|set|copy|fingerprints> ...`` —
+    value-blind secret management. ``set`` never accepts a positional value
+    (tty prompt or ``--from-file`` only) and nothing here ever prints a secret
+    value. ``status --fingerprint`` and ``fingerprints`` add salted,
+    non-revealing value fingerprints for cross-env equality/drift comparison."""
     _ENVS = ["dev", "test", "stage", "prod"]
     parser = argparse.ArgumentParser(prog="docex secrets", add_help=True)
     sub = parser.add_subparsers(dest="op", required=True)
@@ -714,6 +716,11 @@ def _cmd_secrets(args: list[str]) -> int:
         "status", help="show SET/UNSET per key (never the value)")
     p_status.add_argument("env", choices=_ENVS)
     p_status.add_argument("--format", default="text", choices=["text", "json"])
+    p_status.add_argument(
+        "--fingerprint", action="store_true",
+        help="add a salted, non-revealing FINGERPRINT column for equality/drift "
+             "comparison (secret category only; not a confidentiality guarantee "
+             "for a low-entropy value)")
 
     p_set = sub.add_parser(
         "set", help="set one key's value (tty prompt or --from-file only)")
@@ -728,12 +735,18 @@ def _cmd_secrets(args: list[str]) -> int:
     p_copy.add_argument("tgt_env", choices=_ENVS)
     p_copy.add_argument("key", help="the secret key to copy")
 
+    p_fp = sub.add_parser(
+        "fingerprints",
+        help="cross-env matrix of non-revealing value fingerprints (drift check)")
+    p_fp.add_argument("--format", default="text", choices=["text", "json"])
+
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
     from docex.secretsmgmt import (
         SECRET_POLICY,
         copy_key,
+        fingerprints,
         scaffold,
         set_key,
         status,
@@ -751,12 +764,15 @@ def _cmd_secrets(args: list[str]) -> int:
     if ns.op == "scaffold":
         return scaffold(ctx, SECRET_POLICY, ns.env)
     if ns.op == "status":
-        return status(ctx, SECRET_POLICY, ns.env, fmt=ns.format)
+        return status(ctx, SECRET_POLICY, ns.env, fmt=ns.format,
+                      show_fingerprint=ns.fingerprint)
     if ns.op == "set":
         return set_key(
             ctx, SECRET_POLICY, ns.env, ns.key, from_file=ns.from_file)
     if ns.op == "copy":
         return copy_key(ctx, SECRET_POLICY, ns.src_env, ns.tgt_env, ns.key)
+    if ns.op == "fingerprints":
+        return fingerprints(ctx, fmt=ns.format)
     return 64  # unreachable — argparse requires a valid subcommand
 
 

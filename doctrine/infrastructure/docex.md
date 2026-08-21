@@ -116,9 +116,10 @@ Command refuses to run with `direction="up"` if `./bin/docex preinfra <side>` fa
 
 ### `secrets`
 `./bin/docex secrets scaffold <env>`
-`./bin/docex secrets status <env> [--format json]`
+`./bin/docex secrets status <env> [--format json] [--fingerprint]`
 `./bin/docex secrets set <env> <KEY>`
 `./bin/docex secrets copy <src_env> <tgt_env> <KEY>`
+`./bin/docex secrets fingerprints [--format json]`
 
 Manages the per-environment secrets file `$pr/infra/secrets/<env>.env` without ever exposing secret **values** to the caller — the tooling that lets an LLM agent drive secret handling while remaining structurally unable to read a value. The full model (the three configurable-value categories, the standard file form, aggregation) lives in [config_and_secrets.md](./specifics/config_and_secrets.md); this is the command surface.
 
@@ -126,8 +127,17 @@ Manages the per-environment secrets file `$pr/infra/secrets/<env>.env` without e
 - **`status`** is a redacted read — per key it reports `SET`/`UNSET`, the declaring codebase, and the description, **never the value**. `--format json` yields a machine-readable shape for detecting "required but never set." There is deliberately **no** value-printing command; a value leaves the file only at [materialization](./specifics/config_and_secrets.md#materialization-at-release).
 - **`set`** writes one key. Its value channel is a **no-echo tty prompt** or `--from-file <path>`, **never a positional argument** — so the agent invokes the command while the human supplies the value, which never transits the agent's context.
 - **`copy`** copies one key's value between environments **without surfacing it** (no value channel at all). Secrets and config only — **never TTE** (minted per env). A same-side copy (`dev`↔`test`, `stage`↔`prod`) is the intended use; a cross-side copy warns; an unset source errors; the target is overwritten.
+- **`fingerprints`** prints a cross-env matrix of non-revealing value
+  fingerprints — one row per key, one column per env — the primary
+  "did it propagate / has it drifted?" view. A fingerprint is
+  `hex(sha256(SALT || value))[:8]` under a fixed, project-local, non-secret
+  salt (derived from the project name); `status --fingerprint` adds the same
+  fingerprint as a per-key column. It is an **equality/drift check, not a
+  confidentiality guarantee**: it reveals no value directly, but a low-entropy
+  or placeholder secret is inherently guessable from any hash of it. Secret
+  category only.
 
-All four operate on the local `<env>.env` — secrets are `<env>.env`-canonical on every foundation, so none reach out to SSM or a host.
+All operate on the local `<env>.env` — secrets are `<env>.env`-canonical on every foundation, so none reach out to SSM or a host.
 
 ### `config`
 `./bin/docex config scaffold <env>`

@@ -19,6 +19,8 @@ from docex.secretsmgmt import (
     CONFIG_POLICY,
     SECRET_POLICY,
     copy_key,
+    fingerprint,
+    fingerprints,
     get_key,
     scaffold,
     set_key,
@@ -406,3 +408,178 @@ def test_config_copy_refuses_tte_key(tmp_path, capsys):
     rc = copy_key(ctx, CONFIG_POLICY, "dev", "test", "POSTGRES_PASSWORD")
     assert rc == 1
     assert "TTE key" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# fingerprints (Mod 141)
+# ---------------------------------------------------------------------------
+
+import re  # noqa: E402
+
+_HEX8 = re.compile(r"^[0-9a-f]{8}$")
+
+
+def _ctx_named(tmp_path, name: str) -> ProjectContext:
+    return ProjectContext(
+        project_root=tmp_path,
+        project=ProjectManifest(name=name, version="0.1.0", docex_version="0.1.0"),
+        transfer_tables=load_transfer_tables(project_root=None),
+        infra=CICLDocument.model_validate(yaml.safe_load(_INFRA)),
+    )
+
+
+def test_fingerprint_is_stable(tmp_path):
+    ctx = _ctx(tmp_path)
+    fp = fingerprint(ctx, "abc")
+    assert fp == fingerprint(ctx, "abc")
+    assert _HEX8.match(fp)
+
+
+def test_fingerprint_differs_for_different_values(tmp_path):
+    ctx = _ctx(tmp_path)
+    assert fingerprint(ctx, "abc") != fingerprint(ctx, "xyz")
+
+
+def test_fingerprint_salt_varies_by_project(tmp_path):
+    ctx1 = _ctx(tmp_path)  # name="p"
+    ctx2 = _ctx_named(tmp_path, "other")
+    assert fingerprint(ctx1, "abc") != fingerprint(ctx2, "abc")
+
+
+def test_status_fingerprint_column_set_and_unset(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_live_value")
+    assert status(ctx, SECRET_POLICY, "dev", fmt="text",
+                  show_fingerprint=True) == 0
+    out = capsys.readouterr().out
+    expected = fingerprint(ctx, "sk_live_value")
+    assert expected in out
+    # TELEMETRY_API_KEY is unset → shown UNSET with no fingerprint.
+    tel_line = next(ln for ln in out.splitlines() if ln.startswith("TELEMETRY_API_KEY"))
+    assert "UNSET" in tel_line
+    assert not _HEX8.search(tel_line.split("UNSET", 1)[1])
+    # The raw value never appears.
+    assert "sk_live_value" not in out
+
+
+def test_status_fingerprint_json_shape(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_live_value")
+    assert status(ctx, SECRET_POLICY, "dev", fmt="json",
+                  show_fingerprint=True) == 0
+    out = capsys.readouterr().out
+    import json as _json
+    rows = _json.loads(out)
+    by_key = {r["key"]: r for r in rows}
+    assert by_key["STRIPE_KEY"]["fingerprint"] == fingerprint(ctx, "sk_live_value")
+    assert by_key["TELEMETRY_API_KEY"]["fingerprint"] is None
+    assert "sk_live_value" not in out
+
+
+def test_status_without_flag_has_no_fingerprint_field(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_live_value")
+    assert status(ctx, SECRET_POLICY, "dev", fmt="json",
+                  show_fingerprint=False) == 0
+    import json as _json
+    rows = _json.loads(capsys.readouterr().out)
+    assert all("fingerprint" not in r for r in rows)
+
+
+def test_status_config_never_fingerprints(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_config_file(tmp_path, "dev"), "PARTNER_URL", "https://p.example.com")
+    assert status(ctx, CONFIG_POLICY, "dev", fmt="json",
+                  show_fingerprint=True) == 0
+    import json as _json
+    rows = _json.loads(capsys.readouterr().out)
+    assert all("fingerprint" not in r for r in rows)
+
+
+def test_fingerprints_matrix_text_shape(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_shared")
+    set_env_key(_secrets_file(tmp_path, "test"), "STRIPE_KEY", "sk_shared")
+    assert fingerprints(ctx, fmt="text") == 0
+    out = capsys.readouterr().out
+    header = out.splitlines()[0]
+    for env in ("dev", "test", "stage", "prod"):
+        assert env in header
+    stripe_line = next(ln for ln in out.splitlines() if ln.startswith("STRIPE_KEY"))
+    expected = fingerprint(ctx, "sk_shared")
+    # dev and test both carry the same fingerprint.
+    assert stripe_line.count(expected) == 2
+    # stage/prod unset → em-dash sentinel present.
+    assert "—" in stripe_line
+    assert "sk_shared" not in out
+
+
+def test_fingerprints_matrix_json_shape(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_shared")
+    set_env_key(_secrets_file(tmp_path, "test"), "STRIPE_KEY", "sk_shared")
+    assert fingerprints(ctx, fmt="json") == 0
+    import json as _json
+    rows = _json.loads(capsys.readouterr().out)
+    by_key = {r["key"]: r for r in rows}
+    stripe = by_key["STRIPE_KEY"]["fingerprints"]
+    assert set(stripe) == {"dev", "test", "stage", "prod"}
+    expected = fingerprint(ctx, "sk_shared")
+    assert stripe["dev"] == stripe["test"] == expected
+    assert stripe["stage"] is None and stripe["prod"] is None
+    assert "sk_shared" not in _json.dumps(rows)
+
+
+def test_fingerprints_drift_detectable(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_dev")
+    set_env_key(_secrets_file(tmp_path, "stage"), "STRIPE_KEY", "sk_stage")
+    assert fingerprints(ctx, fmt="json") == 0
+    import json as _json
+    rows = _json.loads(capsys.readouterr().out)
+    stripe = {r["key"]: r for r in rows}["STRIPE_KEY"]["fingerprints"]
+    assert stripe["dev"] is not None and stripe["stage"] is not None
+    assert stripe["dev"] != stripe["stage"]
+
+
+def test_copy_prints_fingerprints_secret(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    set_env_key(_secrets_file(tmp_path, "dev"), "STRIPE_KEY", "sk_copyme")
+    assert copy_key(ctx, SECRET_POLICY, "dev", "test", "STRIPE_KEY") == 0
+    out = capsys.readouterr().out
+    expected = fingerprint(ctx, "sk_copyme")
+    assert "fingerprint" in out
+    assert f"dev={expected}" in out
+    assert f"test={expected}" in out
+    assert "sk_copyme" not in out
+
+
+def test_no_secret_value_leaks_in_fingerprint_surfaces(tmp_path, capsys):
+    ctx = _ctx(tmp_path)
+    from docex.envfile import set_env_key
+    canary = "sk_LEAK_CANARY_9f"
+    for env in ("dev", "test", "stage"):
+        set_env_key(_secrets_file(tmp_path, env), "STRIPE_KEY", canary)
+
+    status(ctx, SECRET_POLICY, "dev", fmt="text", show_fingerprint=True)
+    assert canary not in capsys.readouterr().out
+
+    status(ctx, SECRET_POLICY, "dev", fmt="json", show_fingerprint=True)
+    assert canary not in capsys.readouterr().out
+
+    fingerprints(ctx, fmt="text")
+    assert canary not in capsys.readouterr().out
+
+    fingerprints(ctx, fmt="json")
+    assert canary not in capsys.readouterr().out
+
+    copy_key(ctx, SECRET_POLICY, "dev", "prod", "STRIPE_KEY")
+    assert canary not in capsys.readouterr().out

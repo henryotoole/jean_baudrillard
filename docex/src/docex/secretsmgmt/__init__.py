@@ -5,6 +5,8 @@ from docex.secretsmgmt.engine import (
     SECRET_POLICY,
     CategoryPolicy,
     copy_key,
+    fingerprint,
+    fingerprints,
     get_key,
     scaffold,
     set_key,
@@ -20,4 +22,6 @@ __all__ = [
     "set_key",
     "get_key",
     "copy_key",
+    "fingerprint",
+    "fingerprints",
 ]
