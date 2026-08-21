@@ -125,6 +125,15 @@ _FORMAT_EXTENSIONS = {
     "proto": "proto",
 }
 
+# contract format -> minimum (major, minor) spec version. Transcribed from
+# contracts.md § Standards. Only the two versioned formats appear: graphql/proto
+# are SDL/IDL with no version key, and are excluded by IMPLEMENTED_CONTRACT_FORMATS
+# regardless. Same one-consumer rationale as _FORMAT_EXTENSIONS keeps this here.
+_FORMAT_MIN_SPEC_VERSION = {
+    "openapi": (3, 2),
+    "asyncapi": (3, 0),
+}
+
 # Extensions that make a stray file in `infra/contracts/` look like a contract
 # somebody meant to author. Used only by the orphan arm of `_gate_contracts`, to
 # separate "a contract with the wrong name" from "a README".
@@ -584,6 +593,86 @@ def _gate_contract_health_path(
         )
 
 
+def _parse_major_minor(raw: object) -> tuple[int, int] | None:
+    """``"3.2.0"`` / ``3.2`` -> ``(3, 2)``; unparseable -> None.
+
+    Accepts a str or a YAML-numeric (an unquoted ``asyncapi: 3.0`` arrives as a
+    float). Only major.minor is compared — the patch is irrelevant to the floor.
+    """
+    if isinstance(raw, (int, float)):
+        raw = str(raw)
+    if not isinstance(raw, str):
+        return None
+    parts = raw.strip().split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        return (int(parts[0]), int(parts[1]))
+    except ValueError:
+        return None
+
+
+def _gate_contract_spec_version(
+    ctx: ProjectContext,
+    contracts: list[ContractExpectation],
+    report: CheckReport,
+) -> None:
+    """Each contract declares a spec version at or above the doctrine floor.
+
+    contracts.md § Standards fixes OpenAPI >= 3.2 and AsyncAPI >= 3.0 — each floor
+    is what makes a promised api_style implementable (openapi 3.2 -> itemSchema for
+    `stream`; asyncapi 3.0 -> reply for `rpc`). The version key each format declares
+    in its own root is the same token as the format name (`openapi:` / `asyncapi:`).
+
+    A malformed or absent version key is reported once, as its own defect — NOT
+    also reported as a below-floor consequence it cannot compute, matching
+    `_gate_contract_health_path`'s handling of unreadable YAML.
+    """
+    if ctx.infra is None:
+        report.add("contract_spec_version", True, "no infra.yml — skipped")
+        return
+
+    problems: list[str] = []
+    checked = 0
+    for exp in contracts:
+        floor = _FORMAT_MIN_SPEC_VERSION.get(exp.fmt)
+        if floor is None:
+            continue
+        try:
+            doc = yaml.safe_load(exp.path.read_text()) or {}
+        except yaml.YAMLError as exc:
+            problems.append(f"{exp.path.name}: malformed YAML ({exc})")
+            continue
+        raw = doc.get(exp.fmt) if isinstance(doc, dict) else None
+        parsed = _parse_major_minor(raw)
+        if parsed is None:
+            problems.append(
+                f"{exp.path.name}: no readable {exp.fmt!r} version key "
+                f"(found {raw!r}); expected >= {floor[0]}.{floor[1]}"
+            )
+            continue
+        checked += 1
+        if parsed < floor:
+            problems.append(
+                f"{exp.path.name}: declares {exp.fmt} "
+                f"{parsed[0]}.{parsed[1]}, but the doctrine floor is "
+                f"{floor[0]}.{floor[1]} (contracts.md § Standards)"
+            )
+
+    if problems:
+        report.add("contract_spec_version", False, "; ".join(problems))
+    else:
+        report.add(
+            "contract_spec_version",
+            True,
+            (
+                f"{checked} contract(s) meet the spec-version floor"
+                if checked
+                else "no versioned contracts — nothing to check"
+            ),
+        )
+
+
 def _gate_codebase_scripts(
     worktree: Path,
     ctx: ProjectContext,
@@ -804,6 +893,7 @@ def run_check(
             _gate_version_not_released(project_root, worktree, git, report)
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
         _gate_contract_health_path(worktree_ctx, contracts, report)
+        _gate_contract_spec_version(worktree_ctx, contracts, report)
         _gate_codebase_scripts(worktree, worktree_ctx, report)
         _gate_observability_backend_url_reachable(worktree_ctx, report)
 

@@ -831,3 +831,68 @@ def test_reverse_proxy_role_no_longer_exists():
     issues = validate_document(_doc(src), _tables())
     rules = [i.rule for i in issues]
     assert "rule_reverse_proxy_role_removed" in rules
+
+
+# ---------------------------------------------------------------------------
+# rule_version_required (Mod 137) — a backing service must declare `version:`
+# when a foundation-matching engine pins its image tag from it.
+# ---------------------------------------------------------------------------
+
+# A minio object_store appended to _BASE_FIXED's backing_services (2-space
+# indent under `backing_services:`), deliberately WITHOUT a `version:` field.
+_MINIO_NO_VERSION = """\
+  store:
+    role: object_store
+    engine: minio
+    networks: [internal]
+"""
+
+
+def test_rule_version_required_minio_without_version():
+    src = _BASE_FIXED + _MINIO_NO_VERSION
+    issues = validate_document(_doc(src), _tables())
+    hits = [i for i in issues if i.rule == "rule_version_required"]
+    assert len(hits) == 1
+    assert hits[0].where == "backing_services.store.version"
+
+
+def test_rule_version_required_minio_with_version_is_clean():
+    src = _BASE_FIXED + _MINIO_NO_VERSION.replace(
+        "    networks: [internal]\n",
+        '    networks: [internal]\n    version: "RELEASE.2024-01-01T00-00-00Z"\n',
+    )
+    issues = validate_document(_doc(src), _tables())
+    hits = [i for i in issues if i.rule == "rule_version_required"]
+    assert hits == []
+
+
+def test_rule_version_required_elastic_s3_engine_is_exempt():
+    """An elastic project with `engine: [minio, s3]` and no `version:` is not
+    flagged — s3 is the foundation-matching engine and declares no `version`
+    field, so the requirement is not derived for it."""
+    src = """
+cicl_version: "3"
+foundation: elastic
+apex_domain: example.com
+observability_backend_url: "https://obs.example.com"
+codebases:
+  api:
+    core_services:
+      web:
+        role: web
+        command: ["python", "/service/dist/root.py"]
+        networks: [web, internal]
+        port: 8080
+        health_check_path: /health
+        resources:
+          cpu: 1.0
+          memory: 2GB
+backing_services:
+  store:
+    role: object_store
+    engine: [minio, s3]
+    networks: [internal]
+"""
+    issues = validate_document(_doc(src), _tables())
+    rules = [i.rule for i in issues]
+    assert "rule_version_required" not in rules

@@ -48,10 +48,9 @@ def _staged_tte_path(ctx: ProjectContext, env: str) -> Path:
 
 
 def _host_for(ctx: ProjectContext, env: str) -> str:
-    from docex.naming import dns_label
+    from docex.cicl.compile import env_subdomain_for
 
-    apex = ctx.infra.apex_domain
-    return f"{env}.{dns_label(ctx.project.name)}.{apex}"
+    return env_subdomain_for(ctx, env)
 
 
 def _disjoint_union(*sources: tuple[str, dict[str, str]]) -> dict[str, str]:

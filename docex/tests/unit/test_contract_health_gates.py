@@ -27,8 +27,10 @@ from docex.context import load_project_context
 from docex.pipeline.check import (
     CheckReport,
     _gate_contract_health_path,
+    _gate_contract_spec_version,
     _gate_contracts,
     _parse_contract_filename,
+    _parse_major_minor,
 )
 
 
@@ -641,3 +643,132 @@ def test_health_path_skipped_for_non_web_service_declaring_the_field(tmp_path):
     res = _health_path_result(ctx, root)
     assert res.passed, res.detail
     assert "api.internal" not in res.detail
+
+
+# ---------------------------------------------------------------------------
+# Contract spec-version floor (Mod 137) — contracts.md § Standards fixes
+# OpenAPI >= 3.2 and AsyncAPI >= 3.0. `_openapi`/`_ASYNCAPI` hardcode below-floor
+# versions and are shared with the health-path tests, so version-parametrized
+# local helpers are used here rather than editing them.
+# ---------------------------------------------------------------------------
+
+
+def _openapi_v(version: str, *paths: str) -> str:
+    body = f'openapi: "{version}"\ninfo: {{title: t, version: "0.1.0"}}\npaths:\n'
+    for p in paths:
+        body += f'  {p}: {{get: {{responses: {{"200": {{description: ok}}}}}}}}\n'
+    return body
+
+
+def _asyncapi_v(version: str) -> str:
+    return (
+        f'asyncapi: "{version}"\n'
+        'info: {title: t, version: "0.1.0"}\n'
+        "channels:\n"
+        "  jobs:\n"
+        "    subscribe:\n"
+        "      message:\n"
+        "        payload: {type: object}\n"
+    )
+
+
+def _spec_version_result(ctx, root):
+    """Materialize the contracts via `_gate_contracts`, then run the spec-version
+    gate against them — the same wiring `run_check` uses."""
+    report = CheckReport()
+    contracts, _providers = _gate_contracts(root, ctx, report)
+    _gate_contract_spec_version(ctx, contracts, report)
+    return next(r for r in report.results if r.name == "contract_spec_version")
+
+
+def _web_rest(tmp_path, contract_body):
+    src = _codebase(
+        "api",
+        _proc(
+            "web", "web", networks=["web", "internal"], port=8080, hcp=True,
+            surfaces={"rest": ["rest"]},
+        ),
+    )
+    return _project(tmp_path, src, {"api.web.rest.openapi.yml": contract_body})
+
+
+def _worker_events(tmp_path, contract_body):
+    src = _codebase(
+        "api",
+        _proc(
+            "worker", "worker", networks=["internal"],
+            surfaces={"events": ["events"]},
+        ),
+    )
+    return _project(tmp_path, src, {"api.worker.events.asyncapi.yml": contract_body})
+
+
+def test_spec_version_below_floor_openapi_fails(tmp_path):
+    ctx, root = _web_rest(tmp_path, _openapi_v("3.0.3", "/health"))
+    res = _spec_version_result(ctx, root)
+    assert not res.passed, res.detail
+    assert "api.web.rest.openapi.yml" in res.detail
+    assert "3.0" in res.detail  # declared
+    assert "3.2" in res.detail  # required floor
+
+
+def test_spec_version_below_floor_asyncapi_fails(tmp_path):
+    ctx, root = _worker_events(tmp_path, _asyncapi_v("2.6.0"))
+    res = _spec_version_result(ctx, root)
+    assert not res.passed, res.detail
+    assert "api.worker.events.asyncapi.yml" in res.detail
+    assert "2.6" in res.detail
+    assert "3.0" in res.detail
+
+
+def test_spec_version_at_floor_openapi_passes(tmp_path):
+    ctx, root = _web_rest(tmp_path, _openapi_v("3.2.0", "/health"))
+    res = _spec_version_result(ctx, root)
+    assert res.passed, res.detail
+
+
+def test_spec_version_at_floor_asyncapi_passes(tmp_path):
+    ctx, root = _worker_events(tmp_path, _asyncapi_v("3.0.0"))
+    res = _spec_version_result(ctx, root)
+    assert res.passed, res.detail
+
+
+def test_spec_version_absent_key_reported_once(tmp_path):
+    """A contract whose root has no `openapi:` key is reported once, as a
+    missing-version defect — and NOT also as a below-floor complaint the gate
+    could not compute."""
+    body = 'info: {title: t, version: "0.1.0"}\npaths: {}\n'
+    ctx, root = _web_rest(tmp_path, body)
+    res = _spec_version_result(ctx, root)
+    assert not res.passed, res.detail
+    assert "api.web.rest.openapi.yml" in res.detail
+    assert "no readable 'openapi' version key" in res.detail
+    # The below-floor line for the same file must NOT also appear.
+    assert "doctrine floor" not in res.detail
+
+
+def test_spec_version_no_versioned_contracts_is_clean(tmp_path):
+    """A project whose only providers use non-versioned formats leaves the gate
+    with nothing to check."""
+    src = _codebase(
+        "api",
+        _proc(
+            "web", "web", networks=["web", "internal"], port=8080, hcp=True,
+            surfaces={"gql": ["graphql"]},
+        ),
+    )
+    ctx, root = _project(tmp_path, src, {})
+    res = _spec_version_result(ctx, root)
+    assert res.passed, res.detail
+    assert "nothing to check" in res.detail
+
+
+def test_parse_major_minor():
+    assert _parse_major_minor("3.2.0") == (3, 2)
+    assert _parse_major_minor("3.2") == (3, 2)
+    assert _parse_major_minor(3.0) == (3, 0)
+    assert _parse_major_minor(" 3.0.3 ") == (3, 0)
+    assert _parse_major_minor("3") is None
+    assert _parse_major_minor("v3.2") is None
+    assert _parse_major_minor(None) is None
+    assert _parse_major_minor(["3", "2"]) is None

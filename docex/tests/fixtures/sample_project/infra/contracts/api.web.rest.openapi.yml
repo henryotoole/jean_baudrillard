@@ -8,7 +8,7 @@
 # of `api.web` declares a GET on its declared `health_check_path`. It does no
 # schema conformance; contract *testing* is the project's own `test.sh` concern.
 
-openapi: "3.0.3"
+openapi: "3.2.0"
 info:
   title: sample-api
   version: "0.1.0"

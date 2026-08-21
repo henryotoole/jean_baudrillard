@@ -133,6 +133,7 @@ def validate_document(doc: CICLDocument, tables: TransferTables) -> list[Validat
     issues: list[ValidationIssue] = []
     issues.extend(_validate_roles_and_engines(doc, tables))
     issues.extend(_validate_role_specific_fields(doc, tables))
+    issues.extend(_validate_required_version(doc, tables))
     issues.extend(_validate_magic_refs(doc, tables))
     issues.extend(_validate_uses(doc))
     issues.extend(_validate_schema_owned_by(doc))
@@ -296,6 +297,45 @@ def _validate_role_specific_fields(
             name, svc, "backing_services", _STANDARD_BACKING_FIELDS,
             f"backing_services.{name}",
         )
+    return issues
+
+
+def _validate_required_version(
+    doc: CICLDocument, tables: TransferTables
+) -> list[ValidationIssue]:
+    """A backing service must set `version:` when a foundation-matching engine
+    pins its image/version from it.
+
+    cicl.md § Service Fields marks `version` required for backing services; the
+    requirement is DERIVED from the engine's own `fields:` block, so an engine
+    with no `version` field (e.g. `s3`, an S3 bucket with no image) is exempt
+    without a name check. Foundation-scoped: an engine that will not compile for
+    this project's foundation cannot make `version` required.
+    """
+    issues: list[ValidationIssue] = []
+    for name, svc in sorted(doc.backing_services.items()):
+        if svc.role not in tables.by_role:
+            continue
+        candidates = svc.engine if isinstance(svc.engine, list) else [svc.engine]
+        requiring: list[str] = []
+        for cand in candidates:
+            try:
+                entry = tables.engine(svc.role, cand)
+            except Exception:
+                continue
+            if entry.supports(doc.foundation) and "version" in (entry.fields or {}):
+                requiring.append(cand)
+        if requiring and not svc.version:
+            issues.append(ValidationIssue(
+                rule="rule_version_required",
+                message=(
+                    f"backing service {name!r} (role {svc.role!r}, engine(s) "
+                    f"{requiring!r}) must declare `version:` — the engine pins "
+                    f"its image tag from it and an unpinned tag breaks the "
+                    f"determinism promise. See cicl.md § Service Fields."
+                ),
+                where=f"backing_services.{name}.version",
+            ))
     return issues
 
 

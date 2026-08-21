@@ -15,6 +15,33 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [Unreleased]
+
+Advance 008 ("Housekeeping") — a backlog-clearing advance of small, mostly-independent
+fixes. Cut target **2.1.0**.
+
+### Added
+- **`docex check` gates a contract's declared spec version** against the doctrine floor —
+  OpenAPI ≥ 3.2, AsyncAPI ≥ 3.0 (`contracts.md § Standards`). Each floor is what makes a
+  promised `api_style` implementable (openapi 3.2 → `itemSchema` for `stream`; asyncapi 3.0
+  → `reply` for `rpc`), so a project shipping `openapi: "2.0"` that previously passed green
+  now fails. Third contract gate beside the existing two; no second directory walk. (mod 137)
+- **A backing service must declare `version:` when its engine pins an image/version from it**
+  — now a compile error (`rule_version_required`), aligning the compiler to `cicl.md § Service
+  Fields`'s existing "required" claim. Derived from the engine's `fields:` block, so `s3` (no
+  image) is exempt structurally while `minio` requires it. (mod 137)
+
+### Fixed
+- **`object_store`/`minio` no longer ignores `version:`.** The `minio` engine hardcoded
+  `minio/minio:latest` and pinned nothing from `version:` — an unpinned tag on a stateful
+  backing service breaks the determinism promise. `version:` now pins the tag
+  (`minio/minio:${version}`) and the hardcoded `:latest` is gone; the lone backing engine that
+  did not pin its tag is fixed. (mod 137)
+- **The env subdomain `<env>.<project>.<apex>` is derived in one place.** Two readers
+  (`orchestrate/aggregate.py::_host_for`, `orchestrate/up.py`) re-derived it by hand; both now
+  read the compiler-owned `CompiledEnv.subdomain` via `env_subdomain_for`. Reader-only
+  duplication, so it failed loudly rather than silently — removed regardless. (mod 137)
+
 ## [2.0.1] - 2026-08-20
 
 ### Fixed

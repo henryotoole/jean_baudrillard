@@ -98,7 +98,7 @@ def test_check_real_fails_on_missing_contract_health_path(tmp_path: Path):
     # Remove the declared health_check_path from the contract.
     contract = work / "infra" / "contracts" / "api.web.rest.openapi.yml"
     contract.write_text(
-        "openapi: '3.0.3'\n"
+        "openapi: '3.2.0'\n"
         "info: { title: api, version: '0.1.0' }\n"
         "paths:\n"
         "  /something: { get: { responses: { '200': { description: ok } } } }\n"

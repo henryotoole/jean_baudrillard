@@ -16,7 +16,6 @@ import sys
 from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import BuildFailed, EnvNotRunning
-from docex.naming import dns_label
 from docex.orchestrate._common import (
     assert_fixed_env,
     compose_file_for,
@@ -205,11 +204,8 @@ def run_up(ctx: ProjectContext, docker: DockerClient, *, env: str) -> int:
             return rc
 
     if ctx.infra is not None:
-        apex_domain = ctx.infra.apex_domain
-        # Canonical bare-env host per cicl.md § Domain:
-        # <env>.<project>.<apex_domain>. Project segment is DNS-labeled.
-        project_seg = dns_label(ctx.project.name)
-        subdomain = f"{env}.{project_seg}.{apex_domain}"
+        from docex.cicl.compile import env_subdomain_for
+        subdomain = env_subdomain_for(ctx, env)
     else:
         subdomain = "<unknown>"
     print(

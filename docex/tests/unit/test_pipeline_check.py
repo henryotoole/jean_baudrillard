@@ -239,7 +239,7 @@ def test_check_happy_path_aggregates_all_passing(
     worktree_setup, fake_docker, stub_test_and_compile, capsys
 ):
     """All gates pass + no test failures → rc 0, and the ROSTER is exactly the
-    nine gates mod 126 left behind."""
+    nine gates mod 126 left behind plus mod 137's contract_spec_version gate."""
     ctx, fake_git = worktree_setup
     rc = run_check(ctx, fake_docker, fake_git)
     # One readouterr() only — a second call returns the drained-and-empty
@@ -247,8 +247,9 @@ def test_check_happy_path_aggregates_all_passing(
     out = capsys.readouterr().out
     assert rc == 0, out
     assert "all gates and tests passed" in out
-    assert "all 9 gate(s) passed" in out
+    assert "all 10 gate(s) passed" in out
     assert "contract_health_path" in out
+    assert "contract_spec_version" in out
     assert "health_endpoints" not in out
     assert "healthcheck_tooling" not in out
 

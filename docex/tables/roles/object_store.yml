@@ -22,7 +22,6 @@ roles:
         fixed: [compose_service]
       defaults:
         fixed:
-          image: "minio/minio:latest"
           command: ["server", "/data", "--console-address", ":9001"]
           volumes:
             - ${global_service_name}_data:/data
@@ -35,6 +34,9 @@ roles:
             timeout: 5s
             retries: 3
       fields:
+        version:
+          fixed:
+            image: "minio/minio:${field_value}"
         versioning:
           # When true, MinIO needs the bucket marked versioned via mc on
           # first start. We declare the intent on the service block so

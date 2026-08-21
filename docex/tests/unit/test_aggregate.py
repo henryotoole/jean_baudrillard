@@ -352,3 +352,28 @@ def test_aggregate_elastic_wraps_put_failure_as_ssm_push_failed(tmp_path, fake_a
     fake_aws.raise_on["ssm_put_parameter"] = RuntimeError("network down")
     with pytest.raises(SSMPushFailed):
         aggregate_elastic(ctx, env="stage", aws=fake_aws)
+
+
+# ---------------------------------------------------------------------------
+# Mod 137 — `_host_for` reads the compiler-owned `CompiledEnv.subdomain`
+# (`env_subdomain_for`) instead of re-deriving the string by hand. The
+# DNS-label path must survive the consolidation for an underscore project name.
+# ---------------------------------------------------------------------------
+
+
+def test_host_for_uses_compiled_subdomain_and_dns_labels_project(tmp_path):
+    from docex.cicl.compile import env_subdomain_for
+    from docex.orchestrate.aggregate import _host_for
+
+    ctx = _postgres_ctx(tmp_path)
+    # Rename the project so its name carries an underscore — the data plane
+    # requires the project segment be DNS-labeled (underscore -> hyphen).
+    (ctx.project_root / "project.yml").write_text(
+        'name: sample_proj\nversion: "0.1.0"\ndocex_version: "0.5.0"\n'
+    )
+    ctx = load_project_context(ctx.project_root)
+
+    host = _host_for(ctx, "dev")
+    assert host == "dev.sample-proj.example.com"
+    # Identical to the compiler-owned derivation it now delegates to.
+    assert host == env_subdomain_for(ctx, "dev")

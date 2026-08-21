@@ -358,6 +358,15 @@ how `pipeline/check.py` implements it.
   documented next door. Keyed on `web`-network membership rather than role, for
   rule 33's reason — the field is what a reverse proxy reads, and a `role: web`
   core service off the `web` network has nothing in front of it.
+- **A contract's declared spec version meets the doctrine floor** (`_gate_contract_spec_version`,
+  mod 137) — OpenAPI ≥ 3.2, AsyncAPI ≥ 3.0, transcribed from `contracts.md § Standards`
+  into `_FORMAT_MIN_SPEC_VERSION` beside `_FORMAT_EXTENSIONS`. Each floor is what makes a
+  promised `api_style` *implementable* — openapi 3.2 for `stream`'s `itemSchema`, asyncapi
+  3.0 for `rpc`'s `reply` — so a project shipping `openapi: "2.0"` that previously passed
+  green now fails. It iterates the **same** `list[ContractExpectation]` the two gates above
+  materialize (no second directory walk), covers the two versioned formats only (`graphql` /
+  `proto` are SDL/IDL with no version key), and reports a malformed/absent version key **once**
+  as its own defect rather than also as a below-floor consequence it cannot compute.
 - **`health.sh` is the fourth codebase shim gate**, required unconditionally
   alongside `build.sh` and `test.sh`; `migrate.sh` stays conditional on schema
   ownership. One file per codebase like the others, but invoked **per core
@@ -377,7 +386,9 @@ how `pipeline/check.py` implements it.
   to the project. A gate enforcing a requirement the rule of record has withdrawn
   is worse than no gate, because it reads as a live constraint.
 
-The roster is therefore **nine** gates, not ten.
+The roster was **nine** gates after those two deletions; mod 137 added
+`_gate_contract_spec_version`, so it is now **ten** — the third contract gate,
+beside `_gate_contracts` and `_gate_contract_health_path`.
 
 **History, because it explains how a real defect hid for months.** Mod 101 wrote
 the two-armed union and the fan-out; before it, `_infer_contract_format` had

@@ -1256,6 +1256,23 @@ def _deep_merge(base: Any, override: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def env_subdomain_for(ctx: Any, env: str) -> str:
+    """The env's bare subdomain ``<env>.<project>.<apex_domain>``, taken from the
+    compiler-owned ``CompiledEnv.subdomain`` rather than re-derived by hand.
+
+    Consolidates the two former hand-rolled copies (``aggregate._host_for`` and
+    ``up.py``) onto the single derivation the compiler owns (``_env_subdomain``).
+    """
+    compiled = compile_env(
+        ctx.infra,
+        ctx.transfer_tables,
+        env=env,
+        project_name=ctx.project.name,
+        project_version=ctx.project.version,
+    )
+    return compiled.subdomain
+
+
 def run_compile(ctx: Any) -> int:
     """Compile every env and emit outputs. Returns process exit code."""
     from docex.emit.compose import emit_compose, emit_project_compose
