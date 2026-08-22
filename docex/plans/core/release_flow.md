@@ -42,8 +42,8 @@ Before the foundation branch, `run_release` calls `_require_secrets_present(ctx,
 docex release stage     (fixed)
 └─ ansible-playbook infra/output/stage/playbook.yml -i infra/output/stage/inventory.yml
    └─ SSH to host as `deploy` user using infra/deploy_creds/stage
-       ├─ docker pull <registry>/<project>/<cb>:<version>            (per codebase)
        ├─ render compose.yml + .env into /opt/<project>/<env>/
+       ├─ docker compose pull                                        (per codebase; no start)
        ├─ docker compose run --rm <cb>-exec /service/migrate.sh      (per schema owner)
        └─ docker compose -f /opt/<project>/<env>/docker-compose.yml up -d
 ```
@@ -70,8 +70,8 @@ Adapters: `src/docex/aws/client.py` (the `AWSClient` interface) and `src/docex/a
 |  | Fixed (steady-state or first) | Elastic — first release | Elastic — steady state |
 | --- | ----- | ----------------------- | ---------------------- |
 | 1 | ansible-playbook (everything below happens inside it) | SSM push | SSM push |
-| 2 | docker pull (per codebase) | tofu apply (full) | tofu apply (targeted: migration task-defs only) |
-| 3 | render compose.yml + .env | run_migrate (`RunTask` per schema owner) | run_migrate (`RunTask` per schema owner) |
+| 2 | render compose.yml + .env | tofu apply (full) | tofu apply (targeted: migration task-defs only) |
+| 3 | docker pull (per codebase; no start) | run_migrate (`RunTask` per schema owner) | run_migrate (`RunTask` per schema owner) |
 | 4 | docker compose run migrate (per schema owner) | — | tofu apply (full) |
 | 5 | docker compose up -d | — | — |
 | 6 | — | Service Connect consumer reconcile | Service Connect consumer reconcile |

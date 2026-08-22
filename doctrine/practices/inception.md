@@ -123,7 +123,7 @@ Much time may separate __PART IV__ and __PART V__. The operator may wish to keep
 4. Verify production preinfra exists with `./bin/docex preinfra production`
 	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
 5. Setup production project infrastructure with `./bin/docex projinfra up production`. There may need to be an operator NS-delegation step at the parent registrar if it has not been done before for the project domain.
-6. The LLM should carefully proceed along the CI/CD pipeline. See [CI/CD Pipeline](../infrastructure/cicd.md#the-pipeline) and run each step in order.
+6. The LLM should carefully proceed along the CI/CD pipeline, which begins with `docex merge`. See [CI/CD Pipeline](../infrastructure/cicd.md#the-pipeline) and run each step in order.
 
 After doing a production release for the first time, any barriers will be overcome and future releases will proceed smoothly.
 

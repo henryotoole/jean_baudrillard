@@ -340,13 +340,13 @@ roles:
         elastic:
           # Port, env, and uses come from infra.yml. Image is derived (see fixed
           # block above). cpu/memory/ephemeral_storage come from the service's
-          # `resources:` block (see § Resources Translation). Doctrine adds Fargate
-          # task settings; the ALB target group + listener rule are emitted alongside
-          # the ECS service when this service is on the `web` network, attaching to
-          # the project's project-tier ALB by ARN (looked up via the project tofu
+          # `resources:` block (see § Resources Translation). Fargate settings
+          # (`requires_compatibilities`/`network_mode`) are compiler-owned invariants
+          # emitted as literals, not table defaults — see the `defaults` field note
+          # above; the ALB target group + listener rule are emitted alongside the ECS
+          # service when this service is on the `web` network, attaching to the
+          # project's project-tier ALB by ARN (looked up via the project tofu
           # remote state).
-          launch_type: FARGATE
-          network_mode: awsvpc
           #
           # The same probe, in the task definition's container health check. The
           # doctrine emits it on both foundations, so it appears in both blocks.

@@ -299,9 +299,10 @@ scripts). The tooling lets an LLM agent *drive* secret handling without secret
 | Op | What it does | Values in LLM context? |
 | -- | ------------ | ---------------------- |
 | `docex secrets scaffold <env>` | reconcile the key set into `<env>.env`, preserving values | no |
-| `docex secrets status <env> [--format json]` | **redacted read** — per key: `SET`/`UNSET`, source, description; **never the value** | no |
+| `docex secrets status <env> [--format json] [--fingerprint]` | **redacted read** — per key: `SET`/`UNSET`, source, description; **never the value**. `--fingerprint` adds a non-revealing value fingerprint column | no |
 | `docex secrets set <env> <KEY>` | **write-only set** of one key | **no** |
 | `docex secrets copy <src_env> <tgt_env> <KEY>` | **value-blind copy** of one key between envs | **no** |
+| `docex secrets fingerprints [--format json]` | **value-blind cross-env matrix** — one row per key, one column per env; each cell a salted, non-revealing fingerprint of the value (or unset). Compares propagation/drift across envs | no |
 
 Two properties make this secure rather than theatrical:
 
@@ -314,8 +315,13 @@ Two properties make this secure rather than theatrical:
 2. **There is intentionally no `secrets get` / value-printing command.** Values
    leave the file only at materialization, never to stdout.
 
-`status` redaction is binary `SET`/`UNSET` only — no length or hash, which would
-leak information. `copy` applies to secrets and config **only, never TTE** (TTE
+`status` redaction is binary `SET`/`UNSET` by default — no length, and no hash
+unless one is explicitly requested. `--fingerprint` (and the `fingerprints`
+matrix) opts into a salted, project-local `sha256[:8]` fingerprint whose purpose
+is a cross-env **equality/drift** check, not a confidentiality guarantee: it
+reveals no value directly, but a low-entropy or placeholder secret is inherently
+guessable from any hash of it, so the fingerprint is safe to display precisely
+because a real high-entropy secret cannot be recovered from it. `copy` applies to secrets and config **only, never TTE** (TTE
 is minted per env and write-once against a live instance); a **same-side** copy
 (`dev`↔`test`, `stage`↔`prod`) is the blessed case, a **cross-side** copy warns
 (seeding production with development-side values), an unset source errors, and it

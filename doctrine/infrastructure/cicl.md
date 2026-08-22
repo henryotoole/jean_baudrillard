@@ -109,6 +109,7 @@ backing_services:
     role: object_store
     port: 9000 # on the web network, so a routing port is required
     engine: [minio, s3]
+    version: "RELEASE.2024-01-16T16-07-38Z" # pins the minio image tag (fixed); s3 (elastic) has no image, so version is exempt there
     versioning: true # A role-specific field.
     networks: [web, internal]
 ```
