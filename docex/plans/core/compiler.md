@@ -264,8 +264,8 @@ service's container happened to be chosen. Two properties carry it:
   block is inert until something runs in it. (It is the only `profiles:` key
   the compiler emits.)
 - Its `environment:` is `codebase_env` — the codebase-level surface only, never a
-  core service's overlay. That is what makes *`migrate.sh`, `test.sh` and
-  `build.sh` may depend only on codebase-scoped env* an enforceable rule rather
+  core service's overlay. That is what makes *`migrate.sh`, `test_unit.sh`,
+  `test_integration.sh` and `build.sh` may depend only on codebase-scoped env* an enforceable rule rather
   than a convention: a core-service-level key is not discouraged there, it is absent.
 
 A third property is owed to `docex build` in particular (mod 119): **the exec

@@ -156,7 +156,7 @@ Runs each codebase's `build.sh` in a one-off container of that codebase's [exec 
 
 ### `test`
 `./bin/docex test`
-Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each codebase's `test.sh` inside its test-stage container, then tears the environment down. Covers unit, integration, and contract tests across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every codebase's tests pass; non-zero on the first failure.
+Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each codebase's `test_unit.sh` then each codebase's `test_integration.sh` inside its test-stage container, then tears the environment down. Covers the unit tier (no-infra) and the integration tier (stack-backed, including contract tests) across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every codebase's tests pass; non-zero on the first failure.
 
 ### `check`
 `./bin/docex check`

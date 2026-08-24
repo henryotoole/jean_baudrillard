@@ -207,7 +207,7 @@ def test_retired_role_helpers_are_gone(module_name: str, attr: str):
 
     1. ``orchestrate/test.py::_run_<role>_tests`` (Mod 103) — the ``docex
        test`` carve-out that built a codebase's Dockerfile ``test`` stage
-       directly and ran ``test.sh`` outside compose. Mod 099's exec service is
+       directly and ran the test shim outside compose. Mod 099's exec service is
        emitted for every codebase, so it had nothing left to solve.
     2. ``orchestrate/_common.py::<role>_services`` (Mod 103) — "codebases with
        AT LEAST ONE core service of that role", whose sole consumer was mod

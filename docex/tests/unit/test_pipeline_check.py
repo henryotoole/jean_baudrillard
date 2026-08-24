@@ -336,6 +336,56 @@ def test_check_requires_health_sh_executable(
     assert "codebase_scripts" in out
 
 
+def test_check_requires_test_unit_sh(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """`test_unit.sh` is one of the two mandatory test shims (mod 147)."""
+    ctx, fake_git = worktree_setup
+    (ctx.project_root / "core" / "api" / "test_unit.sh").unlink()
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "codebase_scripts" in out
+
+
+def test_check_requires_test_unit_sh_executable(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """Present but non-executable is the same failure — docex invokes it as
+    `./test_unit.sh`."""
+    ctx, fake_git = worktree_setup
+    (ctx.project_root / "core" / "api" / "test_unit.sh").chmod(0o644)
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "codebase_scripts" in out
+
+
+def test_check_requires_test_integration_sh(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """`test_integration.sh` is the other mandatory test shim (mod 147)."""
+    ctx, fake_git = worktree_setup
+    (ctx.project_root / "core" / "api" / "test_integration.sh").unlink()
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "codebase_scripts" in out
+
+
+def test_check_requires_test_integration_sh_executable(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """Present but non-executable is the same failure — docex invokes it as
+    `./test_integration.sh`."""
+    ctx, fake_git = worktree_setup
+    (ctx.project_root / "core" / "api" / "test_integration.sh").chmod(0o644)
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "codebase_scripts" in out
+
+
 # ---------------------------------------------------------------------------
 # Mod 136: `check` treats a fetch failure the way `merge` does — fatal, not a
 # warning that then misfires first-release mode.

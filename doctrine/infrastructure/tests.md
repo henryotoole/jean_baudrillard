@@ -8,13 +8,13 @@ This document describes the different kinds of automated tests which ship with a
 
 ## Codebase Tests
 
-Codebase tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its `test.sh` inside its test-stage container. The tier is named for its scope, which is the codebase and not one of its core services: the test suite, like the artifact, is a property of the source tree, so one `test.sh` per codebase covers every core service that codebase declares. That scope is what distinguishes this tier from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's tests.
+Codebase tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its two test shims (`test_unit.sh` and `test_integration.sh`) inside its test-stage container. The tier is named for its scope, which is the codebase and not one of its core services: the test suite, like the artifact, is a property of the source tree, so one pair of shims per codebase covers every core service that codebase declares. That scope is what distinguishes this tier from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's tests.
 
 These tests test the code itself - that functions behave correctly, modules within a codebase can communicate, etc. They *don't* test inter-core-service communication. They can, however, interact with a backing service for the purpose of testing a single codebase (required for some integration tests).
 
 Codebase tests are written in whatever language, and with whatever tooling, is appropriate for the codebase. A codebase written in python would have tests also written in python and perhaps run with `pytest`.
 
-Unit, integration, and contract tests should all be run by the [standard test script](./cicd.md#build-test-step)
+The five conceptual tiers map onto **two execution classes**, one shim each: `test_unit.sh` runs the no-infra tiers (domain, alogic, adapter-unit), and `test_integration.sh` runs the stack-backed tiers (adapter-integration, module-integration, flow) **and contract tests**. The only distinction is needs-infra vs not: contract tests spin a provider server / mock inside a container, so they fold into integration. Both shims are invoked by the [standard build-test step](./cicd.md#build-test-step).
 
 The folder structure of codebase tests (and more details on how to write them) is described here: [hex_overview.md](../hexagonal_architecture/hex_overview.md#tests)
 
@@ -41,7 +41,7 @@ Contract tests ensure core service modularity. They check that a core service's 
 
 Keep in mind that a codebase can have multiple core services and that a core service can have multiple surfaces. A contract test *tests* a single core service's surface. However, it *runs* in the codebase's [exec service](./specifics/exec_service.md).
 
-A codebase declaring two core services (each declaring one surface) therefore has two contract files but one test suite, one `test.sh`, and one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`.
+A codebase declaring two core services (each declaring one surface) therefore has two contract files but one test suite, run by the two shims, in one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`.
 
 A core service declaring two surfaces is the same story from the other direction: `api.web` declaring `rest` and `events` has two contract files, both verified in that one run. The count of contracts tracks surfaces; the count of test suites tracks codebases.
 
@@ -56,14 +56,14 @@ This doctrine requires provider-side contract tests for core service surfaces, a
 - Test starts the provider's server *inside* that container. It does not call the core service's own long-running container in the `test` stack: schema-fuzzing tools generate large volumes of traffic, and aiming that at a shared container makes the suite order-dependent and pollutes state other tests rely on.
 - A schema-validation tool (e.g., schemathesis for OpenAPI) hits the real running endpoints.
 - Verifies that actual responses conform to what the surface's contract declares.
-- Invoked by the codebase's test.sh.
+- Invoked by the codebase's `test_integration.sh` (contract tests need a container).
 
 #### Consumer Side
 - Runs in a one-off container of the consumer's **codebase** exec service, as above.
 - A mock server is generated from the provider's contract - either via a separate container (Prism, AsyncAPI mock) or as an in-process mock library (e.g., httpx_mock for Python clients).
 - Consumer's tests hit the mock instead of the real backend.
 - Verifies consumer can work against any contract-conformant provider.
-- Invoked by the codebase's test.sh.
+- Invoked by the codebase's `test_integration.sh` (contract tests need a container).
 
 The consumer side is codebase-scoped in a second sense as well. It exercises a driven gateway adapter, and that adapter is shared by every core service the codebase declares — so two core services consuming the same provider want *one* consumer-side test, not two, even though [`uses`](./cicl.md#uses-relationships) is declared per core service.
 

@@ -26,7 +26,8 @@ _FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 _FIXED = _FIXTURES / "sample_project"
 
 # Planted on ONE core service. The whole point of the exec service is that
-# this key cannot reach `migrate.sh` / `test.sh` / `build.sh`.
+# this key cannot reach `migrate.sh` / `test_unit.sh` / `test_integration.sh`
+# / `build.sh`.
 _WEB_ONLY_KEY = "WEB_ONLY_SETTING"
 # Declared at the CODEBASE level in the fixture — codebase-scoped, so it must
 # reach the exec container.
@@ -105,7 +106,8 @@ def test_2_exec_service_is_profile_gated_and_nothing_depends_on_it(
 
 
 def test_3_exec_env_is_codebase_scoped(fixed_root: Path):
-    """The rule with teeth. `migrate.sh`, `test.sh` and `build.sh` may depend
+    """The rule with teeth. `migrate.sh`, `test_unit.sh`, `test_integration.sh`
+    and `build.sh` may depend
     only on codebase-scoped env — so a core service's `env:` key is not merely
     discouraged in the exec container, it is *absent*.
 

@@ -38,9 +38,9 @@ The defer-side table is also the clock's **startup gate**: `entrypoints/clock.py
 
 ### The `test` env has no sole actor
 
-A lesson the seeds now teach by example, because they previously taught the opposite. `docex test` brings the **whole** `test` environment up before running `test.sh`, so `api.worker` and `api.clock` are live containers competing with the suite for the same rows. A test that asserts it is the only claimer, or the only performer, is wrong by construction and fails intermittently — passing on a cold machine and failing once image layers cache, which is a worse signature than a clean failure.
+A lesson the seeds now teach by example, because they previously taught the opposite. `docex test` brings the **whole** `test` environment up before running the test shims, so `api.worker` and `api.clock` are live containers competing with the suite for the same rows. A test that asserts it is the only claimer, or the only performer, is wrong by construction and fails intermittently — passing on a cold machine and failing once image layers cache, which is a worse signature than a clean failure.
 
-So the seeds split by tier: DB-backed tests in `test_jobs_smoke.py` / `test_jobs_concurrency.py` assert only **outcomes in shared state** (and count the live worker as a third claimer, identified by the "no handler" error it stamps on unrecognized job names), while agency-shaped assertions live in `test_jobs_alogic.py` against a stub queue. That is where `hex_overview.md § Tests` puts them anyway; the `test`-env constraint simply makes the doctrine's tiering non-optional.
+So the seeds split by tier, and that split is now **physical** (mod 147): each codebase ships two shims — `test_unit.sh` globbing `tests/unit/` and `test_integration.sh` globbing `tests/integration/` — and `docex test` runs both. DB-backed tests in `tests/integration/` (`test_jobs_smoke.py` / `test_jobs_concurrency.py`) assert only **outcomes in shared state** (and count the live worker as a third claimer, identified by the "no handler" error it stamps on unrecognized job names), while agency-shaped assertions live in `tests/unit/` (`test_jobs_alogic.py`) against a stub queue. That is where `hex_overview.md § Tests` puts them anyway; the `test`-env constraint simply makes the doctrine's tiering non-optional, and the two-shim contract makes it the execution structure.
 
 ### `verify_clean.sh`: a check that cannot answer must fail
 
@@ -80,7 +80,7 @@ The `fixed` and `elastic` seeds carried a second codebase, `reaper`, until `role
 
 - **One image per codebase** — the multi-codebase build fan-out. With one codebase, `build` and `containerize` no longer iterate.
 - **Two registry repos on fixed** (checked at C.6 of [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md)) and **two ECR repos on elastic** (D.8 checked the count explicitly). Both counts are now one, and both checks now guard against a *second* repo appearing rather than confirming a second is present.
-- **The per-codebase `migrate.sh` / `test.sh` fan-out** — and the sharpest edge of all: a codebase that owns **no** schema, and therefore has no `migrate.sh` at all, is a shape the walk no longer contains anywhere. `reaper` was that shape.
+- **The per-codebase `migrate.sh` / `test_unit.sh` / `test_integration.sh` fan-out** — and the sharpest edge of all: a codebase that owns **no** schema, and therefore has no `migrate.sh` at all, is a shape the walk no longer contains anywhere. `reaper` was that shape.
 
 **What was gained,** so the trade is legible rather than only a loss: a real clock **container** running in both walks, a compiler-delivered schedule table (`infra/output/<env>/schedules.yml` plus the `DOCEX_SCHEDULES_YAML` literal), and a fire → defer → drain path exercised end-to-end on both foundations.
 

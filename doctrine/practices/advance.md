@@ -46,8 +46,8 @@ The backend should be able to send emails when certain trigger events occur. The
 1. **Mod: scaffold `frontend` codebase.** `corporal`.
    Add the `frontend` codebase and its one core service to `infra.yml` (consumer
    of `api.web`'s `rest` surface, `health_check_path` declared), Dockerfile with
-   the standard build/dev/prod/test stages, and `build.sh`/`test.sh`/`health.sh`
-   shims. Its own
+   the standard build/dev/prod/test stages, and
+   `build.sh`/`test_unit.sh`/`test_integration.sh`/`health.sh` shims. Its own
    mod not for size, but because it is a *verification gate* — the service must
    stand and health-check green before features land on it — and because it is
    infra territory (`infra.yml`, `infra-compile`), distinct from the frontend app

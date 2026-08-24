@@ -28,7 +28,8 @@ Two properties carry the design:
   block is inert until something runs in it.
 - Its ``environment:`` is the **codebase-level** ``env:`` surface only
   (``CompiledService.codebase_env``), never a core service's overlay. That is
-  what turns *``migrate.sh``, ``test.sh`` and ``build.sh`` may depend only on
+  what turns *``migrate.sh``, ``test_unit.sh``, ``test_integration.sh`` and
+  ``build.sh`` may depend only on
   codebase-scoped env* from a convention into an enforceable rule: a
   core-service-level key is not merely discouraged there, it is absent.
 """

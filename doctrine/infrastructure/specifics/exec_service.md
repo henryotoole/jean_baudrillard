@@ -6,7 +6,7 @@ stratum: conditional
 
 This file answers one question: **where does a one-off, codebase-scoped job run?**
 
-The answer is the **exec service** — the compiled block that *is* the [codebase](../cicl.md#core-services). The compiler emits exactly one per codebase, keyed `${project}-${env}-${codebase}-exec`, and it is the container `build.sh`, `test.sh`, and `migrate.sh` all run inside.
+The answer is the **exec service** — the compiled block that *is* the [codebase](../cicl.md#core-services). The compiler emits exactly one per codebase, keyed `${project}-${env}-${codebase}-exec`, and it is the container `build.sh`, `test_unit.sh`, `test_integration.sh`, and `migrate.sh` all run inside.
 
 It is not a [core service](../cicl.md#core-services). No project declares it, nothing routes to it, and `compose up` never starts it. It is a compiler-owned derivative, like the `-otelcol` sidecar.
 
@@ -18,7 +18,7 @@ A codebase with several core services offers **no principled way to pick one of 
 
 Three further properties fall out of that, and each is load-bearing:
 
-1. **Codebase-scoped env is enforceable by absence.** The block carries the codebase-level `env:` block only, never a core service's overlay. So *`build.sh`, `test.sh`, and `migrate.sh` may depend only on codebase-scoped env* is not a convention a script can quietly break — a core-service-scoped key is simply not present. A migration has no business reading a worker's concurrency knob, and now it cannot.
+1. **Codebase-scoped env is enforceable by absence.** The block carries the codebase-level `env:` block only, never a core service's overlay. So *`build.sh`, `test_unit.sh`, `test_integration.sh`, and `migrate.sh` may depend only on codebase-scoped env* is not a convention a script can quietly break — a core-service-scoped key is simply not present. A migration has no business reading a worker's concurrency knob, and now it cannot.
 2. **Nothing needs to be running.** The block is gated behind `profiles: [exec]`, so `compose up` never starts it, while `compose run` implicitly enables the profile of the service it names.
 3. **It is the compiler's one remaining ordering emission.** No core-service block carries `depends_on`. The exec block carries the union of its codebase's *backing*-targeted [`uses`](../cicl.md#uses-relationships) edges, rewritten to long-form `condition: service_healthy`. [Disposability](../cicl.md#uses-relationships) says a long-running process must tolerate a dependency vanishing; nothing in it makes a one-shot script succeed against a database not yet accepting connections. For a batch job, "be tolerant" *means* "wait until ready".
 
@@ -44,11 +44,13 @@ docker compose -f infra/output/dev/docker-compose.yml \
     run --rm myproject-dev-api-exec ./migrate.sh
 ```
 
-**Running the suite in `test`:**
+**Running the suite in `test`** (both tiers, unit then integration):
 
 ```bash
 docker compose -f infra/output/test/docker-compose.yml \
-    run --rm --build myproject-test-api-exec ./test.sh
+    run --rm --build myproject-test-api-exec ./test_unit.sh
+docker compose -f infra/output/test/docker-compose.yml \
+    run --rm --build myproject-test-api-exec ./test_integration.sh
 ```
 
 `--build` is added in `test` only. There the image *is* the artifact under test, and `compose run` builds only when the image is **absent** — it silently reuses a stale one otherwise. In `dev` source arrives by bind mount and the `dev` stage exists precisely so `build.sh` can be re-invoked without a rebuild, so forcing one there would contradict the stage's purpose.

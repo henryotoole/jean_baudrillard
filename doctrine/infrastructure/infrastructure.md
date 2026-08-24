@@ -140,7 +140,8 @@ $pr
 │   │   ├── src
 │   │   ├── tests
 │   │   ├── migrations
-│   │   ├── test.sh
+│   │   ├── test_unit.sh
+│   │   ├── test_integration.sh
 │   │   ├── build.sh
 │   │   ├── health.sh
 │   │   └── migrate.sh  # Only if needed
@@ -191,10 +192,11 @@ $pr
 Codebases go in the `core` folder. Each is given a name (like `api`) that will match the key under `codebases` in `infra.yml`. Each of these folders is a *codebase root* and will always contain:
 + `dist` - host folder where `build.sh` writes artifacts during dev iteration via the dev container's bind-mount. The formal containerize path keeps artifacts entirely inside `docker build` and does not touch this folder. Typically gitignored.
 + `src` - a folder that contains all source code. Structure within this folder is an architectural concern.
-+ `tests` - contains all the tests that `test.sh` will run.
++ `tests` - contains all the tests that the two test shims will run.
 + `migrations` - contains all migrations that `migrate.sh` will run.
 + `build.sh` - the [build script](./cicd.md#build-step).
-+ `test.sh` - the [test script](./cicd.md#build-test-step).
++ `test_unit.sh` - the no-infra [test script](./cicd.md#build-test-step) (domain / alogic / adapter-unit).
++ `test_integration.sh` - the stack-backed [test script](./cicd.md#build-test-step) (module-integration, flow, contract).
 + `migrate.sh` - the [migrate script](./cicd.md#migrate-step).
 + `health.sh` - the [health probe](./healthchecks.md#the-probe), invoked per core service.
 + `Dockerfile` - the dockerfile which configures the container.

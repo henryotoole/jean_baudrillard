@@ -7,7 +7,8 @@
 #
 #   - `group_by_codebase` returning more than one group,
 #   - one `-exec` service emitted per codebase,
-#   - `migrate.sh` / `test.sh` iterating codebase-by-codebase,
+#   - `migrate.sh` / `test_unit.sh` / `test_integration.sh` iterating
+#     codebase-by-codebase,
 #   - first-failure short-circuit BEFORE a *later* codebase is reached —
 #     an assertion that cannot even be written against one codebase.
 #

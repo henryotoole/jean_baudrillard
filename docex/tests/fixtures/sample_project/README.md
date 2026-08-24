@@ -17,10 +17,12 @@ core/
   api/
     Dockerfile           # build / dev / prod / test stages
     build.sh             # canonical build entry point
-    test.sh              # canonical test entry point
+    test_unit.sh         # no-infra test tier (globs tests/unit)
+    test_integration.sh  # stack-backed test tier (globs tests/integration)
     migrate.sh           # idempotent migration shim (python+psycopg2)
     src/app.py           # trivial http.server returning /health
-    tests/test_smoke.py  # one passing test
+    tests/unit/          # one passing unit-tier smoke test
+    tests/integration/   # one passing integration-tier smoke test
     migrations/*.sql     # CREATE TABLE IF NOT EXISTS health (...)
 ```
 

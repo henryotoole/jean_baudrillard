@@ -54,7 +54,7 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	4. `project.yml` version has not yet been released.
 	5. No merge conflicts
 3. Perform codebase checks:
-	1. All codebases contain `build.sh`, `test.sh`, `health.sh`, and `migrate.sh` if it is required.
+	1. All codebases contain `build.sh`, `test_unit.sh`, `test_integration.sh`, `health.sh`, and `migrate.sh` if it is required.
 		+ Unlike the other codebase shims, `health.sh` is invoked **per core service**, as `./health.sh <service>`. Still one file per codebase — but a web edge and a queue consumer built from the same image have different probes, so the compiler supplies the argv.
 	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s declared [surfaces](./cicl.md#surfaces). One contract per surface, at `${codebase}.${service}.${surface}.${format}.${ext}`, in the format that surface's `api_styles` resolve to.
 	3. Every core-service [`uses`](./cicl.md#uses-relationships) target declares at least one surface. A core service that declares none is not a provider and cannot be used. A target that is **directly addressed** also declares a `port`, because a consumer reaching it needs an address; a target reached only through a queue or broker declares none. A `web`-network target is exempt from that last clause — [rule 15](./cicl.md#validation-rules) requires a `port` there regardless, so a consumer that reaches a public edge by its URL rather than by an internal name still finds one.
@@ -135,14 +135,14 @@ No image rebuild is triggered here. Dev iteration is the hot loop, so `./bin/doc
 
 We test a build by running integration and unit tests against it. This is done formally in a fresh `test` environment.
 
-In order for tests to all be automatically run for a project, each codebase will need a `test.sh` script. This script is simply a small shim which actually runs the tests (e.g. with `pytest` or whatever) and exits with exit code 0 if all tests pass. It gives these tests a standard form so that build testing can be triggered for a whole project the same way for every project.
+In order for tests to all be automatically run for a project, each codebase ships **two** test shims: `test_unit.sh` (the no-infra tier — domain / alogic / adapter-unit) and `test_integration.sh` (the stack-backed tier — module-integration, flow, and contract tests). Each is a small shim which actually runs its tier's tests (e.g. with `pytest` or whatever) and exits with exit code 0 if they pass. The split is by execution class — needs a live stack or not — and it gives these tests a standard form so that build testing can be triggered for a whole project the same way for every project.
 
 #### Process
 1. Bring up the `test` environment with docker.
 	+ Build occurs implicitly as a byproduct.
 2. Run [Migrate Step](#migrate-step) against the `test` env.
 	+ If any codebase's `migrate.sh` returns a non-0 exit code, the build test fails.
-3. Run each codebase's `test.sh`.
+3. Run each codebase's `test_unit.sh`, then each codebase's `test_integration.sh`.
 	+ If any return a non-0 exit code, the build test fails.
 4. Tear down the test environment.
 

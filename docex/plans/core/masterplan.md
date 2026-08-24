@@ -176,7 +176,7 @@ A few commands compose others rather than duplicate logic:
 - Doctrine prose excerpts that back `docex why`.
 
 **Not bundled (lives in the project):**
-- Per-codebase `build.sh`, `test.sh`, `health.sh`, `migrate.sh` — bespoke per codebase and per language (`migrate.sh` only where the codebase owns a schema).
+- Per-codebase `build.sh`, `test_unit.sh`, `test_integration.sh`, `health.sh`, `migrate.sh` — bespoke per codebase and per language (`migrate.sh` only where the codebase owns a schema). The test tier is two shims: `test_unit.sh` (no-infra) and `test_integration.sh` (stack-backed, incl. contract).
 - Per-codebase `Dockerfile`s.
 - Language runtimes and toolchains for project code — those live inside each codebase's image.
 - Project-local transfer table extensions at `infra/transfer_tables/` (deep-merged with bundled tables at compile time).
@@ -198,7 +198,7 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `infra/tte/<env>.env` — dev/test TTE (transient-to-env) store, read during aggregation (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md))
 - `infra/deploy_creds/<env>` — SSH private key for fixed `release`
 - `infra/stage/{Dockerfile, stage_test.sh, tests/}` — stage tester definition and tests
-- `core/<codebase>/{Dockerfile, build.sh, test.sh, health.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
+- `core/<codebase>/{Dockerfile, build.sh, test_unit.sh, test_integration.sh, health.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
 - `.git/` — required by `check`, `merge`, and any command that needs commit identity
 
 **Write:**
@@ -367,9 +367,9 @@ how `pipeline/check.py` implements it.
   materialize (no second directory walk), covers the two versioned formats only (`graphql` /
   `proto` are SDL/IDL with no version key), and reports a malformed/absent version key **once**
   as its own defect rather than also as a below-floor consequence it cannot compute.
-- **`health.sh` is the fourth codebase shim gate**, required unconditionally
-  alongside `build.sh` and `test.sh`; `migrate.sh` stays conditional on schema
-  ownership. One file per codebase like the others, but invoked **per core
+- **`health.sh` is a required codebase shim gate**, required unconditionally
+  alongside `build.sh`, `test_unit.sh`, and `test_integration.sh`; `migrate.sh`
+  stays conditional on schema ownership. One file per codebase like the others, but invoked **per core
   service** as `./health.sh <service>` — the compiler emits the argv, so the shim
   never guesses which core service it is running in.
 

@@ -35,6 +35,19 @@ Advance 009 ("Test Overhaul") — in progress.
   docker, pytest) interleave in true chronological order when a run's output is
   redirected to a file, instead of docex's block-buffered narration clumping at
   process exit. (docex mod 146)
+- **The per-codebase test contract is now two shims** (SC1): every codebase ships
+  `test_unit.sh` (the no-infra tier — domain / alogic / adapter-unit) and
+  `test_integration.sh` (the stack-backed tier — module-integration, flow, **and
+  contract** tests), replacing the single `test.sh`. `docex check` asserts both
+  exist and are executable; `docex test` brings up the fresh `test` stack and runs
+  both shims (unit tier, then integration tier) within it, fail-fast. The five
+  conceptual test tiers are unchanged but now map onto **two execution classes**
+  (needs-infra vs not); contract folds into integration. Doctrine amended across
+  `tests.md`, `hex_overview.md § Tests`, `cicd.md`, `docex.md`, `infrastructure.md`,
+  `healthchecks.md`, `exec_service.md`, `inception.md`, `advance.md`,
+  `migrations.md`, and the `testing` skill. **Breaking:** downstream projects must
+  split their `test.sh` into the two shims (a project-upgrade guide rides with the
+  release that follows this advance). (docex mod 147)
 
 ## [2.1.0] - 2026-08-24
 

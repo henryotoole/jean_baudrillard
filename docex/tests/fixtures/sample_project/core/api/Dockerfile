@@ -23,7 +23,8 @@ RUN chmod +x /service/build.sh && /service/build.sh
 FROM base AS dev
 COPY build.sh /service/build.sh
 COPY migrate.sh /service/migrate.sh
-COPY test.sh /service/test.sh
+COPY test_unit.sh /service/test_unit.sh
+COPY test_integration.sh /service/test_integration.sh
 COPY health.sh /service/health.sh
 COPY src/ /service/src/
 COPY tests/ /service/tests/
@@ -49,13 +50,13 @@ CMD ["python", "/service/dist/app.py"]
 # test: extends prod with pytest + test sources.
 #
 # CMD is `sleep infinity` so the container stays up and ``docex test``
-# can `compose exec` test.sh and migrate.sh against it. Running the
-# tests as CMD would short-circuit the container before we could exec
+# can `compose run` the test shims and migrate.sh against it. Running the
+# tests as CMD would short-circuit the container before we could run
 # the migration step against it.
 # ----------------------------------------------------------------------
 FROM prod AS test
 RUN pip install --no-cache-dir pytest==8.3.3
-COPY test.sh /service/test.sh
+COPY test_unit.sh test_integration.sh /service/
 COPY tests/ /service/tests/
-RUN chmod +x /service/test.sh
+RUN chmod +x /service/test_unit.sh /service/test_integration.sh
 CMD ["sleep", "infinity"]

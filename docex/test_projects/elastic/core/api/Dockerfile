@@ -62,7 +62,7 @@ RUN chmod +x /service/build.sh && /service/build.sh
 # bind-mount in at runtime.
 # ----------------------------------------------------------------------
 FROM base AS dev
-COPY build.sh migrate.sh test.sh health.sh /service/
+COPY build.sh migrate.sh test_unit.sh test_integration.sh health.sh /service/
 COPY src/ /service/src/
 COPY tests/ /service/tests/
 COPY migrations/ /service/migrations/
@@ -100,12 +100,13 @@ CMD ["python", "/service/dist/entrypoints/web.py"]
 # test: extends prod with pytest + test sources.
 #
 # CMD is `sleep infinity` so the container stays up and `docex test`
-# can `compose exec test.sh` against it (mirroring the fixture pattern).
-# One test suite per codebase — test.sh runs every core service's tests.
+# can `compose run` the shims against it (mirroring the fixture pattern).
+# One test suite per codebase, run by two shims — test_unit.sh (no-infra
+# tier) and test_integration.sh (stack-backed tier, incl. contract).
 # ----------------------------------------------------------------------
 FROM prod AS test
 RUN pip install --no-cache-dir pytest==8.3.4 httpx==0.28.1
-COPY test.sh /service/test.sh
+COPY test_unit.sh test_integration.sh /service/
 COPY tests/ /service/tests/
-RUN chmod +x /service/test.sh
+RUN chmod +x /service/test_unit.sh /service/test_integration.sh
 CMD ["sleep", "infinity"]

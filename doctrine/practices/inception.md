@@ -73,8 +73,8 @@ __PART III__: Infrastructure Smoke Test
 		+ These don't need to be perfect. At this stage, we only know what the codebases are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.
 	2. `dist`, `src`, and `tests` folders.
 		+ These will be empty.
-	3. Infrastructure scripts: `build.sh`, `test.sh`, `health.sh`.
-		+ Each must be a **runnable stub, not an empty file** — `#!/bin/sh` followed by `exit 0`, with the execute bit set. An empty file is not a shim that trivially succeeds: `health.sh`, `test.sh`, and `migrate.sh` are all invoked in **exec form** (no shell), so a zero-byte file has no shebang for `execve` to honour and the kernel returns `exec format error`. Measured: exit **255**, reported as *unhealthy*. Only `build.sh` survives emptiness, because a Dockerfile `RUN` goes through a shell. The stub is what lets the smoke test pass before any code exists, and each must be replaced with a real implementation once there is something worth checking.
+	3. Infrastructure scripts: `build.sh`, `test_unit.sh`, `test_integration.sh`, `health.sh`. The test tier ships as **two** shims (the no-infra and stack-backed tiers), so scaffold both — each an `exit 0` stub.
+		+ Each must be a **runnable stub, not an empty file** — `#!/bin/sh` followed by `exit 0`, with the execute bit set. An empty file is not a shim that trivially succeeds: `health.sh`, the two test shims, and `migrate.sh` are all invoked in **exec form** (no shell), so a zero-byte file has no shebang for `execve` to honour and the kernel returns `exec format error`. Measured: exit **255**, reported as *unhealthy*. Only `build.sh` survives emptiness, because a Dockerfile `RUN` goes through a shell. The stub is what lets the smoke test pass before any code exists, and each must be replaced with a real implementation once there is something worth checking.
 	4. If this codebase owns the schema for a relational database, also create `migrate.sh` and the `migrations` folder.
 		+ These can be empty; they must merely exist.
 6. Compile `infra.yml`.
@@ -95,7 +95,7 @@ The process is roughly:
 2. Make a commit "Inception Part IV: first draft complete"
 
 The first of these cycles is very important. It must do the following very well:
-1. Write the contents of `build.sh` and `test.sh` for the first time for each codebase.
+1. Write the contents of `build.sh` and the two test shims (`test_unit.sh`, `test_integration.sh`) for the first time for each codebase.
 2. Adjust each codebase's Dockerfile for the specifics of the code it will be running.
 3. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database will need to write the initial migration file(s) which set up the database and the `migrate.sh` script which runs it.
 4. Write the first drafts of [contracts](../infrastructure/contracts.md) — one per [surface](../infrastructure/cicl.md#surfaces) declared in `infra.yml`.

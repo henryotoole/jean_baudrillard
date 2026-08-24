@@ -6,7 +6,9 @@ Per cicd.md § Build Test Step:
      runs build.sh in the build stage so test images carry correct
      artifacts).
   2. Migrate against the test env.
-  3. Run each codebase's test.sh, collecting exit codes.
+  3. Run both test shims phased by tier: each codebase's test_unit.sh
+     (no-infra) first, then each codebase's test_integration.sh
+     (stack-backed, incl. contract), collecting exit codes.
   4. Always tear down with ``preserve_volumes=False`` (test env is
      throwaway; fresh runs get fresh databases).
 
@@ -114,26 +116,27 @@ def run_test(
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. test.sh for each codebase, in the codebase's exec service.
-        # Every codebase runs `test.sh` exactly one way: `compose run --rm`
-        # against its own exec service, which the compiler emits for every
-        # codebase whatever its core services' roles are.
+        # 3. Both test shims for each codebase, phased by tier: test_unit.sh
+        # (no-infra) across all codebases first, then test_integration.sh
+        # (stack-backed, incl. contract). Fail-fast on the first non-zero, so
+        # the cheap tier gates the expensive one. Each runs as a one-off in the
+        # codebase's exec service; the stack is already up (unit tests are
+        # harmless against it — the no-stack lane is a later mod).
         #
         # WHY build=True: see step 2 above — same `test`-env freshness rule.
-        for svc in codebases(ctx):
-            key = exec_service_key(ctx, _TEST_ENV, svc)
-            rc = docker.compose_run_one_off(
-                compose_file, key, ["./test.sh"], build=True,
-                env_file=env_file, project_dir=project_dir,
-                project_name=project_name,
-            )
-            if rc != 0:
-                print(
-                    f"error: test.sh for {svc!r} exited {rc}.",
-                    file=sys.stderr,
+        for shim in ("./test_unit.sh", "./test_integration.sh"):
+            for svc in codebases(ctx):
+                key = exec_service_key(ctx, _TEST_ENV, svc)
+                rc = docker.compose_run_one_off(
+                    compose_file, key, [shim], build=True,
+                    env_file=env_file, project_dir=project_dir,
+                    project_name=project_name,
                 )
-                first_failure = rc
-                return rc
+                if rc != 0:
+                    print(f"error: {shim} for {svc!r} exited {rc}.",
+                          file=sys.stderr)
+                    first_failure = rc
+                    return rc
     finally:
         # 4. Always tear down — even if a Python exception interrupted
         # us. preserve_volumes=False: test env's data is throwaway.
