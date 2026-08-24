@@ -31,19 +31,9 @@ __PART I__: Setup
 	+ The repo should **always** be private - if it can not be made private, do not proceed.
 4. Clone the new repository into the "projects" directory. The folder created by the clone operation will be the "project root" or `$pr`. All further work will happen out of this directory.
 5. Change directory into the project folder e.g. `cd ${project_name}`
-6. Establish `main` as the doctrine trunk. The clone from step 4 is an empty
-   repo with no commits yet; ensure the branch you are about to commit on is
-   named `main` (GitHub's default for new repos — rename with `git branch -m
-   main` if your git's `init.defaultBranch` differs), make an empty initial
-   commit, and push it so `origin/main` exists:
-	```
-	git commit --allow-empty -m "Initial commit"
-	git push -u origin main
-	```
-	Every Part I–IV commit still lands on the feature branch created next; only
-	this empty trunk root is added ahead of it, so the first `docex merge` at
-	PART V rebases onto an existing (empty) `origin/main` instead of having to
-	invent the trunk.
+6. Establish the `main` branch as the doctrine trunk.
+	+ Ensure active branch is named `main`.
+	+ Make an empty commit and push it so that `origin/main` exists.
 7. Create a branch called "inception_and_first_draft" and switch to it.
 8. Set up some basic structure for the project:
 	1. Create or update `.gitignore` file with the [default](#gitignore-defaults) below.

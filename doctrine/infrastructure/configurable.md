@@ -64,13 +64,7 @@ The `./bin/docex secrets ...` command gives the agent tooling to work with secre
 | `docex secrets copy <src_env> <tgt_env> <KEY>` | **value-blind copy** — set `tgt.KEY` = `src.KEY` without exposing the value | agent freely |
 | `docex secrets fingerprints [--format json]` | **cross-env fingerprint matrix** — one row per key, one column per env; each cell a salted, non-revealing fingerprint of the value (or unset). Compares propagation/drift across envs | agent freely |
 
-A **fingerprint** is `hex(sha256(SALT || value))[:8]` under a fixed,
-project-local, **non-secret** salt derived from the project name — safe to
-display, stable within a project, and comparable across its environments. It
-lets a value-blind caller confirm two envs hold the *same* value, or detect
-drift, without ever reading the value. It is an **equality/drift check, not a
-confidentiality guarantee**: it reveals no value directly, but a low-entropy or
-placeholder secret is inherently guessable from any hash of it.
+In the case of secrets, a fingerprint is `hex(sha256(SALT || value))[:8]` under a fixed, project-local, **non-secret** salt derived from the project name. It is stable within a project and comparable across envs. This lets two secret values be compared without literally reading them.
 
 ### Config
 
