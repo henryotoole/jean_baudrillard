@@ -10,8 +10,8 @@ across them and run in parallel.
 Flow tests are the longest-running tests we have and, by design, they do **not**
 mock infrastructure — they exercise the composed codebase against real backing
 services (real test DB, real cache), stubbing only external-system gateways. See
-[hex_overview.md § Tests](../../../../doctrine/hexagonal_architecture/hex_overview.md#tests)
-and [tests.md § Codebase-Level](../../../../doctrine/infrastructure/tests.md).
+[hex_overview.md § Tests](../../../../../doctrine/hexagonal_architecture/hex_overview.md#tests)
+and [tests.md § Codebase-Level](../../../../../doctrine/infrastructure/tests.md).
 That makes them the natural target for parallelism, and the natural unit of
 parallelism is a whole `test` stack: full-stack isolation handles *every* case
 (destructive truncation, migration-exercising tests, hardcoded IDs) with
@@ -20,7 +20,7 @@ a single shared stack.
 
 The doctrine today fixes exactly four environments — `dev`, `test`, `stage`,
 `prod` — and asserts it across
-[infrastructure.md](../../../../doctrine/infrastructure/infrastructure.md),
+[infrastructure.md](../../../../../doctrine/infrastructure/infrastructure.md),
 the lexicon, `configurable.md`, and `cicd.md`. "Heavier test topology" sits
 under that file's **Deferred** list. This proposal is therefore a **doctrine
 change**, not merely a `docex` change — but a contained one, because of how the
@@ -33,7 +33,7 @@ Every physical resource name is already `{project}_{env}_…`
 `_env_subdomain`). Config/secrets/tte are keyed `infra/<kind>/<env>.env`. And
 **nothing publishes a host port** — `web` services are reached by the reverse
 proxy over the docker network, backing services publish nothing
-([networks.md:46](../../../../doctrine/infrastructure/specifics/networks.md),
+([networks.md:46](../../../../../doctrine/infrastructure/specifics/networks.md),
 `emit/compose.py`). So the collision surface between two concurrent `test`
 stacks is *not* ports and *not* the `.env` files. It is purely **names** — and
 `env` is already the segment that distinguishes names.
@@ -172,7 +172,7 @@ IDs still *exist as derivations*, for two non-allocation purposes only:
 docex does not own the tests (the doctrine is emphatic that developers write
 their own). The bridge must therefore be a **stable, documented, one-way
 contract**, on the exact model of the `stagetest` injection
-([tests.md § Injected environment](../../../../doctrine/infrastructure/tests.md)),
+([tests.md § Injected environment](../../../../../doctrine/infrastructure/tests.md)),
 where docex injects `STAGING_URL`/`PROJECT_VERSION` and the project's tests read
 or ignore them.
 
