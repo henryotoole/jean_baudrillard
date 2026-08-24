@@ -43,12 +43,13 @@ A backlog-clearing advance: twelve triaged briefs delivered across eight mods
   (`rule_elastic_defaults_unread_key`); rule 32 left as-is with `healthchecks.md`
   prose softened to match. (138)
 
-**Goal 4 — the two verification-gated infra defects.** ⚠ EDITS DONE, GATES PENDING
+**Goal 4 — the two verification-gated infra defects.** ✅ EDITS DONE, BOTH GATES VERIFIED ON REAL INFRA
 - Preinfra dedicated traefiks got a `docex.project` discovery constraint + matching
   labels (`container_registry.md`, `telemetry_preinfra.md`) — doctrine-only. (143)
 - The fixed release playbook pulls without starting, so migrate runs before up
   (`playbook.yml.j2`), with a test asserting the pull task starts nothing. (144)
 - **Both gates require the operator-supervised pre-cut walk** — see below.
+- **RESOLVED (2026-08-24):** Mod 143 verified on the live preinfra host (registry-traefik constrained; foreign ACME discovery stopped; registry cert intact). Mod 144 verified by the **fixed** smoke walk (migrate completed before the app containers' StartedAt on stage AND prod; clock first-fire clean). Both **mandatory smoke walks are GREEN and torn down clean** — the fixed walk (`fixed_walk_mod144_evidence.md`) and the elastic walk (`elastic_walk_evidence.md`, which additionally verified Mod 138's HCL `project_dns_label` threading + `defaults.elastic` guard on real AWS output). `verify_clean` exit 0 on both; no AWS spend lingering.
 
 ## Verification state
 - Test suite: **1254 passed, 21 deselected** (default) / **21 passed, 1254
