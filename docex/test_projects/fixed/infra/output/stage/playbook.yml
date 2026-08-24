@@ -42,11 +42,10 @@
       when: agg_env_file is defined
 
     - name: Pull all images
-      community.docker.docker_compose_v2:
+      community.docker.docker_compose_v2_pull:
         project_src: "{{ deploy_root }}"
         project_name: "docex-smoke-fixed-stage"
-        pull: always
-        state: present
+        policy: always
 
     - name: Run migrations for api
       ansible.builtin.command:
