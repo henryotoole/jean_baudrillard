@@ -15,10 +15,12 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
-## [Unreleased]
+## [2.1.0] - 2026-08-24
 
 Advance 008 ("Housekeeping") — a backlog-clearing advance of small, mostly-independent
-fixes. Cut target **2.1.0**.
+fixes. Two new hard compile rejections (a non-DNS-label project name; an `object_store`
+without `version`) are breaking *in principle* but enforce rules the doctrine already
+stated; see [`upgrades/upgrade_2.1.0.md`](./upgrades/upgrade_2.1.0.md).
 
 ### Added
 - **`docex compile` rejects an inert `defaults.elastic` key** on the ECS task-definition
