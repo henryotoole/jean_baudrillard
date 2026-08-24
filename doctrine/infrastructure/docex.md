@@ -164,7 +164,7 @@ Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree mergi
 
 ### `merge`
 `./bin/docex merge`
-Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. Re-runs gate checks defensively before merging to catch race conditions where main moved between `./bin/docex check` and `./bin/docex merge`. Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. See [cicd.md](./cicd.md#merge).
+Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. Re-runs gate checks defensively before merging to catch race conditions where main moved between `./bin/docex check` and `./bin/docex merge`. Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. Before any of this, it preflights the remote with `git ls-remote origin` and exits non-zero in seconds if `origin` is unreachable or auth fails — without building an image or running a test (skipped when the repo has no `origin`). See [cicd.md](./cicd.md#merge).
 
 ### `containerize`
 `./bin/docex containerize`

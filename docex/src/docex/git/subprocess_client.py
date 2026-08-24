@@ -108,6 +108,19 @@ class SubprocessGitClient:
     def fetch(self, cwd: Path, *, remote: str = "origin") -> int:
         return self._run(["fetch", remote], cwd=cwd)
 
+    def ls_remote(self, cwd: Path, *, remote: str = "origin") -> int:
+        try:
+            res = subprocess.run(  # noqa: S603
+                [self._git, "ls-remote", remote],
+                cwd=str(cwd),
+                stdout=subprocess.DEVNULL,  # ref listing is noise
+                # stderr inherited: the auth/reachability error must be visible
+                check=False,
+            )
+        except FileNotFoundError:
+            return 127
+        return res.returncode
+
     def remote_exists(self, cwd: Path, remote: str = "origin") -> bool:
         # ``git remote get-url <remote>`` exits 0 iff the remote is
         # configured. _capture returns None on non-zero exit (remote

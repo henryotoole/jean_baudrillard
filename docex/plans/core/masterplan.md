@@ -119,7 +119,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `test` | fresh `test` env | full project | host docker (ephemeral test stack), exit code |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test |
-| `merge` | both | feature branch, `project.yml` | rebases onto main, tags `v<version>`, pushes both |
+| `merge` | both | feature branch, `project.yml` | preflights origin reachability/auth (`git ls-remote`, skipped no-origin), rebases onto main, tags `v<version>`, pushes both |
 | `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per codebase, tag, push to registry |
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
 | `stagetest` | both, branches internally for the pre-step | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL, plus the orchestrator's own state (fixed: `docker inspect` over SSH; elastic: ECS `list_tasks`/`describe_tasks`) | ephemeral stage-tester container, exit code — **preceded** by a liveness/version gate that fails before the tester is built |

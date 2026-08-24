@@ -120,6 +120,13 @@ ENV ANSIBLE_PERSISTENT_CONTROL_PATH_DIR=/tmp/.ansible-cp
 # is $HOME/.ansible/cp; same EACCES failure mode without this.
 ENV ANSIBLE_SSH_CONTROL_PATH_DIR=/tmp/.ansible-ssh-cp
 
+# Run docex's own Python output unbuffered so its narration interleaves
+# with the live output of the subprocesses it launches (git, docker,
+# pytest) in true chronological order — critical when a run's output is
+# redirected to a file (block buffering otherwise clumps narration at
+# process exit). Covers stdout + stderr for every docex invocation.
+ENV PYTHONUNBUFFERED=1
+
 # The shim sets `-w "$PROJECT_ROOT"` at runtime — bind-mounting the
 # host project at the same path inside the container so DooD path
 # resolution agrees in both directions. The image's WORKDIR is a

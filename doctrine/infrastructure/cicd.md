@@ -79,11 +79,12 @@ This step is optional, and is not covered more deeply in this version of the `do
 This step simply merges the feature branch into the main branch (technically we rebase, but "merge" captures the intent more) and tags the relevant commit. The release tag is applied to the merge tip, not to the original version-bump commit. This way, if any fix-up commits after a failed `./bin/docex check` occur, they require no special handling.
 
 #### Process
-1. Re-run gate checks just in case the main branch moved.
-2. Rebase feature onto current main; fast-forward main to the rebased tip.
-3. Tag the new main tip with `v<version>` from `project.yml`.
-4. Push main and tags to origin.
-5. Delete the feature branch (local + remote)
+1. Preflight the remote with `git ls-remote origin`: fail fast (in seconds) if `origin` is unreachable or unauthenticated, before building any image or running any test. Skipped on a repo with no `origin` remote. This also guarantees the defensive recheck below sees fresh `main`.
+2. Re-run gate checks just in case the main branch moved.
+3. Rebase feature onto current main; fast-forward main to the rebased tip.
+4. Tag the new main tip with `v<version>` from `project.yml`.
+5. Push main and tags to origin.
+6. Delete the feature branch (local + remote)
 
 #### `docex`
 `./bin/docex merge`

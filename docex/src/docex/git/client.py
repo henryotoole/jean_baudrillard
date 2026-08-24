@@ -62,6 +62,18 @@ class GitClient(Protocol):
         """``git fetch <remote>``. Returns exit code."""
         ...
 
+    def ls_remote(self, cwd: Path, *, remote: str = "origin") -> int:
+        """``git ls-remote <remote>``. Returns exit code.
+
+        A cheap remote reachability + auth probe: it exercises the same
+        credential path fetch/push use and returns non-zero (git's 128) when
+        the remote is unreachable or authentication fails. ``merge`` runs it
+        as a fail-fast preflight before any expensive work. Stdout (the ref
+        listing) is discarded; stderr is inherited so the real auth error is
+        visible.
+        """
+        ...
+
     def remote_exists(self, cwd: Path, remote: str = "origin") -> bool:
         """True iff the named git remote is configured.
 

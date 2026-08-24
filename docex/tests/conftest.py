@@ -403,6 +403,11 @@ class FakeGitClient:
         self.calls.append(("fetch", str(cwd), remote))
         return self.exit_codes.get(key, self.default_exit)
 
+    def ls_remote(self, cwd, *, remote="origin"):
+        key = ("ls_remote", remote)
+        self.calls.append(("ls_remote", str(cwd), remote))
+        return self.exit_codes.get(key, self.default_exit)
+
     def remote_exists(self, cwd, remote="origin"):
         self.calls.append(("remote_exists", str(cwd), remote))
         return self.has_origin

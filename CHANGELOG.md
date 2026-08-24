@@ -15,6 +15,27 @@ documented step-by-step in `implementation/phase_1.md` through
 `implementation/phase_4.md`. Granular change tracking starts below, from the
 first post-`0.4.0` overhaul.
 
+## [Unreleased]
+
+Advance 009 ("Test Overhaul") — in progress.
+
+### Changed
+- **`docex merge` preflights the remote before any expensive work.** A
+  `git ls-remote origin` check now runs at the very top of `merge`: a broken /
+  unauthenticated / unreachable `origin` fails in seconds, naming the problem,
+  **without building an image or running a single test** (previously the auth
+  failure only surfaced after the defensive `check`'s full build + suite, ~34 min
+  wasted on a real run). Skipped on a repo with no `origin` remote (local-only
+  merge). This also closes a latent correctness gap: because `check` tolerates a
+  failed fetch and continues against potentially-stale `origin/main`, the
+  defensive recheck could validate against a stale base — guaranteeing the remote
+  is reachable first means the recheck always sees fresh `main`. (docex mod 146)
+- **docex runs its own Python unbuffered** (`PYTHONUNBUFFERED=1` in the image), so
+  docex's narration and the live output of the subprocesses it launches (git,
+  docker, pytest) interleave in true chronological order when a run's output is
+  redirected to a file, instead of docex's block-buffered narration clumping at
+  process exit. (docex mod 146)
+
 ## [2.1.0] - 2026-08-24
 
 Advance 008 ("Housekeeping") — a backlog-clearing advance of small, mostly-independent

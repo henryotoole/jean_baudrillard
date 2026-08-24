@@ -41,6 +41,29 @@ def run_merge(
     """Run the full merge sequence. Returns process exit code."""
     project_root = ctx.project_root
 
+    # 0. Remote preflight (fail fast) ----------------------------------
+    # Prove origin is reachable + authenticated BEFORE any expensive work
+    # (defensive check builds an image and runs the full suite). git
+    # ls-remote exercises the identical credential path the later
+    # fetch/push need, so a broken-auth environment dies here in seconds
+    # instead of after a ~34-min check. On a repo with no origin (e.g. the
+    # test projects) there is nothing to prove — skip and take the
+    # local-only merge path. Resolving origin here also guarantees check's
+    # best-effort fetch succeeds, so the defensive recheck validates
+    # against fresh main rather than a stale one.
+    has_origin = git.remote_exists(project_root, "origin")
+    if has_origin:
+        rc = git.ls_remote(project_root, remote="origin")
+        if rc != 0:
+            print(
+                f"error: git remote 'origin' is unreachable or "
+                f"unauthenticated ('git ls-remote origin' exited {rc}). "
+                "Fix network / git credentials (SSH key or token) and retry. "
+                "No image was built and no test was run.",
+                file=sys.stderr,
+            )
+            return rc
+
     # 1. Defensive recheck ---------------------------------------------
     print("merge: running 'docex check' defensively before rebase...")
     rc = run_check(ctx, docker, git)
@@ -66,7 +89,6 @@ def run_merge(
     # deliberately have none) there's nothing to fetch from or push to —
     # we integrate against the *local* ``main`` instead, matching the
     # walker's manual ``git merge --ff-only``.
-    has_origin = git.remote_exists(project_root, "origin")
     if has_origin:
         rc = git.fetch(project_root, remote="origin")
         if rc != 0:

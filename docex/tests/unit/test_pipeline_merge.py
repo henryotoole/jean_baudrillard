@@ -193,6 +193,82 @@ def test_merge_no_origin_skips_fetch_and_push(
     assert "tag" in methods
 
 
+# --- Mod 146: remote preflight -------------------------------------
+
+
+def test_merge_preflight_fails_fast_on_broken_auth(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    # run_check must be a spy we can prove is NEVER called.
+    called = []
+    monkeypatch.setattr(
+        merge_mod, "run_check",
+        lambda *a, **kw: (called.append(True), 0)[1],
+    )
+    fake_git.branch = "feature/x"
+    fake_git.exit_codes[("ls_remote", "origin")] = 128
+
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+
+    assert rc == 128
+    assert called == [], "defensive check ran despite failed preflight"
+    # No mutating git op — and no fetch — may have run.
+    mutating = {c[0] for c in fake_git.calls} & {
+        "fetch", "rebase", "fast_forward", "tag", "push", "delete_branch",
+    }
+    assert mutating == set(), fake_git.calls
+    # The preflight itself must have run.
+    assert any(c[0] == "ls_remote" for c in fake_git.calls)
+
+
+def test_merge_preflight_runs_before_check(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    order: list[str] = []
+    monkeypatch.setattr(
+        merge_mod, "run_check",
+        lambda *a, **kw: (order.append("check"), 0)[1],
+    )
+    # ls_remote records into fake_git.calls; capture its relative order.
+    original_ls = fake_git.ls_remote
+
+    def tracking_ls(*a, **kw):
+        order.append("ls_remote")
+        return original_ls(*a, **kw)
+
+    fake_git.ls_remote = tracking_ls  # type: ignore[method-assign]
+    fake_git.branch = "feature/x"
+
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert order.index("ls_remote") < order.index("check")
+
+
+def test_merge_no_origin_skips_preflight(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    fake_git.branch = "feature/x"
+    fake_git.has_origin = False
+    # A scripted ls_remote failure must be irrelevant when there's no origin.
+    fake_git.exit_codes[("ls_remote", "origin")] = 128
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert not any(c[0] == "ls_remote" for c in fake_git.calls)
+    # Local-only merge still integrates + tags.
+    assert any(c[0] == "tag" for c in fake_git.calls)
+
+
+def test_merge_preflight_passes_then_merges(
+    sample_ctx, fake_docker, fake_git, patched_check
+):
+    fake_git.branch = "feature/x"
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    ls_calls = [c for c in fake_git.calls if c[0] == "ls_remote"]
+    assert len(ls_calls) == 1
+    assert ls_calls[0] == ("ls_remote", str(sample_ctx.project_root), "origin")
+
+
 def test_merge_no_origin_deletes_local_branch_only(
     sample_ctx, fake_docker, fake_git, patched_check
 ):
