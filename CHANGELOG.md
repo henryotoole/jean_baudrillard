@@ -120,6 +120,24 @@ Advance 009 ("Test Overhaul") — in progress.
   `migrations.md`, and the `testing` skill. **Breaking:** downstream projects must
   split their `test.sh` into the two shims (a project-upgrade guide rides with the
   release that follows this advance). (docex mod 147)
+- **`docex test` gains two honest execution modes + a blessed subset (F5).**
+  `docex test unit [subset]` runs only the no-infra unit tier in a **throwaway
+  container with no compose stack brought up** (the exec service's `depends_on`
+  backing services are suppressed with `--no-deps`) — a plain **synchronous** run
+  (seconds; no shared infra, so no lock and no durable-job vessel; `--detach` is
+  refused). `docex test integration [subset]` runs the stack-backed integration
+  tier against a fresh `test` stack and **is** a durable job, sharing `test`'s
+  `<label>-test-runner` lock (a full `docex test` and a `docex test integration`
+  refuse each other). Plain `docex test` (both tiers, fresh stack, durable job) is
+  unchanged. An optional `[subset]` narrows within the chosen tier and reaches the
+  project's codebase test shim as a new injected env var, **`DOCEX_TEST_SELECTOR`**
+  — a one-way, stable docex↔project contract (unset ⇒ whole tier; set ⇒ the shim
+  forwards it to its runner) that composes with the future test-sharding
+  `DOCEX_TEST_*` vars. Doctrine amended in `tests.md` (§ Two execution modes + the
+  `DOCEX_TEST_SELECTOR` injected-variable note), `docex.md` (the `test`
+  sub-surface + Command-Lifecycle synchronous-unit-lane note), and the `testing`
+  skill. docex's own fixture shims forward the selector as the reference
+  implementation. (docex mod 151)
 
 ## [2.1.0] - 2026-08-24
 

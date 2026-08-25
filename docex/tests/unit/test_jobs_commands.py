@@ -203,7 +203,7 @@ def test_run_in_vessel_records_status_then_exit_and_captures_log(
         ),
     )
 
-    def fake_body(ctx, docker):
+    def fake_body(ctx, docker, params):
         # Written to the OS-level fds, so the vessel's log redirect captures it.
         os.write(1, b"body stdout line\n")
         os.write(2, b"body stderr line\n")

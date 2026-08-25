@@ -16,6 +16,29 @@ Codebase tests are written in whatever language, and with whatever tooling, is a
 
 The five conceptual tiers map onto **two execution classes**, one shim each: `test_unit.sh` runs the no-infra tiers (domain, alogic, adapter-unit), and `test_integration.sh` runs the stack-backed tiers (adapter-integration, module-integration, flow) **and contract tests**. The only distinction is needs-infra vs not: contract tests spin a provider server / mock inside a container, so they fold into integration. Both shims are invoked by the [standard build-test step](./cicd.md#build-test-step).
 
+### Two execution modes
+
+The two shims are not only a *classification* — they are two **execution modes**
+with different infrastructure needs, and `docex test` exposes each directly:
+
+- **`docex test`** (no argument) is the **formal isolation** mode: it brings up a
+  fresh, throwaway `test` stack, runs both tiers in it, and tears it down. This is
+  the mode CI/CD and an advance's close-out run — the full suite against clean
+  infrastructure.
+- **`docex test unit [subset]`** is the **fast lane**: it runs the no-infra unit
+  tier in a throwaway container with **no compose stack brought up at all** (the
+  `depends_on` backing services are suppressed), so it returns in seconds. It is
+  the blessed replacement for hand-rolling a raw `docker run` to iterate on one
+  failing unit test.
+- **`docex test integration [subset]`** runs the stack-backed integration tier
+  against a fresh `test` stack, optionally narrowed to a subset.
+
+The subset — how you run *fewer than a whole tier* — is chosen the doctrine's own
+way: the **tier** (`unit` / `integration`) is the primary selector, and an
+optional within-tier refinement is carried by the injected variable below. This is
+the sanctioned fast inner loop; it is not a way to skip the full run, which a mod
+closes on and an advance and CI/CD always run.
+
 The folder structure of codebase tests (and more details on how to write them) is described here: [hex_overview.md](../hexagonal_architecture/hex_overview.md#tests)
 
 ### Unit Tests
@@ -99,3 +122,17 @@ The developer must also ensure that the Dockerfile produces an environment with 
 | `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. A test asserting that a `web` service's `/health` returns the expected version reads this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. This is the project's own assertion through the public edge; `docex` has already checked the deployed version against the orchestrator. |
 
 The contract is one-way and stable: docex injects these on every `stagetest` run; the project's tests are free to read or ignore them. Adding new doctrine-injected variables is a doctrine change, not a project change.
+
+The **codebase test shims** receive one injected variable on the same one-way,
+stable footing:
+
+| Variable | Source | Purpose |
+| -------- | ------ | ------- |
+| `DOCEX_TEST_SELECTOR` | the `[subset]` argument to `docex test unit`/`integration` | An opaque, runner-native selector the shim forwards to its test runner to narrow the run to a subset of its tier. **Unset ⇒ run the whole tier** (the default). Set ⇒ the shim runs only the named tests. |
+
+The shim decides how to forward it in a way idiomatic to its runner (a `pytest`
+shim splices it as an args fragment — a path and/or `-m`/`-k` expression); the
+contract fixes only the variable and its meaning, never the runner. Like the stage
+injections, this contract is one-way and stable — adding to it (as parallel test
+sharding later will, with its own `DOCEX_TEST_*` variables) is a doctrine change,
+not a project change.

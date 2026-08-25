@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Doctrine for a project's test taxonomy and harness — which tier a test belongs to (codebase-level unit / integration / contract, where integration spans module- and codebase-level "flow" tests and folds in contract, vs. project-level staging), which of the two execution shims runs it (no-infra test_unit.sh vs. stack-backed test_integration.sh), where each runs (the test env vs. against a deployed stage), and the test_unit.sh / test_integration.sh / stage_test.sh shims. Use this when deciding what kinds of tests a codebase needs, whether to write a flow test vs. a contract test, where a test should run, or wiring the test/stage shims. Not for how to write a specific test of a class or function — that is the Resident hexagonal-architecture doctrine.
+description: Doctrine for a project's test taxonomy and harness — which tier a test belongs to (codebase-level unit / integration / contract, where integration spans module- and codebase-level "flow" tests and folds in contract, vs. project-level staging), which of the two execution shims runs it (no-infra test_unit.sh vs. stack-backed test_integration.sh), where each runs (the test env vs. against a deployed stage), and the test_unit.sh / test_integration.sh / stage_test.sh shims. Use this when deciding what kinds of tests a codebase needs, whether to write a flow test vs. a contract test, where a test should run, or wiring the test/stage shims, and the two execution modes `docex test` exposes (the no-stack `docex test unit` fast lane for iterating on a failing test vs. the fresh-throwaway full run), including the `DOCEX_TEST_SELECTOR` subset contract. Not for how to write a specific test of a class or function — that is the Resident hexagonal-architecture doctrine.
 metadata:
   type: thread
 ---
@@ -24,3 +24,9 @@ The test tiers and how they are invoked. **Read this now.**
 - **Staging tests do not assert liveness.** `docex` reads every core service's health and version from the orchestrator before the stage tester is built, so staging tests cover only what requires being outside — TLS, DNS, routing, and critical-path smoke tests. They cannot reach a non-`web` core service at all.
 - Tests are executed by the pipeline — build tests in the check/test step, staging tests in stagetest — see `cicd-pipeline`.
 - **`docex test` is a durable job.** The suite runs in a detached vessel container, so a killed monitor leaves the run alive and re-attachable (`docex test --detach` + `docex job wait`); the blocking default still exits with the run's code. The async command surface lives in [`docex.md § Command Lifecycle`](../../doctrine/infrastructure/docex.md#command-lifecycle) / the `cicd-pipeline` skill, not here.
+- **Two execution modes + subset.** `docex test unit [subset]` runs the unit tier
+  with **no stack** (the fast inner loop); `docex test integration [subset]` runs
+  the stack-backed tier; a `[subset]` narrows within the tier and reaches the
+  project shim as the injected `DOCEX_TEST_SELECTOR`. Both the modes and the
+  injected-variable contract are in [`tests.md § Two execution modes`](../../doctrine/infrastructure/tests.md#two-execution-modes)
+  / [§ Injected environment](../../doctrine/infrastructure/tests.md#injected-environment).

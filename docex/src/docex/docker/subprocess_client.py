@@ -166,6 +166,7 @@ class SubprocessDockerClient:
         *,
         env: dict[str, str] | None = None,
         build: bool = False,
+        no_deps: bool = False,
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
@@ -184,6 +185,11 @@ class SubprocessDockerClient:
         # there, and a real rebuild would sit on the hot `docex build` loop).
         if build:
             cmd.append("--build")
+        # WHY --no-deps: suppress the exec service's `depends_on` backing
+        # services so the `docex test unit` fast lane creates zero stack
+        # containers (no-stack property).
+        if no_deps:
+            cmd.append("--no-deps")
         for key, val in (env or {}).items():
             cmd.extend(["-e", f"{key}={val}"])
         cmd.append(service)

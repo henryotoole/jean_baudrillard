@@ -116,7 +116,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (four `-web` networks + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup (S3 bucket + DynamoDB table for tofu state), then the two-phase project-tier `tofu apply` — phase 1 the Route53 hosted zone alone so the operator can NS-delegate, phase 2 the full project tier; both idempotent |
 | `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, and the whole aggregate at bring-up — TTE ∪ secrets ∪ config (`infra/tte/`, `infra/secrets/`, `infra/config/`); for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
-| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/` |
+| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/`. Two subset modes (mod 151): `test unit [subset]` runs the no-infra unit tier in a throwaway `--no-deps` container with **no stack brought up** — a plain synchronous run, no vessel/lock; `test integration [subset]` runs the stack-backed tier as a durable job sharing `test`'s lock. `[subset]` reaches the codebase shim as the injected `DOCEX_TEST_SELECTOR` |
 | `job <op> [<handle>]` | both | `.docex/runs/` run records; vessel liveness (`docker inspect`) | stdout — `ls`/`status`/`wait`/`logs`/`result` over durable run handles (no state mutated except `wait`/`result` reading the authoritative `exit` file) |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test — a [durable job](#durable-jobs-the-job-substrate); blocks + exits with the run's code (durable underneath), or `--detach` → a handle. On success writes a `.docex/checks/` provenance record for `merge` to trust forward |
@@ -174,6 +174,10 @@ job** — the run outlives the invoking call — implemented by `src/docex/jobs/
 doctrine rule of record is [`docex.md § Command Lifecycle`](../../../doctrine/infrastructure/docex.md#command-lifecycle);
 this is how `docex` realizes it. `docex test`, `docex check`, and `docex merge`
 are all durable jobs (`test` since mod 148; `check`/`merge` since mod 149).
+The `docex test unit` fast lane (mod 151) is the deliberate exception — a
+stackless unit run touches no shared infra, so it is a plain synchronous run
+(no vessel, no lock, no run record), not a durable job; only `docex test` and
+`docex test integration [subset]` take the vessel, sharing one `test` lock scope.
 
 - **The handle is an on-disk run record** under `.docex/runs/<id>/`
   (`meta.json` immutable launch metadata, `status.json` progress, an

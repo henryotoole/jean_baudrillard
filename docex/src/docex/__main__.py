@@ -34,7 +34,9 @@ _HELP_TEXT: dict[str, str] = {
     "projinfra": "Bring up or tear down project-tier infrastructure for a side.",
     "envinfra": "Bring up or tear down a local dev or test environment.",
     "build": "Refresh dist/ for one or all codebases.",
-    "test": "Run build-time tests in a fresh test env (durable job; --detach for a handle).",
+    "test": "Run build-time tests in a fresh test env (durable job; --detach for a "
+            "handle). 'test unit [sel]' = no-stack fast lane; 'test integration "
+            "[sel]' = stack-backed subset.",
     "migrate": "Apply database migrations against an env.",
     "job": "Operate on durable run handles (ls/status/wait/logs/result).",
     "check": "Run CI gate checks in an ephemeral worktree (durable job; --detach for a handle).",
@@ -426,16 +428,46 @@ def _cmd_build(args: list[str]) -> int:
 def _cmd_test(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex test", add_help=True)
     parser.add_argument(
+        "tier", nargs="?", choices=["unit", "integration"], default=None,
+        help="restrict to one execution mode: 'unit' (no-stack fast lane) or "
+             "'integration' (stack-backed). Omit to run both tiers in a fresh "
+             "throwaway stack (the formal isolation mode).",
+    )
+    parser.add_argument(
+        "subset", nargs="?", default=None,
+        help="optional within-tier selector forwarded to the codebase test shim "
+             "as DOCEX_TEST_SELECTOR (a pytest-args fragment for the exemplar "
+             "shim: a path and/or -m/-k expression). Omit to run the whole tier.",
+    )
+    parser.add_argument(
         "--detach", action="store_true",
-        help="launch the run detached and print its handle instead of blocking",
+        help="launch the run detached and print its handle instead of blocking "
+             "(not valid for the synchronous 'unit' lane)",
     )
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.jobs.commands import run_test_job
-
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
+
+    if ns.tier == "unit":
+        if ns.detach:
+            print(
+                "error: 'docex test unit' is a synchronous no-stack run; "
+                "--detach does not apply.",
+                file=sys.stderr,
+            )
+            return 64  # EX_USAGE
+        from docex.orchestrate.test import run_test_unit
+        return run_test_unit(ctx, docker, selector=ns.subset)
+
+    from docex.jobs.commands import run_test_job
+    if ns.tier == "integration":
+        return run_test_job(
+            ctx, docker, detach=ns.detach,
+            tiers=("integration",), selector=ns.subset,
+        )
+    # No tier → the full durable job, unchanged.
     return run_test_job(ctx, docker, detach=ns.detach)
 
 

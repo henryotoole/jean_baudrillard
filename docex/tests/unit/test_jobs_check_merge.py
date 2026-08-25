@@ -219,7 +219,7 @@ def test_run_check_body_calls_run_check_with_git(sample_ctx, fake_docker, monkey
         return 3
 
     monkeypatch.setattr("docex.pipeline.check.run_check", stub)
-    rc = commands._run_check_body(sample_ctx, fake_docker)
+    rc = commands._run_check_body(sample_ctx, fake_docker, {})
     assert rc == 3
     from docex.git import SubprocessGitClient
 
@@ -236,7 +236,7 @@ def test_run_merge_body_calls_run_merge_with_git(sample_ctx, fake_docker, monkey
         return 5
 
     monkeypatch.setattr("docex.pipeline.merge.run_merge", stub)
-    rc = commands._run_merge_body(sample_ctx, fake_docker)
+    rc = commands._run_merge_body(sample_ctx, fake_docker, {})
     assert rc == 5
     from docex.git import SubprocessGitClient
 
@@ -257,7 +257,7 @@ def test_run_in_vessel_dispatches_check_merge(
 ):
     rid = _seed_record(sample_ctx, kind=kind, vessel=vessel)
 
-    def fake_body(ctx, docker):
+    def fake_body(ctx, docker, params):
         os.write(1, f"{kind} body ran\n".encode())
         return rc_expected
 

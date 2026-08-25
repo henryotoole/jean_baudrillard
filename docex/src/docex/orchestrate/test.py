@@ -36,6 +36,10 @@ from docex.orchestrate.aggregate import aggregate
 
 _TEST_ENV = "test"
 
+# Mod 151: tier name → shim filename, so a parametrized `tiers` can select
+# which shims run (unit before integration). The full run passes both.
+_TIER_SHIMS = {"unit": "./test_unit.sh", "integration": "./test_integration.sh"}
+
 
 def run_test(
     ctx: ProjectContext,
@@ -44,6 +48,8 @@ def run_test(
     project_dir: "Path | None" = None,
     env_file_override: "Path | None" = None,
     project_name: "str | None" = None,
+    tiers: "tuple[str, ...]" = ("unit", "integration"),
+    selector: "str | None" = None,
 ) -> int:
     """Run the full build-test cycle. Returns process exit code.
 
@@ -60,6 +66,15 @@ def run_test(
     check`` passes a worktree-unique name so its throwaway ``test`` stack
     can't collide with (or get torn down alongside) a real ``test`` env
     stack on the same host. Defaults to the standard env-tier name.
+
+    ``tiers`` selects which shim tiers to run in the up stack; defaults to
+    both (the full ``docex test``). ``("integration",)`` is the
+    ``docex test integration [subset]`` lane — still stack-backed (up +
+    migrate + tear down), but runs only ``test_integration.sh``.
+
+    ``selector``, when set, is injected into each shim's one-off container as
+    ``DOCEX_TEST_SELECTOR`` so the project shim can narrow the run to a
+    subset of its tier.
     """
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, _TEST_ENV)
@@ -116,19 +131,26 @@ def run_test(
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. Both test shims for each codebase, phased by tier: test_unit.sh
-        # (no-infra) across all codebases first, then test_integration.sh
-        # (stack-backed, incl. contract). Fail-fast on the first non-zero, so
-        # the cheap tier gates the expensive one. Each runs as a one-off in the
-        # codebase's exec service; the stack is already up (unit tests are
-        # harmless against it — the no-stack lane is a later mod).
+        # 3. Requested tiers, phased (unit before integration). Each shim runs
+        # as a one-off in the codebase's exec service against the already-up
+        # stack. Fail-fast on the first non-zero, so the cheap tier gates the
+        # expensive one. `selector`, when set, reaches the project shim as
+        # DOCEX_TEST_SELECTOR so it can narrow the run to a subset (see
+        # tests.md § Two execution modes).
         #
         # WHY build=True: see step 2 above — same `test`-env freshness rule.
-        for shim in ("./test_unit.sh", "./test_integration.sh"):
+        selector_env = (
+            {"DOCEX_TEST_SELECTOR": selector} if selector else None
+        )
+        for tier in ("unit", "integration"):
+            if tier not in tiers:
+                continue
+            shim = _TIER_SHIMS[tier]
             for svc in codebases(ctx):
                 key = exec_service_key(ctx, _TEST_ENV, svc)
                 rc = docker.compose_run_one_off(
                     compose_file, key, [shim], build=True,
+                    env=selector_env,
                     env_file=env_file, project_dir=project_dir,
                     project_name=project_name,
                 )
@@ -154,3 +176,44 @@ def run_test(
             )
 
     return first_failure
+
+
+def run_test_unit(
+    ctx: ProjectContext,
+    docker: DockerClient,
+    *,
+    selector: "str | None" = None,
+) -> int:
+    """The no-stack unit fast lane (``docex test unit [subset]``).
+
+    Runs ONLY each codebase's ``test_unit.sh`` in a throwaway ``--rm`` exec
+    container with ``--no-deps`` — so no ``depends_on`` backing services start
+    and **no compose stack is brought up**. There is no migrate (the unit tier
+    is no-infra), no teardown, and no durable job / lock (a stackless run
+    touches no shared infra, so nothing can contend). Seconds, not minutes.
+
+    ``selector``, when set, reaches ``test_unit.sh`` as ``DOCEX_TEST_SELECTOR``
+    so the shim can narrow to a subset (see tests.md § Two execution modes).
+    Uses the standard ``test`` compose project name so the exec image is shared
+    with the full ``test`` env. Fail-fast on the first non-zero; returns that
+    code.
+    """
+    ensure_compiled(ctx)
+    compose_file = compose_file_for(ctx, _TEST_ENV)
+    env_file = aggregate(ctx, env=_TEST_ENV)
+    project_name = env_compose_project(ctx, _TEST_ENV)
+    selector_env = {"DOCEX_TEST_SELECTOR": selector} if selector else None
+
+    for svc in codebases(ctx):
+        key = exec_service_key(ctx, _TEST_ENV, svc)
+        rc = docker.compose_run_one_off(
+            compose_file, key, ["./test_unit.sh"], build=True,
+            no_deps=True,
+            env=selector_env,
+            env_file=env_file, project_name=project_name,
+        )
+        if rc != 0:
+            print(f"error: ./test_unit.sh for {svc!r} exited {rc}.",
+                  file=sys.stderr)
+            return rc
+    return 0

@@ -38,25 +38,27 @@ RESULT_UNFINISHED_EXIT = 2
 _MERGE_DETACH_PASSTHROUGH_EXIT = 64
 
 
-def _run_test_body(ctx, docker) -> int:
+def _run_test_body(ctx, docker, params) -> int:
     # Lazy import: avoids paying orchestrate/test's import cost on every
     # dispatcher load and keeps the module free of an import cycle.
     from docex.orchestrate.test import run_test
 
-    return run_test(ctx, docker)
+    tiers = tuple(params.get("tiers") or ("unit", "integration"))
+    selector = params.get("selector")
+    return run_test(ctx, docker, tiers=tiers, selector=selector)
 
 
-def _run_check_body(ctx, docker) -> int:
+def _run_check_body(ctx, docker, params) -> int:  # params unused
     # Lazy imports (same rationale as _run_test_body). The _JOB_BODIES
-    # signature is body(ctx, docker), so the git client is constructed here
-    # rather than threaded through — matching how _require_git builds it.
+    # signature is body(ctx, docker, params), so the git client is constructed
+    # here rather than threaded through — matching how _require_git builds it.
     from docex.git import SubprocessGitClient
     from docex.pipeline.check import run_check
 
     return run_check(ctx, docker, SubprocessGitClient())
 
 
-def _run_merge_body(ctx, docker) -> int:
+def _run_merge_body(ctx, docker, params) -> int:  # params unused
     from docex.git import SubprocessGitClient
     from docex.pipeline.merge import run_merge
 
@@ -149,11 +151,18 @@ def _launch_durable_job(
     return _attach(ctx, run_id)
 
 
-def run_test_job(ctx, docker, *, detach: bool) -> int:
-    """Launch ``docex test`` as a durable, container-vessel job.
+def run_test_job(
+    ctx, docker, *, detach: bool,
+    tiers: tuple[str, ...] = ("unit", "integration"),
+    selector: str | None = None,
+) -> int:
+    """Launch ``docex test`` (or ``docex test integration [subset]``) as a
+    durable, container-vessel job.
 
     Blocks and attaches by default (exit code == the run's); with
-    ``detach=True`` prints the handle and returns fast (~seconds).
+    ``detach=True`` prints the handle and returns fast (~seconds). The
+    integration lane shares ``test``'s lock scope — both contend over the same
+    ``test`` stack, so they refuse each other.
     """
     label = dns_label(ctx.project.name)
     return _launch_durable_job(
@@ -161,7 +170,7 @@ def run_test_job(ctx, docker, *, detach: bool) -> int:
         kind="test",
         scope=f"{label}/test",
         vessel_name=f"{label}-test-runner",
-        params={},
+        params={"tiers": list(tiers), "selector": selector},
         detach=detach,
     )
 
@@ -498,7 +507,7 @@ def run_in_vessel(ctx, docker, run_id: str) -> int:
         rc = 1
     else:
         try:
-            rc = body(ctx, docker)
+            rc = body(ctx, docker, meta.params)
         except Exception:  # noqa: BLE001 — any body failure is a failed run
             traceback.print_exc()
             rc = 1

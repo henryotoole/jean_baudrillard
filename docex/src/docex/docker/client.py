@@ -85,6 +85,7 @@ class DockerClient(Protocol):
         *,
         env: dict[str, str] | None = None,
         build: bool = False,
+        no_deps: bool = False,
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
@@ -103,6 +104,11 @@ class DockerClient(Protocol):
         the build context has changed since. Callers pass True exactly where
         the image *is* the artifact under test, i.e. in the ``test`` env
         (Mod 103).
+
+        ``no_deps=True`` adds ``--no-deps`` so ``compose run`` does **not**
+        start the service's ``depends_on`` backing services — used by the
+        no-stack ``docex test unit`` fast lane, which must create zero stack
+        containers.
         """
         ...
 

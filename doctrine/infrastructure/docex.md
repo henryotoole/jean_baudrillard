@@ -44,7 +44,7 @@ Two additions make the durability usable:
 
 Concurrency is bounded by the vessel's **deterministic name, which is the lock**: a second run against the same scope loses the `docker run --name` create race and **refuses** rather than contending over the shared stack. Each durable command has its **own per-command lock scope** — `test`, `check`, and `merge` runners are independent, so two `test`s (or two `check`s, or two `merge`s) refuse each other while a `check` alongside a `merge` is allowed. A vessel that was hard-killed leaves an orphaned record and a leaked resource; the next run's **preflight reaper** clears both (writing an authoritative `exit`, then reclaiming what that run owned) and proceeds. The `./bin/docex` shim is **unchanged** — the vessel is launched by docex itself over the socket, so no shim update is required.
 
-`test`, `check`, and `merge` are all durable jobs. **One vessel kind serves every durable job — a detached sibling container.** There is no second vessel kind (a "host process" cannot be durable under docex's Docker-outside-of-Docker model: the foreground `docex` runs inside the `--rm` container the shim launched, so a child process spawned there dies with it when the call is killed, and an in-container docex can spawn only a *container* over the socket, never a bare host process). What varies by job **kind** is instead two things: the **body** the vessel runs (the suite for `test`; the gate/build/test sequence for `check`; the rebase/tag/push for `merge`), and the **resource the reaper reclaims** on orphan — a `test` run's throwaway compose stack, or a `check`/`merge` run's ephemeral [worktree](#check) and the throwaway build/test stack its defensive run brought up. The reaper never unwinds `merge`'s real git mutations (an interrupted rebase, a partial fast-forward/tag); those are left for the operator, as `merge` already specifies.
+`test`, `check`, and `merge` are all durable jobs. **One vessel kind serves every durable job — a detached sibling container.** There is no second vessel kind (a "host process" cannot be durable under docex's Docker-outside-of-Docker model: the foreground `docex` runs inside the `--rm` container the shim launched, so a child process spawned there dies with it when the call is killed, and an in-container docex can spawn only a *container* over the socket, never a bare host process). What varies by job **kind** is instead two things: the **body** the vessel runs (the suite for `test`; the gate/build/test sequence for `check`; the rebase/tag/push for `merge`), and the **resource the reaper reclaims** on orphan — a `test` run's throwaway compose stack, or a `check`/`merge` run's ephemeral [worktree](#check) and the throwaway build/test stack its defensive run brought up. The reaper never unwinds `merge`'s real git mutations (an interrupted rebase, a partial fast-forward/tag); those are left for the operator, as `merge` already specifies. The `docex test unit` fast lane is the deliberate exception: a stackless unit run touches no shared infra, so it is a plain synchronous run — no vessel, no lock, no run record — not a durable job.
 
 ## Provided Tools
 
@@ -61,7 +61,7 @@ Concurrency is bounded by the vessel's **deterministic name, which is the lock**
 | `secrets <op> <env> [...]` | Manage an environment's secrets file without exposing secret values to the caller. |
 | `config <op> <env> [...]` | Manage an environment's non-secret config file. |
 | `build <codebase>` | Run `build.sh` for one or all codebases. |
-| `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#command-lifecycle); `--detach` returns a handle instead of blocking. |
+| `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#command-lifecycle); `--detach` returns a handle. `test unit [subset]` is a synchronous no-stack fast lane; `test integration [subset]` runs the stack-backed tier, optionally subset. |
 | `job <op> [<handle>]` | Operate on durable run handles: `ls`, `status`, `wait`, `logs`, `result`. |
 | `migrate <env>` | Apply database migrations for each schema-owning codebase in `<env>`. |
 | `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. A [durable job](#command-lifecycle); `--detach` returns a handle instead of blocking. |
@@ -175,9 +175,24 @@ Runs each codebase's `build.sh` in a one-off container of that codebase's [exec 
 ### `test`
 `./bin/docex test`
 `./bin/docex test --detach`
+`./bin/docex test unit [subset]`
+`./bin/docex test integration [subset]`
 Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each codebase's `test_unit.sh` then each codebase's `test_integration.sh` inside its test-stage container, then tears the environment down. Covers the unit tier (no-infra) and the integration tier (stack-backed, including contract tests) across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every codebase's tests pass; non-zero on the first failure.
 
 `test` is a **durable job** (see [Command Lifecycle](#command-lifecycle)): the suite runs in a detached, deterministically-named vessel container, so the blocking default preserves the exit-code contract while a killed foreground monitor leaves the run **alive and re-attachable** via `docex job wait`. `--detach` returns the run handle immediately instead of blocking. The vessel's deterministic name is a per-`(project, test)` lock — a second concurrent run **refuses** rather than contending — and a hard-killed run is **reaped** by the next invocation's preflight. `test` still runs both shims in the fresh `test` stack, exactly as above.
+
+`test` has two **execution modes** beyond the full run. `docex test unit [subset]`
+runs only the no-infra unit tier in a throwaway container with **no compose stack
+brought up** — the fast inner loop for iterating on a failing unit test; it is a
+plain **synchronous** run (seconds, no shared infra to contend over, so no lock
+and no durable-job vessel — `--detach` does not apply). `docex test integration
+[subset]` runs the stack-backed integration tier against a fresh `test` stack and
+**is** a durable job, sharing `test`'s lock scope (a full `docex test` and a
+`docex test integration` refuse each other — they contend over the same stack). An
+optional `[subset]` narrows the run within the chosen tier; docex forwards it to
+the codebase's test shim as `DOCEX_TEST_SELECTOR` (see
+[tests.md § Injected environment](./tests.md#injected-environment)). Omitting the
+subset runs the whole tier.
 
 ### `job`
 `./bin/docex job ls`

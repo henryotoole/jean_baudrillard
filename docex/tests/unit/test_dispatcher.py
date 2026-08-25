@@ -752,6 +752,44 @@ def test_test_detach_flag_parses_and_routes(monkeypatch, sample_ctx):
     assert captured["detach"] is False
 
 
+def test_cli_test_unit_routes_synchronous(monkeypatch, sample_ctx):
+    """Mod 151: `docex test unit [subset]` → synchronous run_test_unit."""
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    calls = {}
+    monkeypatch.setattr(
+        "docex.orchestrate.test.run_test_unit",
+        lambda ctx, docker, *, selector: calls.update(unit=selector) or 0,
+    )
+    rc = _cmd_test(["unit", "tests/unit/foo.py"])
+    assert rc == 0
+    assert calls["unit"] == "tests/unit/foo.py"
+
+
+def test_cli_test_unit_detach_is_usage_error(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+    rc = _cmd_test(["unit", "--detach"])
+    assert rc == 64
+
+
+def test_cli_test_integration_routes_to_job(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    seen = {}
+    monkeypatch.setattr(
+        "docex.jobs.commands.run_test_job",
+        lambda ctx, docker, *, detach, tiers=("unit", "integration"),
+        selector=None: seen.update(tiers=tiers, selector=selector, detach=detach) or 0,
+    )
+    rc = _cmd_test(["integration", "tests/integration/foo.py"])
+    assert rc == 0
+    assert seen == {"tiers": ("integration",),
+                    "selector": "tests/integration/foo.py", "detach": False}
+
+
 def test_job_ls_routes(monkeypatch, sample_ctx):
     monkeypatch.chdir(sample_ctx.project_root)
     _patch_docker_ok(monkeypatch)

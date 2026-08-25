@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from docex.context import load_project_context
-from docex.orchestrate.test import run_test
+from docex.orchestrate.test import run_test, run_test_unit
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -98,12 +98,12 @@ def test_test_teardown_still_runs_on_python_exception(sample_ctx, fake_docker):
     # passes it at every one-off call site, so omitting it turns the intended
     # RuntimeError into a TypeError from the fake itself.
     def _raising_run(compose_file, service, command, *, env=None,
-                     build=False, env_file=None, project_dir=None,
+                     build=False, no_deps=False, env_file=None, project_dir=None,
                      project_name=None):
         if command and command[0] == "./test_integration.sh":
             raise RuntimeError(boom_token)
         return original_run(
-            compose_file, service, command, env=env, build=build,
+            compose_file, service, command, env=env, build=build, no_deps=no_deps,
             env_file=env_file, project_dir=project_dir,
             project_name=project_name,
         )
@@ -243,3 +243,94 @@ def test_run_test_one_offs_build_first(sample_ctx, fake_docker):
     assert {cmd for _svc, cmd in built} == {
         ("./migrate.sh",), ("./test_unit.sh",), ("./test_integration.sh",),
     }
+
+
+# ---------------------------------------------------------------------------
+# Mod 151: the no-stack unit fast lane + the stack-backed integration lane.
+# ---------------------------------------------------------------------------
+
+
+def test_unit_lane_brings_up_no_stack(sample_ctx, fake_docker):
+    rc = run_test_unit(sample_ctx, fake_docker)
+    assert rc == 0
+    methods = [c[0] for c in fake_docker.calls]
+    # THE no-stack property: never a compose up, never a migrate, never a down.
+    assert "compose_up" not in methods
+    assert "compose_down" not in methods
+    run_calls = [c for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    # Only the unit shim runs — no migrate, no integration shim.
+    assert [c[3] for c in run_calls] == [("./test_unit.sh",)]
+    # And it ran with --no-deps (the flag that suppresses depends_on backing svcs).
+    assert ("compose_run_one_off_no_deps", "sample-test-api-exec",
+            ("./test_unit.sh",)) in fake_docker.calls
+
+
+def test_unit_lane_multi_codebase_no_deps_each(multi_ctx, fake_docker):
+    rc = run_test_unit(multi_ctx, fake_docker)
+    assert rc == 0
+    no_deps = [c for c in fake_docker.calls
+               if c[0] == "compose_run_one_off_no_deps"]
+    assert [c[1] for c in no_deps] == [
+        "sample-test-api-exec", "sample-test-reporter-exec",
+    ]
+    assert "compose_up" not in [c[0] for c in fake_docker.calls]
+
+
+def test_unit_lane_injects_selector(sample_ctx, fake_docker):
+    rc = run_test_unit(sample_ctx, fake_docker, selector="tests/unit/foo.py -k bar")
+    assert rc == 0
+    env_calls = [c for c in fake_docker.calls
+                 if c[0] == "compose_run_one_off_env"]
+    assert env_calls, "selector must be injected as env"
+    # side-call shape: (tag, svc, cmd_tuple, sorted_env_items)
+    assert env_calls[0][3] == (("DOCEX_TEST_SELECTOR", "tests/unit/foo.py -k bar"),)
+
+
+def test_unit_lane_no_selector_no_env(sample_ctx, fake_docker):
+    rc = run_test_unit(sample_ctx, fake_docker)
+    assert rc == 0
+    assert [c for c in fake_docker.calls
+            if c[0] == "compose_run_one_off_env"] == []
+
+
+def test_unit_lane_fails_fast_returns_code(multi_ctx, fake_docker):
+    fake_docker.exit_codes[
+        ("exit", "compose_run_one_off", "sample-test-api-exec",
+         ("./test_unit.sh",))
+    ] = 7
+    rc = run_test_unit(multi_ctx, fake_docker)
+    assert rc == 7
+    # Fail-fast: the second codebase's unit shim never ran.
+    ran = [c[2] for c in fake_docker.calls
+           if c[0] == "compose_run_one_off" and c[3] == ("./test_unit.sh",)]
+    assert ran == ["sample-test-api-exec"]
+
+
+def test_integration_lane_runs_only_integration_with_stack(sample_ctx, fake_docker):
+    rc = run_test(sample_ctx, fake_docker, tiers=("integration",),
+                  selector="tests/integration/foo.py")
+    assert rc == 0
+    methods = [c[0] for c in fake_docker.calls]
+    assert "compose_up" in methods        # stack-backed
+    assert "compose_down" in methods      # torn down
+    run_cmds = [c[3] for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    assert ("./migrate.sh",) in run_cmds          # migrate still runs
+    assert ("./test_unit.sh",) not in run_cmds    # unit tier skipped
+    assert ("./test_integration.sh",) in run_cmds
+    # selector injected on the integration shim call
+    env_calls = [c for c in fake_docker.calls
+                 if c[0] == "compose_run_one_off_env"]
+    assert (("DOCEX_TEST_SELECTOR", "tests/integration/foo.py"),) in [
+        c[3] for c in env_calls
+    ]
+
+
+def test_full_run_unchanged_no_selector(sample_ctx, fake_docker):
+    """Default run: both shims, no DOCEX_TEST_SELECTOR injected."""
+    rc = run_test(sample_ctx, fake_docker)
+    assert rc == 0
+    run_cmds = [c[3] for c in fake_docker.calls if c[0] == "compose_run_one_off"]
+    assert ("./test_unit.sh",) in run_cmds
+    assert ("./test_integration.sh",) in run_cmds
+    assert [c for c in fake_docker.calls
+            if c[0] == "compose_run_one_off_env"] == []
