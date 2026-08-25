@@ -34,8 +34,9 @@ _HELP_TEXT: dict[str, str] = {
     "projinfra": "Bring up or tear down project-tier infrastructure for a side.",
     "envinfra": "Bring up or tear down a local dev or test environment.",
     "build": "Refresh dist/ for one or all codebases.",
-    "test": "Run build-time tests in a fresh test env.",
+    "test": "Run build-time tests in a fresh test env (durable job; --detach for a handle).",
     "migrate": "Apply database migrations against an env.",
+    "job": "Operate on durable run handles (ls/status/wait/logs/result).",
     "check": "Run CI gate checks in an ephemeral worktree.",
     "merge": "Rebase + fast-forward + tag + push.",
     "containerize": "Build and push per-codebase prod images.",
@@ -54,6 +55,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Introspection", ("compile", "describe", "why", "roles", "role")),
     ("Infrastructure", ("preinfra", "projinfra", "envinfra")),
     ("Development", ("build", "test", "migrate")),
+    ("Jobs", ("job",)),
     ("Pipeline", ("check", "merge", "containerize", "release",
                   "stagetest", "rollback")),
     ("Configuration", ("secrets", "config")),
@@ -423,14 +425,84 @@ def _cmd_build(args: list[str]) -> int:
 
 def _cmd_test(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex test", add_help=True)
-    parser.parse_args(args)  # no positional args
+    parser.add_argument(
+        "--detach", action="store_true",
+        help="launch the run detached and print its handle instead of blocking",
+    )
+    ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.orchestrate.test import run_test
+    from docex.jobs.commands import run_test_job
 
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
-    return run_test(ctx, docker)
+    return run_test_job(ctx, docker, detach=ns.detach)
+
+
+def _cmd_job(args: list[str]) -> int:
+    """``docex job <ls|status|wait|logs|result> ...`` — operate on the durable
+    run handles under ``.docex/runs/``."""
+    parser = argparse.ArgumentParser(prog="docex job", add_help=True)
+    sub = parser.add_subparsers(dest="op", required=True)
+
+    sub.add_parser("ls", help="enumerate all runs")
+
+    p_status = sub.add_parser("status", help="show a run's status")
+    p_status.add_argument("handle", help="run id, unique prefix, or 'latest'")
+
+    p_wait = sub.add_parser("wait", help="block until a run finishes")
+    p_wait.add_argument("handle", help="run id, unique prefix, or 'latest'")
+    p_wait.add_argument("--timeout", type=float, default=None,
+                        help="seconds to wait before giving up")
+
+    p_logs = sub.add_parser("logs", help="print (or follow) a run's log")
+    p_logs.add_argument("handle", help="run id, unique prefix, or 'latest'")
+    p_logs.add_argument("-f", "--follow", action="store_true",
+                        help="tail the log until the run finishes")
+
+    p_result = sub.add_parser(
+        "result", help="print + exit with the run's authoritative exit code")
+    p_result.add_argument("handle", help="run id, unique prefix, or 'latest'")
+
+    ns = parser.parse_args(args)
+
+    from docex.context import load_project_context
+    from docex.jobs import commands
+
+    ctx = load_project_context(Path(os.getcwd()))
+
+    if ns.op == "ls":
+        return commands.run_job_ls(ctx, _require_docker())
+    if ns.op == "status":
+        return commands.run_job_status(ctx, _require_docker(), ns.handle)
+    if ns.op == "wait":
+        return commands.run_job_wait(
+            ctx, _require_docker(), ns.handle, timeout=ns.timeout)
+    if ns.op == "logs":
+        return commands.run_job_logs(ctx, ns.handle, follow=ns.follow)
+    if ns.op == "result":
+        return commands.run_job_result(ctx, ns.handle)
+    return 64  # unreachable — argparse requires a valid subcommand
+
+
+def _cmd_run_job(args: list[str]) -> int:
+    """``docex __run-job <run_id>`` — the HIDDEN in-vessel entrypoint.
+
+    Runs inside the detached vessel container only; it is reachable in the
+    handler table but deliberately absent from ``_HELP_TEXT`` / ``_GROUPS`` so
+    it never appears in usage. It executes the job body and records the run's
+    terminal status + atomic exit file.
+    """
+    parser = argparse.ArgumentParser(prog="docex __run-job", add_help=True)
+    parser.add_argument("run_id", help="the run id whose record to execute")
+    ns = parser.parse_args(args)
+
+    from docex.context import load_project_context
+    from docex.jobs.commands import run_in_vessel
+
+    ctx = load_project_context(Path(os.getcwd()))
+    docker = _require_docker()
+    return run_in_vessel(ctx, docker, ns.run_id)
 
 
 def _cmd_migrate(args: list[str]) -> int:
@@ -872,6 +944,10 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         "build": _cmd_build,
         "test": _cmd_test,
         "migrate": _cmd_migrate,
+        # Jobs
+        "job": _cmd_job,
+        # HIDDEN in-vessel entrypoint — reachable but not listed in help.
+        "__run-job": _cmd_run_job,
         # Pipeline
         "check": _cmd_check,
         "merge": _cmd_merge,

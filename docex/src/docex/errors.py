@@ -50,6 +50,29 @@ class HCLInFixedError(SubstitutionError):
 
 
 # ---------------------------------------------------------------------------
+# Mod 148 — job substrate
+# ---------------------------------------------------------------------------
+
+
+class VesselIntrospectionError(RuntimeError):
+    """Self-inspection of the running docex container failed.
+
+    Raised by ``DockerClient.inspect_self`` when ``docker inspect
+    $HOSTNAME`` cannot be resolved to a usable container spec — a
+    non-container hostname, a docker error, empty/garbled output, or a
+    missing ``.Config.Image``. The container vessel (``jobs/vessel.py``)
+    catches this and falls back to reconstructing its launch spec from
+    ``ctx.project`` after warning the operator.
+
+    Deliberately a plain ``RuntimeError`` and defined **here** rather than
+    in ``jobs/vessel.py``: it is raised inside ``docker/subprocess_client.py``
+    and importing it from ``jobs`` would make ``docker`` depend on ``jobs``,
+    reversing the layering. It is never surfaced to the user as a clean
+    error — it is always caught by the vessel.
+    """
+
+
+# ---------------------------------------------------------------------------
 # Phase 2 — orchestrate-layer errors
 # ---------------------------------------------------------------------------
 

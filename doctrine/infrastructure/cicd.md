@@ -147,7 +147,7 @@ In order for tests to all be automatically run for a project, each codebase ship
 4. Tear down the test environment.
 
 #### `docex`
-`./bin/docex test` performs the build testing step.
+`./bin/docex test` performs the build testing step. It runs as a **durable job** — the suite runs in a detached vessel container, so a killed foreground monitor no longer orphans the run; `--detach` returns a handle and `docex job wait` re-attaches. See [docex.md § Command Lifecycle](./docex.md#command-lifecycle).
 
 ### Containerize Step
 

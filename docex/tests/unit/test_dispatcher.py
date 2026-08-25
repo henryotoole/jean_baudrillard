@@ -22,8 +22,10 @@ from docex.__main__ import (
     _HELP_TEXT,
     _build_handler_table,
     _cmd_envinfra,
+    _cmd_job,
     _cmd_preinfra,
     _cmd_projinfra,
+    _cmd_test,
     _format_usage,
 )
 
@@ -724,3 +726,124 @@ def test_projinfra_rejects_unknown_side():
     with pytest.raises(SystemExit) as excinfo:
         _cmd_projinfra(["up", "neither"])
     assert excinfo.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# Mod 148: `docex test --detach`, the `job` command, and the hidden
+# `__run-job` in-vessel entrypoint.
+# ---------------------------------------------------------------------------
+
+
+def test_test_detach_flag_parses_and_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    captured = {}
+
+    def fake_run_test_job(ctx, docker, *, detach):
+        captured["detach"] = detach
+        return 0
+
+    monkeypatch.setattr("docex.jobs.commands.run_test_job", fake_run_test_job)
+
+    assert _cmd_test(["--detach"]) == 0
+    assert captured["detach"] is True
+    assert _cmd_test([]) == 0
+    assert captured["detach"] is False
+
+
+def test_job_ls_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    called = {}
+
+    def fake_ls(ctx, docker):
+        called["ls"] = True
+        return 0
+
+    monkeypatch.setattr("docex.jobs.commands.run_job_ls", fake_ls)
+    assert _cmd_job(["ls"]) == 0
+    assert called.get("ls") is True
+
+
+def test_job_status_routes_with_handle(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    captured = {}
+
+    def fake_status(ctx, docker, handle):
+        captured["handle"] = handle
+        return 0
+
+    monkeypatch.setattr("docex.jobs.commands.run_job_status", fake_status)
+    assert _cmd_job(["status", "abc123"]) == 0
+    assert captured["handle"] == "abc123"
+
+
+def test_job_wait_routes_with_timeout(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    captured = {}
+
+    def fake_wait(ctx, docker, handle, *, timeout):
+        captured["handle"] = handle
+        captured["timeout"] = timeout
+        return 0
+
+    monkeypatch.setattr("docex.jobs.commands.run_job_wait", fake_wait)
+    assert _cmd_job(["wait", "abc", "--timeout", "2.5"]) == 0
+    assert captured["handle"] == "abc"
+    assert captured["timeout"] == 2.5
+
+
+def test_job_logs_routes_with_follow(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+
+    captured = {}
+
+    def fake_logs(ctx, handle, *, follow):
+        captured["handle"] = handle
+        captured["follow"] = follow
+        return 0
+
+    monkeypatch.setattr("docex.jobs.commands.run_job_logs", fake_logs)
+    assert _cmd_job(["logs", "abc", "-f"]) == 0
+    assert captured["handle"] == "abc"
+    assert captured["follow"] is True
+
+
+def test_job_result_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+
+    captured = {}
+
+    def fake_result(ctx, handle):
+        captured["handle"] = handle
+        return 0
+
+    monkeypatch.setattr("docex.jobs.commands.run_job_result", fake_result)
+    assert _cmd_job(["result", "abc"]) == 0
+    assert captured["handle"] == "abc"
+
+
+def test_job_requires_a_subcommand():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_job([])
+    assert excinfo.value.code == 2
+
+
+def test_run_job_hidden_from_usage_but_reachable_in_table():
+    table = _build_handler_table()
+    # The hidden in-vessel entrypoint is reachable...
+    assert "__run-job" in table
+    # ...and the visible job command is present.
+    assert "job" in table
+    usage = _format_usage()
+    # ...but __run-job never appears in help/usage.
+    assert "__run-job" not in usage
+    # The visible `job` command and its group heading do.
+    assert "Jobs:" in usage
+    assert "\n    job " in usage or "  job " in usage

@@ -289,3 +289,72 @@ class DockerClient(Protocol):
         created by the operator before any side runs.
         """
         ...
+
+    # ------------------------------------------------------------------
+    # Mod 148: the job substrate's container vessel.
+    # ------------------------------------------------------------------
+
+    def run_detached(
+        self,
+        *,
+        name: str,
+        image: str,
+        command: list[str],
+        binds: list[str],
+        user: str,
+        env: list[str],
+        workdir: str,
+        group_add: list[str],
+    ) -> tuple[int, bool]:
+        """Run ``docker run -d --name <name> ... <image> <command...>``.
+
+        Builds the flags from the given spec: ``--user``, ``-w`` (when
+        non-empty), ``--group-add`` per entry, ``-e`` per env string, and
+        ``-v`` per ``src:dst[:mode]`` bind string.
+
+        Returns ``(rc, name_conflict)``. ``name_conflict`` is True iff the
+        run failed *because the ``--name`` is already in use* — the atomic
+        lock signal the job substrate keys on to detect a raced concurrent
+        launch. Stderr is captured (not inherited) to read that signal; the
+        container id line is still surfaced on success. Docker missing →
+        ``(127, False)``.
+        """
+        ...
+
+    def inspect_self(self) -> dict:
+        """Inspect the *currently-running* container (``docker inspect
+        $HOSTNAME``) and return its launch-relevant spec.
+
+        Returns ``{"image", "binds", "user", "env", "workdir",
+        "group_add"}`` sourced from ``.Config.Image``, ``.HostConfig.Binds``,
+        ``.Config.User``, ``.Config.Env``, ``.Config.WorkingDir`` and
+        ``.HostConfig.GroupAdd``. The container vessel clones this so its
+        mounts/uid/image cannot drift from the ``bin/docex`` shim.
+
+        Raises ``docex.errors.VesselIntrospectionError`` on a non-zero exit
+        (e.g. a non-container ``$HOSTNAME``), empty/garbled output, or a
+        missing ``.Config.Image`` — the vessel catches it and falls back to a
+        reconstructed spec.
+        """
+        ...
+
+    def container_running(self, name: str) -> "bool | None":
+        """Liveness of a container by name (``docker inspect -f
+        '{{.State.Running}}'``).
+
+        ``True`` running, ``False`` present-but-stopped, ``None`` absent (no
+        such container) or docker missing. The tri-state is load-bearing:
+        the job substrate distinguishes "lock held" (True) from "reap the
+        dead vessel" (False) from "nothing there" (None).
+        """
+        ...
+
+    def container_rm(self, name: str) -> int:
+        """``docker rm <name>`` (never ``-f``). Returns the exit code.
+
+        Callers only ever remove a **non-running** container (a completed or
+        reaped-orphan vessel), so no force flag is offered. Output is
+        captured probe-style rather than spamming the terminal. Docker
+        missing → 127.
+        """
+        ...

@@ -61,6 +61,18 @@ class FakeDockerClient:
     # bridge to satisfy the new ``envinfra up`` / ``projinfra up``
     # preinfra gate.
     network_exists_results: dict[str, bool] = field(default_factory=dict)
+    # Mod 148: job-substrate container-vessel scripting.
+    # ``run_detached`` returns this ``(rc, name_conflict)`` tuple; script it to
+    # ``(0, True)`` for the name-collision (raced-lock) case.
+    run_detached_result: tuple[int, bool] = (0, False)
+    # ``inspect_self`` returns ``inspect_self_result`` (a canned foreground
+    # spec by default), or raises ``VesselIntrospectionError`` when
+    # ``inspect_self_raises`` is set.
+    inspect_self_raises: bool = False
+    inspect_self_result: dict | None = None
+    # ``container_running`` maps a name -> True/False/None; default None
+    # (absent) when a name isn't scripted.
+    container_running_results: dict[str, "bool | None"] = field(default_factory=dict)
     calls: list[tuple] = field(default_factory=list)
 
     # -- protocol ------------------------------------------------------
@@ -229,6 +241,54 @@ class FakeDockerClient:
     def network_exists(self, name: str) -> bool:
         self.calls.append(("network_exists", name))
         return self.network_exists_results.get(name, True)
+
+    # ------- Mod 148: job-substrate container vessel ------------------
+
+    def run_detached(self, *, name, image, command, binds, user, env,
+                     workdir, group_add) -> "tuple[int, bool]":
+        # Primary key mirrors the other recorders (method + salient args); a
+        # second "spec" entry carries the cloned launch spec so a vessel test
+        # can assert env filtering / bind cloning without changing the primary.
+        self.calls.append(("run_detached", name, image, tuple(command)))
+        self.calls.append((
+            "run_detached_spec", name, tuple(binds), user, tuple(env),
+            workdir, tuple(group_add),
+        ))
+        return self.run_detached_result
+
+    def inspect_self(self) -> dict:
+        self.calls.append(("inspect_self",))
+        if self.inspect_self_raises:
+            from docex.errors import VesselIntrospectionError
+            raise VesselIntrospectionError("scripted self-inspect failure")
+        if self.inspect_self_result is not None:
+            return dict(self.inspect_self_result)
+        # A canned foreground spec whose env carries HOME plus the two vars the
+        # vessel must DROP (TERM, DOCEX_*), so the filtering assertion has teeth.
+        return {
+            "image": "docex:test",
+            "binds": [
+                "/proj:/proj",
+                "/etc/passwd:/etc/passwd:ro",
+                "/var/run/docker.sock:/var/run/docker.sock",
+            ],
+            "user": "1000:1000",
+            "env": [
+                "HOME=/home/dev",
+                "TERM=xterm",
+                "DOCEX_GIT_CREDENTIAL_PASSTHROUGH=1",
+            ],
+            "workdir": "/proj",
+            "group_add": ["999"],
+        }
+
+    def container_running(self, name: str) -> "bool | None":
+        self.calls.append(("container_running", name))
+        return self.container_running_results.get(name, None)
+
+    def container_rm(self, name: str) -> int:
+        self.calls.append(("container_rm", name))
+        return 0
 
     # -- internals -----------------------------------------------------
 

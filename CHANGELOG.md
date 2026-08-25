@@ -19,6 +19,36 @@ first post-`0.4.0` overhaul.
 
 Advance 009 ("Test Overhaul") — in progress.
 
+### Added
+- **`docex test` is now a durable, re-attachable job (the `job` substrate).** The
+  suite runs in a **detached, deterministically-named vessel container** that docex
+  launches over the docker socket; the command still **blocks and exits with the
+  run's code by default** (the CI exit-code contract is preserved), but the work is
+  durable underneath — a **killed foreground monitor no longer orphans the run**, and
+  the run is re-attachable. Each run writes an on-disk record under `.docex/runs/<id>/`
+  (`meta.json`, `status.json`, an atomically-written `exit` file, `log`); the `exit`
+  file is the authoritative terminal signal, reusing the exit-file half of the
+  healthcheck liveness pattern (`healthchecks.md`, `internal_dependency_rules.md` rule
+  6) — the tick/staleness half is deliberately not used. New surface: `docex test
+  --detach` (→ a handle, ~seconds) and `docex job <ls|status|wait|logs|result>` over
+  handles (`job ls` is the durable, non-`pgrep` rediscovery path). The vessel's
+  deterministic name **is** the per-`(project, test)` lock — a second concurrent run
+  refuses rather than contending — and a hard-killed run is reaped by the next
+  invocation's preflight (writing an authoritative `exit`, tearing down the leaked
+  stack). Built vessel-polymorphic (container for `test`; host-process for
+  `check`/`merge` in a later increment) with the slot axis and fleet reaper deferred.
+  Doctrine amended in `docex.md` (new § Command Lifecycle + the `job` surface + `test`
+  durability), a light `cicd.md` note, and the `testing` skill; `healthchecks.md` /
+  `internal_dependency_rules.md` cited as precedent, not edited. `docex`'s own
+  `.gitignore` now ignores `.docex/`. (docex mod 148)
+  - **Upgrade note (for the release that follows this advance):** the project-upgrade
+    guide must add an idempotent step ensuring `.docex/` is in each downstream
+    project's `.gitignore`. New projects already get it (inception's default gitignore,
+    mod 056) and both smoke seeds carry it, but pre-056 existing installs — which never
+    re-ran inception — need it added on upgrade. `docex_install.sh` is deliberately
+    **not** widened to write gitignore entries (project-structure scaffolding stays
+    inception's job).
+
 ### Changed
 - **`docex merge` preflights the remote before any expensive work.** A
   `git ls-remote origin` check now runs at the very top of `merge`: a broken /

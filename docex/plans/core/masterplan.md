@@ -116,7 +116,8 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (four `-web` networks + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup (S3 bucket + DynamoDB table for tofu state), then the two-phase project-tier `tofu apply` — phase 1 the Route53 hosted zone alone so the operator can NS-delegate, phase 2 the full project tier; both idempotent |
 | `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, and the whole aggregate at bring-up — TTE ∪ secrets ∪ config (`infra/tte/`, `infra/secrets/`, `infra/config/`); for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
-| `test` | fresh `test` env | full project | host docker (ephemeral test stack), exit code |
+| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/` |
+| `job <op> [<handle>]` | both | `.docex/runs/` run records; vessel liveness (`docker inspect`) | stdout — `ls`/`status`/`wait`/`logs`/`result` over durable run handles (no state mutated except `wait`/`result` reading the authoritative `exit` file) |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test |
 | `merge` | both | feature branch, `project.yml` | preflights origin reachability/auth (`git ls-remote`, skipped no-origin), rebases onto main, tags `v<version>`, pushes both |
@@ -166,6 +167,48 @@ A few commands compose others rather than duplicate logic:
 - `release` on elastic ends with a **Service Connect consumer reconcile** — the only step that reads AWS state written by its own apply, and the only one that mutates a service it did not just deploy. It runs on every elastic branch including rollback. See [`release_flow.md § Elastic-foundation flow`](./release_flow.md#elastic-foundation-flow) step 4.
 - The manual CI/CD chain — `docex merge && docex containerize && docex release stage && docex stagetest && docex release prod` — is a documented sequence, not a megacommand. Keeping it explicit preserves the doctrine's "developer can drive the pipeline by hand" property.
 
+### Durable jobs (the `job` substrate)
+
+Most commands are synchronous. A long-running command can instead be a **durable
+job** — the run outlives the invoking call — implemented by `src/docex/jobs/`. The
+doctrine rule of record is [`docex.md § Command Lifecycle`](../../../doctrine/infrastructure/docex.md#command-lifecycle);
+this is how `docex` realizes it. `docex test` is the first (and, for now, only)
+durable command; `check`/`merge` join in a later increment, which is why the
+substrate is built **vessel-polymorphic** rather than test-specific.
+
+- **The handle is an on-disk run record** under `.docex/runs/<id>/`
+  (`meta.json` immutable launch metadata, `status.json` progress, an
+  **atomically-written `exit`** file, and a `log`). `jobs/record.py` owns the layout
+  plus `classify()` — the reconcile primitive (`exit` present → terminal; else
+  vessel running → live; else → orphan) that both `job ls` and the reaper share.
+- **The vessel is polymorphic.** For `test` it is a **detached, deterministically-
+  named, non-`--rm` sibling docex container** (`jobs/vessel.py`), launched by
+  **self-inspecting the foreground container** (`docker inspect $HOSTNAME`) and
+  cloning its image / binds / user / workdir / group-add — so the vessel's mount set
+  can never drift from the `bin/docex` shim, and the shim needs no change. A defensive
+  reconstruct-from-`docex_version` path covers a self-inspect failure. Env is filtered
+  to carry only `HOME`.
+- **The deterministic vessel name is the lock** (no flock): a second run on the same
+  `(project, test)` scope loses the `docker run --name` create race and refuses. The
+  vessel runs the existing synchronous `orchestrate.test.run_test` **body** unchanged
+  (so `check`, which also calls `run_test` directly, is untouched and never nests a
+  vessel); the in-vessel `__run-job` entrypoint records a terminal `status` then the
+  atomic `exit`.
+- **The reaper (`jobs/reaper.py`) is the single-run self-heal**: a hard-killed vessel
+  leaves an orphaned record and a leaked `test` stack (its `finally` teardown never
+  ran); the next run's preflight writes the authoritative orphan `exit` (`137`), tears
+  the leaked stack down, `rm`s the dead vessel, and proceeds. The *fleet* / multi-slot
+  reaper and the slot axis itself are deferred.
+- **The verbs** (`jobs/commands.py`) — `ls` / `status` / `wait` / `logs` / `result`,
+  plus the `--detach` launch wrapper and the hidden `__run-job` entrypoint — make a
+  run discoverable and re-attachable without a `docker ps` / `pgrep` proxy.
+
+The `exit` file reuses the **exit-file half** of the healthcheck liveness pattern
+([`healthchecks.md`](../../../doctrine/infrastructure/healthchecks.md#what-the-probe-must-actually-check),
+[`internal_dependency_rules.md § Entrypoints`](../../../doctrine/hexagonal_architecture/internal_dependency_rules.md#entrypoints)
+rule 6) as precedent; the tick/staleness half (wedged-suite detection) is
+deliberately unused — a finite suite is not a perpetual loop.
+
 ## What `docex` Bundles vs. What It Doesn't
 
 **Bundled (lives in the image):**
@@ -206,6 +249,7 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `core/<codebase>/dist/` — `build` output (dev iteration only; formal builds keep artifacts inside `docker build`)
 - `infra/tte/<env>.env` — dev/test TTE minting (mint-if-absent during aggregation)
 - `.docex/agg/<env>.env` — the derived container-facing aggregate (gitignored, under the existing `.docex/`)
+- `.docex/runs/<id>/{meta.json,status.json,exit,log}` — durable run records for the [job substrate](#durable-jobs-the-job-substrate) (gitignored, machine-local)
 - Ephemeral git worktrees under `.docex/worktrees/` (or similar) — created and destroyed by `check`
 
 **Conspicuously not touched by docex:** anything outside the project tree. The container is sandboxed to the project root plus the explicitly-mounted credential paths under the operator's HOME.
@@ -424,6 +468,8 @@ jean_baudrillard/docex/
 │       ├── cicl/            (CICL parse, validate, expand, magic refs)
 │       ├── emit/            (compose / HCL rendering from compiled objects)
 │       ├── orchestrate/     (up, down, build, test, migrate, aggregate)
+│       ├── jobs/            (durable-job substrate: run records, the container
+│       │                     vessel, the reaper, the job verbs — see below)
 │       ├── pipeline/        (preinfra, projinfra, bootstrap, check, merge,
 │       │                     containerize, release, stagetest, rollback,
 │       │                     orchestrator_health — stagetest's pre-step)

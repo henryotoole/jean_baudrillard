@@ -8,6 +8,7 @@ protocol. That single chokepoint is what makes the unit tests cheap.
 from __future__ import annotations
 
 import subprocess  # noqa: S404 - explicit chokepoint, see module docstring
+import sys
 from pathlib import Path
 
 
@@ -481,6 +482,134 @@ class SubprocessDockerClient:
         except FileNotFoundError:
             return False
         return res.returncode == 0
+
+    # ------------------------------------------------------------------
+    # Mod 148: the job substrate's container vessel.
+    # ------------------------------------------------------------------
+
+    def run_detached(
+        self,
+        *,
+        name: str,
+        image: str,
+        command: list[str],
+        binds: list[str],
+        user: str,
+        env: list[str],
+        workdir: str,
+        group_add: list[str],
+    ) -> "tuple[int, bool]":
+        cmd = [self._docker, "run", "-d", "--name", name]
+        if user:
+            cmd.extend(["--user", user])
+        if workdir:
+            cmd.extend(["-w", workdir])
+        for g in group_add:
+            cmd.extend(["--group-add", g])
+        for e in env:
+            cmd.extend(["-e", e])
+        for b in binds:
+            cmd.extend(["-v", b])
+        cmd.append(image)
+        cmd.extend(command)
+        # WHY capture_output: we must read stderr to distinguish a name
+        # collision (the atomic-lock signal) from any other failure. On
+        # success we still surface the container id so the launch is visible.
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return (127, False)
+        if res.returncode == 0:
+            out = (res.stdout or "").strip()
+            if out:
+                print(out)
+            return (0, False)
+        stderr = (res.stderr or "").lower()
+        name_conflict = "is already in use" in stderr or "conflict" in stderr
+        err = (res.stderr or "").strip()
+        if err:
+            print(err, file=sys.stderr)
+        return (res.returncode, name_conflict)
+
+    def inspect_self(self) -> dict:
+        import json
+        import socket
+
+        from docex.errors import VesselIntrospectionError
+
+        hostname = socket.gethostname()
+        cmd = [self._docker, "inspect", hostname, "--format", "{{json .}}"]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError as exc:
+            raise VesselIntrospectionError(
+                "docker not found while self-inspecting"
+            ) from exc
+        if res.returncode != 0:
+            raise VesselIntrospectionError(
+                f"'docker inspect {hostname}' exited {res.returncode}: "
+                f"{(res.stderr or '').strip()}"
+            )
+        text = (res.stdout or "").strip()
+        if not text:
+            raise VesselIntrospectionError(
+                f"'docker inspect {hostname}' returned empty output"
+            )
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise VesselIntrospectionError(
+                f"unparseable 'docker inspect' output: {exc}"
+            ) from exc
+        config = data.get("Config") or {}
+        host_config = data.get("HostConfig") or {}
+        image = config.get("Image")
+        if not image:
+            raise VesselIntrospectionError(
+                "'docker inspect' output has no .Config.Image"
+            )
+        return {
+            "image": image,
+            "binds": host_config.get("Binds") or [],
+            "user": config.get("User") or "",
+            "env": config.get("Env") or [],
+            "workdir": config.get("WorkingDir") or "",
+            "group_add": host_config.get("GroupAdd") or [],
+        }
+
+    def container_running(self, name: str) -> "bool | None":
+        cmd = [self._docker, "inspect", "-f", "{{.State.Running}}", name]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return None
+        if res.returncode != 0:
+            # No such container (or daemon error) → absent.
+            return None
+        out = (res.stdout or "").strip().lower()
+        if out == "true":
+            return True
+        if out == "false":
+            return False
+        return None
+
+    def container_rm(self, name: str) -> int:
+        # WHY capture_output: removing an already-absent container is a
+        # normal path; don't spam the operator's terminal with docker's error.
+        cmd = [self._docker, "rm", name]
+        try:
+            res = subprocess.run(  # noqa: S603
+                cmd, capture_output=True, text=True, check=False,
+            )
+        except FileNotFoundError:
+            return 127
+        return res.returncode
 
     # ------------------------------------------------------------------
     # Internal

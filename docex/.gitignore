@@ -6,6 +6,9 @@ __pycache__/
 # Test caches
 .pytest_cache/
 
+# docex machine-local run state (worktrees, aggregates, job run records)
+.docex/
+
 # Build artifacts
 build/
 dist/

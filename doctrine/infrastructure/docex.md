@@ -29,6 +29,23 @@ The shim is **version-independent** — one shim serves every `docex` version, a
 ## Usage
 Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. Docex does so by providing a "command" for each task; `./bin/docex build` builds all codebases, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
 
+## Command Lifecycle
+
+Most `docex` commands are **synchronous**: they run, block, and exit with a status code. A few long-running commands are instead **durable jobs** — the work outlives the invoking call.
+
+`docex test` is the first. It still **blocks and exits with the run's code by default** (the exit-code contract CI relies on is preserved), but the suite runs in a **detached, deterministically-named "vessel" container** that docex launches over the docker socket. Because the work lives in the vessel and not in the foreground call, a foreground monitor that is **killed does not kill the run** — the run stays alive and re-attachable.
+
+Every durable job writes an **on-disk run record** under `.docex/runs/<id>/` (`meta.json`, `status.json`, an atomically-written `exit` file, and a `log`). The `exit` file is the **authoritative terminal signal**: it survives vessel teardown and a killed monitor, and is what `docex job result` and `docex job wait` read. This reuses the exit-file half of the liveness pattern that [`healthchecks.md § What the probe must actually check`](./healthchecks.md#what-the-probe-must-actually-check) and [`internal_dependency_rules.md § Entrypoints`](../hexagonal_architecture/internal_dependency_rules.md#entrypoints) (rule 6) fix for long-running loops; the tick/staleness half is deliberately **not** used here, because a finite suite differs from a perpetual loop.
+
+Two additions make the durability usable:
+
+- **`--detach`** on a durable command launches the vessel and returns the run **handle** immediately instead of blocking.
+- **`docex job <verb> <handle>`** operates on a handle after the fact — `ls` / `status` / `wait` / `logs` / `result`. `job ls` is the durable, non-fragile way to **rediscover** an in-flight run: a killed or freshly-spawned agent recovers the handle here rather than via a `docker ps` / `pgrep` proxy.
+
+Concurrency is bounded by the vessel's **deterministic name, which is the lock**: a second run against the same scope loses the `docker run --name` create race and **refuses** rather than contending over the shared `test` stack. A vessel that was hard-killed leaves an orphaned record and a leaked stack; the next run's **preflight reaper** clears both (writing an authoritative `exit`, tearing the leaked stack down) and proceeds. The `./bin/docex` shim is **unchanged** — the vessel is launched by docex itself over the socket, so no shim update is required.
+
+This lifecycle is `test`-only today; `check` and `merge` join it in a later increment.
+
 ## Provided Tools
 
 | Command | Purpose |
@@ -44,7 +61,8 @@ Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perfo
 | `secrets <op> <env> [...]` | Manage an environment's secrets file without exposing secret values to the caller. |
 | `config <op> <env> [...]` | Manage an environment's non-secret config file. |
 | `build <codebase>` | Run `build.sh` for one or all codebases. |
-| `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. |
+| `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#command-lifecycle); `--detach` returns a handle instead of blocking. |
+| `job <op> [<handle>]` | Operate on durable run handles: `ls`, `status`, `wait`, `logs`, `result`. |
 | `migrate <env>` | Apply database migrations for each schema-owning codebase in `<env>`. |
 | `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. |
 | `merge` | Rebase the feature branch onto main, tag the release commit, and push. |
@@ -156,7 +174,24 @@ Runs each codebase's `build.sh` in a one-off container of that codebase's [exec 
 
 ### `test`
 `./bin/docex test`
+`./bin/docex test --detach`
 Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, runs each codebase's `test_unit.sh` then each codebase's `test_integration.sh` inside its test-stage container, then tears the environment down. Covers the unit tier (no-infra) and the integration tier (stack-backed, including contract tests) across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every codebase's tests pass; non-zero on the first failure.
+
+`test` is a **durable job** (see [Command Lifecycle](#command-lifecycle)): the suite runs in a detached, deterministically-named vessel container, so the blocking default preserves the exit-code contract while a killed foreground monitor leaves the run **alive and re-attachable** via `docex job wait`. `--detach` returns the run handle immediately instead of blocking. The vessel's deterministic name is a per-`(project, test)` lock — a second concurrent run **refuses** rather than contending — and a hard-killed run is **reaped** by the next invocation's preflight. `test` still runs both shims in the fresh `test` stack, exactly as above.
+
+### `job`
+`./bin/docex job ls`
+`./bin/docex job status <handle>`
+`./bin/docex job wait <handle> [--timeout <seconds>]`
+`./bin/docex job logs <handle> [-f]`
+`./bin/docex job result <handle>`
+
+Operates on the durable run handles produced by a durable command (see [Command Lifecycle](#command-lifecycle)). A handle is a run id — a unique prefix, or the literal `latest`, resolves too.
+- **`ls`** enumerates every run under `.docex/runs/` — id, kind, scope, state, start time, exit code — reconciling each record against its vessel's liveness. The durable, non-fragile way to rediscover a run whose monitor was lost.
+- **`status`** prints one run's recorded status reconciled with vessel liveness.
+- **`wait`** blocks until the run's authoritative `exit` file appears (optionally bounded by `--timeout`) and exits with its code — the re-attach path for a killed monitor.
+- **`logs`** prints (or, with `-f`, follows) the run's captured output.
+- **`result`** prints and exits with the run's authoritative exit code (a distinct non-zero if the run has not finished).
 
 ### `check`
 `./bin/docex check`
