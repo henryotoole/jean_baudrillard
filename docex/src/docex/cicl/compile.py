@@ -334,11 +334,6 @@ def codebase_global_name(
     return _global_service_name(project, env, codebase, policy, slot=slot)
 
 
-def _network_name(project: str, env: str, network: str, *, slot: int = 1) -> str:
-    slot_seg = "" if slot == 1 else f"-s{slot}"
-    return f"{project}_{env}{slot_seg}_{network}"
-
-
 def _image_ref(
     registry: str | None,
     project: str,
@@ -1380,8 +1375,10 @@ def compile_slot(ctx: Any, env: str, slot: int) -> Path:
                  scratch (beside ``.docex/runs/`` and ``.docex/checks/``),
                  gitignored, never in the tracked ``infra/output/`` tree.
 
-    The env-agnostic primitive Mod 154's orchestration and the slot tests call.
-    No CLI verb reaches it this mod.
+    The env-agnostic primitive callers reach for a slotted compile: the slot
+    tests, ``docex test --slots N`` (via Mod 154's orchestration), and the
+    ``check``/``merge`` pipeline steps, which compile their defensive test at
+    the reserved ``CHECK_SLOT``/``MERGE_SLOT`` (Mod 155).
     """
     from docex.errors import InfraFileError
     if ctx.infra is None:
