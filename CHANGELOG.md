@@ -243,6 +243,30 @@ Advance 009 ("Test Overhaul") — in progress.
   `mod-developer` / `doctrine-advance` agent defs, and the `testing` skill. Closes
   Advance 009 Goal 5. (docex mod 156)
 
+### Fixed
+- **The durable-job container vessel died on launch — entrypoint doubling.** The
+  vessel built its command as `["docex", "__run-job", <id>]` and launched it
+  against a clone of the foreground docex image, whose `ENTRYPOINT` is already
+  `["docex"]`. The effective container argv was therefore `docex docex __run-job
+  <id>` → `unknown command 'docex'` → exit 64, so `run_in_vessel` never executed,
+  the job body never ran, and no authoritative `exit` file was written. This broke
+  **every vessel path end-to-end through the real docex image** — `docex test`
+  (foreground and `--detach`), `docex test integration`, `docex test --slots N`,
+  and `docex check` / `docex merge` (foreground and `--detach`) — while only the
+  synchronous in-process `docex test unit` lane escaped. The fix makes the
+  entrypoint **explicit at the `run_detached` boundary**: `run_detached` gained an
+  optional `entrypoint` parameter (emitting `docker run --entrypoint`), and the
+  vessel now launches with `entrypoint="docex"` and command `["__run-job", <id>]`,
+  fixing the argv in one place independent of the cloned image's `ENTRYPOINT`. The
+  green suite missed this because **no test drove the real docex image as a
+  vessel** (the existing vessel integration tests ran `alpine` with a shell
+  one-liner, and the slots test ran in-process); a new real-image integration test
+  (`tests/integration/test_vessel_real_image.py`) now builds the actual docex image
+  and drives a durable job through it end-to-end, asserting the vessel runs the job
+  body and writes the authoritative `exit` file. A minimal `noop` diagnostic job
+  body was added to the substrate to give that test a trivial, fast body. Masterplan
+  amended (the vessel-launch entrypoint invariant). (docex mod 157)
+
 ## [2.1.0] - 2026-08-24
 
 Advance 008 ("Housekeeping") — a backlog-clearing advance of small, mostly-independent

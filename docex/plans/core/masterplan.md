@@ -190,7 +190,15 @@ stackless unit run touches no shared infra, so it is a plain synchronous run
   $HOSTNAME`) and cloning its image / binds / user / workdir / group-add — so the
   vessel's mount set can never drift from the `bin/docex` shim, and the shim needs no
   change. A defensive reconstruct-from-`docex_version` path covers a self-inspect
-  failure. Env is filtered to carry only `HOME`. There is **no** second vessel kind:
+  failure. Env is filtered to carry only `HOME`. The vessel is launched with an
+  **explicit `--entrypoint docex`** and the command `["__run-job", <id>]` — *not*
+  by prepending `docex` to the command: the cloned image already carries
+  `ENTRYPOINT ["docex"]`, so prepending would double it into `docex docex
+  __run-job …` → `unknown command 'docex'` (exit 64), and the job body would never
+  run. Setting the entrypoint explicitly fixes the argv in **one place**,
+  independent of the image's declared `ENTRYPOINT`; a real-image integration test
+  (`tests/integration/test_vessel_real_image.py`) drives the actual docex image as
+  a vessel end-to-end to guard the invariant (mod 157). There is **no** second vessel kind:
   a "host process" cannot be durable under [DooD](#docker-outside-of-docker) (the
   foreground `docex` runs inside the shim's `--rm` container and dies with it, and an
   in-container docex can spawn only a container over the socket). Mod 149 (`check`/

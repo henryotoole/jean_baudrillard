@@ -504,7 +504,12 @@ class SubprocessDockerClient:
         env: list[str],
         workdir: str,
         group_add: list[str],
+        entrypoint: str | None = None,
     ) -> "tuple[int, bool]":
+        # WHY entrypoint: when given, it emits `--entrypoint <entrypoint>`,
+        # overriding the image's ENTRYPOINT so the effective container argv is
+        # exactly `<entrypoint> <command...>`. The vessel sets it explicitly to
+        # avoid entrypoint doubling against the cloned docex image (mod 157).
         cmd = [self._docker, "run", "-d", "--name", name]
         if user:
             cmd.extend(["--user", user])
@@ -516,6 +521,8 @@ class SubprocessDockerClient:
             cmd.extend(["-e", e])
         for b in binds:
             cmd.extend(["-v", b])
+        if entrypoint is not None:
+            cmd.extend(["--entrypoint", entrypoint])
         cmd.append(image)
         cmd.extend(command)
         # WHY capture_output: we must read stderr to distinguish a name

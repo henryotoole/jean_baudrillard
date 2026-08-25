@@ -257,11 +257,13 @@ class FakeDockerClient:
     # ------- Mod 148: job-substrate container vessel ------------------
 
     def run_detached(self, *, name, image, command, binds, user, env,
-                     workdir, group_add) -> "tuple[int, bool]":
+                     workdir, group_add, entrypoint=None) -> "tuple[int, bool]":
         # Primary key mirrors the other recorders (method + salient args); a
         # second "spec" entry carries the cloned launch spec so a vessel test
         # can assert env filtering / bind cloning without changing the primary.
-        self.calls.append(("run_detached", name, image, tuple(command)))
+        self.calls.append(
+            ("run_detached", name, image, tuple(command), entrypoint)
+        )
         self.calls.append((
             "run_detached_spec", name, tuple(binds), user, tuple(env),
             workdir, tuple(group_add),

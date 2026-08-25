@@ -25,9 +25,14 @@ def test_launch_issues_one_run_detached_with_the_job_command(
 
     detached = [c for c in fake_docker.calls if c[0] == "run_detached"]
     assert len(detached) == 1
-    _, name, image, command = detached[0]
+    _, name, image, command, entrypoint = detached[0]
     assert name == "sample-test-runner"
-    assert command == ("docex", "__run-job", "20260824T000000Z-abc123")
+    # The image's ENTRYPOINT ["docex"] (see Dockerfile) means the vessel must
+    # pass ONLY the args after it and set the entrypoint explicitly, so the
+    # effective argv is `docex __run-job <id>` and never doubles into
+    # `docex docex __run-job …` (the exit-64 bug mod 157 fixed).
+    assert command == ("__run-job", "20260824T000000Z-abc123")
+    assert entrypoint == "docex"
 
 
 def test_launch_clones_the_inspected_spec_and_filters_env(

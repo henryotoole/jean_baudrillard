@@ -66,6 +66,18 @@ def _run_merge_body(ctx, docker, params) -> int:  # params unused
     return run_merge(ctx, docker, SubprocessGitClient())
 
 
+def _run_noop_body(ctx, docker, params) -> int:  # ctx/docker/params unused
+    """A do-nothing job body: a minimal substrate-liveness / diagnostic no-op.
+
+    Exists so the vessel substrate can be exercised end-to-end (real docex
+    image → detached vessel → `run_in_vessel` → authoritative `exit` file)
+    with a body that returns 0 in well under a second, without standing up a
+    real test/check/merge. It performs no I/O and cannot affect any stack —
+    see tests/integration/test_vessel_real_image.py.
+    """
+    return 0
+
+
 # Registry of job bodies keyed by ``meta.kind``. Module-level so tests (and a
 # real-docker integration test) can register or replace an entry. The vessel is
 # one container kind for every durable job (D2); what varies by kind is the body
@@ -74,6 +86,7 @@ _JOB_BODIES = {
     "test": _run_test_body,
     "check": _run_check_body,
     "merge": _run_merge_body,
+    "noop": _run_noop_body,
 }
 
 

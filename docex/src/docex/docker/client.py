@@ -311,12 +311,17 @@ class DockerClient(Protocol):
         env: list[str],
         workdir: str,
         group_add: list[str],
+        entrypoint: str | None = None,
     ) -> tuple[int, bool]:
         """Run ``docker run -d --name <name> ... <image> <command...>``.
 
         Builds the flags from the given spec: ``--user``, ``-w`` (when
         non-empty), ``--group-add`` per entry, ``-e`` per env string, and
         ``-v`` per ``src:dst[:mode]`` bind string.
+
+        When ``entrypoint`` is provided it is passed as ``docker run
+        --entrypoint``, overriding the image's ``ENTRYPOINT`` so the effective
+        argv is ``<entrypoint> <command...>``.
 
         Returns ``(rc, name_conflict)``. ``name_conflict`` is True iff the
         run failed *because the ``--name`` is already in use* — the atomic

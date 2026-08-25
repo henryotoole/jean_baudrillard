@@ -59,7 +59,13 @@ class ContainerVessel:
         the caller refuses rather than double-launching.
         """
         spec = self._resolve_spec(ctx)
-        command = ["docex", "__run-job", run_id]
+        # The image's ENTRYPOINT is ["docex"] (see Dockerfile). We set the
+        # entrypoint EXPLICITLY here rather than relying on that, and pass only
+        # the args after it, so the effective container argv is exactly
+        # `docex __run-job <run_id>` regardless of the cloned image's ENTRYPOINT
+        # — this is what prevents the entrypoint doubling (`docex docex
+        # __run-job …` → "unknown command 'docex'", exit 64) that mod 157 fixed.
+        command = ["__run-job", run_id]
         rc, name_conflict = self._docker.run_detached(
             name=self.vessel_name,
             image=spec["image"],
@@ -69,6 +75,7 @@ class ContainerVessel:
             env=spec["env"],
             workdir=spec["workdir"],
             group_add=spec["group_add"],
+            entrypoint="docex",
         )
         return LaunchResult(rc=rc, name_conflict=name_conflict)
 
