@@ -22,10 +22,12 @@ is byte-identical to a slotless compiler. The one exception is the **slot>1
 programmatic path** (`compile_slot(ctx, env, k)`, mod 152): a k>1 slot is
 ephemeral, machine-local test scaffolding, so it writes to
 `.docex/slots/<env>/<k>/` (beside `.docex/runs/` and `.docex/checks/`),
-**never** into the git-tracked `infra/output/` tree. No CLI verb reaches
-`compile_slot` directly — the test suite and the `docex test --slots N`
-orchestration (mod 154, `orchestrate/test.py::_run_test_sharded`) are its only
-callers. The secret key set is not emitted as a file — it is derived on demand
+**never** into the git-tracked `infra/output/` tree. `docex compile` itself
+never reaches `compile_slot`; its callers are the test suite, the `docex test
+--slots N` orchestration (mod 154, `orchestrate/test.py::_run_test_sharded`),
+and — since mod 155 — `check`/`merge`'s defensive `test` compile at their
+reserved slot (`pipeline/check.py`, reached by the `docex check` and `docex
+merge` verbs; see [§ The slot segment](#the-slot-segment)). The secret key set is not emitted as a file — it is derived on demand
 by `secret_manifest` and reconciled into `infra/secrets/<env>.env` by `docex
 secrets scaffold` (mod 092 removed the old `infra/secrets/example.env` manifest).
 
@@ -464,8 +466,8 @@ The same internal form passed through the `iam` policy (a doctrine record-key id
 
 ### The slot segment
 
-Mod 152. `_global_service_name` (and `codebase_global_name`, `_network_name`)
-take an optional `slot: int = 1`. When `slot != 1` the internal form gains a
+Mod 152. `_global_service_name` and `codebase_global_name` take an optional
+`slot: int = 1`. When `slot != 1` the internal form gains a
 `_s{k}` segment **between the env and the rest** —
 `{project}_{env}_s{k}_{codebase}_{service}` (core), `{project}_{env}_s{k}_{name}`
 (backing) — so the k-th slot of a fixed env scopes **every** physical resource

@@ -196,8 +196,11 @@ stackless unit run touches no shared infra, so it is a plain synchronous run
   in-container docex can spawn only a container over the socket). Mod 149 (`check`/
   `merge`) confirmed this and collapsed the earlier "vessel-polymorphic" framing:
   what actually varies by `meta.kind` is (a) the **body** the vessel runs and (b) the
-  **resource the reaper reclaims** — never the vessel class. The `Vessel` protocol
-  remains as a seam, with `ContainerVessel` its only implementation.
+  **resource the reaper reclaims** — never the vessel class. `ContainerVessel` is the
+  one concrete vessel class (it implements no `Vessel` protocol type — the framing
+  collapsed to a single class); the only remnant of the polymorphic design is the
+  `vessel_kind` discriminator recorded on each run (`jobs/record.py`, always
+  `"container"`), the seam a future second kind would key on.
 - **The deterministic vessel name is the lock** (no flock), **scoped per command**:
   a second run on the same `(project, kind)` scope — `<label>-test-runner`,
   `<label>-check-runner`, `<label>-merge-runner` — loses the `docker run --name`

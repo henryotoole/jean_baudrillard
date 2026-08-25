@@ -215,7 +215,7 @@ python -m pytest tests -m integration   # the integration suite — run ALONE
 
 1. **`python -m pytest`, never bare `pytest`.** The bare binary cannot collect this
    suite. It reports a deselect count one short of the real one and runs nothing — at
-   the time of writing 21 integration-marked items exist, and the bare binary's near-miss
+   the time of writing 25 integration-marked items exist, and the bare binary's near-miss
    is exactly what makes it believable. Re-derive rather than trust this number:
    `python -m pytest tests -q` prints the deselected count, and
    `python -m pytest tests -q -m integration` prints how many actually run. The
