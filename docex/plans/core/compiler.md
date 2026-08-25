@@ -475,11 +475,14 @@ keys / the elastic `identifier` / sidecars / replica keys / the exec key / the
 `${global_service_name}_data` named volumes / and every magic-ref host all derive
 from this one function, slotting it here is what namespaces them all — precisely
 what a Compose `--project-name` cannot, since it re-prefixes only auto-named
-resources and never an explicit `container_name:` / top-level `name:`. The one
-physical name not derived from `global_name` is the non-`web` docker network,
-slotted separately by `emit/compose.py::_network_section` off `CompiledEnv.slot`;
-the `web` network is projinfra-owned and stays slot-shared until Mod 153 re-tiers
-it. The slot axis is doctrine — see
+resources and never an explicit `container_name:` / top-level `name:`. The
+physical names not derived from `global_name` are the docker networks, slotted
+separately by `emit/compose.py::_network_section` off `CompiledEnv.slot`: the
+non-`web` networks always, and — since Mod 153 — the `test` env's `web` network
+too, which is re-tiered there to an env-tier, non-external, per-slot bridge
+(`{project}-test-s{k}-web`) because `test` is never routed. For `dev`/`stage`/
+`prod` the `web` network stays the projinfra-owned external one (slot-shared, and
+those envs are never instantiated in slots). The slot axis is doctrine — see
 [`infrastructure.md § Environments`](../../../doctrine/infrastructure/infrastructure.md#environments).
 
 **Forward seam (Mod 154).** Two identities are reconstructed from
@@ -599,7 +602,7 @@ Same input on fixed-foundation `dev`: postgres `provides.host.fixed` is `${globa
 infra/output/
 ├── project/                       project-tier output, split by side (mod 035)
 │   ├── development/
-│   │   └── docker-compose.yml     emit/compose.py::emit_project_compose — always emitted; declares the four ${project}-${env}-web networks + docex-ingress
+│   │   └── docker-compose.yml     emit/compose.py::emit_project_compose — always emitted; declares the three ${project}-${env}-web networks (dev/stage/prod; test's web net is env-tier per mod 153) + docex-ingress
 │   └── production/
 │       ├── docker-compose.yml     fixed-foundation only — same shape as development side
 │       └── main.tf                elastic-foundation only — emit/hcl.py::emit_hcl_project; state backend ref, VPC, Route53 zone, ACM cert, ECR repos, IAM

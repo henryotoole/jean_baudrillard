@@ -287,8 +287,10 @@ def _cmd_projinfra(args: list[str]) -> int:
     """``docex projinfra <direction> <side>`` — bring up or tear down
     project-tier infrastructure for a side.
 
-    Fixed: ``up`` runs the project-tier compose stack (four ``-web``
-    networks + per-project traefik); ``down`` tears it down (refusing if
+    Fixed: ``up`` runs the project-tier compose stack (three ``-web``
+    networks — ``dev``/``stage``/``prod``; ``test``'s web network is
+    env-tier per mod 153 — + per-project traefik); ``down`` tears it down
+    (refusing if
     any env-tier compose stack for this project is still up). Elastic
     ``up production`` (the verb formerly spelled ``bootstrap``) creates the
     tofu state backend and then runs the two-phase project-tier ``tofu
@@ -312,7 +314,7 @@ def _cmd_projinfra(args: list[str]) -> int:
     #
     # Mod 048: an elastic project's DEVELOPMENT side is mechanically
     # identical to a fixed development side (same emit shape per
-    # `projinfra/projinfra.md § Why all four web networks live on every
+    # `projinfra/projinfra.md § Why all three web networks live on every
     # side`); route both through the same fixed-style code path. Only
     # the production side of an elastic project diverges (real AWS
     # state-backend + Route53 + ACM + ALB / EC2-traefik).

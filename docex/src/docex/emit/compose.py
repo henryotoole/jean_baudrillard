@@ -126,27 +126,41 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     Per mod 030's naming unification, docker network names — being
     data-plane resolvable identifiers — use hyphens.
 
-    The ``web`` network is special-cased per mod 036: it references the
+    The ``web`` network is special-cased per mod 036 (for ``dev``/``stage``/
+    ``prod`` — see the Mod 153 note below for ``test``): it references the
     project-tier ``${project}-${env}-web`` network owned by projinfra,
     declared ``external: true`` so env compose merely attaches without
     ownership ambiguity. The per-project traefik (also projinfra) spans
-    all four ``-web`` networks and the host-wide ``docex-ingress``
-    bridge; coexistence on :443 isn't an issue because the HAProxy web
-    demux fronts every project. See ``doctrine/infrastructure/specifics/
-    projinfra/fixed_reverse_proxy.md``.
+    all three ``-web`` networks (``dev``/``stage``/``prod``) and the
+    host-wide ``docex-ingress`` bridge; coexistence on :443 isn't an issue
+    because the HAProxy web demux fronts every project. See ``doctrine/
+    infrastructure/specifics/projinfra/fixed_reverse_proxy.md``.
 
     Mod 152: the non-``web`` env network carries the slot segment
-    (``-s{k}``) so two slots of one env do not share an internal bridge; the
-    ``web`` network is projinfra-owned and slot-shared until Mod 153 re-tiers
-    it.
+    (``-s{k}``) so two slots of one env do not share an internal bridge.
+    Mod 153: the ``web`` network is external/projinfra-owned only for
+    ``dev``/``stage``/``prod``; for ``test`` it is re-tiered to an env-tier,
+    per-slot, NON-external bridge (``${project}-test${slot_seg}-web``) that the
+    env stack itself creates and tears down — removing ``test``'s last
+    projinfra dependency and slotting the one physical name Mod 152 left
+    unslotted.
     """
     out: dict[str, Any] = {}
-    # Mod 152: non-web env networks carry the slot segment so slots are
-    # isolated at the network layer too. The `web` network is external/
-    # projinfra-owned and stays slot-shared this mod (Mod 153 re-tiers it).
+    # Mod 152: non-web env networks carry the slot segment so slots are isolated
+    # at the network layer too. Mod 153: the `test` env's web network ALSO
+    # carries the segment and becomes a plain env-tier bridge (see the branch
+    # below), which is why the segment is computed unconditionally here.
     slot_seg = "" if compiled.slot == 1 else f"-s{compiled.slot}"
     for short in sorted(compiled.networks):
-        if short == "web":
+        # dev/stage/prod: `web` is the projinfra-owned, external, project-tier
+        # `${project}-${env}-web` network (mod 036); env compose merely
+        # attaches. `test` is the exception (mod 153): it is never TLS'd or
+        # routed (mod 054), so its web network is re-tiered to an env-tier,
+        # per-slot, NON-external bridge the env stack creates and tears down —
+        # removing `test`'s last projinfra dependency and slotting the one name
+        # Mod 152 left unslotted. So `test`'s `web` falls through to the same
+        # slotted-bridge branch as the non-web networks below.
+        if short == "web" and compiled.env != "test":
             out[short] = {
                 "name": f"{compiled.project_dns_label}-{compiled.env}-web",
                 "external": True,
@@ -712,10 +726,11 @@ def _dump_compose(doc: dict[str, Any]) -> str:
 
 
 def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
-    """Emit a project-tier compose file declaring the four
-    ``${project_dns_label}-${env}-web`` external networks plus the
+    """Emit a project-tier compose file declaring the three
+    (``dev``/``stage``/``prod``; ``test``'s web network is env-tier per
+    mod 153) ``${project_dns_label}-${env}-web`` external networks plus the
     ``docex-ingress`` preinfra network reference, AND the per-project
-    traefik container that joins all five networks and terminates TLS
+    traefik container that joins all four networks and terminates TLS
     for the project.
 
     Per ``doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy
@@ -760,9 +775,6 @@ def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
             f"{project_dns_label}-dev-web": {
                 "name": f"{project_dns_label}-dev-web"
             },
-            f"{project_dns_label}-test-web": {
-                "name": f"{project_dns_label}-test-web"
-            },
             f"{project_dns_label}-stage-web": {
                 "name": f"{project_dns_label}-stage-web"
             },
@@ -778,7 +790,6 @@ def emit_project_compose(*, project_dns_label: str, out_path: Path) -> None:
                 "restart": "unless-stopped",
                 "networks": [
                     f"{project_dns_label}-dev-web",
-                    f"{project_dns_label}-test-web",
                     f"{project_dns_label}-stage-web",
                     f"{project_dns_label}-prod-web",
                     "docex-ingress",

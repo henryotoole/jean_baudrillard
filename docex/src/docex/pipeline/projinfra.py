@@ -1,6 +1,7 @@
 """``docex projinfra <direction> <side>`` — project-tier infrastructure
 runner. Both foundations are live: fixed brings up a per-project traefik
-plus four ``-web`` networks; elastic ``up production`` runs the state
+plus three ``-web`` networks (``test``'s web network is env-tier per mod
+153, not projinfra); elastic ``up production`` runs the state
 backend and the two-phase project-tier ``tofu apply``
 (``pipeline/bootstrap.py``), and ``down`` tears it down.
 
@@ -54,7 +55,8 @@ def _project_compose_project(ctx: ProjectContext) -> str:
 
     Passing an explicit ``--project-name`` (vs the path-derived ``infra``) is
     still what keeps ``down`` able to remove the per-project traefik AND the
-    four ``-web`` networks (which previously leaked under ``infra``, per mod
+    three ``-web`` networks (``test``'s web network is env-tier per mod 153,
+    not projinfra; which previously leaked under ``infra``, per mod
     053 / Cluster 1). This change keeps the explicit name; it only drops the
     side suffix.
     """

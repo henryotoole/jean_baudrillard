@@ -1463,7 +1463,7 @@ def run_compile(ctx: Any) -> int:
     # the production side switches by foundation (compose for fixed, HCL
     # for elastic). Mod 035 emits networks only; the per-project traefik
     # and ansible artifacts land in mod 036.
-    # Mod 046: project-tier compose names (the four `-web` networks, the
+    # Mod 046: project-tier compose names (the three `-web` networks, the
     # `<project>-traefik` container, the ACME volume) are all data-plane
     # docker identifiers and must derive their project segment from the
     # DNS-labeled form rather than the raw project name.

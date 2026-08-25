@@ -16,7 +16,7 @@ Coverage:
 
 1. Env-tier compose emit — docker network names, OTel sidecar
    container names.
-2. Project-tier compose emit — four `-web` networks, project traefik
+2. Project-tier compose emit — three `-web` networks, project traefik
    container, ACME volume.
 3. HCL project-tier emit — Route53 zone, ACM cert domain_name + SANs.
 4. HCL env-tier emit — Service Connect namespace name.
@@ -174,11 +174,13 @@ def test_project_compose_networks_and_traefik_are_hyphenated(tmp_path: Path):
     out = tmp_path / "docker-compose.yml"
     emit_project_compose(project_dns_label="my-test-proj", out_path=out)
     doc = yaml.safe_load(out.read_text())
-    # Four -web networks.
-    for env in ("dev", "test", "stage", "prod"):
+    # Three -web networks (mod 153: test's web network is env-tier, not
+    # projinfra, so it is no longer emitted at the project tier).
+    for env in ("dev", "stage", "prod"):
         net_key = f"my-test-proj-{env}-web"
         assert net_key in doc["networks"], (env, sorted(doc["networks"]))
         assert doc["networks"][net_key]["name"] == net_key
+    assert "my-test-proj-test-web" not in doc["networks"]
     # Project traefik service.
     traefik_key = "my-test-proj-traefik"
     assert traefik_key in doc["services"]

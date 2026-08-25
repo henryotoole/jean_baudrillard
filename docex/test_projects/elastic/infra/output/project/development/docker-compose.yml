@@ -10,8 +10,6 @@ networks:
     name: docex-smoke-elastic-prod-web
   docex-smoke-elastic-stage-web:
     name: docex-smoke-elastic-stage-web
-  docex-smoke-elastic-test-web:
-    name: docex-smoke-elastic-test-web
 services:
   docex-smoke-elastic-traefik:
     command:
@@ -30,7 +28,6 @@ services:
     - docex.project=docex-smoke-elastic
     networks:
     - docex-smoke-elastic-dev-web
-    - docex-smoke-elastic-test-web
     - docex-smoke-elastic-stage-web
     - docex-smoke-elastic-prod-web
     - docex-ingress

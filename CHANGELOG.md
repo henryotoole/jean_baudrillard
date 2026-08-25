@@ -159,6 +159,22 @@ Advance 009 ("Test Overhaul") — in progress.
   sub-surface + Command-Lifecycle synchronous-unit-lane note), and the `testing`
   skill. docex's own fixture shims forward the selector as the reference
   implementation. (docex mod 151)
+- **The `test` env's `web` network is re-tiered out of projinfra (F7 §4, mod 153).**
+  For the `test` env only, the `web` network is no longer the shared, external,
+  projinfra-owned `${project}-test-web` network; it is now an **env-tier,
+  per-slot, non-external docker bridge** the `test` stack itself creates and tears
+  down (`${project}-test${slot_seg}-web`). Since `test` is never TLS'd or routed
+  (mod 054), it needs no projinfra web network — this **removes `test`'s last
+  projinfra dependency**, so `docex test` runs with **no `projinfra up`**. It also
+  **slots the one physical name Mod 152 left unslotted**, so every resource of a
+  `test` slot is now namespaced (fully subsuming the latent `check --project-name`
+  collision). `dev`/`stage`/`prod` keep their external, projinfra-owned `-web`
+  networks unchanged (their compiled output is byte-identical); the project-tier
+  compose now emits **three** `-web` networks, and the per-project traefik joins
+  three (not four). Verified by docex's integration tier: a single `test` slot
+  brings its stack up with no projinfra and the web core service is reachable over
+  the new bridge on HTTP. Doctrine amended: `projinfra/fixed_reverse_proxy.md`,
+  `projinfra/projinfra.md`, `networks.md`, and `infrastructure.md`. (docex mod 153)
 
 ## [2.1.0] - 2026-08-24
 

@@ -29,13 +29,14 @@ A complete fixed-side projinfra set, on either side, consists of:
 | -------- | ---- | ---- |
 | Project traefik container | docker container | `${project_name}-traefik` |
 | Dev-env web network | external docker bridge network | `${project_name}-dev-web` |
-| Test-env web network | external docker bridge network | `${project_name}-test-web` |
 | Stage-env web network | external docker bridge network | `${project_name}-stage-web` |
 | Prod-env web network | external docker bridge network | `${project_name}-prod-web` |
 
-The traefik container joins **all four** `-web` networks plus the host-wide `docex-ingress` bridge from [preinfra](../../preinfra/fixed_master_network.md). All four `-web` networks are always present on every side, even on sides where some envs will never run — see [projinfra.md § Why all four `-web` networks live on every side](./projinfra.md#why-all-four--web-networks-live-on-every-side).
+The traefik container joins **all three** `-web` networks plus the host-wide `docex-ingress` bridge from [preinfra](../../preinfra/fixed_master_network.md). All three `-web` networks are always present on every side, even on sides where some envs will never run — see [projinfra.md § Why all three `-web` networks live on every side](./projinfra.md#why-all-three--web-networks-live-on-every-side).
 
-The `-web` networks are declared `external: true` in each env's `compose.yml` so that env-tier services can join them without ownership ambiguity — projinfra owns the network lifecycle; env compose files merely attach.
+There is deliberately **no `test`-env web network here.** The `test` env is never TLS'd or routed through traefik ([mod 054](../../cicl.md#tls-implications)), so as of mod 153 its `web` network is **env-tier, not projinfra**: a plain, non-external, per-slot docker bridge the env's own `compose.yml` creates and tears down (`${project_name}-test${slot_seg}-web`), exactly like the `internal` network. This removes `test`'s last projinfra dependency — `docex test` runs without `projinfra up`. See [networks.md](../networks.md) and [projinfra.md § Why all three `-web` networks live on every side](./projinfra.md#why-all-three--web-networks-live-on-every-side).
+
+The three `-web` networks are declared `external: true` in each env's `compose.yml` so that env-tier services can join them without ownership ambiguity — projinfra owns the network lifecycle; env compose files merely attach. (The `test` env is the exception per the note above: it owns its own web bridge.)
 
 ## Compiled Output
 
@@ -43,10 +44,10 @@ The `-web` networks are declared `external: true` in each env's `compose.yml` so
 
 ```
 infra/output/project/development/
-  docker-compose.yml        # 4 -web networks + project traefik
+  docker-compose.yml        # 3 -web networks + project traefik
 
 infra/output/project/production/
-  docker-compose.yml        # 4 -web networks + project traefik (or HCL on elastic prod)
+  docker-compose.yml        # 3 -web networks + project traefik (or HCL on elastic prod)
   playbook.yml              # only when prod side is a remote host
   inventory.yml             # only when prod side is a remote host
   ansible.cfg               # only when prod side is a remote host
@@ -58,14 +59,12 @@ Both sides' compose files are emitted on every project, regardless of foundation
 
 ### `docker-compose.yml` shape
 
-The emitted compose file declares the four external networks and the traefik service. Illustrative shape (actual emit lives in `src/docex/emit/compose.py`):
+The emitted compose file declares the three external networks and the traefik service. Illustrative shape (actual emit lives in `src/docex/emit/compose.py`):
 
 ```yml
 networks:
   ${project_name}-dev-web:
     name: ${project_name}-dev-web
-  ${project_name}-test-web:
-    name: ${project_name}-test-web
   ${project_name}-stage-web:
     name: ${project_name}-stage-web
   ${project_name}-prod-web:
@@ -80,7 +79,6 @@ services:
     restart: unless-stopped
     networks:
       - ${project_name}-dev-web
-      - ${project_name}-test-web
       - ${project_name}-stage-web
       - ${project_name}-prod-web
       - docex-ingress
@@ -137,7 +135,7 @@ The project traefik comes up with `./bin/docex projinfra up <side>` and stays up
 
 When the operator runs `./bin/docex projinfra down <side>`:
 - The traefik container is stopped and removed.
-- The four `-web` networks are removed (they're owned by the projinfra compose file, declared with no external owner).
+- The three `-web` networks are removed (they're owned by the projinfra compose file, declared with no external owner). The `test` env's web bridge is *not* among them — it is env-tier and comes down with the `test` stack (mod 153).
 - The `${project_name}-traefik-acme` named volume is **preserved** by default (docker compose's default behavior; the volume is not part of the `down` action unless `--volumes` is passed).
 
 Projinfra refuses to run `down` if any env-tier infra is still attached to its networks — see [projinfra.md § `./bin/docex projinfra <direction> <side>`](./projinfra.md#bindocex-projinfra-direction-side).
@@ -157,13 +155,13 @@ Projinfra refuses to run `down` if any env-tier infra is still attached to its n
 The split between project-tier and env-tier emissions on fixed:
 
 **Projinfra (`infra/output/project/<side>/docker-compose.yml`):**
-- The four `-web` external networks
+- The three `-web` external networks (`dev`/`stage`/`prod`; the `test` env's web network is env-tier per mod 153)
 - The project traefik container with its acme volume and LE resolver config
 - Reference (`external: true`) to the preinfra `docex-ingress` bridge
 
 **Envinfra (`infra/output/<env>/docker-compose.yml`):**
-- The env's `internal` (and any other non-`web`) networks
-- Per-service core and backing containers, with traefik discovery labels on `web`-network services
-- `external: true` references to the projinfra-owned `-web` networks
+- The env's `internal` (and any other non-`web`) networks — **and, in the `test` env only, its own non-external `web` bridge** (`${project}-test${slot_seg}-web`, mod 153)
+- Per-service core and backing containers, with traefik discovery labels on `web`-network services (except `test`, which is not routed)
+- `external: true` references to the projinfra-owned `-web` networks (in `dev`/`stage`/`prod`; `test`'s web network is owned by this file, not projinfra)
 
 A reader looking at any one compose file can tell at a glance who owns what: networks declared without `external: true` are owned by that file; networks declared with `external: true` were created by something further up the tier hierarchy.

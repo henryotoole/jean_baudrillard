@@ -42,7 +42,7 @@ There are three tiers, or types, of infrastructure:
 1. Prerequisite Infrastructure - These resources exist outside the scope of any project. They are required for the project to work, but are not constructed or configured by the project.
 	+ Examples: an AWS account used for an `elastic` setup, the `web_demux` resource in a `fixed` setup, or the master network in both.
 2. Project Infrastructure - These resources are configured and controlled within the scope of the whole project. They are required for environment infrastructure to function.
-	+ Examples: the project-level reverse proxy (whether ALB or Traefik), the `fixed`-foundation `web`-networks.
+	+ Examples: the project-level reverse proxy (whether ALB or Traefik), the `fixed`-foundation `web`-networks. (Exception: the `test` env's `web` network is *env*-tier, not project-tier — a non-external, per-slot bridge the `test` stack owns, because `test` is never routed or TLS'd. This is what lets `docex test` run with no projinfra up. See [networks.md](./specifics/networks.md).)
 3. Environment Infrastructure - These resources are configured and controlled within the scope of a single environment.
 	+ Examples: `elastic` SGs, the `postgres` container for each environment, core service containers.
 

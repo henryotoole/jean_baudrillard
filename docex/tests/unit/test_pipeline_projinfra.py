@@ -53,7 +53,7 @@ def test_projinfra_fixed_up_runs_compose_up(sample_ctx, fake_docker, side):
     assert build is False
     assert detach is True
     # Mod 053: an explicit, project-scoped --project-name is passed so
-    # the projinfra stack (traefik + four -web networks) lives under a
+    # the projinfra stack (traefik + three -web networks) lives under a
     # stable name, not the bogus path-derived 'infra'.
     # Mod 087: that name is now side-independent — BOTH sides yield the
     # SAME project name so a single-host fixed dev/prod converge.
@@ -179,7 +179,7 @@ def test_projinfra_fixed_down_proceeds_when_env_clean(
         / "infra" / "output" / "project" / "production" / "docker-compose.yml"
     )
     # Mod 053: down must pass the SAME project name as up so it removes
-    # the traefik AND the four -web networks.
+    # the traefik AND the three -web networks.
     # Mod 087: the name is side-independent, so down targets the same
     # converged project regardless of side.
     name_calls = [

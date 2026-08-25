@@ -21,7 +21,6 @@ networks:
   internal:
     name: docex-smoke-fixed-test-internal
   web:
-    external: true
     name: docex-smoke-fixed-test-web
 services:
   docex-smoke-fixed-test-api-clock:

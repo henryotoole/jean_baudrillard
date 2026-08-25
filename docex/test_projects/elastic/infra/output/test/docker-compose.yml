@@ -21,7 +21,6 @@ networks:
   internal:
     name: docex-smoke-elastic-test-internal
   web:
-    external: true
     name: docex-smoke-elastic-test-web
 services:
   docex-smoke-elastic-test-api-clock:

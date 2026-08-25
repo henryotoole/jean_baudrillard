@@ -72,9 +72,10 @@ def test_slot2_emitted_compose_isolates_names(tmp_path):
     assert "docex-smoke-fixed-test-s2-api-exec" in compose
     assert "docex-smoke-fixed-test-s2-internal" in compose
     assert "docex-smoke-fixed-test-s2-appdb_data" in compose
-    # the -web external network is NOT slotted (Mod 153 seam).
-    assert "docex-smoke-fixed-test-web" in compose
-    assert "docex-smoke-fixed-test-s2-web" not in compose
+    # Mod 153: test's web network is now an env-tier, per-slot bridge, so at
+    # slot 2 it carries the segment and the unslotted name is gone.
+    assert "docex-smoke-fixed-test-s2-web" in compose
+    assert "docex-smoke-fixed-test-web" not in compose
     # slot-1 tracked output was NOT written by a slot>1 compile.
     assert not (dest / "infra" / "output" / "test" / "slots").exists()
 

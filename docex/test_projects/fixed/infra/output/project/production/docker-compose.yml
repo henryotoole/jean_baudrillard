@@ -10,8 +10,6 @@ networks:
     name: docex-smoke-fixed-prod-web
   docex-smoke-fixed-stage-web:
     name: docex-smoke-fixed-stage-web
-  docex-smoke-fixed-test-web:
-    name: docex-smoke-fixed-test-web
 services:
   docex-smoke-fixed-traefik:
     command:
@@ -30,7 +28,6 @@ services:
     - docex.project=docex-smoke-fixed
     networks:
     - docex-smoke-fixed-dev-web
-    - docex-smoke-fixed-test-web
     - docex-smoke-fixed-stage-web
     - docex-smoke-fixed-prod-web
     - docex-ingress

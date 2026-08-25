@@ -27,7 +27,7 @@ Some project-tier resources are physically duplicated across two distinct **side
 
 The duplication exists because both sides need their own routing surface to deliver traffic to the env-tier services living there. Specifically:
 
-- Every machine that hosts any project env needs the project's **`-web` docker networks** (one per env: `${project}-dev-web`, `${project}-test-web`, `${project}-stage-web`, `${project}-prod-web`) and a **project traefik container** to terminate TLS and forward requests onto the right `-web` network.
+- Every machine that hosts any project env needs the project's **`-web` docker networks** (one per *routed* env: `${project}-dev-web`, `${project}-stage-web`, `${project}-prod-web` — the `test` env is never routed and owns its web network at the env tier, mod 153) and a **project traefik container** to terminate TLS and forward requests onto the right `-web` network.
 - An elastic production side replaces the docker traefik with AWS-native equivalents (an ALB or an EC2-traefik instance, plus ACM certs, plus a Route53 zone, plus ECR repositories).
 
 This produces three distinct topologies in practice:
@@ -36,13 +36,15 @@ This produces three distinct topologies in practice:
 2. **Split-machine fixed.** Dev/test run on the operator's local machine; stage/prod run on a remote prod host. The two sides are distinct machines and must be set up separately — `projinfra up development` operates against local docker; `projinfra up production` SSHes to the prod host via Ansible.
 3. **Elastic.** Dev/test run on the operator's local machine (always fixed-style per [shape.md § Shape and Environment](../../shape.md#shape-and-environment)); stage/prod run in AWS. `projinfra up development` operates against local docker; `projinfra up production` runs `tofu apply` against AWS.
 
-### Why all four `-web` networks live on every side
+### Why all three `-web` networks live on every side
 
-A project's compiled output emits **all four** `-web` networks (`${project}-dev-web`, `${project}-test-web`, `${project}-stage-web`, `${project}-prod-web`) on *every* side, regardless of which envs that side actually hosts. The dev machine of an elastic project gets `${project}-stage-web` and `${project}-prod-web` even though it will never run stage or prod envs; the remote prod host of a split-machine fixed project gets `${project}-dev-web` and `${project}-test-web` even though it will never run dev or test envs.
+A project's compiled output emits **all three** projinfra `-web` networks (`${project}-dev-web`, `${project}-stage-web`, `${project}-prod-web` — one per *routed* env) on *every* side, regardless of which envs that side actually hosts. The dev machine of an elastic project gets `${project}-stage-web` and `${project}-prod-web` even though it will never run stage or prod envs; the remote prod host of a split-machine fixed project gets `${project}-dev-web` even though it will never run the dev env.
 
 Docker networks are free; precise per-side tailoring would require the compiler to model side-vs-env attachment as a first-class concept just to save a few unused bridge networks. The doctrine pays the small cost of unused networks to keep the compiled output and the project traefik's network attachments uniform across every side.
 
-Non-`web` networks (`internal`, and any other project-defined non-`web` name) are *not* project-tier. They exist per-env, are declared inside each env's `compose.yml`, and are torn up and down with the env. See [networks.md](../networks.md).
+The `test` env has **no projinfra `-web` network.** It is never TLS'd or routed (mod 054), so as of mod 153 its `web` network is env-tier — a plain, non-external, per-slot bridge in the env's own `compose.yml`, just like the non-`web` networks below. That is what removes `test`'s last projinfra dependency: `docex test` needs no `projinfra up`.
+
+Non-`web` networks (`internal`, and any other project-defined non-`web` name), **and the `test` env's `web` network**, are *not* project-tier. They exist per-env, are declared inside each env's `compose.yml`, and are torn up and down with the env. See [networks.md](../networks.md).
 
 ## The Four-Cell Matrix
 
@@ -52,7 +54,7 @@ The operator's central question — *"I'm setting up the X side of a Y project �
 
 | Aspect | Detail |
 | ------ | ------ |
-| What gets created | Four `-web` external docker networks; one project traefik container on `docex-ingress` + all four `-web` networks |
+| What gets created | Three `-web` external docker networks (`dev`/`stage`/`prod`; `test`'s web network is env-tier, mod 153); one project traefik container on `docex-ingress` + all three `-web` networks |
 | Resource file | [`fixed_reverse_proxy.md`](./fixed_reverse_proxy.md) |
 | Preinfra it depends on | The [fixed master network](../../preinfra/fixed_master_network.md) (`docex-ingress` bridge + machine-wide HAProxy web demux) |
 | Compiled output | `infra/output/project/development/docker-compose.yml` |

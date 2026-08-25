@@ -130,10 +130,11 @@ def test_project_tier_production_main_tf_emitted_for_elastic_only(tmp_path: Path
     ).exists()
 
 
-def test_project_tier_compose_declares_four_web_networks(tmp_path: Path):
-    """Mod 035 + 036: the project-tier compose file declares the four
-    ``${project}-${env}-web`` networks plus the ``docex-ingress``
-    external reference."""
+def test_project_tier_compose_declares_three_web_networks(tmp_path: Path):
+    """Mod 035 + 036 + 153: the project-tier compose file declares the three
+    ``${project}-${env}-web`` networks (``dev``/``stage``/``prod``;
+    ``test``'s web network is env-tier per mod 153, not projinfra) plus the
+    ``docex-ingress`` external reference."""
     import yaml
 
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
@@ -146,16 +147,20 @@ def test_project_tier_compose_declares_four_web_networks(tmp_path: Path):
     data = yaml.safe_load(compose_path.read_text())
     networks = data.get("networks", {})
     project = "sample"
-    for env in ("dev", "test", "stage", "prod"):
+    for env in ("dev", "stage", "prod"):
         key = f"{project}-{env}-web"
         assert key in networks, f"missing network {key!r}"
         assert networks[key].get("name") == key
+    # Mod 153: test's web network is re-tiered to env-tier and dropped from
+    # projinfra, so it must NOT appear in the project-tier compose.
+    assert f"{project}-test-web" not in networks
     assert networks.get("docex-ingress") == {"external": True}
 
 
 def test_project_tier_compose_declares_traefik_service(tmp_path: Path):
-    """Mod 036: the project-tier compose emits a ``${project}-traefik``
-    service joined to the four ``-web`` networks plus ``docex-ingress``,
+    """Mod 036 + 153: the project-tier compose emits a ``${project}-traefik``
+    service joined to the three ``-web`` networks (``dev``/``stage``/``prod``;
+    ``test``'s web network is env-tier per mod 153) plus ``docex-ingress``,
     with the doctrine cert resolver name, the acme volume, and the
     operator-supplied DNS-01 env vars wired via compose runtime
     substitution."""
@@ -183,10 +188,10 @@ def test_project_tier_compose_declares_traefik_service(tmp_path: Path):
     image = svc.get("image", "")
     assert image.startswith("traefik:") and "@sha256:" in image, image
 
-    # Network attachments: all four -web networks + docex-ingress.
+    # Network attachments: the three -web networks + docex-ingress (mod 153
+    # dropped test's web network from projinfra).
     expected_networks = {
         f"{project}-dev-web",
-        f"{project}-test-web",
         f"{project}-stage-web",
         f"{project}-prod-web",
         "docex-ingress",
@@ -269,16 +274,18 @@ def test_project_tier_compose_identical_on_both_sides_for_fixed(tmp_path: Path):
 
 
 def test_env_compose_web_network_references_project_tier_external(tmp_path: Path):
-    """Mod 036: env-tier compose's ``web`` short-name now references the
+    """Mod 036 + 153: env-tier compose's ``web`` short-name references the
     project-tier ``${project}-${env}-web`` network with ``external: true``
-    — projinfra owns the network lifecycle; env compose merely attaches."""
+    for ``dev``/``stage``/``prod`` — projinfra owns the network lifecycle and
+    env compose merely attaches. For ``test`` (mod 153) it is instead an
+    env-tier, non-external bridge (no ``external`` key) the stack creates."""
     import yaml
 
     root = _copy_fixture(_FIXTURE_FIXED, tmp_path)
     rc = run_compile(load_project_context(root))
     assert rc == 0
 
-    for env in ("dev", "test", "stage", "prod"):
+    for env in ("dev", "stage", "prod"):
         path = root / "infra" / "output" / env / "docker-compose.yml"
         doc = yaml.safe_load(path.read_text())
         web = doc["networks"]["web"]
@@ -286,6 +293,11 @@ def test_env_compose_web_network_references_project_tier_external(tmp_path: Path
             "name": f"sample-{env}-web",
             "external": True,
         }, (env, web)
+
+    # Mod 153: test's web network is a non-external env-tier bridge.
+    test_path = root / "infra" / "output" / "test" / "docker-compose.yml"
+    test_doc = yaml.safe_load(test_path.read_text())
+    assert test_doc["networks"]["web"] == {"name": "sample-test-web"}
 
 
 def test_compile_is_deterministic(tmp_path: Path):

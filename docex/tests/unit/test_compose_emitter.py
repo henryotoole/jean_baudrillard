@@ -206,12 +206,13 @@ def test_exec_gate_is_service_healthy_and_no_other_block_is_gated(tmp_path: Path
 
 
 def test_web_network_is_project_env_external_and_others_are_project_scoped(tmp_path: Path):
-    """Mod 036 flip: env compose's ``web`` short-name now references the
-    project-tier ``${project}-${env}-web`` network with ``external: true``;
-    every other network keeps ``${project}-${env}-${name}`` scoping and is
-    a plain project-scoped bridge — no ``internal: true`` (mod 110). The
-    per-project traefik (owned by projinfra) spans all four ``-web``
-    networks."""
+    """Mod 036 flip + 153: env compose's ``web`` short-name references the
+    project-tier ``${project}-${env}-web`` network with ``external: true`` for
+    ``dev``/``stage``/``prod``; for ``test`` (mod 153) it is instead an
+    env-tier, non-external bridge the stack creates. Every other network keeps
+    ``${project}-${env}-${name}`` scoping and is a plain project-scoped
+    bridge — no ``internal: true`` (mod 110). The per-project traefik (owned by
+    projinfra) spans the three non-``test`` ``-web`` networks."""
     root = _copy_fixture(tmp_path)
     ctx = load_project_context(root)
     run_compile(ctx)
@@ -222,10 +223,16 @@ def test_web_network_is_project_env_external_and_others_are_project_scoped(tmp_p
         networks = doc["networks"]
 
         # The project's name in the sample fixture is "sample".
-        assert networks["web"] == {
-            "name": f"sample-{env}-web",
-            "external": True,
-        }, (env, networks["web"])
+        if env == "test":
+            # Mod 153: test's web network is a non-external env-tier bridge.
+            assert networks["web"] == {
+                "name": "sample-test-web",
+            }, networks["web"]
+        else:
+            assert networks["web"] == {
+                "name": f"sample-{env}-web",
+                "external": True,
+            }, (env, networks["web"])
         # `internal` (or any other CICL-defined network) stays
         # project-scoped, as a plain bridge.
         internal = networks["internal"]
