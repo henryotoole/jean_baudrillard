@@ -499,6 +499,16 @@ them: `orchestrate/_common.py::env_compose_project` takes a `slot` kwarg emittin
 two slots must carry distinct project names. All three default `slot=1`, preserving
 byte-identical output for every non-sharded caller.
 
+Mod 155 gives those seams their non-`test` callers: `check` and `merge` compile
+their defensive `test` env via `compile_slot(worktree_ctx, "test", slot)` at a
+**reserved slot above the `test --slots` band** (`CHECK_SLOT` / `MERGE_SLOT`, i.e.
+`MAX_TEST_SLOTS + 1` / `+ 2`, defined in `orchestrate/_common.py`) and run it
+through the single-stack `run_test(..., slot=k)` path, so the throwaway stack's
+`container_name:`s and DB volume `name:` carry `_s{k}` and are name-disjoint from
+any `docex test` run and from each other. That is what closes the
+`check --project-name` DB-volume collision — the slot segment namespaces exactly
+the explicit names a Compose `--project-name` cannot.
+
 ## The container probe
 
 Mod 127. Every core service's container health check is `["CMD", "./health.sh", "<service>"]`

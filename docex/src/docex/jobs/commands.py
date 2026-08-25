@@ -182,24 +182,24 @@ def run_test_job(
 # ---------------------------------------------------------------------------
 
 
-def _check_teardown_params(ctx, git) -> dict:
+def _check_teardown_params(ctx, git, *, slot: int) -> dict:
     """Deterministic identities the reaper reclaims for a hard-killed
     check/merge vessel.
 
-    ``run_check`` recomputes these identically inside the vessel from the same
-    inputs (feature HEAD short sha + dns label): ``worktree_path_for(root,
-    "check-<short_sha>")`` and, for the throwaway build/test stack,
-    ``f"{dns_label(project)}-{worktree.name}"``. Computing them here in the
-    foreground and recording them in ``meta.params`` lets the reaper reclaim the
-    leak without threading anything through ``run_check``'s signature (which
-    keeps its existing tests green).
+    ``run_check`` recomputes the same project name inside the vessel:
+    ``env_compose_project(ctx, "test", slot=slot)`` (the reserved-slot stack,
+    Mod 155). The worktree dir is still ``check-<short_sha>`` (run_check names it
+    that regardless of which command drove it). Recording these here lets the
+    reaper reclaim the leak by label without threading anything through
+    ``run_check``'s signature.
     """
-    label = dns_label(ctx.project.name)
+    from docex.orchestrate._common import env_compose_project
+
     short_sha = git.head_sha(ctx.project_root, short=True)
-    slug = f"check-{short_sha}"
     return {
-        "worktree_slug": slug,
-        "compose_project": f"{label}-{slug}",
+        "worktree_slug": f"check-{short_sha}",
+        "compose_project": env_compose_project(ctx, "test", slot=slot),
+        "slot": slot,
     }
 
 
@@ -227,13 +227,15 @@ def run_check_job(ctx, docker, git, *, detach: bool) -> int:
     deterministic teardown identities (``short_sha``) the reaper reclaims on a
     hard-killed vessel.
     """
+    from docex.orchestrate._common import CHECK_SLOT
+
     label = dns_label(ctx.project.name)
     return _launch_durable_job(
         ctx, docker,
         kind="check",
         scope=f"{label}/check",
         vessel_name=f"{label}-check-runner",
-        params=_check_teardown_params(ctx, git),
+        params=_check_teardown_params(ctx, git, slot=CHECK_SLOT),
         detach=detach,
     )
 
@@ -266,12 +268,14 @@ def run_merge_job(ctx, docker, git, *, detach: bool) -> int:
             file=sys.stderr,
         )
         return _MERGE_DETACH_PASSTHROUGH_EXIT
+    from docex.orchestrate._common import MERGE_SLOT
+
     return _launch_durable_job(
         ctx, docker,
         kind="merge",
         scope=f"{label}/merge",
         vessel_name=f"{label}-merge-runner",
-        params=_check_teardown_params(ctx, git),
+        params=_check_teardown_params(ctx, git, slot=MERGE_SLOT),
         detach=detach,
     )
 

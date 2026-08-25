@@ -44,8 +44,13 @@ from docex.context import ProjectContext, load_project_context
 from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
-from docex.naming import dns_label
-from docex.orchestrate._common import codebases, codebases_with_schema
+from docex.orchestrate._common import (
+    CHECK_SLOT,
+    codebases,
+    codebases_with_schema,
+    env_compose_project,
+    slot_compose_file,
+)
 from docex.pipeline import check_record
 from docex.pipeline._worktree import (
     cleanup_worktree,
@@ -787,8 +792,20 @@ def run_check(
     ctx: ProjectContext,
     docker: DockerClient,
     git: GitClient,
+    *,
+    slot: int = CHECK_SLOT,
 ) -> int:
-    """Run the full check sequence. Returns process exit code."""
+    """Run the full check sequence. Returns process exit code.
+
+    The defensive build + test compile and run the worktree's ``test`` env at
+    ``slot`` (default ``CHECK_SLOT``), a reserved slot above the ``docex test
+    --slots N`` band. That makes the throwaway stack's compiled physical names
+    (esp. the DB volume ``name:``) disjoint from any ``docex test`` run — which
+    closes the ``--project-name`` DB-volume collision (compose's
+    ``--project-name`` does not namespace explicit ``container_name:``/volume
+    ``name:``). ``merge`` passes ``MERGE_SLOT`` so a concurrent standalone
+    ``check`` and its in-process defensive check are name-disjoint too.
+    """
     project_root = ctx.project_root
 
     # 1. Pre-check on the developer's tree ------------------------------
@@ -905,7 +922,6 @@ def run_check(
 
         # 6. Build everything --------------------------------------------
         from docex.cicl.compile import run_compile
-        from docex.orchestrate._common import compose_file_for
         from docex.orchestrate.aggregate import aggregate
 
         rc = run_compile(worktree_ctx)
@@ -939,12 +955,17 @@ def run_check(
         # Override compose's --project-directory to the worktree path
         # so build contexts and bind-mounts resolve against the
         # worktree tree, not the main project tree.
-        compose_path = compose_file_for(worktree_ctx, "test")
-        # Worktree-unique compose project name so this throwaway `test`
-        # stack can't collide with — or get torn down alongside — a real
-        # `test` env stack on the same host. Folds in the worktree slug
-        # (``check-<short_sha>``) so concurrent checks don't clash either.
-        check_project_name = f"{dns_label(worktree_ctx.project.name)}-{worktree.name}"
+        #
+        # Mod 155: compile + run the defensive stack at the reserved slot so its
+        # physical names (esp. the DB volume name:) are disjoint from any `docex
+        # test` run and from merge's MERGE_SLOT stack — closing the
+        # `--project-name` DB-volume collision. Slotted output lands in the
+        # gitignored .docex/slots/test/<slot>/ (worktree tree), thrown away with
+        # the worktree; slot-1 infra/output stays untouched.
+        from docex.cicl.compile import compile_slot
+        compile_slot(worktree_ctx, "test", slot)
+        compose_path = slot_compose_file(worktree_ctx, "test", slot)
+        check_project_name = env_compose_project(worktree_ctx, "test", slot=slot)
         # Use compose_up with build=True then immediately down; we want
         # to confirm `docker build` succeeds without leaving containers
         # around. Easier: a dedicated compose build step.
@@ -967,6 +988,7 @@ def run_check(
             project_dir=worktree,
             env_file_override=env_file,
             project_name=check_project_name,
+            slot=slot,
         )
         if rc != 0:
             print(

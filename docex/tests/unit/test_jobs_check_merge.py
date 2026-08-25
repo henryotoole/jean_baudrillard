@@ -57,14 +57,15 @@ def _seed_record(ctx, *, kind, vessel, exit_code=None, params=None) -> str:
 
 
 @pytest.mark.parametrize(
-    "runner,job,kind",
+    "runner,job,kind,expected_project,expected_slot",
     [
-        (_CHECK_VESSEL, run_check_job, "check"),
-        (_MERGE_VESSEL, run_merge_job, "merge"),
+        (_CHECK_VESSEL, run_check_job, "check", "sample-test-s9", 9),
+        (_MERGE_VESSEL, run_merge_job, "merge", "sample-test-s10", 10),
     ],
 )
 def test_detach_returns_handle_launches_once(
-    sample_ctx, fake_docker, fake_git, capsys, runner, job, kind
+    sample_ctx, fake_docker, fake_git, capsys, runner, job, kind,
+    expected_project, expected_slot,
 ):
     rc = job(sample_ctx, fake_docker, fake_git, detach=True)
     assert rc == 0
@@ -72,9 +73,11 @@ def test_detach_returns_handle_launches_once(
     assert handle
     meta = record.read_meta(sample_ctx.project_root, handle)
     assert meta is not None and meta.kind == kind
-    # Deterministic teardown identities recorded for the reaper.
+    # Deterministic teardown identities recorded for the reaper. Mod 155: the
+    # compose project is the reserved-slot name run_check now uses, per kind.
     assert meta.params["worktree_slug"] == "check-abc1234"
-    assert meta.params["compose_project"] == "sample-check-abc1234"
+    assert meta.params["compose_project"] == expected_project
+    assert meta.params["slot"] == expected_slot
     assert record.read_status(sample_ctx.project_root, handle).state == "running"
     assert record.read_exit(sample_ctx.project_root, handle) is None
     detached = [c for c in fake_docker.calls if c[0] == "run_detached"]

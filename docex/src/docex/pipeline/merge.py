@@ -30,6 +30,7 @@ from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import VersionAlreadyReleased
 from docex.git.client import GitClient
+from docex.orchestrate._common import MERGE_SLOT
 from docex.pipeline import check_record
 from docex.pipeline.check import run_check
 
@@ -93,7 +94,11 @@ def run_merge(
         )
     else:
         print("merge: running 'docex check' defensively before rebase...")
-        rc = run_check(ctx, docker, git)
+        # WHY slot=MERGE_SLOT: this defensive check is an in-process call — it
+        # does NOT take the check-runner lock — so it can co-occur with a
+        # standalone `docex check` running at CHECK_SLOT. Running at MERGE_SLOT
+        # keeps the two stacks name-disjoint (closing the DB-volume collision).
+        rc = run_check(ctx, docker, git, slot=MERGE_SLOT)
         if rc != 0:
             print(
                 "merge: 'docex check' failed; refusing to merge. "

@@ -450,6 +450,7 @@ def _cmd_test(args: list[str]) -> int:
         "--slots", type=int, default=1, metavar="N",
         help="shard the integration tier across N isolated test stacks on this "
              "host (unit runs once). N=1 (default) is byte-identical to today. "
+             "Capped at MAX_TEST_SLOTS (the band is 1..MAX_TEST_SLOTS). "
              "Only for 'test'/'test integration'; not valid for the 'unit' lane.",
     )
     ns = parser.parse_args(args)
@@ -460,6 +461,14 @@ def _cmd_test(args: list[str]) -> int:
 
     if ns.slots < 1:
         print("error: --slots must be >= 1.", file=sys.stderr)
+        return 64  # EX_USAGE
+    from docex.orchestrate._common import MAX_TEST_SLOTS
+    if ns.slots > MAX_TEST_SLOTS:
+        print(
+            f"error: --slots {ns.slots} exceeds MAX_TEST_SLOTS "
+            f"({MAX_TEST_SLOTS}); the test slot band is 1..{MAX_TEST_SLOTS}.",
+            file=sys.stderr,
+        )
         return 64  # EX_USAGE
 
     if ns.tier == "unit":

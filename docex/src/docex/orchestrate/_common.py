@@ -26,6 +26,21 @@ _FIXED_ENVS = ("dev", "test")
 _ALL_ENVS = ("dev", "test", "stage", "prod")
 
 
+# Mod 155 — the reserved-slot band. `docex test --slots N` uses slots
+# 1..MAX_TEST_SLOTS; check/merge run their defensive test/check at a reserved
+# slot ABOVE that band, so their compiled `test`-env physical names (esp. the DB
+# volume `name:`) are name-disjoint from any `test` run and from each other. This
+# is what closes the `--project-name` DB-volume collision (compose's
+# --project-name does NOT namespace explicit container_name:/volume name:; the
+# Mod 152 slot segment does). CHECK_SLOT/MERGE_SLOT are DERIVED from the ceiling
+# so they stay disjoint by construction if MAX_TEST_SLOTS is ever retuned (a
+# beefier host may bump it). They are ephemeral per-run slot indices, never a
+# persisted identity, so deriving them carries no cross-version-stability duty.
+MAX_TEST_SLOTS = 8
+CHECK_SLOT = MAX_TEST_SLOTS + 1   # 9
+MERGE_SLOT = MAX_TEST_SLOTS + 2   # 10
+
+
 def env_compose_project(ctx: ProjectContext, env: str, *, slot: int = 1) -> str:
     """The explicit compose ``--project-name`` for an env-tier stack.
 

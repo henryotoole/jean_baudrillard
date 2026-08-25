@@ -220,9 +220,21 @@ stackless unit run touches no shared infra, so it is a plain synchronous run
   the **fleet** reaper: the orphan teardown reclaims all `N` deterministic slot
   stacks the hard-killed vessel leaked (`N` read from `meta.params`), and a slot
   whose shard *failed* is deliberately left up for debugging and reclaimed by the
-  next run that touches that slot number. The slot axis is delivered for `test`;
-  `check`/`merge` slot-adoption (the `check --project-name` collision closure) is
-  the follow-on mod 155.
+  next run that touches that slot number. The slot axis is delivered for `test`,
+  and (mod 155) for `check`/`merge`: each runs its defensive `test` stack at a
+  **reserved slot above the `test --slots` band** — `check` at `CHECK_SLOT`,
+  `merge` at `MERGE_SLOT` (`MAX_TEST_SLOTS + 1` / `+ 2`; the three constants live
+  in `orchestrate/_common.py`). Because the post-mod-149 vessel locks serialize to
+  ≤1 `test`, ≤1 `check`, and ≤1 `merge`, and the only three-way co-occurrence they
+  permit is `test`(`1..N`) + `check`(`CHECK_SLOT`) + `merge`(`MERGE_SLOT`), three
+  disjoint bands make every explicit `container_name:` and the DB volume `name:`
+  name-disjoint — **closing the `check --project-name` DB-volume collision** (a
+  Compose `--project-name` does not namespace those explicit names; the mod-152
+  slot segment does). `merge`'s defensive check needs its own slot precisely
+  because it is an in-process call taking no lock, so it can co-occur with a
+  standalone `check`. No dynamic allocator — deterministic reserved constants,
+  consistent with D5; a `docex test --slots N` with `N > MAX_TEST_SLOTS` is a
+  usage error.
 - **The verbs** (`jobs/commands.py`) — `ls` / `status` / `wait` / `logs` / `result`,
   plus the `--detach` launch wrapper and the hidden `__run-job` entrypoint — make a
   run discoverable and re-attachable without a `docker ps` / `pgrep` proxy.

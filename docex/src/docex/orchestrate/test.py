@@ -52,6 +52,7 @@ def run_test(
     tiers: "tuple[str, ...]" = ("unit", "integration"),
     selector: "str | None" = None,
     slots: int = 1,
+    slot: int = 1,
 ) -> int:
     """Run the full build-test cycle. Returns process exit code.
 
@@ -84,13 +85,32 @@ def run_test(
     unit runs once, the integration tier shards across N isolated slot stacks.
     Keyword-only so Mod 155 can later add a *distinct* ``slot=`` param (a single
     reserved slot for check/merge) without conflating it with this shard count.
+
+    ``slot`` (Mod 155): pins the *single-stack* path to one slot index. ``1``
+    (default) is byte/behavior-identical to today. ``slot != 1`` is used ONLY by
+    ``check``/``merge``, which compile + run the ``test`` env at a reserved slot
+    above the ``--slots`` band (``CHECK_SLOT``/``MERGE_SLOT``) so their compiled
+    physical names — especially the DB volume ``name:`` — are disjoint from any
+    ``docex test`` run and from each other, closing the ``--project-name``
+    DB-volume collision (compose's ``--project-name`` does not namespace explicit
+    ``container_name:``/volume ``name:``). ``slot`` and ``slots`` are mutually
+    exclusive: check/merge pass ``slot=``, never ``slots=`` (they never shard).
     """
     if slots >= 2:
         return _run_test_sharded(
             ctx, docker, tiers=tiers, selector=selector, slots=slots,
         )
-    ensure_compiled(ctx)
-    compose_file = compose_file_for(ctx, _TEST_ENV)
+    if slot == 1:
+        ensure_compiled(ctx)
+        compose_file = compose_file_for(ctx, _TEST_ENV)
+    else:
+        # Reserved-slot single-stack path (check/merge). Compile defensively at
+        # `slot` — same "always re-compile" philosophy as ensure_compiled — into
+        # the gitignored .docex/slots/<env>/<slot>/ tree, leaving slot-1
+        # infra/output/ untouched (byte-identical default preserved).
+        from docex.cicl.compile import compile_slot
+        compile_slot(ctx, _TEST_ENV, slot)
+        compose_file = slot_compose_file(ctx, _TEST_ENV, slot)
     # Bring-up site. With no override this builds the test aggregate here;
     # ``docex check`` passes its own already-built worktree aggregate as the
     # override (it mirrors the gitignored source files into the worktree and
@@ -101,10 +121,19 @@ def run_test(
         else aggregate(ctx, env=_TEST_ENV)
     )
     if project_name is None:
-        project_name = env_compose_project(ctx, _TEST_ENV)
+        project_name = env_compose_project(ctx, _TEST_ENV, slot=slot)
 
     first_failure: int = 0
     try:
+        # Mod 155: reserved-slot (check/merge) runs reap any leftover
+        # same-slot stack before bringing up a clean one. Idempotent; ignores
+        # absence. Gated slot!=1 so the default `docex test` path is unchanged.
+        if slot != 1:
+            docker.compose_down(
+                compose_file, preserve_volumes=False,
+                env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
+            )
         # 1. compose up --build -d
         rc = docker.compose_up(
             compose_file, build=True, detach=True,
@@ -129,7 +158,7 @@ def run_test(
         # unconditional. `run_test` is the `test` env by construction
         # (`_TEST_ENV`), so it passes True flat.
         for cb in codebases_with_schema(ctx):
-            key = exec_service_key(ctx, _TEST_ENV, cb)
+            key = exec_service_key(ctx, _TEST_ENV, cb, slot=slot)
             rc = docker.compose_run_one_off(
                 compose_file, key, ["./migrate.sh"], build=True,
                 env_file=env_file, project_dir=project_dir,
@@ -160,7 +189,7 @@ def run_test(
                 continue
             shim = _TIER_SHIMS[tier]
             for svc in codebases(ctx):
-                key = exec_service_key(ctx, _TEST_ENV, svc)
+                key = exec_service_key(ctx, _TEST_ENV, svc, slot=slot)
                 rc = docker.compose_run_one_off(
                     compose_file, key, [shim], build=True,
                     env=selector_env,

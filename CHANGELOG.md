@@ -139,6 +139,32 @@ Advance 009 ("Test Overhaul") — in progress.
   Command-Lifecycle fleet note). `check`/`merge` slot-adoption — the full
   `check --project-name` collision closure (SC4) — is the follow-on mod 155. (docex
   mod 154)
+- **`check`/`merge` adopt reserved slots — the `check --project-name` DB-volume
+  collision is closed (SC4 of Goal 4, completing Goal 4; mod 155).** `check` now
+  compiles and runs its defensive `test` stack at a **reserved slot above the
+  `docex test --slots N` band** (`CHECK_SLOT`), and `merge`'s in-process defensive
+  check at a distinct `MERGE_SLOT` — the three constants (`MAX_TEST_SLOTS = 8`,
+  `CHECK_SLOT = 9`, `MERGE_SLOT = 10`, derived as ceiling `+1`/`+2`) live in
+  `orchestrate/_common.py`. Because a Compose `--project-name` does **not**
+  namespace an explicit `container_name:` or a top-level volume `name:`, two stacks
+  compiling `test` at the same slot collided on the DB volume; the mod-152 slot
+  segment (`_s{k}`) *does* namespace those, so the reserved slots make a `check`, a
+  concurrent `docex test`, and a `merge` all **name-disjoint** on every explicit
+  name — proven by unit assertions over the emitted volume `name:` at slots
+  1/2/9/10. The band is safe because the post-mod-149 vessel locks serialize to ≤1
+  `test` / ≤1 `check` / ≤1 `merge`, and their only three-way co-occurrence —
+  `test`(`1..N`) + `check`(`CHECK_SLOT`) + `merge`(`MERGE_SLOT`) — is exactly three
+  disjoint bands; `merge` needs its own slot because its defensive check is an
+  in-process call taking no lock, so it can co-occur with a standalone `check`. New
+  enforcement: `docex test --slots N` with `N > MAX_TEST_SLOTS` is a usage error.
+  `run_test` grew a single-stack `slot=` param distinct from the shard-count
+  `slots=`; the default (`slot=1`, no `--slots`) path is **byte- and
+  behavior-identical** (golden gate green, `infra/output` unchanged). No dynamic
+  allocator — deterministic reserved constants (D5). Doctrine amended:
+  [`docex.md`](./doctrine/infrastructure/docex.md) (§ `test` cap + usage error, §
+  `check` collision-closed claim, § `merge` `MERGE_SLOT`, § Command Lifecycle band)
+  and [`cicd.md`](./doctrine/infrastructure/cicd.md) (§ Check Step + § Merge). (docex
+  mod 155)
 
 ### Changed
 - **`docex merge` preflights the remote before any expensive work.** A

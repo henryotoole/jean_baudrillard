@@ -37,6 +37,9 @@ def _stub_expensive_steps(monkeypatch, *, stub_compile: bool) -> None:
     import docex.cicl.compile as cicl_compile
 
     monkeypatch.setattr(orch_test, "run_test", lambda *a, **kw: 0)
+    # Mod 155: the build step now compiles the reserved slot before building.
+    # Insulate it exactly as run_compile / _compose_build / run_test are.
+    monkeypatch.setattr(cicl_compile, "compile_slot", lambda *a, **kw: None)
     if stub_compile:
         monkeypatch.setattr(cicl_compile, "run_compile", lambda *a, **kw: 0)
 
