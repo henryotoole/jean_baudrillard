@@ -80,6 +80,10 @@ True to 12-factor app principles, all environments should be as similar to each 
 
 `dev` and `test` are always fixed. This ensures that those environments can run on any developer's machine without cloud credentials, while still allowing production to be elastic.
 
+### The slot axis
+
+Environments are singletons by default, but a **fixed env may be instantiated into multiple isolated *slots* on one machine.** A slot is not a new environment: the env *string* stays singular (`test`), and each slot's stack differs only by a slot *segment* woven into every physical resource name — `{project}_{env}_s{k}_{codebase}_{service}` (e.g. `s2` for slot 2), analogous to a replica but at the environment level. Slot 1 is the default and adds no segment, so a single-slot project is byte-identical to a slotless one. The slot is a **general primitive**: its first and, for now, only user is `test`, which shards its slow integration tier across N isolated stacks on one host; its intended next user is **parallel development** — two agents working different modifications on one machine (see [§ Deferred](#deferred)). Two boundaries hold the primitive cheap: a slot shares its env's configurable values (config and secrets are looked up per env, not per slot — see [configurable.md](./configurable.md)), and the slot lifecycle and ingress models are *not* generalized here (§ Deferred).
+
 ## Networking
 
 Networks are ultimately responsible for enabling requests to reach the right targets. This splits handily into two categories which get treated somewhat differently: ingress and egress.
@@ -308,3 +312,4 @@ Some things must be deferred for now:
 3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. DNS and TLS checks) which run alongside project-defined stage tests.
 4. Real defense-in-depth with networks, permissions, and validation cross-service.
 5. GPU workloads on `elastic` foundations. The doctrine commits to Fargate for elastic compute, and Fargate does not run GPU workloads; `resources.gpu` is therefore `fixed`-only and rejected on elastic compiles.
+6. Parallel development on the slot axis. The [slot axis](#the-slot-axis) is the runtime-name isolation needed for two agents to work different modifications on one machine, and it is delivered now for `test`-sharding. Full parallel development additionally needs code isolation (git worktrees) and, for *browsable* dev stacks, ingress multiplicity (per-slot routing / DNS / cert) — the latter genuinely hard because `dev`, unlike `test`, is publicly routed and TLS'd. Two properties are **explicitly not generalized** with the slot primitive: the slot *lifecycle* (test slots are fungible and reaped when idle; a dev slot is owned by a branch and must survive when idle — antithetical policy on the same name/lock primitive), and ingress multiplicity (untouched). Headless parallel dev (code + tests, no browsing) nearly falls out of the slot axis directly; browsable parallel dev needs the ingress work.

@@ -283,7 +283,7 @@ def _resources_to_elastic(
 
 def _global_service_name(
     project: str, env: str, name: str, policy: NamingPolicy,
-    *, service: str | None = None,
+    *, service: str | None = None, slot: int = 1,
 ) -> str:
     """The globally-unique name of one emitted service.
 
@@ -294,16 +294,29 @@ def _global_service_name(
 
     ``name`` is the codebase name for core services and the backing-service
     name for backings, which is why it is not spelled ``codebase``.
+
+    Mod 152: the optional slot segment. ``slot=1`` (default) inserts NOTHING,
+    so every existing name is byte-identical; ``slot`` k>1 weaves ``_s{k}``
+    between the env and the rest
+    (``{project}_{env}_s{k}_{name}_{service}``).
     """
+    # Mod 152: the slot segment. Slot 1 (default) inserts NOTHING, so every
+    # existing name is byte-identical; slot k>1 weaves `_s{k}` between the env
+    # and the rest (`{project}_{env}_s{k}_{name}_{service}`), namespacing this
+    # physical name so N stacks of one fixed env coexist on one host. Because
+    # container_name/service-keys/volumes/magic-refs all derive from this one
+    # function, slotting it here is what closes what `--project-name` cannot.
+    slot_seg = "" if slot == 1 else f"_s{slot}"
     raw = (
-        f"{project}_{env}_{name}_{service}" if service is not None
-        else f"{project}_{env}_{name}"
+        f"{project}_{env}{slot_seg}_{name}_{service}" if service is not None
+        else f"{project}_{env}{slot_seg}_{name}"
     )
     return apply_policy(raw, policy)
 
 
 def codebase_global_name(
-    project: str, env: str, codebase: str, policy: NamingPolicy
+    project: str, env: str, codebase: str, policy: NamingPolicy,
+    *, slot: int = 1,
 ) -> str:
     """The codebase-keyed global name, ``{project}-{env}-{codebase}``.
 
@@ -312,12 +325,18 @@ def codebase_global_name(
     (``…-exec``, resolved by ``orchestrate/_common.py::exec_service_key``) and
     the elastic migration task-definition family (``…-migrate``, reconstructed
     by ``orchestrate/migrate.py::_migration_task_family``). Mod 099.
+
+    Mod 152: the two out-of-compiler re-derivers named above keep the
+    ``slot=1`` default this mod and **must be made slot-aware in Mod 154** when
+    a slot-k stack runs migrations, or they will not match the slotted name
+    this emits.
     """
-    return _global_service_name(project, env, codebase, policy)
+    return _global_service_name(project, env, codebase, policy, slot=slot)
 
 
-def _network_name(project: str, env: str, network: str) -> str:
-    return f"{project}_{env}_{network}"
+def _network_name(project: str, env: str, network: str, *, slot: int = 1) -> str:
+    slot_seg = "" if slot == 1 else f"-s{slot}"
+    return f"{project}_{env}{slot_seg}_{network}"
 
 
 def _image_ref(
@@ -600,6 +619,12 @@ class CompiledEnv:
     # Defaults to "alb" — the doctrine default when the project leaves
     # the CICL field unset on an elastic project.
     reverse_proxy: str = "alb"
+    # Mod 152: which slot this env was compiled for. 1 (default) means no slot
+    # segment — byte-identical to a slotless compile. >1 weaves `-s{slot}` into
+    # every physical name. Read by emit/compose.py::_network_section to slot the
+    # non-web network names (the only physical name not derived from a
+    # global_name).
+    slot: int = 1
 
 
 def group_by_codebase(
@@ -670,6 +695,7 @@ def compile_env(
     env: str,
     project_name: str,
     project_version: str,
+    slot: int = 1,
     notes_seen: "set[str] | None" = None,
 ) -> CompiledEnv:
     """Compile a single environment in-memory.
@@ -677,6 +703,9 @@ def compile_env(
     ``notes_seen`` (mod 053 / F17) is an optional dedup set for the
     Fargate-tier rounding notice; ``run_compile`` passes one shared set
     across all env passes so each unique notice prints once per run.
+
+    ``slot`` (mod 152) scopes every physical name; ``slot=1`` (default) is
+    byte-identical to a slotless compile.
     """
     foundation = _env_foundation(doc.foundation, env)
     subdomain = _env_subdomain(doc.apex_domain, project_name, env)
@@ -735,7 +764,7 @@ def compile_env(
         policy = tables.naming_policies.get(engine.naming)
         gname = _global_service_name(
             project_name, env, cb_name if svc_name is not None else key,
-            policy, service=svc_name,
+            policy, service=svc_name, slot=slot,
         )
         contexts[key] = {
             "name": key,
@@ -1148,6 +1177,7 @@ def compile_env(
                 _global_service_name(
                     project_name, env, cb_name,
                     tables.naming_policies.get(engine.naming),
+                    slot=slot,
                 ) if is_core else None
             ),
             codebase_env=codebase_env,
@@ -1168,6 +1198,7 @@ def compile_env(
         networks=networks_seen,
         observability_backend_url=doc.observability_backend_url,
         reverse_proxy=doc.reverse_proxy or "alb",
+        slot=slot,
     )
 
 
@@ -1302,12 +1333,87 @@ def env_subdomain_for(ctx: Any, env: str) -> str:
     return compiled.subdomain
 
 
-def run_compile(ctx: Any) -> int:
-    """Compile every env and emit outputs. Returns process exit code."""
-    from docex.emit.compose import emit_compose, emit_project_compose
-    from docex.emit.hcl import emit_hcl, emit_hcl_project
+def _emit_env_dir(
+    compiled: CompiledEnv, env_dir: Path, *, naming_policies: Any
+) -> int:
+    """Emit one compiled env's artifacts into ``env_dir``. Returns files written.
+
+    Shared by :func:`run_compile` (slot 1, per env, into ``infra/output/<env>/``)
+    and :func:`compile_slot` (any slot, into ``.docex/slots/<env>/<k>/``). It
+    emits ONLY the env-tier artifacts; the project tier (networks/traefik) is
+    emitted once by ``run_compile`` and is slot-shared (Mod 153).
+    """
+    from docex.emit.compose import emit_compose
+    from docex.emit.hcl import emit_hcl
     from docex.emit.ansible import emit_ansible
     from docex.emit.schedules import has_clock, render_schedules_file
+
+    env_dir.mkdir(parents=True, exist_ok=True)
+    files = 0
+    # Mod 115: the clock schedules artifact is written on both foundations and
+    # in ALL FOUR envs, even though NOTHING mounts or reads it. It is the
+    # *visibility* half of clock.md § How the schedule reaches the container;
+    # `DOCEX_SCHEDULES_YAML` (emit/schedules.py) is the *delivery* half. Do not
+    # add a `test`-env guard, and do not skip on the grounds that the env var
+    # already carries the payload.
+    if has_clock(compiled):
+        (env_dir / "schedules.yml").write_text(render_schedules_file(compiled))
+        files += 1
+    if compiled.foundation == "fixed":
+        emit_compose(compiled, env_dir / "docker-compose.yml")
+        files += 1
+        if compiled.env in ("stage", "prod"):
+            emit_ansible(compiled, env_dir)
+            files += 3  # playbook.yml, inventory.yml, ansible.cfg
+    else:
+        emit_hcl(compiled, env_dir / "main.tf", naming_policies=naming_policies)
+        files += 1
+    return files
+
+
+def compile_slot(ctx: Any, env: str, slot: int) -> Path:
+    """Compile ONE env at ``slot`` and emit it. Returns the output dir.
+
+    slot == 1 -> ``infra/output/<env>/`` (identical to run_compile's per-env
+                 path).
+    slot  > 1 -> ``.docex/slots/<env>/<slot>/`` — ephemeral, machine-local
+                 scratch (beside ``.docex/runs/`` and ``.docex/checks/``),
+                 gitignored, never in the tracked ``infra/output/`` tree.
+
+    The env-agnostic primitive Mod 154's orchestration and the slot tests call.
+    No CLI verb reaches it this mod.
+    """
+    from docex.errors import InfraFileError
+    if ctx.infra is None:
+        raise InfraFileError(
+            f"{ctx.project_root}/infra/infra.yml: file missing — compile "
+            "requires an infra.yml"
+        )
+    issues = validate_document(ctx.infra, ctx.transfer_tables)
+    if issues:
+        raise ValidationError(issues)
+
+    if slot == 1:
+        env_dir = ctx.project_root / "infra" / "output" / env
+    else:
+        env_dir = ctx.project_root / ".docex" / "slots" / env / str(slot)
+
+    compiled = compile_env(
+        ctx.infra, ctx.transfer_tables, env=env,
+        project_name=ctx.project.name, project_version=ctx.project.version,
+        slot=slot,
+    )
+    _emit_env_dir(
+        compiled, env_dir,
+        naming_policies=ctx.transfer_tables.naming_policies,
+    )
+    return env_dir
+
+
+def run_compile(ctx: Any) -> int:
+    """Compile every env and emit outputs. Returns process exit code."""
+    from docex.emit.compose import emit_project_compose
+    from docex.emit.hcl import emit_hcl_project
     from docex.errors import InfraFileError
 
     if ctx.infra is None:
@@ -1333,7 +1439,6 @@ def run_compile(ctx: Any) -> int:
 
     for env in _ENVS:
         env_dir = output_root / env
-        env_dir.mkdir(parents=True, exist_ok=True)
 
         compiled = compile_env(
             ctx.infra,
@@ -1345,43 +1450,13 @@ def run_compile(ctx: Any) -> int:
         )
         compiled_envs.append(compiled)
 
-        # Mod 115: the clock schedules artifact. OUTSIDE the fixed/elastic
-        # branch below — it is written on both foundations and in ALL FOUR
-        # envs, even though NOTHING mounts or reads it. It is the *visibility*
-        # half of clock.md § How the schedule reaches the container, and
-        # `DOCEX_SCHEDULES_YAML` (emit/schedules.py) is the *delivery* half.
-        # Do not skip the write on the grounds that the env var already
-        # carries the payload, and do not add a `test`-env guard: clock.md
-        # says nothing about a clock is suppressed anywhere.
-        #
-        # No stale-file cleanup when an env has no clock: no emitter in this
-        # compiler removes its own prior outputs (a fixed->elastic flip leaves
-        # a stale docker-compose.yml today), so inventing the behaviour here
-        # would make schedules.yml the odd one out.
-        if has_clock(compiled):
-            (env_dir / "schedules.yml").write_text(
-                render_schedules_file(compiled)
-            )
-            files_written += 1
-
-        if compiled.foundation == "fixed":
-            compose_path = env_dir / "docker-compose.yml"
-            emit_compose(compiled, compose_path)
-            files_written += 1
-            # Mod 021: the sidecar config is now embedded inline in the
-            # compose file's `configs.otelcol_config.content`, so there's
-            # no separate otelcol-config.yaml to write.
-            if env in ("stage", "prod"):
-                emit_ansible(compiled, env_dir)
-                files_written += 3  # playbook.yml, inventory.yml, ansible.cfg
-        else:
-            hcl_path = env_dir / "main.tf"
-            emit_hcl(
-                compiled,
-                hcl_path,
-                naming_policies=ctx.transfer_tables.naming_policies,
-            )
-            files_written += 1
+        # Mod 152: the per-env emit body is now shared with `compile_slot` via
+        # `_emit_env_dir` (which also mkdir's env_dir). `run_compile` stays slot
+        # 1 into `infra/output/<env>/`, behaviorally unchanged.
+        files_written += _emit_env_dir(
+            compiled, env_dir,
+            naming_policies=ctx.transfer_tables.naming_policies,
+        )
 
     # Mod 035: project-tier output is split by side. Both sides emit on
     # every project. The development side is always fixed-style (compose);

@@ -16,10 +16,17 @@ and writes, under `infra/output/`:
 - `stage/docker-compose.yml`, `prod/docker-compose.yml` plus `playbook.yml`, `inventory.yml`, `ansible.cfg` — fixed-foundation projects.
 - `project/main.tf`, `stage/main.tf`, `prod/main.tf` — elastic-foundation projects.
 
-`compile` writes nothing outside `infra/output/`. The secret key set is not
-emitted as a file — it is derived on demand by `secret_manifest` and reconciled
-into `infra/secrets/<env>.env` by `docex secrets scaffold` (mod 092 removed the
-old `infra/secrets/example.env` manifest).
+`docex compile` (`run_compile`) writes nothing outside `infra/output/` — it
+compiles all four envs at **slot 1**, which emits no slot segment, so its output
+is byte-identical to a slotless compiler. The one exception is the **slot>1
+programmatic path** (`compile_slot(ctx, env, k)`, mod 152): a k>1 slot is
+ephemeral, machine-local test scaffolding, so it writes to
+`.docex/slots/<env>/<k>/` (beside `.docex/runs/` and `.docex/checks/`),
+**never** into the git-tracked `infra/output/` tree. No CLI verb reaches
+`compile_slot` yet — the test suite and Mod 154's orchestration are its only
+callers. The secret key set is not emitted as a file — it is derived on demand
+by `secret_manifest` and reconciled into `infra/secrets/<env>.env` by `docex
+secrets scaffold` (mod 092 removed the old `infra/secrets/example.env` manifest).
 
 The compiler is **offline-pure**: no AWS calls, no docker calls. Same inputs deterministically produce the same outputs.
 
@@ -454,6 +461,35 @@ failure over silent truncation, and it fails at the earliest layer.
 
 The same internal form passed through the `iam` policy (a doctrine record-key identifier) would stay `docex_smoke_elastic_stage_web` (underscores preserved). This decouples docex's internal join convention from each AWS resource type's identifier convention — without this layer, a policy's choice of `_` vs `-` would leak across every emit site.
 
+### The slot segment
+
+Mod 152. `_global_service_name` (and `codebase_global_name`, `_network_name`)
+take an optional `slot: int = 1`. When `slot != 1` the internal form gains a
+`_s{k}` segment **between the env and the rest** —
+`{project}_{env}_s{k}_{codebase}_{service}` (core), `{project}_{env}_s{k}_{name}`
+(backing) — so the k-th slot of a fixed env scopes **every** physical resource
+name and N stacks coexist on one host without collision. `slot=1` (the default,
+and the only value `docex compile` ever uses) inserts **nothing**, so all
+existing output is byte-identical. Because `container_name` / compose service
+keys / the elastic `identifier` / sidecars / replica keys / the exec key / the
+`${global_service_name}_data` named volumes / and every magic-ref host all derive
+from this one function, slotting it here is what namespaces them all — precisely
+what a Compose `--project-name` cannot, since it re-prefixes only auto-named
+resources and never an explicit `container_name:` / top-level `name:`. The one
+physical name not derived from `global_name` is the non-`web` docker network,
+slotted separately by `emit/compose.py::_network_section` off `CompiledEnv.slot`;
+the `web` network is projinfra-owned and stays slot-shared until Mod 153 re-tiers
+it. The slot axis is doctrine — see
+[`infrastructure.md § Environments`](../../../doctrine/infrastructure/infrastructure.md#environments).
+
+**Forward seam (Mod 154).** Two identities are reconstructed from
+`codebase_global_name` outside the compiler — `orchestrate/_common.py::exec_service_key`
+(`-exec`) and `orchestrate/migrate.py::_migration_task_family` (`-migrate`) — and
+both keep the `slot=1` default this mod (correct: nothing runs them in a slot
+context yet). When Mod 154 brings a slot-k stack up and migrates against it, both
+**must thread the same `s{k}` segment** or they will not match the slotted
+`codebase_global_name` the compiler emitted for that slot.
+
 ## The container probe
 
 Mod 127. Every core service's container health check is `["CMD", "./health.sh", "<service>"]`
@@ -587,6 +623,16 @@ compose files with networks only — the per-project traefik joins these
 networks in mod 036. Ansible artifacts (``playbook.yml``,
 ``inventory.yml``, ``ansible.cfg``) at project tier are deferred to mod
 036's "fixed + remote prod host" path.
+
+**Slot>1 output (mod 152).** The layout above is the **slot-1** tree, which is
+all `docex compile` ever writes. A k>1 slot compiled via
+`compile_slot(ctx, env, k)` lands instead under `.docex/slots/<env>/<k>/`
+(env-tier artifacts only — the project tier is slot-shared), because a slot is
+ephemeral, machine-local test scaffolding that must never pollute the git-tracked
+`infra/output/` tree. `run_compile` and `compile_slot` share the per-env emit
+body via `_emit_env_dir`; the difference is only the target directory. Keeping
+`infra/output/` slot-1-only is what makes the byte-identical default structural
+rather than merely tested — a slot>1 compile cannot dirty it.
 
 The compiler no longer emits a secrets manifest file (mod 092 removed
 `infra/secrets/example.env`). The required-secret key set lives in

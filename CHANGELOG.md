@@ -90,6 +90,27 @@ Advance 009 ("Test Overhaul") — in progress.
   remains always-full (the full check still runs as `check`). Doctrine:
   [`cicd.md § Check Step` + `§ Merge`](./doctrine/infrastructure/cicd.md),
   [`docex.md`](./doctrine/infrastructure/docex.md).
+- **The compiler gains an env-agnostic slot primitive (SC2, mod 152).** A **fixed
+  env may be instantiated into multiple isolated *slots* on one host.** The k-th slot
+  scopes **every** physical resource name with an `_s{k}` segment woven between the
+  env and the rest (`{project}_{env}_s{k}_{codebase}_{service}`), so N stacks of one
+  env coexist with no collision — which is what a Compose `--project-name` cannot do,
+  since it re-prefixes only auto-named resources and misses explicit `container_name:`
+  / top-level `name:` (this begins closing the latent `check --project-name` DB-volume
+  collision; full closure lands with Mod 154). Threaded once through
+  `_global_service_name`, it cascades to container names, compose service keys, the
+  elastic `identifier`, sidecars, replica keys, the exec key, the
+  `${global_service_name}_data` named volumes, and every magic-ref host; the non-`web`
+  network is slotted separately, and the `web` network is left slot-shared (a Mod 153
+  seam). **Default slot 1 emits no segment, so all compiled output is byte-identical
+  to before** (proven by a golden byte-compare of both `test_projects` at slot 1). The
+  primitive is invoked as `compile(env, slot=k)` / `compile_slot`; **no CLI flag yet**
+  (Mod 154), and slot>1 output lands under the machine-local `.docex/slots/<env>/<k>/`,
+  never in `infra/output/`. Doctrine amended (the four-env symmetry now admits a slot
+  axis): [`infrastructure.md § The slot axis` + `§ Deferred`](./doctrine/infrastructure/infrastructure.md),
+  [`lexicon.md`](./doctrine/lexicon.md),
+  [`configurable.md`](./doctrine/infrastructure/configurable.md),
+  [`shape.md`](./doctrine/infrastructure/shape.md).
 
 ### Changed
 - **`docex merge` preflights the remote before any expensive work.** A

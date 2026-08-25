@@ -91,6 +91,8 @@ A project's foundation declaration in `infra.yml` applies *only* to the `stage` 
 | `stage` | fixed | elastic | no |
 | `prod` | fixed | elastic | yes |
 
+**The slot dimension.** The shape of a **fixed** env may be instantiated as multiple isolated **slots** on one host — N copies of the env's stack whose physical resource names each carry a slot segment (`{project}_{env}_s{k}_…`, e.g. `s2` for slot 2), so they coexist without collision. A slot is orthogonal to the replica dimension above: replicas multiply a core service's containers *within* one stack (`prod` only); a slot multiplies the *whole* stack. Slot 1 is the default and adds no segment, so a single-slot env is byte-identical to a slotless one. Only fixed envs take slots (`dev`/`test` are always fixed); the env string stays singular. See [infrastructure.md § The slot axis](./infrastructure.md#the-slot-axis).
+
 ## Concrete Example
 
 It always helps to round off abstract discussion with a concrete example. 

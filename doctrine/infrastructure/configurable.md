@@ -17,6 +17,8 @@ The actual storage locations and handling differs depending on both environment 
 | *production, fixed* | production | fixed | `stage`, `prod` |
 | *production, elastic* | production | elastic | `stage`, `prod` |
 
+**Slots share an env's configurable values.** A [slot](./infrastructure.md#the-slot-axis) is an isolated stack of a fixed env, not a new environment, so all three configurable-value sources are looked up **per env, not per slot**: every slot of `test` reads the same `infra/config/test.env`, `infra/secrets/test.env`, and `infra/tte/test.env`. The slot number scopes physical resource names only; it never fans out the configurable-value namespace.
+
 ## Sources
 
 There are three standard sources of configurable values in a doctrine-based project:

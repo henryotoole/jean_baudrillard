@@ -134,8 +134,17 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
     bridge; coexistence on :443 isn't an issue because the HAProxy web
     demux fronts every project. See ``doctrine/infrastructure/specifics/
     projinfra/fixed_reverse_proxy.md``.
+
+    Mod 152: the non-``web`` env network carries the slot segment
+    (``-s{k}``) so two slots of one env do not share an internal bridge; the
+    ``web`` network is projinfra-owned and slot-shared until Mod 153 re-tiers
+    it.
     """
     out: dict[str, Any] = {}
+    # Mod 152: non-web env networks carry the slot segment so slots are
+    # isolated at the network layer too. The `web` network is external/
+    # projinfra-owned and stays slot-shared this mod (Mod 153 re-tiers it).
+    slot_seg = "" if compiled.slot == 1 else f"-s{compiled.slot}"
     for short in sorted(compiled.networks):
         if short == "web":
             out[short] = {
@@ -143,7 +152,7 @@ def _network_section(compiled: CompiledEnv) -> dict[str, Any]:
                 "external": True,
             }
             continue
-        full = f"{compiled.project_dns_label}-{compiled.env}-{short}"
+        full = f"{compiled.project_dns_label}-{compiled.env}{slot_seg}-{short}"
         out[short] = {"name": full}
     return out
 
