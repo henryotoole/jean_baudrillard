@@ -229,6 +229,19 @@ Advance 009 ("Test Overhaul") — in progress.
   brings its stack up with no projinfra and the web core service is reachable over
   the new bridge on HTTP. Doctrine amended: `projinfra/fixed_reverse_proxy.md`,
   `projinfra/projinfra.md`, `networks.md`, and `infrastructure.md`. (docex mod 153)
+- **Test scope is now a policy-governed decision in the process strata.** The
+  full-vs-scoped test choice is encoded as a hard policy in identical vocabulary
+  across the process docs, agent defs, and the `testing` skill: a **mod cycle** may
+  iterate with scoped runs (`docex test unit [subset]` / `integration [subset]`)
+  but **closes on the full `unit` tier plus the relevant `integration` tests**; an
+  **advance closes on a full run of both tiers** across the project; **CI/CD
+  (`check`/`merge`) always runs the full suite and never scopes**. Scope is agent
+  judgment via the existing subset mechanism — **no computed "affected" selector
+  ships** (prose only), by design (cross-module driving-port imports, `shared/`
+  blast radius, and domain changes with no test mirror give a computed set false
+  confidence). Amended: `modifications.md`, `advance.md`, `cicd.md`, the
+  `mod-developer` / `doctrine-advance` agent defs, and the `testing` skill. Closes
+  Advance 009 Goal 5. (docex mod 156)
 
 ## [2.1.0] - 2026-08-24
 

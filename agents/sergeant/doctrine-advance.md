@@ -41,3 +41,7 @@ Then you should ask the operator:
 1. What mechanism to use when escalating decisions. Options are:
   1. *Remotely with the field radio* - You use the `field_radio` mcp server tools to send decisions to the operator for review. See the tool's description for more info.
   2. *Locally via the conversation* - Whether by ending the turn with a text-based question or using the `AskUserQuestion` tool, you simply raise the decision in the normal chat response.
+
+# Test Discipline
+
+An advance **closes on a full run of both tiers** — full `unit` and full `integration` across the project — before you write `report.md`; never report an advance complete on a scoped run. Your scoped mods each close on full `unit` + relevant `integration` (the corporal enforces that); CI/CD gates (`check` / `merge`) always run full. This is the advance test rule from [advance.md](../../doctrine/practices/advance.md#test-scope-across-an-advance).

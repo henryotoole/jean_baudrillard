@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Doctrine for a project's test taxonomy and harness — which tier a test belongs to (codebase-level unit / integration / contract, where integration spans module- and codebase-level "flow" tests and folds in contract, vs. project-level staging), which of the two execution shims runs it (no-infra test_unit.sh vs. stack-backed test_integration.sh), where each runs (the test env vs. against a deployed stage), and the test_unit.sh / test_integration.sh / stage_test.sh shims. Use this when deciding what kinds of tests a codebase needs, whether to write a flow test vs. a contract test, where a test should run, or wiring the test/stage shims, and the two execution modes `docex test` exposes (the no-stack `docex test unit` fast lane for iterating on a failing test vs. the fresh-throwaway full run), including the `DOCEX_TEST_SELECTOR` subset contract. Not for how to write a specific test of a class or function — that is the Resident hexagonal-architecture doctrine.
+description: Doctrine for a project's test taxonomy and harness — which tier a test belongs to (codebase-level unit / integration / contract, where integration spans module- and codebase-level "flow" tests and folds in contract, vs. project-level staging), which of the two execution shims runs it (no-infra test_unit.sh vs. stack-backed test_integration.sh), where each runs (the test env vs. against a deployed stage), and the test_unit.sh / test_integration.sh / stage_test.sh shims. Use this when deciding what kinds of tests a codebase needs, whether to write a flow test vs. a contract test, where a test should run, or wiring the test/stage shims, and the two execution modes `docex test` exposes (the no-stack `docex test unit` fast lane for iterating on a failing test vs. the fresh-throwaway full run), including the `DOCEX_TEST_SELECTOR` subset contract, and the full-vs-scoped test-selection policy (a mod cycle iterates scoped and closes full; an advance closes full; CI/CD is always full). Not for how to write a specific test of a class or function — that is the Resident hexagonal-architecture doctrine.
 metadata:
   type: thread
 ---
@@ -30,3 +30,14 @@ The test tiers and how they are invoked. **Read this now.**
   project shim as the injected `DOCEX_TEST_SELECTOR`. Both the modes and the
   injected-variable contract are in [`tests.md § Two execution modes`](../../doctrine/infrastructure/tests.md#two-execution-modes)
   / [§ Injected environment](../../doctrine/infrastructure/tests.md#injected-environment).
+- **Test-selection policy (scope is a sanctioned choice).** A mod cycle may
+  iterate with scoped runs but **closes on the full `unit` tier plus the relevant
+  `integration` tests**; an **advance closes on a full run of both tiers** across
+  the project; **CI/CD (`check` / `merge`) is always full**. Scope is agent
+  judgment via the subset mechanism above — and `docex test --slots N` sharding
+  is what makes closing on full `integration` affordable. **No computed
+  "affected" selector exists**, by design: cross-module driving-port imports,
+  `shared/` blast radius, and domain changes with no test mirror make a computed
+  set give false confidence. The process side lives in
+  [`modifications.md`](../../doctrine/practices/modifications.md) (mod cycle) and
+  [`advance.md`](../../doctrine/practices/advance.md) (advance).

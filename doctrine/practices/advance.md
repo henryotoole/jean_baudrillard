@@ -81,9 +81,10 @@ The backend should be able to send emails when certain trigger events occur. The
 
 5. **`project-cohere`.** `corporal`. Run once, after all mods land, per the
    token-cost heuristic — reconcile core planning docs against the delivered code.
-6. **Test + release.** Bring up a fresh `test` env, run unit/integration, and (if
-   in scope for this advance) run the CI/CD pipeline to stage/prod. Otherwise
-   defer to the process step 4 offer to merge.
+6. **Test + release.** Bring up a fresh `test` env and run the **full `unit` and
+   `integration` tiers across the project**, and (if in scope for this advance)
+   run the CI/CD pipeline to stage/prod. Otherwise defer to the process step 4
+   offer to merge.
 ```
 
 ### Heuristics for Tactical Planning
@@ -94,6 +95,10 @@ Drafting up the tactical plan is something of an art because it can take so many
 	1. **A decision must ripple.** If part of the change hinges on a decision that exceeds the corporal's authority — and so ends its turn for escalation — cut the boundary there. Don't leave downstream work sitting uncommitted in a context that is about to pause; the escalation *is* the seam.
 	2. **A verification gate sits between the pieces.** When one piece must be proven to work before the next is built on top of it (a health check gone green, an auth flow confirmed via `browser-investigate`), that gate is a mod boundary.
 	3. **The combined mod would breach the context ceiling.** Territory sharing keeps *comprehension* cheap, but a large or unfamiliar diff still spends context — roughly lines-changed × a familiarity multiplier, plus test and debugging churn. Estimate conservatively and target well under the corporal's limit; hitting compaction mid-mod drops quality far more than an extra mod cycle costs.
+
+## Test Scope Across an Advance
+
+Test scope is a sanctioned, policy-governed choice — not license to skip tests. Individual mods within the advance may iterate with scoped runs (`docex test unit [subset]` / `docex test integration [subset]`) and close each cycle on the full `unit` tier plus the **relevant `integration`** tests (see [modifications.md](./modifications.md)). The **advance itself closes on a full run of both tiers** — full `unit` and full `integration` across the project — before you write `report.md`. CI/CD gates (`check` / `merge`) always run full and never scope. Scope is agent judgment via the `docex test` subset mechanism; no computed "affected" selector exists.
 
 ## Process
 
@@ -120,12 +125,13 @@ The following process should be followed rigidly for every advance.
 	2. After each plan step is performed, be sure to update your context with the results and the resulting change to the project.
 		1. For mod-cycle steps, always use git-diffs to see what parts of the project's *core planning docs* have changed. The core planning docs reflect the actual resultant state of the project after a mod cycle. Keeping abreast of changes to core planning docs ensures that surprises can't sneak by you (e.g. decisions silently made by the subagent) and that an accurate map of the project's code is always present in context. Project-map context rot is thus avoided by recency bias.
 4. **Report**
-	1. Write a report summarizing the advance to `report.md`.
-	2. End turn and report to the operator that the advance has completed:
+	1. Before reporting, ensure the advance has **closed on a full run of both tiers** (see [Test Scope Across an Advance](#test-scope-across-an-advance)).
+	2. Write a report summarizing the advance to `report.md`.
+	3. End turn and report to the operator that the advance has completed:
 		1. Give them a concise summary of the report.
 		2. Tell the operator that the work is complete and they may now proof the result if they wish.
 		3. If merging and releasing wasn't part of the plan, then ask the operator if they'd like you to perform the final merge and version release.
-	3. If the operator does request a final merge, then:
+	4. If the operator does request a final merge, then:
 		1. Check that the working directory is clean.
 		2. Increment the project version in adherence with semver standards.
 		3. Merge the advance working branch back into main with `./bin/docex merge`.

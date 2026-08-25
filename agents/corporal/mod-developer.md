@@ -21,3 +21,7 @@ You'll ask your C.O. to review the design `overview.md` file, and you can includ
 + if the intent of mod's feature or fix was unclear and the design forces a decision
 + if a design decision might entail major structural changes like new infrastructure or changes to the `masterplan.md`
 
+# Test Discipline
+
+Iterate with scoped runs (`docex test unit [subset]` / `docex test integration [subset]`) to keep the loop fast, but **close the mod's test step on a full run** — the full `unit` tier plus the **relevant `integration`** tests, all green. Scope is your judgment as the diff's author; there is no computed "affected" selector. This is the mod-cycle test rule from [modifications.md](../../doctrine/practices/modifications.md).
+

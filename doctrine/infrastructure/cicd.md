@@ -140,7 +140,7 @@ No image rebuild is triggered here. Dev iteration is the hot loop, so `./bin/doc
 
 We test a build by running integration and unit tests against it. This is done formally in a fresh `test` environment.
 
-In order for tests to all be automatically run for a project, each codebase ships **two** test shims: `test_unit.sh` (the no-infra tier — domain / alogic / adapter-unit) and `test_integration.sh` (the stack-backed tier — module-integration, flow, and contract tests). Each is a small shim which actually runs its tier's tests (e.g. with `pytest` or whatever) and exits with exit code 0 if they pass. The split is by execution class — needs a live stack or not — and it gives these tests a standard form so that build testing can be triggered for a whole project the same way for every project.
+In order for tests to all be automatically run for a project, each codebase ships **two** test shims: `test_unit.sh` (the no-infra tier — domain / alogic / adapter-unit) and `test_integration.sh` (the stack-backed tier — module-integration, flow, and contract tests). Each is a small shim which actually runs its tier's tests (e.g. with `pytest` or whatever) and exits with exit code 0 if they pass. The split is by execution class — needs a live stack or not — and it gives these tests a standard form so that build testing can be triggered for a whole project the same way for every project. The pipeline always runs the **full** suite: `check` and `merge` never scope to a subset — the scoped/subset runs (`DOCEX_TEST_SELECTOR`) are a development-loop convenience only, never a CI/CD gate (see [modifications.md](../practices/modifications.md)).
 
 #### Process
 1. Bring up the `test` environment with docker.

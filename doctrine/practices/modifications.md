@@ -33,7 +33,7 @@ The process is performed by you (the agent) as follows:
 	1. Discover what has changed by checking what new non-committed changes exist. 
 	2. Assess whether those changes show drift from the original design intention.
 	3. Small drifts can be tolerated or fixed at your discretion. Large drifts or failures should be escalated to whoever assigned this mod cycle for inspection.
-	4. Ensure relevant tests are all green.
+	4. **Close the test step on a full run.** You may iterate during the cycle with scoped runs (`docex test unit [subset]` / `docex test integration [subset]`) to keep the loop fast, but the cycle **closes** on the full `unit` tier (cheap, no stack) plus the **relevant `integration`** tests, all green. Choose the scope by your own judgment as the author of the diff — nothing computes an "affected" set from the changes.
 7. **Manual Test**: By default you pause here for external testing; the initial prompt may explicitly waive this.
 	1. End the turn to let whoever assigned this mod cycle perform any manual testing they desire.
 8. **Documentation**:
