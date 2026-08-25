@@ -74,6 +74,20 @@ class GitClient(Protocol):
         """
         ...
 
+    def ls_remote_sha(
+        self, cwd: Path, ref: str, *, remote: str = "origin"
+    ) -> tuple[int, str]:
+        """``git ls-remote <remote> <ref>`` → ``(exit_code, sha)``.
+
+        Folds the reachability/auth preflight together with learning a remote
+        ref's tip in one round-trip: a non-zero exit code means the remote is
+        unreachable or auth failed (``sha == ""``); an exit code of 0 with the
+        ref absent also yields ``sha == ""``. ``merge`` uses this in place of the
+        bare ``ls_remote`` preflight so it can learn ``origin/main``'s current tip
+        without an extra fetch. Stderr is inherited so the auth error stays visible.
+        """
+        ...
+
     def remote_exists(self, cwd: Path, remote: str = "origin") -> bool:
         """True iff the named git remote is configured.
 
@@ -96,6 +110,16 @@ class GitClient(Protocol):
     def merge_base(self, cwd: Path, a: str, b: str) -> str:
         """Return ``git merge-base <a> <b>`` (the common ancestor SHA).
         Returns the empty string if no common ancestor exists."""
+        ...
+
+    def rev_parse(self, cwd: Path, rev: str) -> str:
+        """``git rev-parse <rev>``. Returns the resolved SHA (stripped), or the
+        empty string if ``rev`` does not resolve.
+
+        Used to record and compare commit tips (``origin/main``, local ``main``,
+        a feature tip) and tree SHAs (``HEAD^{tree}``) for the ``.docex/checks/``
+        provenance record.
+        """
         ...
 
     def show(self, cwd: Path, ref: str, path: str) -> str | None:

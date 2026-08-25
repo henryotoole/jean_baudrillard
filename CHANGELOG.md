@@ -74,6 +74,22 @@ Advance 009 ("Test Overhaul") — in progress.
     re-ran inception — need it added on upgrade. `docex_install.sh` is deliberately
     **not** widened to write gitignore entries (project-structure scaffolding stays
     inception's job).
+- **`docex merge` trusts a recent green forward, eliminating the doubled CI/CD
+  recheck (mod 150).** A successful `docex check` now writes a machine-local
+  provenance record to `.docex/checks/latest.json`
+  (`{feature_tip, origin_main, merged_tree_sha, checked_at, docex_version}`).
+  `merge` reads it and **skips its defensive recheck** when `origin/main` and the
+  feature tip are still at the recorded commits, the working tree is clean, and the
+  docex version matches — saving the redundant ~30-min run under the solitary-developer
+  model where trunk rarely moves between `check` and `merge`. The merge preflight
+  learns `origin/main`'s tip from the same `git ls-remote` round-trip (narrowed to
+  `refs/heads/main`), so the predicate adds no fetch. **Doctrinal invariant:** any
+  staleness — trunk moved, feature moved, dirty tree, no record, an unreadable record,
+  or a version mismatch — forces the full recheck. The record is a **performance
+  cache, never a correctness gate**; the safe default is always to run, and CI/CD
+  remains always-full (the full check still runs as `check`). Doctrine:
+  [`cicd.md § Check Step` + `§ Merge`](./doctrine/infrastructure/cicd.md),
+  [`docex.md`](./doctrine/infrastructure/docex.md).
 
 ### Changed
 - **`docex merge` preflights the remote before any expensive work.** A

@@ -30,6 +30,7 @@ from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import VersionAlreadyReleased
 from docex.git.client import GitClient
+from docex.pipeline import check_record
 from docex.pipeline.check import run_check
 
 
@@ -41,19 +42,18 @@ def run_merge(
     """Run the full merge sequence. Returns process exit code."""
     project_root = ctx.project_root
 
-    # 0. Remote preflight (fail fast) ----------------------------------
-    # Prove origin is reachable + authenticated BEFORE any expensive work
-    # (defensive check builds an image and runs the full suite). git
-    # ls-remote exercises the identical credential path the later
-    # fetch/push need, so a broken-auth environment dies here in seconds
-    # instead of after a ~34-min check. On a repo with no origin (e.g. the
-    # test projects) there is nothing to prove — skip and take the
-    # local-only merge path. Resolving origin here also guarantees check's
-    # best-effort fetch succeeds, so the defensive recheck validates
-    # against fresh main rather than a stale one.
+    # 0. Remote preflight (fail fast) + learn origin/main's tip ---------
+    # The ls-remote preflight (mod 146) proves origin is reachable+authed
+    # BEFORE any expensive work. We narrow its refspec to refs/heads/main so
+    # the SAME round-trip also yields origin/main's current tip for the
+    # recheck-skip predicate below — no extra fetch (SC4). A non-zero exit
+    # still fails fast exactly as before (auth path is unchanged). On a repo
+    # with no origin (e.g. the test projects) the trunk tip is local `main`.
     has_origin = git.remote_exists(project_root, "origin")
     if has_origin:
-        rc = git.ls_remote(project_root, remote="origin")
+        rc, origin_main_now = git.ls_remote_sha(
+            project_root, "refs/heads/main", remote="origin"
+        )
         if rc != 0:
             print(
                 f"error: git remote 'origin' is unreachable or "
@@ -63,17 +63,44 @@ def run_merge(
                 file=sys.stderr,
             )
             return rc
+    else:
+        origin_main_now = git.rev_parse(project_root, "main")
 
-    # 1. Defensive recheck ---------------------------------------------
-    print("merge: running 'docex check' defensively before rebase...")
-    rc = run_check(ctx, docker, git)
-    if rc != 0:
+    # 1. Defensive recheck — unless a trusted green makes it redundant --
+    # SC4 trust-forward: skip the recheck IFF the last successful check's
+    # record still describes reality — origin/main and the feature tip at the
+    # recorded commits, the tree clean, and the docex version matched. ANY
+    # staleness forces the full recheck. The recorded green is a performance
+    # cache, never a correctness gate: the safe default is always to run. The
+    # empty-string guards forbid a spurious skip on a first-release/empty-origin
+    # record (origin_main == "").
+    rec = check_record.read_check_record(project_root)
+    skip_recheck = (
+        rec is not None
+        and rec.docex_version == ctx.project.docex_version
+        and bool(rec.feature_tip)
+        and rec.feature_tip == git.head_sha(project_root)
+        and bool(rec.origin_main)
+        and rec.origin_main == origin_main_now
+        and git.is_clean(project_root)
+    )
+    if skip_recheck:
         print(
-            "merge: 'docex check' failed; refusing to merge. "
-            "Fix the failing gates and retry.",
-            file=sys.stderr,
+            "merge: trunk and feature unmoved since the last successful check "
+            f"(feature {rec.feature_tip[:8]} @ trunk {rec.origin_main[:8]}), "
+            "tree clean, docex version matched — skipping the defensive recheck "
+            "(trusting the recorded green forward)."
         )
-        return rc
+    else:
+        print("merge: running 'docex check' defensively before rebase...")
+        rc = run_check(ctx, docker, git)
+        if rc != 0:
+            print(
+                "merge: 'docex check' failed; refusing to merge. "
+                "Fix the failing gates and retry.",
+                file=sys.stderr,
+            )
+            return rc
 
     # 2. Identify feature branch ---------------------------------------
     feature = git.current_branch(project_root)

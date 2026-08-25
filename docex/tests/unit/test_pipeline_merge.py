@@ -206,7 +206,7 @@ def test_merge_preflight_fails_fast_on_broken_auth(
         lambda *a, **kw: (called.append(True), 0)[1],
     )
     fake_git.branch = "feature/x"
-    fake_git.exit_codes[("ls_remote", "origin")] = 128
+    fake_git.exit_codes[("ls_remote_sha", "origin")] = 128
 
     rc = run_merge(sample_ctx, fake_docker, fake_git)
 
@@ -218,7 +218,7 @@ def test_merge_preflight_fails_fast_on_broken_auth(
     }
     assert mutating == set(), fake_git.calls
     # The preflight itself must have run.
-    assert any(c[0] == "ls_remote" for c in fake_git.calls)
+    assert any(c[0] == "ls_remote_sha" for c in fake_git.calls)
 
 
 def test_merge_preflight_runs_before_check(
@@ -229,19 +229,19 @@ def test_merge_preflight_runs_before_check(
         merge_mod, "run_check",
         lambda *a, **kw: (order.append("check"), 0)[1],
     )
-    # ls_remote records into fake_git.calls; capture its relative order.
-    original_ls = fake_git.ls_remote
+    # ls_remote_sha records into fake_git.calls; capture its relative order.
+    original_ls = fake_git.ls_remote_sha
 
     def tracking_ls(*a, **kw):
-        order.append("ls_remote")
+        order.append("ls_remote_sha")
         return original_ls(*a, **kw)
 
-    fake_git.ls_remote = tracking_ls  # type: ignore[method-assign]
+    fake_git.ls_remote_sha = tracking_ls  # type: ignore[method-assign]
     fake_git.branch = "feature/x"
 
     rc = run_merge(sample_ctx, fake_docker, fake_git)
     assert rc == 0
-    assert order.index("ls_remote") < order.index("check")
+    assert order.index("ls_remote_sha") < order.index("check")
 
 
 def test_merge_no_origin_skips_preflight(
@@ -249,11 +249,11 @@ def test_merge_no_origin_skips_preflight(
 ):
     fake_git.branch = "feature/x"
     fake_git.has_origin = False
-    # A scripted ls_remote failure must be irrelevant when there's no origin.
-    fake_git.exit_codes[("ls_remote", "origin")] = 128
+    # A scripted ls_remote_sha failure must be irrelevant when there's no origin.
+    fake_git.exit_codes[("ls_remote_sha", "origin")] = 128
     rc = run_merge(sample_ctx, fake_docker, fake_git)
     assert rc == 0
-    assert not any(c[0] == "ls_remote" for c in fake_git.calls)
+    assert not any(c[0] == "ls_remote_sha" for c in fake_git.calls)
     # Local-only merge still integrates + tags.
     assert any(c[0] == "tag" for c in fake_git.calls)
 
@@ -264,9 +264,11 @@ def test_merge_preflight_passes_then_merges(
     fake_git.branch = "feature/x"
     rc = run_merge(sample_ctx, fake_docker, fake_git)
     assert rc == 0
-    ls_calls = [c for c in fake_git.calls if c[0] == "ls_remote"]
+    ls_calls = [c for c in fake_git.calls if c[0] == "ls_remote_sha"]
     assert len(ls_calls) == 1
-    assert ls_calls[0] == ("ls_remote", str(sample_ctx.project_root), "origin")
+    assert ls_calls[0] == (
+        "ls_remote_sha", str(sample_ctx.project_root), "refs/heads/main", "origin"
+    )
 
 
 def test_merge_no_origin_deletes_local_branch_only(
@@ -284,3 +286,135 @@ def test_merge_no_origin_deletes_local_branch_only(
     deletes = [c for c in fake_git.calls if c[0] == "delete_branch"]
     assert any(c[3] is False for c in deletes), deletes  # local
     assert not any(c[3] is True for c in deletes), deletes  # no remote
+
+
+# --- Mod 150: trust-forward recheck skip + every forced-recheck reason ------
+#
+# The default fake_git has head == "abc1234", remote_main_sha == "abc1234",
+# clean == True, branch == "feature/x". A "matching" record is one whose
+# feature_tip == head, origin_main == remote_main_sha, and docex_version ==
+# the ctx's docex_version — everything the skip predicate compares.
+
+
+def _matching_record(sample_ctx, fake_git, **overrides):
+    from docex.pipeline.check_record import CheckRecord
+
+    base = dict(
+        feature_tip=fake_git.head,
+        origin_main=fake_git.remote_main_sha,
+        merged_tree_sha="tree000abc",
+        checked_at="2026-08-25T00:00:00+00:00",
+        docex_version=sample_ctx.project.docex_version,
+    )
+    base.update(overrides)
+    return CheckRecord(**base)
+
+
+def _install_spy(monkeypatch, rec):
+    """Point the reader at ``rec`` (or None) and install a run_check spy.
+
+    Returns the ``called`` list — non-empty iff the defensive recheck ran.
+    """
+    called: list[bool] = []
+    monkeypatch.setattr(
+        merge_mod.check_record, "read_check_record", lambda _root: rec
+    )
+    monkeypatch.setattr(
+        merge_mod, "run_check",
+        lambda *a, **kw: (called.append(True), 0)[1],
+    )
+    return called
+
+
+def test_merge_skips_recheck_when_record_matches(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    """Matching record + clean tree + version match → recheck skipped, but the
+    merge still proceeds through rebase/tag/push."""
+    fake_git.branch = "feature/x"
+    fake_git.clean = True
+    called = _install_spy(monkeypatch, _matching_record(sample_ctx, fake_git))
+
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [], "defensive recheck ran despite a matching record"
+    methods = {c[0] for c in fake_git.calls}
+    assert "rebase" in methods
+    assert "tag" in methods
+    assert "push" in methods
+
+
+def test_merge_forces_recheck_when_no_record(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    fake_git.branch = "feature/x"
+    called = _install_spy(monkeypatch, None)
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [True], "recheck must run when there is no record"
+
+
+def test_merge_forces_recheck_when_trunk_moved(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    fake_git.branch = "feature/x"
+    rec = _matching_record(sample_ctx, fake_git, origin_main="OLDTRUNK")
+    called = _install_spy(monkeypatch, rec)
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [True], "recheck must run when the trunk moved"
+
+
+def test_merge_forces_recheck_when_feature_moved(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    fake_git.branch = "feature/x"
+    rec = _matching_record(sample_ctx, fake_git, feature_tip="OLDFEAT")
+    called = _install_spy(monkeypatch, rec)
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [True], "recheck must run when the feature tip moved"
+
+
+def test_merge_forces_recheck_when_tree_dirty(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    fake_git.branch = "feature/x"
+    fake_git.clean = False  # matching record but the working tree is dirty
+    called = _install_spy(monkeypatch, _matching_record(sample_ctx, fake_git))
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [True], "recheck must run when the tree is dirty"
+
+
+def test_merge_forces_recheck_on_corrupt_record(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    """The real degrade-safe reader path, end-to-end: a corrupt on-disk record
+    reads as None → recheck forced."""
+    from docex.pipeline import check_record
+
+    fake_git.branch = "feature/x"
+    check_record.checks_dir(sample_ctx.project_root).mkdir(parents=True)
+    check_record.record_path(sample_ctx.project_root).write_text("{ not json")
+
+    # Do NOT monkeypatch the reader — exercise it for real.
+    called: list[bool] = []
+    monkeypatch.setattr(
+        merge_mod, "run_check",
+        lambda *a, **kw: (called.append(True), 0)[1],
+    )
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [True], "recheck must run when the record is corrupt"
+
+
+def test_merge_forces_recheck_on_version_mismatch(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    fake_git.branch = "feature/x"
+    rec = _matching_record(sample_ctx, fake_git, docex_version="0.0.0-old")
+    called = _install_spy(monkeypatch, rec)
+    rc = run_merge(sample_ctx, fake_docker, fake_git)
+    assert rc == 0
+    assert called == [True], "recheck must run on a docex-version mismatch"

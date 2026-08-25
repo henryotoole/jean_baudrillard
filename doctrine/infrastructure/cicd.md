@@ -62,6 +62,7 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
 5. Ensure build doesn't fail.
 6. Run build test
+7. On a fully-green check, record the validated state to `.docex/checks/` — the feature tip, the `origin/main` commit checked against, the merged worktree's tree SHA, a timestamp, and the docex version. This provenance record is what `merge` trusts to skip a redundant defensive recheck (see [§ Merge](#merge)). It is written only on success; a failed check records nothing.
 
 If any steps fail, the repo is reverted back to its original state.
 
@@ -82,7 +83,7 @@ This step simply merges the feature branch into the main branch (technically we 
 
 #### Process
 1. Preflight the remote with `git ls-remote origin`: fail fast (in seconds) if `origin` is unreachable or unauthenticated, before building any image or running any test. Skipped on a repo with no `origin` remote. This also guarantees the defensive recheck below sees fresh `main`.
-2. Re-run gate checks just in case the main branch moved.
+2. Re-run the gate checks defensively — **unless a trusted green makes it provably redundant.** The check step records the state it validated; `merge` skips the recheck **iff** `origin/main` and the feature tip are still at the commits that record names, the working tree is clean, and the docex version matches. **Any** staleness — trunk moved, feature moved, dirty tree, no record, an unreadable record, or a docex-version mismatch — forces the full recheck. This is a rule, not merely an optimization: the recorded green is a **performance cache, never a correctness gate**, so the safe default is always to run. The `git ls-remote origin` preflight (step 1) already learns `origin/main`'s current tip, so the predicate adds no network round-trip.
 3. Rebase feature onto current main; fast-forward main to the rebased tip.
 4. Tag the new main tip with `v<version>` from `project.yml`.
 5. Push main and tags to origin.

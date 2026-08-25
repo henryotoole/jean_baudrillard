@@ -70,6 +70,10 @@ class SubprocessGitClient:
         res = self._capture(["merge-base", a, b], cwd=cwd)
         return (res or "").strip()
 
+    def rev_parse(self, cwd: Path, rev: str) -> str:
+        res = self._capture(["rev-parse", rev], cwd=cwd)
+        return (res or "").strip()
+
     def show(self, cwd: Path, ref: str, path: str) -> str | None:
         # WHY not .strip(): callers parse the result as YAML, where
         # leading whitespace is significant.
@@ -120,6 +124,28 @@ class SubprocessGitClient:
         except FileNotFoundError:
             return 127
         return res.returncode
+
+    def ls_remote_sha(
+        self, cwd: Path, ref: str, *, remote: str = "origin"
+    ) -> tuple[int, str]:
+        try:
+            res = subprocess.run(  # noqa: S603
+                [self._git, "ls-remote", remote, ref],
+                cwd=str(cwd),
+                stdout=subprocess.PIPE,
+                # stderr inherited: the auth/reachability error must be visible
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError:
+            return 127, ""
+        if res.returncode != 0:
+            return res.returncode, ""
+        # ls-remote prints "<sha>\t<refname>" lines; take the first field of the
+        # first line. Empty stdout (ref absent on the remote) ⇒ "".
+        line = (res.stdout or "").strip().splitlines()
+        sha = line[0].split()[0] if line and line[0].split() else ""
+        return 0, sha
 
     def remote_exists(self, cwd: Path, remote: str = "origin") -> bool:
         # ``git remote get-url <remote>`` exits 0 iff the remote is

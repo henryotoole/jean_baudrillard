@@ -16,6 +16,7 @@ import pytest
 
 from docex.errors import WorkingTreeDirty
 from docex.pipeline import check as check_mod
+from docex.pipeline import check_record
 from docex.pipeline.check import run_check
 
 
@@ -425,3 +426,41 @@ def test_check_no_origin_skips_fetch(
     assert rc == 0, out
     assert not [c for c in fake_git.calls if c[0] == "fetch"]
     assert "no 'origin' remote" in out
+
+
+# ---------------------------------------------------------------------------
+# Mod 150: `check` writes the `.docex/checks/` provenance record on success.
+# ---------------------------------------------------------------------------
+
+
+def test_check_writes_record_on_success(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """A fully-green check records what it validated for `merge` to trust."""
+    ctx, fake_git = worktree_setup
+    fake_git.rev_parse_map["origin/main"] = "trunkdeadbeef99"
+    rc = run_check(ctx, fake_docker, fake_git)
+    assert rc == 0, capsys.readouterr().out
+
+    rec = check_record.read_check_record(ctx.project_root)
+    assert rec is not None
+    assert rec.feature_tip == fake_git.head  # "deadbeef1234"
+    assert rec.origin_main == "trunkdeadbeef99"
+    assert rec.docex_version == ctx.project.docex_version
+
+
+def test_check_writes_no_record_on_failure(
+    worktree_setup, fake_docker, stub_test_and_compile
+):
+    """A failed check (a gate fails before the green path) records nothing."""
+    ctx, fake_git = worktree_setup
+    # Lower the feature version below main's (0.0.1 via the git_show stub) so
+    # the version_bumped gate FAILS and run_check returns before the write.
+    pyml = ctx.project_root / "project.yml"
+    pyml.write_text('name: sample\nversion: "0.0.0"\ndocex_version: "0.5.0"\n')
+    from docex.context import load_project_context
+    ctx = load_project_context(ctx.project_root)
+
+    rc = run_check(ctx, fake_docker, fake_git)
+    assert rc == 1
+    assert check_record.read_check_record(ctx.project_root) is None

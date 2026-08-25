@@ -46,6 +46,7 @@ from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
 from docex.naming import dns_label
 from docex.orchestrate._common import codebases, codebases_with_schema
+from docex.pipeline import check_record
 from docex.pipeline._worktree import (
     cleanup_worktree,
     make_temp_branch,
@@ -973,6 +974,28 @@ def run_check(
                 file=sys.stderr,
             )
             return rc
+
+        # Provenance record (SC4): record what this green check validated so
+        # `merge` can trust it forward and skip a redundant recheck. Written
+        # ONLY here, on the fully-green path. `.docex/` is gitignored, so this
+        # write does not dirty the tree (it cannot disturb the worktree_clean
+        # gate above or merge's is_clean guard).
+        if git.remote_exists(project_root, "origin") and not empty_origin:
+            trunk_sha = git.rev_parse(project_root, "origin/main")
+        elif not git.remote_exists(project_root, "origin"):
+            trunk_sha = git.rev_parse(project_root, "main")
+        else:
+            trunk_sha = ""  # empty-origin / first-release: no trunk to trust
+        check_record.write_check_record(
+            project_root,
+            check_record.CheckRecord(
+                feature_tip=git.head_sha(project_root),
+                origin_main=trunk_sha,
+                merged_tree_sha=git.rev_parse(worktree, "HEAD^{tree}"),
+                checked_at=check_record.now_iso(),
+                docex_version=ctx.project.docex_version,
+            ),
+        )
 
         # All good.
         print(_aggregate_check_report(report))

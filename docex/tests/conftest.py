@@ -376,6 +376,13 @@ class FakeGitClient:
     dirty_paths: set[str] = field(default_factory=set)
     branch: str = "feature/x"
     head: str = "abc1234"
+    # Mod 150: scripted `rev_parse` results, keyed by rev string. A rev absent
+    # from the map falls back to `head` (a permissive default so existing tests
+    # that don't care get the repo's HEAD sha).
+    rev_parse_map: dict[str, str] = field(default_factory=dict)
+    # Mod 150: the sha `ls_remote_sha` yields for refs/heads/main (the trunk tip
+    # merge's skip predicate compares against).
+    remote_main_sha: str = "abc1234"
     tags: list[str] = field(default_factory=list)
     tag_exists_map: dict[str, bool] = field(default_factory=dict)
     merge_bases: dict[tuple, str] = field(default_factory=dict)
@@ -431,6 +438,16 @@ class FakeGitClient:
     def merge_base(self, cwd, a, b):
         self.calls.append(("merge_base", str(cwd), a, b))
         return self.merge_bases.get((a, b), "")
+
+    def rev_parse(self, cwd, rev):
+        self.calls.append(("rev_parse", str(cwd), rev))
+        return self.rev_parse_map.get(rev, self.head)
+
+    def ls_remote_sha(self, cwd, ref, *, remote="origin"):
+        key = ("ls_remote_sha", remote)
+        self.calls.append(("ls_remote_sha", str(cwd), ref, remote))
+        rc = self.exit_codes.get(key, self.default_exit)
+        return (rc, "" if rc != 0 else self.remote_main_sha)
 
     def show(self, cwd, ref, path):
         self.calls.append(("show", str(cwd), ref, path))
