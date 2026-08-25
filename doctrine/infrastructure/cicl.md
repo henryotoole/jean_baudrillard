@@ -567,9 +567,9 @@ A single env `main.tf` contains the env-tier resources: provider config, state b
 ```
 infra/output/project/
 	development/
-		docker-compose.yml    # 4 -web networks + project traefik; always emitted
+		docker-compose.yml    # 3 -web networks + project traefik; always emitted
 	production/
-		docker-compose.yml    # fixed-foundation only: 4 -web networks + project traefik
+		docker-compose.yml    # fixed-foundation only: 3 -web networks + project traefik
 		playbook.yml          # fixed-foundation only when prod side is a remote host
 		inventory.yml         # fixed-foundation only when prod side is a remote host
 		ansible.cfg           # fixed-foundation only when prod side is a remote host

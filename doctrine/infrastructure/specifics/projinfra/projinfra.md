@@ -74,7 +74,7 @@ The operator's central question — *"I'm setting up the X side of a Y project �
 
 | Aspect | Detail |
 | ------ | ------ |
-| What gets created | Four `-web` external docker networks; one project traefik container (same shape as the fixed dev side) |
+| What gets created | Three `-web` external docker networks (`dev`/`stage`/`prod`; `test`'s web network is env-tier, mod 153); one project traefik container (same shape as the fixed dev side) |
 | Resource file | [`fixed_reverse_proxy.md`](./fixed_reverse_proxy.md) — the dev side of an elastic project is mechanically identical to a fixed dev side |
 | Preinfra it depends on | The [fixed master network](../../preinfra/fixed_master_network.md) on the dev machine |
 | Compiled output | `infra/output/project/development/docker-compose.yml` |

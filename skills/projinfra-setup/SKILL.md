@@ -19,7 +19,7 @@ What the project tier is and which resources apply. **Read this now.**
 
 The per-resource detail. **Read the one(s) you are provisioning** — note the fixed/elastic split and the reverse-proxy choice.
 
-[`fixed_reverse_proxy.md`](../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md) — the per-project traefik plus four `-web` networks (all fixed sides, and the elastic dev side).
+[`fixed_reverse_proxy.md`](../../doctrine/infrastructure/specifics/projinfra/fixed_reverse_proxy.md) — the per-project traefik plus three `-web` networks (all fixed sides, and the elastic dev side).
 
 [`elastic_alb.md`](../../doctrine/infrastructure/specifics/projinfra/elastic_alb.md) — the default elastic reverse proxy (ALB).
 

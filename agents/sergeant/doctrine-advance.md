@@ -28,14 +28,14 @@ NOTE: The current guidelines are sparse; as I notice patterns in what gets escal
 
 For these, you should decide on your own.
 
-1. Whether to proceed with doctrine-defined tasks which will use real AWS infrastructure. Setting up real, money-costing infra defined by the doctrine (e.g. `preinfar`, `projinfra`, `envinfra`) you should always choose to proceed.
-2. Whether to proceed with the next step of the plan. Unless you need to escalate decision, always proceed.
+1. Whether to proceed with doctrine-defined tasks which will use real AWS infrastructure. Setting up real, money-costing infra defined by the doctrine (e.g. `preinfra`, `projinfra`, `envinfra`) you should always choose to proceed.
+2. Whether to proceed with the next step of the plan. Unless you need to escalate a decision, always proceed.
 
 # Pre-Advance Checklist
 
 Before you start an advance run, you should check whether the following resources are available:
 1. The `field_radio` MCP server.
-  + If this is not available, you should notify the operator that you can only communicate them locally via the conversation because the radio is not available.
+  + If this is not available, you should notify the operator that you can only communicate with them locally via the conversation because the radio is not available.
 
 Then you should ask the operator:
 1. What mechanism to use when escalating decisions. Options are:

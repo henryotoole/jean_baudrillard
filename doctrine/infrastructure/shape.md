@@ -145,8 +145,8 @@ backing_services:
 `compose.yml` files describing:
 
 **Development-side project infrastructure:**
-- Four "external" web networks: `myproject-dev-web`, `myproject-test-web`, `myproject-stage-web`, `myproject-prod-web`. (All four are created even though not all are used).
-- A traefik container spanning all four web networks and the master network `docex-ingress`.
+- Three "external" web networks: `myproject-dev-web`, `myproject-stage-web`, `myproject-prod-web`. (All three are created even though not all are used; the `test` env's web network is env-tier, not projinfra, per mod 153.)
+- A traefik container spanning all three web networks and the master network `docex-ingress`.
 
 **Environment infrastructure:**
 - One internal network: `myproject-dev-internal`
