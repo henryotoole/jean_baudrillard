@@ -26,7 +26,7 @@ _FIXED_ENVS = ("dev", "test")
 _ALL_ENVS = ("dev", "test", "stage", "prod")
 
 
-def env_compose_project(ctx: ProjectContext, env: str) -> str:
+def env_compose_project(ctx: ProjectContext, env: str, *, slot: int = 1) -> str:
     """The explicit compose ``--project-name`` for an env-tier stack.
 
     ``<dns_label(project)>-<env>`` — DNS-labeled (hyphenated, lowercased)
@@ -36,8 +36,15 @@ def env_compose_project(ctx: ProjectContext, env: str) -> str:
     ``exec``/``ps`` all address the same compose project deterministically
     rather than relying on compose's path-derived basename. This is also
     the form ``any_env_compose_up`` matches against.
+
+    ``slot`` (Mod 154) appends a ``-s{k}`` segment for ``k>1``; slot 1 is
+    byte-identical to the pre-slots form. WHY this is a necessary seam: the
+    compose ``--project-name`` *groups* a stack, so two slots must carry
+    distinct project names or ``up``/``down`` for one adopts / tears down the
+    other's resources.
     """
-    return f"{dns_label(ctx.project.name)}-{env}"
+    seg = "" if slot == 1 else f"-s{slot}"
+    return f"{dns_label(ctx.project.name)}-{env}{seg}"
 
 
 def ensure_compiled(ctx: ProjectContext) -> None:
@@ -57,6 +64,22 @@ def ensure_compiled(ctx: ProjectContext) -> None:
 def compose_file_for(ctx: ProjectContext, env: str) -> Path:
     """Return the path to the compiled compose file for ``env``."""
     return ctx.project_root / "infra" / "output" / env / "docker-compose.yml"
+
+
+def slot_compose_file(ctx: ProjectContext, env: str, slot: int) -> Path:
+    """The compiled compose file for ``env`` at ``slot``.
+
+    slot 1 -> infra/output/<env>/docker-compose.yml (unchanged).
+    slot k -> .docex/slots/<env>/<k>/docker-compose.yml (Mod 152 layout).
+    Mirrors ``cicl.compile.compile_slot``'s output-dir rule so the orchestrator
+    and the reaper resolve the same file the compiler wrote.
+    """
+    if slot == 1:
+        return compose_file_for(ctx, env)
+    return (
+        ctx.project_root / ".docex" / "slots" / env / str(slot)
+        / "docker-compose.yml"
+    )
 
 
 def env_file_for(ctx: ProjectContext, env: str) -> Path | None:
@@ -190,7 +213,9 @@ def _codebase_naming_policy(
     return tables.naming_policies.get(next(iter(resolved)))
 
 
-def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
+def exec_service_key(
+    ctx: ProjectContext, env: str, codebase: str, *, slot: int = 1
+) -> str:
     """The compose key of a codebase's **exec service** (``…-<cb>-exec``).
 
     The exec service is the container that *is* the codebase — the per-codebase
@@ -220,9 +245,14 @@ def exec_service_key(ctx: ProjectContext, env: str, codebase: str) -> str:
             f"core services, or none of its roles has an engine supporting "
             f"the fixed foundation."
         )
-    key = f"{codebase_global_name(ctx.project.name, env, codebase, policy)}-exec"
+    key = (
+        f"{codebase_global_name(ctx.project.name, env, codebase, policy, slot=slot)}"
+        f"-exec"
+    )
 
-    compose_path = compose_file_for(ctx, env)
+    # Mod 154: verify against the SLOT's compose file, not always slot 1, so a
+    # sharded run resolves the right per-slot exec container.
+    compose_path = slot_compose_file(ctx, env, slot)
     if compose_path.is_file():
         doc = yaml.safe_load(compose_path.read_text()) or {}
         services = (doc.get("services") or {})

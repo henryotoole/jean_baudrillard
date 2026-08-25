@@ -336,7 +336,7 @@ def _lookup_master_vpc(aws: AWSClient) -> str:
 
 
 def _migration_task_family(
-    ctx: ProjectContext, *, project: str, env: str, svc: str
+    ctx: ProjectContext, *, project: str, env: str, svc: str, slot: int = 1
 ) -> str:
     """Derive the migration task definition family for a codebase.
 
@@ -358,8 +358,14 @@ def _migration_task_family(
     Both fallbacks are best-effort: the family is only a lookup key here, so
     an undeducible policy degrades to the hyphen form (mod 030 data-plane
     naming) and lets ECS report the miss rather than failing early.
+
+    Mod 154: ``slot`` is now threaded into ``codebase_global_name`` (the
+    Mod-152 seam is closed). No caller passes ``slot`` yet — the fixed ``test``
+    loop migrates via the inline exec path, not this family — so this only
+    completes the primitive so a future slot-aware ``docex migrate`` cannot
+    drift. Default ``slot=1`` preserves all current behavior byte-for-byte.
     """
     policy = _codebase_naming_policy(ctx, svc, foundation="elastic")
     if policy is None:
         return f"{project}-{env}-{svc}-migrate"
-    return f"{codebase_global_name(project, env, svc, policy)}-migrate"
+    return f"{codebase_global_name(project, env, svc, policy, slot=slot)}-migrate"

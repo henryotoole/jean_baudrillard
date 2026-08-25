@@ -45,7 +45,8 @@ def _run_test_body(ctx, docker, params) -> int:
 
     tiers = tuple(params.get("tiers") or ("unit", "integration"))
     selector = params.get("selector")
-    return run_test(ctx, docker, tiers=tiers, selector=selector)
+    slots = int(params.get("slots") or 1)
+    return run_test(ctx, docker, tiers=tiers, selector=selector, slots=slots)
 
 
 def _run_check_body(ctx, docker, params) -> int:  # params unused
@@ -155,6 +156,7 @@ def run_test_job(
     ctx, docker, *, detach: bool,
     tiers: tuple[str, ...] = ("unit", "integration"),
     selector: str | None = None,
+    slots: int = 1,
 ) -> int:
     """Launch ``docex test`` (or ``docex test integration [subset]``) as a
     durable, container-vessel job.
@@ -170,7 +172,7 @@ def run_test_job(
         kind="test",
         scope=f"{label}/test",
         vessel_name=f"{label}-test-runner",
-        params={"tiers": list(tiers), "selector": selector},
+        params={"tiers": list(tiers), "selector": selector, "slots": slots},
         detach=detach,
     )
 

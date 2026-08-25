@@ -11,14 +11,15 @@ _VESSEL = "sample-test-runner"
 _SCOPE = "sample/test"
 
 
-def _seed_record(ctx, *, with_exit: int | None) -> str:
+def _seed_record(ctx, *, with_exit: int | None, params: dict | None = None) -> str:
     rid = record.new_run_id()
     record.create_record(
         ctx.project_root,
         record.RunMeta(
             id=rid, kind="test", scope=_SCOPE, slot=1,
             vessel_kind="container", vessel_name=_VESSEL,
-            created_at=record.now_iso(), docex_version="0.5.0", params={},
+            created_at=record.now_iso(), docex_version="0.5.0",
+            params=params if params is not None else {},
         ),
     )
     record.write_status(
@@ -90,3 +91,69 @@ def test_absent_vessel_proceeds_without_rm(sample_ctx, fake_docker):
     assert pf.proceed is True
     assert not any(c[0] == "container_rm" for c in fake_docker.calls)
     assert not any(c[0] == "compose_down" for c in fake_docker.calls)
+
+
+# ---------------------------------------------------------------------------
+# Mod 154: the FLEET (multi-slot) reaper — an orphaned sharded run leaks all N
+# slot stacks, each reclaimed by its deterministic per-slot project name +
+# slot compose file. A pre-slots record (no `slots`) reaps exactly slot 1.
+# ---------------------------------------------------------------------------
+
+
+def _down_project_names(fake):
+    return [c[1] for c in fake.calls if c[0] == "compose_down_project_name"]
+
+
+def test_fleet_reaper_tears_down_all_slots(sample_ctx, fake_docker):
+    from docex.orchestrate._common import env_compose_project, slot_compose_file
+
+    _seed_record(sample_ctx, with_exit=None, params={"slots": 3, "tiers": ["integration"]})
+    fake_docker.container_running_results[_VESSEL] = False
+
+    pf = reaper.preflight(
+        sample_ctx, fake_docker, scope=_SCOPE, vessel_name=_VESSEL
+    )
+    assert pf.proceed is True
+
+    # One compose_down per slot 1/2/3, each with its per-slot project name AND
+    # the matching per-slot compose file.
+    downs = [c for c in fake_docker.calls if c[0] == "compose_down"]
+    assert len(downs) == 3
+    assert all(c[2] is False for c in downs)  # -v: throwaway data must not survive.
+    down_files = {c[1] for c in downs}
+    assert down_files == {
+        str(slot_compose_file(sample_ctx, "test", k)) for k in (1, 2, 3)
+    }
+    assert set(_down_project_names(fake_docker)) == {
+        env_compose_project(sample_ctx, "test", slot=k) for k in (1, 2, 3)
+    }
+    assert ("container_rm", _VESSEL) in fake_docker.calls
+
+
+def test_fleet_reaper_pre_slots_record_reaps_slot1_only(sample_ctx, fake_docker):
+    """A record without a recorded slot count (a pre-Mod-154 run, or a
+    non-sharded default run) reaps exactly one stack at slot 1."""
+    from docex.orchestrate._common import env_compose_project
+
+    _seed_record(sample_ctx, with_exit=None, params={})
+    fake_docker.container_running_results[_VESSEL] = False
+
+    pf = reaper.preflight(
+        sample_ctx, fake_docker, scope=_SCOPE, vessel_name=_VESSEL
+    )
+    assert pf.proceed is True
+    downs = [c for c in fake_docker.calls if c[0] == "compose_down"]
+    assert len(downs) == 1
+    assert _down_project_names(fake_docker) == [
+        env_compose_project(sample_ctx, "test")
+    ]
+
+
+def test_fleet_reaper_slots1_record_reaps_slot1_only(sample_ctx, fake_docker):
+    _seed_record(sample_ctx, with_exit=None, params={"slots": 1})
+    fake_docker.container_running_results[_VESSEL] = False
+    pf = reaper.preflight(
+        sample_ctx, fake_docker, scope=_SCOPE, vessel_name=_VESSEL
+    )
+    assert pf.proceed is True
+    assert len([c for c in fake_docker.calls if c[0] == "compose_down"]) == 1

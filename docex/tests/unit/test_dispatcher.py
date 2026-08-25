@@ -740,14 +740,16 @@ def test_test_detach_flag_parses_and_routes(monkeypatch, sample_ctx):
 
     captured = {}
 
-    def fake_run_test_job(ctx, docker, *, detach):
+    def fake_run_test_job(ctx, docker, *, detach, slots=1):
         captured["detach"] = detach
+        captured["slots"] = slots
         return 0
 
     monkeypatch.setattr("docex.jobs.commands.run_test_job", fake_run_test_job)
 
     assert _cmd_test(["--detach"]) == 0
     assert captured["detach"] is True
+    assert captured["slots"] == 1  # default omitted → byte-identical path
     assert _cmd_test([]) == 0
     assert captured["detach"] is False
 
@@ -782,12 +784,47 @@ def test_cli_test_integration_routes_to_job(monkeypatch, sample_ctx):
     monkeypatch.setattr(
         "docex.jobs.commands.run_test_job",
         lambda ctx, docker, *, detach, tiers=("unit", "integration"),
-        selector=None: seen.update(tiers=tiers, selector=selector, detach=detach) or 0,
+        selector=None, slots=1: seen.update(
+            tiers=tiers, selector=selector, detach=detach, slots=slots
+        ) or 0,
     )
     rc = _cmd_test(["integration", "tests/integration/foo.py"])
     assert rc == 0
     assert seen == {"tiers": ("integration",),
-                    "selector": "tests/integration/foo.py", "detach": False}
+                    "selector": "tests/integration/foo.py", "detach": False,
+                    "slots": 1}
+
+
+def test_cli_test_slots_routes_to_job(monkeypatch, sample_ctx):
+    """Mod 154: `--slots N` threads N into run_test_job; `test integration
+    --slots N` threads it on the integration lane too."""
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+
+    seen = {}
+    monkeypatch.setattr(
+        "docex.jobs.commands.run_test_job",
+        lambda ctx, docker, *, detach, tiers=("unit", "integration"),
+        selector=None, slots=1: seen.update(tiers=tiers, slots=slots) or 0,
+    )
+    assert _cmd_test(["--slots", "3"]) == 0
+    assert seen == {"tiers": ("unit", "integration"), "slots": 3}
+
+    seen.clear()
+    assert _cmd_test(["integration", "--slots", "4"]) == 0
+    assert seen == {"tiers": ("integration",), "slots": 4}
+
+
+def test_cli_test_unit_slots_is_usage_error(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+    assert _cmd_test(["unit", "--slots", "2"]) == 64
+
+
+def test_cli_test_slots_below_one_is_usage_error(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    _patch_docker_ok(monkeypatch)
+    assert _cmd_test(["--slots", "0"]) == 64
 
 
 def test_job_ls_routes(monkeypatch, sample_ctx):

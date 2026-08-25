@@ -446,17 +446,34 @@ def _cmd_test(args: list[str]) -> int:
         help="launch the run detached and print its handle instead of blocking "
              "(not valid for the synchronous 'unit' lane)",
     )
+    parser.add_argument(
+        "--slots", type=int, default=1, metavar="N",
+        help="shard the integration tier across N isolated test stacks on this "
+             "host (unit runs once). N=1 (default) is byte-identical to today. "
+             "Only for 'test'/'test integration'; not valid for the 'unit' lane.",
+    )
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
 
+    if ns.slots < 1:
+        print("error: --slots must be >= 1.", file=sys.stderr)
+        return 64  # EX_USAGE
+
     if ns.tier == "unit":
         if ns.detach:
             print(
                 "error: 'docex test unit' is a synchronous no-stack run; "
                 "--detach does not apply.",
+                file=sys.stderr,
+            )
+            return 64  # EX_USAGE
+        if ns.slots != 1:
+            print(
+                "error: 'docex test unit' is a no-stack synchronous run; "
+                "--slots does not apply (sharding needs a stack).",
                 file=sys.stderr,
             )
             return 64  # EX_USAGE
@@ -467,10 +484,10 @@ def _cmd_test(args: list[str]) -> int:
     if ns.tier == "integration":
         return run_test_job(
             ctx, docker, detach=ns.detach,
-            tiers=("integration",), selector=ns.subset,
+            tiers=("integration",), selector=ns.subset, slots=ns.slots,
         )
-    # No tier → the full durable job, unchanged.
-    return run_test_job(ctx, docker, detach=ns.detach)
+    # No tier → the full durable job.
+    return run_test_job(ctx, docker, detach=ns.detach, slots=ns.slots)
 
 
 def _cmd_job(args: list[str]) -> int:

@@ -116,7 +116,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (three `-web` networks — `dev`/`stage`/`prod`; `test`'s web network is env-tier per mod 153 — + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup (S3 bucket + DynamoDB table for tofu state), then the two-phase project-tier `tofu apply` — phase 1 the Route53 hosted zone alone so the operator can NS-delegate, phase 2 the full project tier; both idempotent |
 | `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, and the whole aggregate at bring-up — TTE ∪ secrets ∪ config (`infra/tte/`, `infra/secrets/`, `infra/config/`); for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
-| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/`. Two subset modes (mod 151): `test unit [subset]` runs the no-infra unit tier in a throwaway `--no-deps` container with **no stack brought up** — a plain synchronous run, no vessel/lock; `test integration [subset]` runs the stack-backed tier as a durable job sharing `test`'s lock. `[subset]` reaches the codebase shim as the injected `DOCEX_TEST_SELECTOR` |
+| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/`. Two subset modes (mod 151): `test unit [subset]` runs the no-infra unit tier in a throwaway `--no-deps` container with **no stack brought up** — a plain synchronous run, no vessel/lock; `test integration [subset]` runs the stack-backed tier as a durable job sharing `test`'s lock. `[subset]` reaches the codebase shim as the injected `DOCEX_TEST_SELECTOR`. `--slots N` (mod 154) shards the integration tier across `N` per-slot-isolated stacks (unit runs once), injecting `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS`; `--slots 1`/omitted is byte-identical to the plain run |
 | `job <op> [<handle>]` | both | `.docex/runs/` run records; vessel liveness (`docker inspect`) | stdout — `ls`/`status`/`wait`/`logs`/`result` over durable run handles (no state mutated except `wait`/`result` reading the authoritative `exit` file) |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test — a [durable job](#durable-jobs-the-job-substrate); blocks + exits with the run's code (durable underneath), or `--detach` → a handle. On success writes a `.docex/checks/` provenance record for `merge` to trust forward |
@@ -216,8 +216,13 @@ stackless unit run touches no shared infra, so it is a plain synchronous run
   `exit` (`137`), reclaims that resource (keyed off `meta.kind` + the teardown
   identities the foreground recorded in `meta.params`), `rm`s the dead vessel, and
   proceeds. It never unwinds `merge`'s real git mutations — those are the operator's,
-  as `merge` specifies. The *fleet* / multi-slot reaper and the slot axis itself are
-  deferred.
+  as `merge` specifies. For a `test` run launched with `--slots N` (mod 154) this is
+  the **fleet** reaper: the orphan teardown reclaims all `N` deterministic slot
+  stacks the hard-killed vessel leaked (`N` read from `meta.params`), and a slot
+  whose shard *failed* is deliberately left up for debugging and reclaimed by the
+  next run that touches that slot number. The slot axis is delivered for `test`;
+  `check`/`merge` slot-adoption (the `check --project-name` collision closure) is
+  the follow-on mod 155.
 - **The verbs** (`jobs/commands.py`) — `ls` / `status` / `wait` / `logs` / `result`,
   plus the `--detach` launch wrapper and the hidden `__run-job` entrypoint — make a
   run discoverable and re-attachable without a `docker ps` / `pgrep` proxy.

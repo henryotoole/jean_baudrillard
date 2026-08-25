@@ -97,7 +97,7 @@ Advance 009 ("Test Overhaul") — in progress.
   env coexist with no collision — which is what a Compose `--project-name` cannot do,
   since it re-prefixes only auto-named resources and misses explicit `container_name:`
   / top-level `name:` (this begins closing the latent `check --project-name` DB-volume
-  collision; full closure lands with Mod 154). Threaded once through
+  collision; full closure lands with Mod 155). Threaded once through
   `_global_service_name`, it cascades to container names, compose service keys, the
   elastic `identifier`, sidecars, replica keys, the exec key, the
   `${global_service_name}_data` named volumes, and every magic-ref host; the non-`web`
@@ -111,6 +111,34 @@ Advance 009 ("Test Overhaul") — in progress.
   [`lexicon.md`](./doctrine/lexicon.md),
   [`configurable.md`](./doctrine/infrastructure/configurable.md),
   [`shape.md`](./doctrine/infrastructure/shape.md).
+- **`docex test --slots N` shards the integration tier across N isolated slot
+  stacks (F7, SC1/SC2/SC3 of Goal 4, mod 154).** The new flag brings up `N`
+  fully-isolated `test` stacks on one host (every physical name carries the Mod 152
+  `_s{k}` segment; the web network is the Mod 153 per-slot bridge) and **shards the
+  slow integration tier across them**, while the no-infra **unit tier runs once**.
+  The orchestration runs inside the single `test` vessel: unit-once (fail-fast gate),
+  then the `N` slots are compiled (`compile_slot`) and run **concurrently**, each
+  slot's integration shim receiving the injected `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`
+  (1-based index, count) on the same one-way, stable footing as `DOCEX_TEST_SELECTOR`,
+  with which they compose. A slot whose shard **passes** is torn down; a slot that
+  **fails** is left **up** for debugging and reaped by the next run to touch that slot
+  number. The single-run reaper generalizes to the **fleet reaper** — a hard-killed
+  run's `N` leaked slot stacks are reclaimed on the next invocation's preflight (`N`
+  read from the run record). `--slots 1`/omitted is **byte-identical and
+  behavior-identical to today** (the existing single-stack path is untouched; the Mod
+  152 golden gate stays green). The vessel lock stays per-`(project, test)` — slots
+  are internal parallelism, not extra lock scopes. The two Mod-152 inherited seams
+  (`exec_service_key`, `_migration_task_family`) plus a necessary third
+  (`env_compose_project`, for a distinct per-slot `--project-name`) are now
+  slot-aware. The slot primitive stays **env-agnostic in the compiler but CLI-exposed
+  only for `test`** (SC3). The fixture `test_integration.sh` shims ship a **reference**
+  (recommend-not-mandate) modulo shard split. Doctrine amended:
+  [`tests.md § Injected environment`](./doctrine/infrastructure/tests.md) (the
+  `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS` contract) and
+  [`docex.md`](./doctrine/infrastructure/docex.md) (the `test --slots N` surface + the
+  Command-Lifecycle fleet note). `check`/`merge` slot-adoption — the full
+  `check --project-name` collision closure (SC4) — is the follow-on mod 155. (docex
+  mod 154)
 
 ### Changed
 - **`docex merge` preflights the remote before any expensive work.** A

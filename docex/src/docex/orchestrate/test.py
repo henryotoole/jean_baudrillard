@@ -29,6 +29,7 @@ from docex.orchestrate._common import (
     ensure_compiled,
     env_compose_project,
     exec_service_key,
+    slot_compose_file,
     codebases_with_schema,
 )
 from docex.orchestrate.aggregate import aggregate
@@ -50,6 +51,7 @@ def run_test(
     project_name: "str | None" = None,
     tiers: "tuple[str, ...]" = ("unit", "integration"),
     selector: "str | None" = None,
+    slots: int = 1,
 ) -> int:
     """Run the full build-test cycle. Returns process exit code.
 
@@ -75,7 +77,18 @@ def run_test(
     ``selector``, when set, is injected into each shim's one-off container as
     ``DOCEX_TEST_SELECTOR`` so the project shim can narrow the run to a
     subset of its tier.
+
+    ``slots`` (Mod 154): ``1`` (default) is the existing single-stack path
+    below, byte- and behavior-identical to today (no new compile call, no
+    ``DOCEX_TEST_SLOT`` injection). ``>= 2`` dispatches ``_run_test_sharded``:
+    unit runs once, the integration tier shards across N isolated slot stacks.
+    Keyword-only so Mod 155 can later add a *distinct* ``slot=`` param (a single
+    reserved slot for check/merge) without conflating it with this shard count.
     """
+    if slots >= 2:
+        return _run_test_sharded(
+            ctx, docker, tiers=tiers, selector=selector, slots=slots,
+        )
     ensure_compiled(ctx)
     compose_file = compose_file_for(ctx, _TEST_ENV)
     # Bring-up site. With no override this builds the test aggregate here;
@@ -176,6 +189,139 @@ def run_test(
             )
 
     return first_failure
+
+
+def _run_test_sharded(
+    ctx: ProjectContext,
+    docker: DockerClient,
+    *,
+    tiers: "tuple[str, ...]",
+    selector: "str | None",
+    slots: int,
+) -> int:
+    """The ``--slots N>=2`` path: unit runs ONCE (no-stack), the integration
+    tier is sharded across N isolated slot stacks brought up concurrently.
+
+    Each physical name carries ``_s{k}`` (Mod 152) and the web bridge is
+    per-slot (Mod 153), so the N stacks coexist on one host with no collision.
+    Runs INSIDE the vessel (the durable job); the N slot stacks are sibling
+    compose stacks it brings up over DooD.
+    """
+    ensure_compiled(ctx)
+    env_file = aggregate(ctx, env=_TEST_ENV)  # per-env, shared by all slots
+
+    # 1. Unit tier ONCE (fail-fast gate) — no stack, standard slot-1 project.
+    if "unit" in tiers:
+        rc = run_test_unit(ctx, docker, selector=selector)
+        if rc != 0:
+            return rc
+
+    if "integration" not in tiers:
+        return 0
+
+    # 2. Compile every slot serially (cheap, deterministic — keeps the
+    #    concurrent section pure docker), then run the N slots concurrently.
+    from docex.cicl.compile import compile_slot
+
+    for k in range(1, slots + 1):
+        compile_slot(ctx, _TEST_ENV, k)
+
+    import concurrent.futures as _f
+
+    results: dict[int, int] = {}
+    with _f.ThreadPoolExecutor(max_workers=slots) as pool:
+        futs = {
+            pool.submit(
+                _run_one_slot, ctx, docker,
+                slot=k, slots=slots, env_file=env_file, selector=selector,
+            ): k
+            for k in range(1, slots + 1)
+        }
+        for fut in _f.as_completed(futs):
+            k = futs[fut]
+            results[k] = fut.result()
+
+    # First non-zero, lowest slot first (deterministic report).
+    for k in sorted(results):
+        if results[k] != 0:
+            return results[k]
+    return 0
+
+
+def _run_one_slot(
+    ctx: ProjectContext,
+    docker: DockerClient,
+    *,
+    slot: int,
+    slots: int,
+    env_file: "Path | None",
+    selector: "str | None",
+) -> int:
+    """Bring up slot ``slot``, migrate, run the integration shim sharded, then
+    tear down IFF it passed.
+
+    A failed slot is LEFT UP for debugging — reaped by the next invocation's
+    preflight (fleet reaper) or this slot's own pre-up ``compose down`` on the
+    next run. Returns the slot's exit code. Runs on a worker thread;
+    ``DockerClient`` is stateless per call, so no state is shared across slots.
+    """
+    compose_file = slot_compose_file(ctx, _TEST_ENV, slot)
+    project_name = env_compose_project(ctx, _TEST_ENV, slot=slot)
+
+    # Pre-up clean slate: reap any leftover same-numbered slot stack (a failed
+    # slot left up by a prior run, or an orphan). Idempotent; ignores absence.
+    docker.compose_down(
+        compose_file, preserve_volumes=False,
+        env_file=env_file, project_name=project_name,
+    )
+
+    slot_env = {"DOCEX_TEST_SLOT": str(slot), "DOCEX_TEST_SLOTS": str(slots)}
+    if selector:
+        slot_env["DOCEX_TEST_SELECTOR"] = selector
+
+    rc = 0
+    try:
+        rc = docker.compose_up(
+            compose_file, build=True, detach=True,
+            env_file=env_file, project_name=project_name,
+        )
+        if rc != 0:
+            print(f"error: 'compose up' for test slot {slot} exited {rc}.",
+                  file=sys.stderr)
+            return rc
+
+        for cb in codebases_with_schema(ctx):
+            key = exec_service_key(ctx, _TEST_ENV, cb, slot=slot)
+            rc = docker.compose_run_one_off(
+                compose_file, key, ["./migrate.sh"], build=True,
+                env_file=env_file, project_name=project_name,
+            )
+            if rc != 0:
+                print(f"error: migrate.sh for {cb!r} in slot {slot} exited {rc}.",
+                      file=sys.stderr)
+                return rc
+
+        for svc in codebases(ctx):
+            key = exec_service_key(ctx, _TEST_ENV, svc, slot=slot)
+            rc = docker.compose_run_one_off(
+                compose_file, key, ["./test_integration.sh"], build=True,
+                env=slot_env, env_file=env_file, project_name=project_name,
+            )
+            if rc != 0:
+                print(f"error: ./test_integration.sh for {svc!r} slot {slot} "
+                      f"exited {rc}.", file=sys.stderr)
+                return rc
+        return 0
+    finally:
+        # Keep-failed-slot-up-for-debug: only tear down a slot that PASSED.
+        if rc == 0:
+            td = docker.compose_down(
+                compose_file, preserve_volumes=False,
+                env_file=env_file, project_name=project_name,
+            )
+            if td != 0:
+                print(f"warning: slot {slot} teardown exited {td}.",
+                      file=sys.stderr)
 
 
 def run_test_unit(

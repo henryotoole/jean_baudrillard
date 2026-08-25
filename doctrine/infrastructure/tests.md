@@ -129,10 +129,21 @@ stable footing:
 | Variable | Source | Purpose |
 | -------- | ------ | ------- |
 | `DOCEX_TEST_SELECTOR` | the `[subset]` argument to `docex test unit`/`integration` | An opaque, runner-native selector the shim forwards to its test runner to narrow the run to a subset of its tier. **Unset ⇒ run the whole tier** (the default). Set ⇒ the shim runs only the named tests. |
+| `DOCEX_TEST_SLOT` | the current shard index under `docex test --slots N` | The **1-based** index (`1..N`) of this shard. Injected into the **integration** shim only, and only when sharding (`N ≥ 2`). **Unset ⇒ not sharding ⇒ run the whole tier.** |
+| `DOCEX_TEST_SLOTS` | the shard count `N` from `docex test --slots N` | The total number of shards. Together with `DOCEX_TEST_SLOT` it tells the shim to run only its `1/N` share of the integration tier. |
 
-The shim decides how to forward it in a way idiomatic to its runner (a `pytest`
-shim splices it as an args fragment — a path and/or `-m`/`-k` expression); the
-contract fixes only the variable and its meaning, never the runner. Like the stage
-injections, this contract is one-way and stable — adding to it (as parallel test
-sharding later will, with its own `DOCEX_TEST_*` variables) is a doctrine change,
-not a project change.
+The shim decides how to forward `DOCEX_TEST_SELECTOR` in a way idiomatic to its
+runner (a `pytest` shim splices it as an args fragment — a path and/or `-m`/`-k`
+expression); the contract fixes only the variable and its meaning, never the runner.
+
+`DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` compose cleanly with `DOCEX_TEST_SELECTOR` —
+a shim may be both subset-narrowed and sharded at once. docex **recommends but does
+not mandate** a sharding pattern: it fixes only the two variables and their meaning,
+and a project shards however is idiomatic to its runner (the reference shims ship a
+deterministic modulo split over collected node-ids, so the union of the `N` shards
+is exactly the whole tier). Sharding the no-infra **unit** tier is pointless — under
+`docex test --slots N` the unit tier runs **once** and receives neither variable.
+
+Like the stage injections, this whole contract is one-way and stable — adding to it
+(as parallel test sharding did, with `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`) is a
+doctrine change, not a project change.

@@ -23,7 +23,8 @@ programmatic path** (`compile_slot(ctx, env, k)`, mod 152): a k>1 slot is
 ephemeral, machine-local test scaffolding, so it writes to
 `.docex/slots/<env>/<k>/` (beside `.docex/runs/` and `.docex/checks/`),
 **never** into the git-tracked `infra/output/` tree. No CLI verb reaches
-`compile_slot` yet — the test suite and Mod 154's orchestration are its only
+`compile_slot` directly — the test suite and the `docex test --slots N`
+orchestration (mod 154, `orchestrate/test.py::_run_test_sharded`) are its only
 callers. The secret key set is not emitted as a file — it is derived on demand
 by `secret_manifest` and reconciled into `infra/secrets/<env>.env` by `docex
 secrets scaffold` (mod 092 removed the old `infra/secrets/example.env` manifest).
@@ -485,13 +486,18 @@ too, which is re-tiered there to an env-tier, non-external, per-slot bridge
 those envs are never instantiated in slots). The slot axis is doctrine — see
 [`infrastructure.md § Environments`](../../../doctrine/infrastructure/infrastructure.md#environments).
 
-**Forward seam (Mod 154).** Two identities are reconstructed from
-`codebase_global_name` outside the compiler — `orchestrate/_common.py::exec_service_key`
-(`-exec`) and `orchestrate/migrate.py::_migration_task_family` (`-migrate`) — and
-both keep the `slot=1` default this mod (correct: nothing runs them in a slot
-context yet). When Mod 154 brings a slot-k stack up and migrates against it, both
-**must thread the same `s{k}` segment** or they will not match the slotted
-`codebase_global_name` the compiler emitted for that slot.
+**Out-of-compiler re-derivers (seam closed, Mod 154).** Identities reconstructed
+from `codebase_global_name` outside the compiler now take a `slot` kwarg and thread
+it, so a slot-k stack's exec/migration names match the slotted `codebase_global_name`
+the compiler emitted: `orchestrate/_common.py::exec_service_key` (`-exec`, threaded
+and verified against the *slot's* compose file) and
+`orchestrate/migrate.py::_migration_task_family` (`-migrate`, threaded for
+forward-consistency — no caller passes `slot` yet, since the fixed `test` loop
+migrates via the inline exec path). Mod 154 added a third, necessary seam alongside
+them: `orchestrate/_common.py::env_compose_project` takes a `slot` kwarg emitting a
+`-s{k}` project-name segment, because compose's `--project-name` *groups* a stack and
+two slots must carry distinct project names. All three default `slot=1`, preserving
+byte-identical output for every non-sharded caller.
 
 ## The container probe
 

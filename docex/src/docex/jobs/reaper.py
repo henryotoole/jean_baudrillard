@@ -6,9 +6,10 @@ decides what to do with a same-named vessel that already exists:
 - **running** → the lock is held → REFUSE (never touch a live run).
 - **dead + orphaned record** (no ``exit`` file) → self-heal: synthesize the
   authoritative orphan ``exit``, mark the record orphaned, reclaim whatever the
-  orphaned run's kind owns (a ``test`` compose stack, or a ``check``/``merge``
-  worktree + its throwaway build/test stack; the vessel's ``finally`` never
-  ran), then ``rm`` the dead vessel and proceed.
+  orphaned run's kind owns (for ``test``, the **fleet** / multi-slot teardown:
+  all N deterministic slot stacks the run leaked, N read from the record; or a
+  ``check``/``merge`` worktree + its throwaway build/test stack; the vessel's
+  ``finally`` never ran), then ``rm`` the dead vessel and proceed.
 - **dead + terminal record** (``exit`` already present) → a cleanly-completed
   prior run just holds the name → ``rm`` and proceed. No synth, no teardown.
 - **absent** → nothing to reap → proceed.
@@ -96,25 +97,42 @@ def _teardown_leaked_resources(ctx, docker, meta) -> None:
     """
     kind = meta.kind if meta is not None else "test"
     if kind == "test":
-        _teardown_test_stack(ctx, docker)
+        _teardown_test_stack(ctx, docker, meta)
     elif kind in ("check", "merge"):
         _teardown_worktree_job(ctx, docker, meta)
     # An unknown kind leaks nothing we can safely reclaim; do nothing rather
     # than guess (the synthetic exit + rm already freed the name).
 
 
-def _teardown_test_stack(ctx, docker) -> None:
-    """Tear down the scope's leaked ``test`` compose stack, best-effort.
+def _teardown_test_stack(ctx, docker, meta=None) -> None:
+    """Tear down every leaked ``test`` slot stack a hard-killed vessel owned.
+
+    The **fleet** (multi-slot) reaper: the vessel's ``finally`` (which tears
+    down each slot) never ran, so slots 1..N leak. N is recorded in
+    ``meta.params['slots']`` at launch; default 1 (a pre-slots record, or a
+    non-sharded run). Each slot's compose file is at the Mod 152 layout, written
+    by the vessel before it brought the slot up.
 
     ``preserve_volumes=False`` — a ``test`` stack's data is throwaway, and a
     reaped orphan's half-migrated database must not survive into the next run.
+
+    A **failed** slot deliberately left up by a *completed* run is not swept
+    here (this path only fires for a hard-killed orphan); it is reclaimed by the
+    next run's per-slot pre-up ``compose down``, or persists across a smaller-N
+    run until an N≥k run touches slot k — the accepted residual edge
+    (overview § 5, ruling Q3).
     """
-    docker.compose_down(
-        compose_file_for(ctx, "test"),
-        preserve_volumes=False,
-        env_file=env_file_for(ctx, "test"),
-        project_name=env_compose_project(ctx, "test"),
-    )
+    from docex.orchestrate._common import slot_compose_file
+
+    params = (meta.params if meta is not None else {}) or {}
+    slots = int(params.get("slots") or 1)
+    for k in range(1, slots + 1):
+        docker.compose_down(
+            slot_compose_file(ctx, "test", k),
+            preserve_volumes=False,
+            env_file=env_file_for(ctx, "test"),
+            project_name=env_compose_project(ctx, "test", slot=k),
+        )
 
 
 def _teardown_worktree_job(ctx, docker, meta) -> None:
