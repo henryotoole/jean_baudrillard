@@ -33,6 +33,9 @@ WAIT_TIMEOUT_EXIT = 75
 # ``job result`` when the run has not finished — its own status, not a run's
 # exit code (a run that genuinely exited 3 prints and returns 3).
 RESULT_UNFINISHED_EXIT = 2
+# ``merge --detach`` refused because brokered credential passthrough is active —
+# a usage error (EX_USAGE), distinct from a lock refusal (see overview § 4).
+_MERGE_DETACH_PASSTHROUGH_EXIT = 64
 
 
 def _run_test_body(ctx, docker) -> int:
@@ -43,10 +46,31 @@ def _run_test_body(ctx, docker) -> int:
     return run_test(ctx, docker)
 
 
+def _run_check_body(ctx, docker) -> int:
+    # Lazy imports (same rationale as _run_test_body). The _JOB_BODIES
+    # signature is body(ctx, docker), so the git client is constructed here
+    # rather than threaded through — matching how _require_git builds it.
+    from docex.git import SubprocessGitClient
+    from docex.pipeline.check import run_check
+
+    return run_check(ctx, docker, SubprocessGitClient())
+
+
+def _run_merge_body(ctx, docker) -> int:
+    from docex.git import SubprocessGitClient
+    from docex.pipeline.merge import run_merge
+
+    return run_merge(ctx, docker, SubprocessGitClient())
+
+
 # Registry of job bodies keyed by ``meta.kind``. Module-level so tests (and a
-# real-docker integration test) can register or replace an entry.
+# real-docker integration test) can register or replace an entry. The vessel is
+# one container kind for every durable job (D2); what varies by kind is the body
+# dispatched here and the reaper's orphan teardown.
 _JOB_BODIES = {
     "test": _run_test_body,
+    "check": _run_check_body,
+    "merge": _run_merge_body,
 }
 
 
@@ -55,16 +79,18 @@ _JOB_BODIES = {
 # ---------------------------------------------------------------------------
 
 
-def run_test_job(ctx, docker, *, detach: bool) -> int:
-    """Launch ``docex test`` as a durable, container-vessel job.
+def _launch_durable_job(
+    ctx, docker, *, kind: str, scope: str, vessel_name: str,
+    params: dict, detach: bool,
+) -> int:
+    """Preflight the scope lock, create the run record, launch the container
+    vessel, and (unless ``detach``) attach to block on the exit file.
 
-    Blocks and attaches by default (exit code == the run's); with
-    ``detach=True`` prints the handle and returns fast (~seconds).
+    Shared by ``run_test_job`` / ``run_check_job`` / ``run_merge_job`` — the
+    only per-command variation is ``(kind, scope, vessel_name, params)``. The
+    body is dispatched inside the vessel by ``meta.kind`` (``_JOB_BODIES``), so
+    it is not a parameter here.
     """
-    label = dns_label(ctx.project.name)
-    scope = f"{label}/test"
-    vessel_name = f"{label}-test-runner"
-
     pf = reaper.preflight(ctx, docker, scope=scope, vessel_name=vessel_name)
     if not pf.proceed:
         print(pf.reason, file=sys.stderr)
@@ -73,14 +99,14 @@ def run_test_job(ctx, docker, *, detach: bool) -> int:
     run_id = record.new_run_id()
     meta = record.RunMeta(
         id=run_id,
-        kind="test",
+        kind=kind,
         scope=scope,
         slot=1,
         vessel_kind="container",
         vessel_name=vessel_name,
         created_at=record.now_iso(),
         docex_version=ctx.project.docex_version,
-        params={},
+        params=params,
     )
     record.create_record(ctx.project_root, meta)
 
@@ -107,7 +133,7 @@ def run_test_job(ctx, docker, *, detach: bool) -> int:
         )
         record.write_exit_atomic(ctx.project_root, run_id, res.rc)
         print(
-            f"error: launching the test vessel exited {res.rc}.",
+            f"error: launching the {kind} vessel exited {res.rc}.",
             file=sys.stderr,
         )
         return res.rc
@@ -121,6 +147,122 @@ def run_test_job(ctx, docker, *, detach: bool) -> int:
         print(run_id)
         return 0
     return _attach(ctx, run_id)
+
+
+def run_test_job(ctx, docker, *, detach: bool) -> int:
+    """Launch ``docex test`` as a durable, container-vessel job.
+
+    Blocks and attaches by default (exit code == the run's); with
+    ``detach=True`` prints the handle and returns fast (~seconds).
+    """
+    label = dns_label(ctx.project.name)
+    return _launch_durable_job(
+        ctx, docker,
+        kind="test",
+        scope=f"{label}/test",
+        vessel_name=f"{label}-test-runner",
+        params={},
+        detach=detach,
+    )
+
+
+# ---------------------------------------------------------------------------
+# `docex check` / `docex merge` — durable jobs on the same substrate.
+# ---------------------------------------------------------------------------
+
+
+def _check_teardown_params(ctx, git) -> dict:
+    """Deterministic identities the reaper reclaims for a hard-killed
+    check/merge vessel.
+
+    ``run_check`` recomputes these identically inside the vessel from the same
+    inputs (feature HEAD short sha + dns label): ``worktree_path_for(root,
+    "check-<short_sha>")`` and, for the throwaway build/test stack,
+    ``f"{dns_label(project)}-{worktree.name}"``. Computing them here in the
+    foreground and recording them in ``meta.params`` lets the reaper reclaim the
+    leak without threading anything through ``run_check``'s signature (which
+    keeps its existing tests green).
+    """
+    label = dns_label(ctx.project.name)
+    short_sha = git.head_sha(ctx.project_root, short=True)
+    slug = f"check-{short_sha}"
+    return {
+        "worktree_slug": slug,
+        "compose_project": f"{label}-{slug}",
+    }
+
+
+def _brokered_passthrough_active() -> bool:
+    """True iff the shim staged brokered git-credential passthrough for this
+    invocation.
+
+    ``DOCEX_GIT_CREDENTIAL_PASSTHROUGH`` is NOT forwarded into the container;
+    the shim instead points in-container git at its ``forward.py`` by injecting
+    a ``GIT_CONFIG_VALUE_<n>=!python3 .../forward.py <sock>`` as git's
+    ``credential.helper`` (bin/docex). The presence of a ``GIT_CONFIG_VALUE_*``
+    naming ``forward.py`` is therefore the in-container signal.
+    """
+    for key, val in os.environ.items():
+        if key.startswith("GIT_CONFIG_VALUE_") and "forward.py" in val:
+            return True
+    return False
+
+
+def run_check_job(ctx, docker, git, *, detach: bool) -> int:
+    """Launch ``docex check`` as a durable, container-vessel job.
+
+    Blocks by default (exit code == the run's); ``detach=True`` prints the
+    handle and returns fast. ``git`` is taken so the foreground can record the
+    deterministic teardown identities (``short_sha``) the reaper reclaims on a
+    hard-killed vessel.
+    """
+    label = dns_label(ctx.project.name)
+    return _launch_durable_job(
+        ctx, docker,
+        kind="check",
+        scope=f"{label}/check",
+        vessel_name=f"{label}-check-runner",
+        params=_check_teardown_params(ctx, git),
+        detach=detach,
+    )
+
+
+def run_merge_job(ctx, docker, git, *, detach: bool) -> int:
+    """Launch ``docex merge`` as a durable, container-vessel job.
+
+    Same shape as ``run_check_job`` (merge's defensive check owns the same
+    worktree/stack, so it records the same teardown identities), with one
+    fail-fast guard up front.
+    """
+    label = dns_label(ctx.project.name)
+    # Fail-fast guard: brokered git-credential passthrough (shim-staged, tied to
+    # the foreground call) does NOT survive a detached merge — the host-side
+    # responder dies with the foreground shim invocation, so the vessel's later
+    # push cannot re-broker. Refuse up front rather than doing all the work and
+    # dying at push. Blocking merge is fine (the responder stays alive), and
+    # static credentials (ssh key / gitconfig / file token) are cloned into the
+    # vessel and survive. See overview § 4.
+    if detach and _brokered_passthrough_active():
+        print(
+            "error: 'docex merge --detach' is refused while brokered git-"
+            "credential passthrough (DOCEX_GIT_CREDENTIAL_PASSTHROUGH) is "
+            "active: the host-side credential responder is scoped to the "
+            "foreground call and would not survive into the detached vessel, so "
+            "the merge's push would fail. Run 'docex merge' attached "
+            "(blocking), or use a static credential (SSH key / gitconfig / "
+            "file-based token), which is cloned into the vessel and does "
+            "survive.",
+            file=sys.stderr,
+        )
+        return _MERGE_DETACH_PASSTHROUGH_EXIT
+    return _launch_durable_job(
+        ctx, docker,
+        kind="merge",
+        scope=f"{label}/merge",
+        vessel_name=f"{label}-merge-runner",
+        params=_check_teardown_params(ctx, git),
+        detach=detach,
+    )
 
 
 def _attach(ctx, run_id: str, *, poll_interval: float = 0.5) -> int:

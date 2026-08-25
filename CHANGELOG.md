@@ -35,12 +35,38 @@ Advance 009 ("Test Overhaul") — in progress.
   deterministic name **is** the per-`(project, test)` lock — a second concurrent run
   refuses rather than contending — and a hard-killed run is reaped by the next
   invocation's preflight (writing an authoritative `exit`, tearing down the leaked
-  stack). Built vessel-polymorphic (container for `test`; host-process for
-  `check`/`merge` in a later increment) with the slot axis and fleet reaper deferred.
+  stack). Built on a single container vessel kind, with the slot axis and fleet
+  reaper deferred (`check`/`merge` join in a later increment — see mod 149 below).
   Doctrine amended in `docex.md` (new § Command Lifecycle + the `job` surface + `test`
   durability), a light `cicd.md` note, and the `testing` skill; `healthchecks.md` /
   `internal_dependency_rules.md` cited as precedent, not edited. `docex`'s own
   `.gitignore` now ignores `.docex/`. (docex mod 148)
+- **`docex check` and `docex merge` are now durable jobs on the same substrate.**
+  Each runs in a detached vessel container and gains `--detach` (→ a handle); the
+  `docex job <ls|status|wait|logs|result>` verbs operate on them uniformly alongside
+  `test`. The blocking default is preserved (exit-code contract intact for CI), but a
+  **killed monitor now leaves the run re-attachable** instead of orphaned, exactly as
+  `test` is. Each command has its own per-command deterministic-name lock scope
+  (`<label>-check-runner` / `<label>-merge-runner`), so two `check`s (or two `merge`s)
+  refuse each other while a `check` alongside a `merge` is allowed. **What `check` and
+  `merge` *do* is unchanged** — the git/version/contract gates, the build, the test
+  invocation, `merge`'s `ls-remote` preflight and defensive `check` are all untouched;
+  the existing bodies are reused verbatim behind the job wrapper. This **amends
+  pre-plan D2**: a "host-process vessel" is incoherent under Docker-outside-of-Docker
+  (the foreground `docex` runs inside the shim's `--rm` container and dies with it,
+  and an in-container docex can spawn only a container over the socket, never a bare
+  host process), so there is **one container vessel kind for every durable job**; what
+  varies by `meta.kind` is the body and the reaper's orphan teardown — no second
+  `Vessel` class. The reaper's teardown is generalized to key off `meta`: a `test`
+  orphan → `compose down -v` its stack; a `check`/`merge` orphan → reclaim its
+  ephemeral worktree + the throwaway build/test stack (never unwinding `merge`'s real
+  git mutations). One caveat, documented and guarded: brokered git-credential
+  passthrough (`DOCEX_GIT_CREDENTIAL_PASSTHROUGH`) cannot survive a detached `merge`
+  (the shim's host-side responder is scoped to the foreground call), so `merge
+  --detach` **refuses up front** when passthrough is active — run `merge` attached, or
+  use a static credential (which is cloned into the vessel and does survive). Doctrine
+  amended in `docex.md` (Command Lifecycle + `check`/`merge` surfaces) and `cicd.md`
+  (Check Step / Merge notes). (docex mod 149)
   - **Upgrade note (for the release that follows this advance):** the project-upgrade
     guide must add an idempotent step ensuring `.docex/` is in each downstream
     project's `.gitignore`. New projects already get it (inception's default gitignore,

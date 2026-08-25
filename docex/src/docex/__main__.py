@@ -37,8 +37,8 @@ _HELP_TEXT: dict[str, str] = {
     "test": "Run build-time tests in a fresh test env (durable job; --detach for a handle).",
     "migrate": "Apply database migrations against an env.",
     "job": "Operate on durable run handles (ls/status/wait/logs/result).",
-    "check": "Run CI gate checks in an ephemeral worktree.",
-    "merge": "Rebase + fast-forward + tag + push.",
+    "check": "Run CI gate checks in an ephemeral worktree (durable job; --detach for a handle).",
+    "merge": "Rebase + fast-forward + tag + push (durable job; --detach for a handle).",
     "containerize": "Build and push per-codebase prod images.",
     "release": "Deploy the containerized build to stage or prod.",
     "stagetest": "Run staging tests against the deployed stage env.",
@@ -588,28 +588,36 @@ def _make_registry_client() -> "object":
 
 def _cmd_check(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex check", add_help=True)
-    parser.parse_args(args)  # no positional args
+    parser.add_argument(
+        "--detach", action="store_true",
+        help="launch the run detached and print its handle instead of blocking",
+    )
+    ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.pipeline.check import run_check
+    from docex.jobs.commands import run_check_job
 
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
     git = _require_git()
-    return run_check(ctx, docker, git)
+    return run_check_job(ctx, docker, git, detach=ns.detach)
 
 
 def _cmd_merge(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex merge", add_help=True)
-    parser.parse_args(args)
+    parser.add_argument(
+        "--detach", action="store_true",
+        help="launch the run detached and print its handle instead of blocking",
+    )
+    ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.pipeline.merge import run_merge
+    from docex.jobs.commands import run_merge_job
 
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
     git = _require_git()
-    return run_merge(ctx, docker, git)
+    return run_merge_job(ctx, docker, git, detach=ns.detach)
 
 
 def _cmd_containerize(args: list[str]) -> int:

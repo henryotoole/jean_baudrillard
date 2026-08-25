@@ -119,8 +119,8 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/` |
 | `job <op> [<handle>]` | both | `.docex/runs/` run records; vessel liveness (`docker inspect`) | stdout — `ls`/`status`/`wait`/`logs`/`result` over durable run handles (no state mutated except `wait`/`result` reading the authoritative `exit` file) |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
-| `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test |
-| `merge` | both | feature branch, `project.yml` | preflights origin reachability/auth (`git ls-remote`, skipped no-origin), rebases onto main, tags `v<version>`, pushes both |
+| `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test — a [durable job](#durable-jobs-the-job-substrate); blocks + exits with the run's code (durable underneath), or `--detach` → a handle |
+| `merge` | both | feature branch, `project.yml` | preflights origin reachability/auth (`git ls-remote`, skipped no-origin), rebases onto main, tags `v<version>`, pushes both — a [durable job](#durable-jobs-the-job-substrate); `--detach` → a handle (refused under active credential passthrough, which cannot survive detachment) |
 | `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per codebase, tag, push to registry |
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
 | `stagetest` | both, branches internally for the pre-step | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL, plus the orchestrator's own state (fixed: `docker inspect` over SSH; elastic: ECS `list_tasks`/`describe_tasks`) | ephemeral stage-tester container, exit code — **preceded** by a liveness/version gate that fails before the tester is built |
@@ -172,33 +172,48 @@ A few commands compose others rather than duplicate logic:
 Most commands are synchronous. A long-running command can instead be a **durable
 job** — the run outlives the invoking call — implemented by `src/docex/jobs/`. The
 doctrine rule of record is [`docex.md § Command Lifecycle`](../../../doctrine/infrastructure/docex.md#command-lifecycle);
-this is how `docex` realizes it. `docex test` is the first (and, for now, only)
-durable command; `check`/`merge` join in a later increment, which is why the
-substrate is built **vessel-polymorphic** rather than test-specific.
+this is how `docex` realizes it. `docex test`, `docex check`, and `docex merge`
+are all durable jobs (`test` since mod 148; `check`/`merge` since mod 149).
 
 - **The handle is an on-disk run record** under `.docex/runs/<id>/`
   (`meta.json` immutable launch metadata, `status.json` progress, an
   **atomically-written `exit`** file, and a `log`). `jobs/record.py` owns the layout
   plus `classify()` — the reconcile primitive (`exit` present → terminal; else
   vessel running → live; else → orphan) that both `job ls` and the reaper share.
-- **The vessel is polymorphic.** For `test` it is a **detached, deterministically-
-  named, non-`--rm` sibling docex container** (`jobs/vessel.py`), launched by
-  **self-inspecting the foreground container** (`docker inspect $HOSTNAME`) and
-  cloning its image / binds / user / workdir / group-add — so the vessel's mount set
-  can never drift from the `bin/docex` shim, and the shim needs no change. A defensive
-  reconstruct-from-`docex_version` path covers a self-inspect failure. Env is filtered
-  to carry only `HOME`.
-- **The deterministic vessel name is the lock** (no flock): a second run on the same
-  `(project, test)` scope loses the `docker run --name` create race and refuses. The
-  vessel runs the existing synchronous `orchestrate.test.run_test` **body** unchanged
-  (so `check`, which also calls `run_test` directly, is untouched and never nests a
-  vessel); the in-vessel `__run-job` entrypoint records a terminal `status` then the
+- **One vessel kind serves every durable job** (`ContainerVessel`, `jobs/vessel.py`):
+  a **detached, deterministically-named, non-`--rm` sibling docex container**,
+  launched by **self-inspecting the foreground container** (`docker inspect
+  $HOSTNAME`) and cloning its image / binds / user / workdir / group-add — so the
+  vessel's mount set can never drift from the `bin/docex` shim, and the shim needs no
+  change. A defensive reconstruct-from-`docex_version` path covers a self-inspect
+  failure. Env is filtered to carry only `HOME`. There is **no** second vessel kind:
+  a "host process" cannot be durable under [DooD](#docker-outside-of-docker) (the
+  foreground `docex` runs inside the shim's `--rm` container and dies with it, and an
+  in-container docex can spawn only a container over the socket). Mod 149 (`check`/
+  `merge`) confirmed this and collapsed the earlier "vessel-polymorphic" framing:
+  what actually varies by `meta.kind` is (a) the **body** the vessel runs and (b) the
+  **resource the reaper reclaims** — never the vessel class. The `Vessel` protocol
+  remains as a seam, with `ContainerVessel` its only implementation.
+- **The deterministic vessel name is the lock** (no flock), **scoped per command**:
+  a second run on the same `(project, kind)` scope — `<label>-test-runner`,
+  `<label>-check-runner`, `<label>-merge-runner` — loses the `docker run --name`
+  create race and refuses; distinct commands (a `check` alongside a `merge`) do not
+  block each other. The body is dispatched inside the vessel by `meta.kind`
+  (`_JOB_BODIES` in `jobs/commands.py`): `orchestrate.test.run_test` for `test`,
+  `pipeline.check.run_check` for `check`, `pipeline.merge.run_merge` for `merge` —
+  each reused **unchanged** (so `check`'s own direct `run_test` call still nests no
+  vessel). The in-vessel `__run-job` entrypoint records a terminal `status` then the
   atomic `exit`.
-- **The reaper (`jobs/reaper.py`) is the single-run self-heal**: a hard-killed vessel
-  leaves an orphaned record and a leaked `test` stack (its `finally` teardown never
-  ran); the next run's preflight writes the authoritative orphan `exit` (`137`), tears
-  the leaked stack down, `rm`s the dead vessel, and proceeds. The *fleet* / multi-slot
-  reaper and the slot axis itself are deferred.
+- **The reaper (`jobs/reaper.py`) is the single-run self-heal**, reclaiming what the
+  orphaned run's **kind** owned: a hard-killed `test` vessel leaks its throwaway
+  compose stack; a hard-killed `check`/`merge` vessel leaks its ephemeral
+  [worktree](#ephemeral-git-worktrees) and the throwaway build/test stack its
+  defensive run brought up. The next run's preflight writes the authoritative orphan
+  `exit` (`137`), reclaims that resource (keyed off `meta.kind` + the teardown
+  identities the foreground recorded in `meta.params`), `rm`s the dead vessel, and
+  proceeds. It never unwinds `merge`'s real git mutations — those are the operator's,
+  as `merge` specifies. The *fleet* / multi-slot reaper and the slot axis itself are
+  deferred.
 - **The verbs** (`jobs/commands.py`) — `ls` / `status` / `wait` / `logs` / `result`,
   plus the `--detach` launch wrapper and the hidden `__run-job` entrypoint — make a
   run discoverable and re-attachable without a `docker ps` / `pgrep` proxy.
@@ -350,7 +365,7 @@ DinD is rejected as slower, more dangerous (requires `--privileged`), and unnece
 3. Run gate checks (working-tree-clean, version bumped, contracts aligned, etc.), then `compile`, `build` (via `docker build`), and `test` against the worktree.
 4. On success, the worktree is removed. On failure, the worktree is removed *and* a structured error report points at what failed; the developer's branch and main are untouched either way.
 
-The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` invocations don't collide, and so the developer never has to think about cleanup.
+The worktree directory is namespaced (`.docex/`) so multiple in-flight `check` invocations don't collide, and so the developer never has to think about cleanup. Since mod 149 `check`/`merge` run as [durable jobs](#durable-jobs-the-job-substrate) in a detached vessel; the step-4 removal is the vessel's own `finally`, but a **hard-killed** vessel never reaches it. Its leaked worktree (and the throwaway build/test stack the run brought up) are then reclaimed by the **next run's preflight reaper**, keyed off the run record's `meta` (the `worktree_slug` / `compose_project` the foreground recorded), so the developer still never has to clean up by hand.
 
 ### The contract and shim gates
 

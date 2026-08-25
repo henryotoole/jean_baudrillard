@@ -5,9 +5,10 @@ decides what to do with a same-named vessel that already exists:
 
 - **running** → the lock is held → REFUSE (never touch a live run).
 - **dead + orphaned record** (no ``exit`` file) → self-heal: synthesize the
-  authoritative orphan ``exit``, mark the record orphaned, tear down the
-  leaked compose stack (the vessel's ``finally`` never ran), then ``rm`` the
-  dead vessel and proceed.
+  authoritative orphan ``exit``, mark the record orphaned, reclaim whatever the
+  orphaned run's kind owns (a ``test`` compose stack, or a ``check``/``merge``
+  worktree + its throwaway build/test stack; the vessel's ``finally`` never
+  ran), then ``rm`` the dead vessel and proceed.
 - **dead + terminal record** (``exit`` already present) → a cleanly-completed
   prior run just holds the name → ``rm`` and proceed. No synth, no teardown.
 - **absent** → nothing to reap → proceed.
@@ -73,7 +74,8 @@ def preflight(ctx, docker, *, scope: str, vessel_name: str) -> PreflightResult:
             status.finished_at = record.now_iso()
             status.exit_code = record.ORPHAN_EXIT_CODE
             record.write_status(project_root, run_id, status)
-            _teardown_leaked_stack(ctx, docker)
+            meta = record.read_meta(project_root, run_id)
+            _teardown_leaked_resources(ctx, docker, meta)
         # Free the name (completed OR just-reaped-orphan).
         docker.container_rm(vessel_name)
         return PreflightResult(True)
@@ -82,7 +84,26 @@ def preflight(ctx, docker, *, scope: str, vessel_name: str) -> PreflightResult:
     return PreflightResult(True)
 
 
-def _teardown_leaked_stack(ctx, docker) -> None:
+def _teardown_leaked_resources(ctx, docker, meta) -> None:
+    """Reclaim whatever a hard-killed vessel of this kind leaked, keyed off
+    ``meta`` (D2: the vessel is one container kind; the owned resource varies by
+    job kind).
+
+    ``test`` -> its compose stack; ``check``/``merge`` -> the ephemeral worktree
+    + the throwaway build/test stack the defensive check brought up. An unknown
+    kind (or unreadable meta) defaults to the ``test`` teardown, matching the
+    pre-mod-149 behavior for a record whose kind cannot be read.
+    """
+    kind = meta.kind if meta is not None else "test"
+    if kind == "test":
+        _teardown_test_stack(ctx, docker)
+    elif kind in ("check", "merge"):
+        _teardown_worktree_job(ctx, docker, meta)
+    # An unknown kind leaks nothing we can safely reclaim; do nothing rather
+    # than guess (the synthetic exit + rm already freed the name).
+
+
+def _teardown_test_stack(ctx, docker) -> None:
     """Tear down the scope's leaked ``test`` compose stack, best-effort.
 
     ``preserve_volumes=False`` — a ``test`` stack's data is throwaway, and a
@@ -94,3 +115,65 @@ def _teardown_leaked_stack(ctx, docker) -> None:
         env_file=env_file_for(ctx, "test"),
         project_name=env_compose_project(ctx, "test"),
     )
+
+
+def _teardown_worktree_job(ctx, docker, meta) -> None:
+    """Reclaim a hard-killed check/merge vessel's ephemeral resources.
+
+    1. ``compose down -v`` the throwaway build/test stack by its recorded
+       project name (``run_check`` inside the vessel named it
+       ``<label>-check-<sha>``).
+    2. Remove the ephemeral worktree dir + ``git worktree prune``.
+
+    Never unwinds merge's real git mutations (an interrupted rebase / partial
+    ff+tag) — merge's own contract leaves those for the operator to inspect.
+    This reclaims only docex-owned ephemeral scratch. Degrades safely: an
+    absent/missing ``meta.params`` falls back to a namespace sweep of every
+    ``.docex/worktrees/`` entry.
+
+    WHY no temp-branch sweep: the ``GitClient`` protocol has no branch-listing
+    method, and the mod's guardrail forbids inventing one. A leaked
+    ``docex-check/*`` / ``docex-merge/*`` temp branch is a harmless leftover —
+    each is timestamp-suffixed (``_worktree.make_temp_branch``), so the next
+    run's branch never collides with a stale one — and ``worktree prune`` clears
+    the worktree-list entry that actually matters.
+    """
+    from docex.git import SubprocessGitClient
+    from docex.pipeline._worktree import worktree_path_for
+
+    project_root = ctx.project_root
+    params = (meta.params if meta is not None else {}) or {}
+    git = SubprocessGitClient()
+
+    # 1. Throwaway compose stack (test env compose file, worktree-unique name).
+    compose_project = params.get("compose_project")
+    if compose_project:
+        docker.compose_down(
+            compose_file_for(ctx, "test"),
+            preserve_volumes=False,
+            project_name=compose_project,
+        )
+
+    # 2. Worktree dir(s).
+    slug = params.get("worktree_slug")
+    if slug:
+        _remove_worktree(project_root, worktree_path_for(project_root, slug), git)
+    else:
+        # Fallback: reclaim every ephemeral worktree under .docex/worktrees/.
+        wt_root = project_root / ".docex" / "worktrees"
+        if wt_root.is_dir():
+            for entry in sorted(wt_root.iterdir()):
+                if entry.is_dir():
+                    _remove_worktree(project_root, entry, git)
+    git.worktree_prune(project_root)
+
+
+def _remove_worktree(project_root, worktree, git) -> None:
+    """Force-remove one worktree, falling back to ``shutil.rmtree``."""
+    import shutil
+
+    if not worktree.exists():
+        return
+    rc = git.worktree_remove(project_root, worktree, force=True)
+    if rc != 0 and worktree.exists():
+        shutil.rmtree(worktree, ignore_errors=True)

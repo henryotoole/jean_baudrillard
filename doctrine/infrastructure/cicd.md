@@ -68,6 +68,8 @@ If any steps fail, the repo is reverted back to its original state.
 #### `docex`
 `./bin/docex check`
 
+`check` runs as a **durable job** — the gate/build/test sequence runs in a detached vessel container, so a killed foreground monitor no longer orphans the run; `--detach` returns a handle and `docex job wait` re-attaches. This changes nothing about the steps above. See [docex.md § Command Lifecycle](./docex.md#command-lifecycle).
+
 ### Review
 
 Review refers to a place where the pipeline pauses until the change can be inspected by another developer and approved for further release.
@@ -88,6 +90,8 @@ This step simply merges the feature branch into the main branch (technically we 
 
 #### `docex`
 `./bin/docex merge`
+
+`merge` runs as a **durable job**, like `check`; `--detach` returns a handle and a killed monitor leaves the run re-attachable via `docex job wait`, changing none of the steps above. One caveat: brokered git-credential passthrough does not survive a detached `merge`, which therefore refuses `--detach` when passthrough is active — see [docex.md § merge](./docex.md#merge). 
 
 ### Build Step
 
