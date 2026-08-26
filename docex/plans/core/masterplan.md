@@ -116,7 +116,7 @@ The subcommand surface is the full set of commands defined in [docex.md](../../.
 | `projinfra <direction> <side>` | both, branches internally | `project.yml`, `infra.yml`, `infra/output/project/<side>/` | fixed: project-tier compose stack (three `-web` networks — `dev`/`stage`/`prod`; `test`'s web network is env-tier per mod 153 — + per-project traefik); elastic `up production`: runs `preinfra` as a gate, then the state-backend setup (S3 bucket + DynamoDB table for tofu state), then the two-phase project-tier `tofu apply` — phase 1 the Route53 hosted zone alone so the operator can NS-delegate, phase 2 the full project tier; both idempotent |
 | `envinfra <direction> <env>` | fixed envs for `up` (`dev`/`test` only); `down` covers all envs | `infra/output/<env>/docker-compose.yml`, and the whole aggregate at bring-up — TTE ∪ secrets ∪ config (`infra/tte/`, `infra/secrets/`, `infra/config/`); for `down`, the running stack | host docker — `up`: compose up, runs migrations after; `down`: compose down, keeps named volumes (elastic stage/prod `down` `tofu destroy`s the env tier behind a deletion-protection gate) |
 | `build [<cb>]` | dev iteration | a running `dev` stack, `core/<cb>/{src,build.sh}` | `core/<cb>/dist/` via bind mount, written by a one-off run of the codebase's exec service |
-| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/`. Two subset modes (mod 151): `test unit [subset]` runs the no-infra unit tier in a throwaway `--no-deps` container with **no stack brought up** — a plain synchronous run, no vessel/lock; `test integration [subset]` runs the stack-backed tier as a durable job sharing `test`'s lock. `[subset]` reaches the codebase shim as the injected `DOCEX_TEST_SELECTOR`. `--slots N` (mod 154) shards the integration tier across `N` per-slot-isolated stacks (unit runs once), injecting `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS`; `--slots 1`/omitted is byte-identical to the plain run |
+| `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/`. `test [subset]` (mod 151) narrows the run — `[subset]` reaches the codebase's `test.sh` as the injected `DOCEX_TEST_SELECTOR`. `--slots N` (mod 154) shards the whole suite across `N` per-slot-isolated stacks, injecting `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS`; `--slots 1`/omitted is byte-identical to the plain run |
 | `job <op> [<handle>]` | both | `.docex/runs/` run records; vessel liveness (`docker inspect`) | stdout — `ls`/`status`/`wait`/`logs`/`result` over durable run handles (no state mutated except `wait`/`result` reading the authoritative `exit` file) |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
 | `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version/contract checks, build, test — a [durable job](#durable-jobs-the-job-substrate); blocks + exits with the run's code (durable underneath), or `--detach` → a handle. On success writes a `.docex/checks/` provenance record for `merge` to trust forward |
@@ -174,10 +174,8 @@ job** — the run outlives the invoking call — implemented by `src/docex/jobs/
 doctrine rule of record is [`docex.md § Command Lifecycle`](../../../doctrine/infrastructure/docex.md#command-lifecycle);
 this is how `docex` realizes it. `docex test`, `docex check`, and `docex merge`
 are all durable jobs (`test` since mod 148; `check`/`merge` since mod 149).
-The `docex test unit` fast lane (mod 151) is the deliberate exception — a
-stackless unit run touches no shared infra, so it is a plain synchronous run
-(no vessel, no lock, no run record), not a durable job; only `docex test` and
-`docex test integration [subset]` take the vessel, sharing one `test` lock scope.
+Every `docex test` run — plain, `[subset]`, or `--slots N` — takes the vessel,
+sharing one `test` lock scope.
 
 - **The handle is an on-disk run record** under `.docex/runs/<id>/`
   (`meta.json` immutable launch metadata, `status.json` progress, an
@@ -266,7 +264,7 @@ deliberately unused — a finite suite is not a perpetual loop.
 - Doctrine prose excerpts that back `docex why`.
 
 **Not bundled (lives in the project):**
-- Per-codebase `build.sh`, `test_unit.sh`, `test_integration.sh`, `health.sh`, `migrate.sh` — bespoke per codebase and per language (`migrate.sh` only where the codebase owns a schema). The test tier is two shims: `test_unit.sh` (no-infra) and `test_integration.sh` (stack-backed, incl. contract).
+- Per-codebase `build.sh`, `test.sh`, `health.sh`, `migrate.sh` — bespoke per codebase and per language (`migrate.sh` only where the codebase owns a schema).
 - Per-codebase `Dockerfile`s.
 - Language runtimes and toolchains for project code — those live inside each codebase's image.
 - Project-local transfer table extensions at `infra/transfer_tables/` (deep-merged with bundled tables at compile time).
@@ -288,7 +286,7 @@ Every path `docex` reads or writes lives inside the project tree. The shim bind-
 - `infra/tte/<env>.env` — dev/test TTE (transient-to-env) store, read during aggregation (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md))
 - `infra/deploy_creds/<env>` — SSH private key for fixed `release`
 - `infra/stage/{Dockerfile, stage_test.sh, tests/}` — stage tester definition and tests
-- `core/<codebase>/{Dockerfile, build.sh, test_unit.sh, test_integration.sh, health.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
+- `core/<codebase>/{Dockerfile, build.sh, test.sh, health.sh, migrate.sh, src/, migrations/, tests/}` — per-codebase source and shims
 - `.git/` — required by `check`, `merge`, and any command that needs commit identity
 
 **Write:**
@@ -460,7 +458,7 @@ how `pipeline/check.py` implements it.
   `proto` are SDL/IDL with no version key), and reports a malformed/absent version key **once**
   as its own defect rather than also as a below-floor consequence it cannot compute.
 - **`health.sh` is a required codebase shim gate**, required unconditionally
-  alongside `build.sh`, `test_unit.sh`, and `test_integration.sh`; `migrate.sh`
+  alongside `build.sh` and `test.sh`; `migrate.sh`
   stays conditional on schema ownership. One file per codebase like the others, but invoked **per core
   service** as `./health.sh <service>` — the compiler emits the argv, so the shim
   never guesses which core service it is running in.

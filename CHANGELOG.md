@@ -17,7 +17,11 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
-Advance 009 ("Test Overhaul") — in progress.
+Advance 009 ("Test Overhaul") — a **2.2.0 minor**. Every deliverable is additive
+(durable re-attachable jobs, scoped test runs, whole-suite slot sharding, a faster
+`merge`, a projinfra-free `test` env); the single per-codebase `test.sh` shim and
+the `infra.yml` surface are unchanged, so downstream projects upgrade by repin +
+recompile with no per-codebase migration.
 
 ### Added
 - **`docex test` is now a durable, re-attachable job (the `job` substrate).** The
@@ -111,14 +115,14 @@ Advance 009 ("Test Overhaul") — in progress.
   [`lexicon.md`](./doctrine/lexicon.md),
   [`configurable.md`](./doctrine/infrastructure/configurable.md),
   [`shape.md`](./doctrine/infrastructure/shape.md).
-- **`docex test --slots N` shards the integration tier across N isolated slot
+- **`docex test --slots N` shards the whole suite across N isolated slot
   stacks (F7, SC1/SC2/SC3 of Goal 4, mod 154).** The new flag brings up `N`
   fully-isolated `test` stacks on one host (every physical name carries the Mod 152
   `_s{k}` segment; the web network is the Mod 153 per-slot bridge) and **shards the
-  slow integration tier across them**, while the no-infra **unit tier runs once**.
-  The orchestration runs inside the single `test` vessel: unit-once (fail-fast gate),
-  then the `N` slots are compiled (`compile_slot`) and run **concurrently**, each
-  slot's integration shim receiving the injected `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`
+  whole suite across them**.
+  The orchestration runs inside the single `test` vessel: the `N` slots are
+  compiled (`compile_slot`) and run **concurrently**, each
+  slot's `test.sh` receiving the injected `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`
   (1-based index, count) on the same one-way, stable footing as `DOCEX_TEST_SELECTOR`,
   with which they compose. A slot whose shard **passes** is torn down; a slot that
   **fails** is left **up** for debugging and reaped by the next run to touch that slot
@@ -131,7 +135,7 @@ Advance 009 ("Test Overhaul") — in progress.
   (`exec_service_key`, `_migration_task_family`) plus a necessary third
   (`env_compose_project`, for a distinct per-slot `--project-name`) are now
   slot-aware. The slot primitive stays **env-agnostic in the compiler but CLI-exposed
-  only for `test`** (SC3). The fixture `test_integration.sh` shims ship a **reference**
+  only for `test`** (SC3). The fixture `test.sh` shims ship a **reference**
   (recommend-not-mandate) modulo shard split. Doctrine amended:
   [`tests.md § Injected environment`](./doctrine/infrastructure/tests.md) (the
   `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS` contract) and
@@ -182,37 +186,15 @@ Advance 009 ("Test Overhaul") — in progress.
   docker, pytest) interleave in true chronological order when a run's output is
   redirected to a file, instead of docex's block-buffered narration clumping at
   process exit. (docex mod 146)
-- **The per-codebase test contract is now two shims** (SC1): every codebase ships
-  `test_unit.sh` (the no-infra tier — domain / alogic / adapter-unit) and
-  `test_integration.sh` (the stack-backed tier — module-integration, flow, **and
-  contract** tests), replacing the single `test.sh`. `docex check` asserts both
-  exist and are executable; `docex test` brings up the fresh `test` stack and runs
-  both shims (unit tier, then integration tier) within it, fail-fast. The five
-  conceptual test tiers are unchanged but now map onto **two execution classes**
-  (needs-infra vs not); contract folds into integration. Doctrine amended across
-  `tests.md`, `hex_overview.md § Tests`, `cicd.md`, `docex.md`, `infrastructure.md`,
-  `healthchecks.md`, `exec_service.md`, `inception.md`, `advance.md`,
-  `migrations.md`, and the `testing` skill. **Breaking:** downstream projects must
-  split their `test.sh` into the two shims (a project-upgrade guide rides with the
-  release that follows this advance). (docex mod 147)
-- **`docex test` gains two honest execution modes + a blessed subset (F5).**
-  `docex test unit [subset]` runs only the no-infra unit tier in a **throwaway
-  container with no compose stack brought up** (the exec service's `depends_on`
-  backing services are suppressed with `--no-deps`) — a plain **synchronous** run
-  (seconds; no shared infra, so no lock and no durable-job vessel; `--detach` is
-  refused). `docex test integration [subset]` runs the stack-backed integration
-  tier against a fresh `test` stack and **is** a durable job, sharing `test`'s
-  `<label>-test-runner` lock (a full `docex test` and a `docex test integration`
-  refuse each other). Plain `docex test` (both tiers, fresh stack, durable job) is
-  unchanged. An optional `[subset]` narrows within the chosen tier and reaches the
-  project's codebase test shim as a new injected env var, **`DOCEX_TEST_SELECTOR`**
-  — a one-way, stable docex↔project contract (unset ⇒ whole tier; set ⇒ the shim
-  forwards it to its runner) that composes with the future test-sharding
-  `DOCEX_TEST_*` vars. Doctrine amended in `tests.md` (§ Two execution modes + the
-  `DOCEX_TEST_SELECTOR` injected-variable note), `docex.md` (the `test`
-  sub-surface + Command-Lifecycle synchronous-unit-lane note), and the `testing`
-  skill. docex's own fixture shims forward the selector as the reference
-  implementation. (docex mod 151)
+- **`docex test` gains a blessed subset (F5).** An optional `[subset]` positional
+  narrows `docex test` within the suite and reaches the project's codebase `test.sh`
+  as a new injected env var, **`DOCEX_TEST_SELECTOR`** — a one-way, stable
+  docex↔project contract (unset ⇒ whole suite; set ⇒ the shim forwards it to its
+  runner) that composes with the test-sharding `DOCEX_TEST_*` vars. Plain
+  `docex test` (whole suite, fresh stack, durable job) is unchanged. Doctrine
+  amended in `tests.md` (the `DOCEX_TEST_SELECTOR` injected-variable note),
+  `docex.md` (the `test` sub-surface), and the `testing` skill. docex's own fixture
+  `test.sh` forwards the selector as the reference implementation. (docex mod 151)
 - **The `test` env's `web` network is re-tiered out of projinfra (F7 §4, mod 153).**
   For the `test` env only, the `web` network is no longer the shared, external,
   projinfra-owned `${project}-test-web` network; it is now an **env-tier,
@@ -232,9 +214,8 @@ Advance 009 ("Test Overhaul") — in progress.
 - **Test scope is now a policy-governed decision in the process strata.** The
   full-vs-scoped test choice is encoded as a hard policy in identical vocabulary
   across the process docs, agent defs, and the `testing` skill: a **mod cycle** may
-  iterate with scoped runs (`docex test unit [subset]` / `integration [subset]`)
-  but **closes on the full `unit` tier plus the relevant `integration` tests**; an
-  **advance closes on a full run of both tiers** across the project; **CI/CD
+  iterate with scoped runs (`docex test [subset]`) but **closes on a full run**; an
+  **advance closes on a full run** across the project; **CI/CD
   (`check`/`merge`) always runs the full suite and never scopes**. Scope is agent
   judgment via the existing subset mechanism — **no computed "affected" selector
   ships** (prose only), by design (cross-module driving-port imports, `shared/`
@@ -251,9 +232,8 @@ Advance 009 ("Test Overhaul") — in progress.
   <id>` → `unknown command 'docex'` → exit 64, so `run_in_vessel` never executed,
   the job body never ran, and no authoritative `exit` file was written. This broke
   **every vessel path end-to-end through the real docex image** — `docex test`
-  (foreground and `--detach`), `docex test integration`, `docex test --slots N`,
-  and `docex check` / `docex merge` (foreground and `--detach`) — while only the
-  synchronous in-process `docex test unit` lane escaped. The fix makes the
+  (foreground, `--detach`, and `--slots N`) and `docex check` / `docex merge`
+  (foreground and `--detach`). The fix makes the
   entrypoint **explicit at the `run_detached` boundary**: `run_detached` gained an
   optional `entrypoint` parameter (emitting `docker run --entrypoint`), and the
   vessel now launches with `entrypoint="docex"` and command `["__run-job", <id>]`,

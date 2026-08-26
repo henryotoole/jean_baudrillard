@@ -684,16 +684,16 @@ def _gate_codebase_scripts(
     ctx: ProjectContext,
     report: CheckReport,
 ) -> None:
-    """``build.sh``, ``test_unit.sh``, ``test_integration.sh`` and ``health.sh``
-    for every codebase; ``migrate.sh`` for any codebase that's a schema owner.
+    """``build.sh``, ``test.sh`` and ``health.sh`` for every codebase;
+    ``migrate.sh`` for any codebase that's a schema owner.
 
     `health.sh` is invoked **per core service**, as ``./health.sh <service>`` —
     the compiler supplies the argv (cicd.md § Check Step 3.1). That changes
     nothing here (one file per codebase either way), which is exactly why it is
-    worth saying: `build.sh`/`test_unit.sh`/`test_integration.sh`/`migrate.sh`
-    are properties of the source tree and so codebase-scoped, while health is a
-    property of a running process. A reader who knows the argv exists would
-    otherwise expect a per-core-service check in this gate and find none.
+    worth saying: `build.sh`/`test.sh`/`migrate.sh` are properties of the source
+    tree and so codebase-scoped, while health is a property of a running process.
+    A reader who knows the argv exists would otherwise expect a per-core-service
+    check in this gate and find none.
     """
     problems: list[str] = []
     all_codebases = codebases(ctx)
@@ -701,9 +701,7 @@ def _gate_codebase_scripts(
 
     for cb in all_codebases:
         cb_root = worktree / "core" / cb
-        for script in (
-            "build.sh", "test_unit.sh", "test_integration.sh", "health.sh"
-        ):
+        for script in ("build.sh", "test.sh", "health.sh"):
             path = cb_root / script
             if not path.is_file():
                 problems.append(f"core/{cb}/{script} missing")
@@ -722,8 +720,8 @@ def _gate_codebase_scripts(
         report.add(
             "codebase_scripts",
             True,
-            f"build.sh/test_unit.sh/test_integration.sh/health.sh present for "
-            f"{len(all_codebases)} codebase(s)",
+            f"build.sh/test.sh/health.sh present for {len(all_codebases)} "
+            f"codebase(s)",
         )
 
 

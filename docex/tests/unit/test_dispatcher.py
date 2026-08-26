@@ -740,7 +740,7 @@ def test_test_detach_flag_parses_and_routes(monkeypatch, sample_ctx):
 
     captured = {}
 
-    def fake_run_test_job(ctx, docker, *, detach, slots=1):
+    def fake_run_test_job(ctx, docker, *, detach, selector=None, slots=1):
         captured["detach"] = detach
         captured["slots"] = slots
         return 0
@@ -754,71 +754,43 @@ def test_test_detach_flag_parses_and_routes(monkeypatch, sample_ctx):
     assert captured["detach"] is False
 
 
-def test_cli_test_unit_routes_synchronous(monkeypatch, sample_ctx):
-    """Mod 151: `docex test unit [subset]` → synchronous run_test_unit."""
-    monkeypatch.chdir(sample_ctx.project_root)
-    _patch_docker_ok(monkeypatch)
-
-    calls = {}
-    monkeypatch.setattr(
-        "docex.orchestrate.test.run_test_unit",
-        lambda ctx, docker, *, selector: calls.update(unit=selector) or 0,
-    )
-    rc = _cmd_test(["unit", "tests/unit/foo.py"])
-    assert rc == 0
-    assert calls["unit"] == "tests/unit/foo.py"
-
-
-def test_cli_test_unit_detach_is_usage_error(monkeypatch, sample_ctx):
-    monkeypatch.chdir(sample_ctx.project_root)
-    _patch_docker_ok(monkeypatch)
-    rc = _cmd_test(["unit", "--detach"])
-    assert rc == 64
-
-
-def test_cli_test_integration_routes_to_job(monkeypatch, sample_ctx):
+def test_cli_test_subset_routes_to_job(monkeypatch, sample_ctx):
+    """Mod 151 (kept): a `[subset]` positional threads to run_test_job as the
+    selector."""
     monkeypatch.chdir(sample_ctx.project_root)
     _patch_docker_ok(monkeypatch)
 
     seen = {}
     monkeypatch.setattr(
         "docex.jobs.commands.run_test_job",
-        lambda ctx, docker, *, detach, tiers=("unit", "integration"),
-        selector=None, slots=1: seen.update(
-            tiers=tiers, selector=selector, detach=detach, slots=slots
+        lambda ctx, docker, *, detach, selector=None, slots=1: seen.update(
+            selector=selector, detach=detach, slots=slots
         ) or 0,
     )
-    rc = _cmd_test(["integration", "tests/integration/foo.py"])
+    rc = _cmd_test(["tests/foo.py"])
     assert rc == 0
-    assert seen == {"tiers": ("integration",),
-                    "selector": "tests/integration/foo.py", "detach": False,
-                    "slots": 1}
+    assert seen == {"selector": "tests/foo.py", "detach": False, "slots": 1}
 
 
 def test_cli_test_slots_routes_to_job(monkeypatch, sample_ctx):
-    """Mod 154: `--slots N` threads N into run_test_job; `test integration
-    --slots N` threads it on the integration lane too."""
+    """Mod 154 (kept): `--slots N` threads N into run_test_job; `test <subset>
+    --slots N` threads both."""
     monkeypatch.chdir(sample_ctx.project_root)
     _patch_docker_ok(monkeypatch)
 
     seen = {}
     monkeypatch.setattr(
         "docex.jobs.commands.run_test_job",
-        lambda ctx, docker, *, detach, tiers=("unit", "integration"),
-        selector=None, slots=1: seen.update(tiers=tiers, slots=slots) or 0,
+        lambda ctx, docker, *, detach, selector=None, slots=1: seen.update(
+            selector=selector, slots=slots
+        ) or 0,
     )
     assert _cmd_test(["--slots", "3"]) == 0
-    assert seen == {"tiers": ("unit", "integration"), "slots": 3}
+    assert seen == {"selector": None, "slots": 3}
 
     seen.clear()
-    assert _cmd_test(["integration", "--slots", "4"]) == 0
-    assert seen == {"tiers": ("integration",), "slots": 4}
-
-
-def test_cli_test_unit_slots_is_usage_error(monkeypatch, sample_ctx):
-    monkeypatch.chdir(sample_ctx.project_root)
-    _patch_docker_ok(monkeypatch)
-    assert _cmd_test(["unit", "--slots", "2"]) == 64
+    assert _cmd_test(["tests/foo.py", "--slots", "4"]) == 0
+    assert seen == {"selector": "tests/foo.py", "slots": 4}
 
 
 def test_cli_test_slots_below_one_is_usage_error(monkeypatch, sample_ctx):

@@ -44,4 +44,4 @@ Then you should ask the operator:
 
 # Test Discipline
 
-An advance **closes on a full run of both tiers** — full `unit` and full `integration` across the project — before you write `report.md`; never report an advance complete on a scoped run. Your scoped mods each close on full `unit` + relevant `integration` (the corporal enforces that); CI/CD gates (`check` / `merge`) always run full. This is the advance test rule from [advance.md](../../doctrine/practices/advance.md#test-scope-across-an-advance).
+An advance **closes on a full run** of the suite across the project — before you write `report.md`; never report an advance complete on a scoped run. Your scoped mods each close on a full run (the corporal enforces that); CI/CD gates (`check` / `merge`) always run full. This is the advance test rule from [advance.md](../../doctrine/practices/advance.md#test-scope-across-an-advance).

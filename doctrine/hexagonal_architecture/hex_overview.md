@@ -167,11 +167,6 @@ By testing the entire codebase, we can catch some unique sorts of bugs:
 
 Flow tests are very heavy, very slow, and should be used sparingly.
 
-**The five conceptual tiers map onto two execution classes.** The taxonomy above is how you reason about coverage; for *execution* every tier lands in one of two classes, which the codebase ships as two shims (see [tests.md](../infrastructure/tests.md) and [cicd.md § Build-Test-Step](../infrastructure/cicd.md#build-test-step)):
-
-- **unit** — `test_unit.sh`, run with **no stack**: domain, alogic, and adapter-*unit* (driving-adapter translation with the port mocked). Fast, no backing services.
-- **integration** — `test_integration.sh`, run **stack-backed** against real backing services: adapter-*integration* (driven adapters vs. real infra), module-integration, codebase-flow, **and contract** tests. The only distinction that determines execution is needs-infra vs not, so contract folds in here.
-
 **Entrypoints are not a test tier.** An entrypoint should be too thin to be worth testing: it calls the composition root and hands the result to a runtime host. If an entrypoint needs a test of its own, it is doing too much, and the surplus belongs in a driving adapter (translation) or in alogic (orchestration).
 
 #### Structure 

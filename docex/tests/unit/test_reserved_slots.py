@@ -242,8 +242,9 @@ def test_cli_slots_at_ceiling_is_accepted(monkeypatch, sample_ctx):
     seen = {}
     monkeypatch.setattr(
         "docex.jobs.commands.run_test_job",
-        lambda ctx, docker, *, detach, tiers=("unit", "integration"),
-        selector=None, slots=1: seen.update(slots=slots) or 0,
+        lambda ctx, docker, *, detach, selector=None, slots=1: seen.update(
+            slots=slots
+        ) or 0,
     )
     assert main_mod._cmd_test(["--slots", str(MAX_TEST_SLOTS)]) == 0
     assert seen == {"slots": MAX_TEST_SLOTS}

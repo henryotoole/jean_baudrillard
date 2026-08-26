@@ -6,8 +6,7 @@
 #
 # `docex check`'s `contract_health_path` gate asserts that some openapi contract
 # of `api.web` declares a GET on its declared `health_check_path`. It does no
-# schema conformance; contract *testing* is the project's own
-# `test_integration.sh` concern.
+# schema conformance; contract *testing* is the project's own `test.sh` concern.
 
 openapi: "3.2.0"
 info:

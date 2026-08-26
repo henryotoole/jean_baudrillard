@@ -8,36 +8,13 @@ This document describes the different kinds of automated tests which ship with a
 
 ## Codebase Tests
 
-Codebase tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its two test shims (`test_unit.sh` and `test_integration.sh`) inside its test-stage container. The tier is named for its scope, which is the codebase and not one of its core services: the test suite, like the artifact, is a property of the source tree, so one pair of shims per codebase covers every core service that codebase declares. That scope is what distinguishes this tier from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's tests.
+Codebase tests describe all unit tests and integration tests which cover a single **codebase** — its `tests/` tree, run by its `test.sh` inside its test-stage container. The tier is named for its scope, which is the codebase and not one of its core services: the test suite, like the artifact, is a property of the source tree, so one `test.sh` per codebase covers every core service that codebase declares. That scope is what distinguishes this tier from project-wide [staging tests](#staging-tests). When we perform tests in the `test` environment, we are running every codebase's tests.
 
 These tests test the code itself - that functions behave correctly, modules within a codebase can communicate, etc. They *don't* test inter-core-service communication. They can, however, interact with a backing service for the purpose of testing a single codebase (required for some integration tests).
 
 Codebase tests are written in whatever language, and with whatever tooling, is appropriate for the codebase. A codebase written in python would have tests also written in python and perhaps run with `pytest`.
 
-The five conceptual tiers map onto **two execution classes**, one shim each: `test_unit.sh` runs the no-infra tiers (domain, alogic, adapter-unit), and `test_integration.sh` runs the stack-backed tiers (adapter-integration, module-integration, flow) **and contract tests**. The only distinction is needs-infra vs not: contract tests spin a provider server / mock inside a container, so they fold into integration. Both shims are invoked by the [standard build-test step](./cicd.md#build-test-step).
-
-### Two execution modes
-
-The two shims are not only a *classification* — they are two **execution modes**
-with different infrastructure needs, and `docex test` exposes each directly:
-
-- **`docex test`** (no argument) is the **formal isolation** mode: it brings up a
-  fresh, throwaway `test` stack, runs both tiers in it, and tears it down. This is
-  the mode CI/CD and an advance's close-out run — the full suite against clean
-  infrastructure.
-- **`docex test unit [subset]`** is the **fast lane**: it runs the no-infra unit
-  tier in a throwaway container with **no compose stack brought up at all** (the
-  `depends_on` backing services are suppressed), so it returns in seconds. It is
-  the blessed replacement for hand-rolling a raw `docker run` to iterate on one
-  failing unit test.
-- **`docex test integration [subset]`** runs the stack-backed integration tier
-  against a fresh `test` stack, optionally narrowed to a subset.
-
-The subset — how you run *fewer than a whole tier* — is chosen the doctrine's own
-way: the **tier** (`unit` / `integration`) is the primary selector, and an
-optional within-tier refinement is carried by the injected variable below. This is
-the sanctioned fast inner loop; it is not a way to skip the full run, which a mod
-closes on and an advance and CI/CD always run.
+Unit, integration, and contract tests should all be run by the [standard test script](./cicd.md#build-test-step)
 
 The folder structure of codebase tests (and more details on how to write them) is described here: [hex_overview.md](../hexagonal_architecture/hex_overview.md#tests)
 
@@ -64,7 +41,7 @@ Contract tests ensure core service modularity. They check that a core service's 
 
 Keep in mind that a codebase can have multiple core services and that a core service can have multiple surfaces. A contract test *tests* a single core service's surface. However, it *runs* in the codebase's [exec service](./specifics/exec_service.md).
 
-A codebase declaring two core services (each declaring one surface) therefore has two contract files but one test suite, run by the two shims, in one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`.
+A codebase declaring two core services (each declaring one surface) therefore has two contract files but one test suite, one `test.sh`, and one container. `api` declaring `api.web` (OpenAPI) and `api.worker` (AsyncAPI) verifies both contracts in a single `pytest` run inside `<project>-test-api-exec`.
 
 A core service declaring two surfaces is the same story from the other direction: `api.web` declaring `rest` and `events` has two contract files, both verified in that one run. The count of contracts tracks surfaces; the count of test suites tracks codebases.
 
@@ -79,14 +56,14 @@ This doctrine requires provider-side contract tests for core service surfaces, a
 - Test starts the provider's server *inside* that container. It does not call the core service's own long-running container in the `test` stack: schema-fuzzing tools generate large volumes of traffic, and aiming that at a shared container makes the suite order-dependent and pollutes state other tests rely on.
 - A schema-validation tool (e.g., schemathesis for OpenAPI) hits the real running endpoints.
 - Verifies that actual responses conform to what the surface's contract declares.
-- Invoked by the codebase's `test_integration.sh` (contract tests need a container).
+- Invoked by the codebase's `test.sh`.
 
 #### Consumer Side
 - Runs in a one-off container of the consumer's **codebase** exec service, as above.
 - A mock server is generated from the provider's contract - either via a separate container (Prism, AsyncAPI mock) or as an in-process mock library (e.g., httpx_mock for Python clients).
 - Consumer's tests hit the mock instead of the real backend.
 - Verifies consumer can work against any contract-conformant provider.
-- Invoked by the codebase's `test_integration.sh` (contract tests need a container).
+- Invoked by the codebase's `test.sh`.
 
 The consumer side is codebase-scoped in a second sense as well. It exercises a driven gateway adapter, and that adapter is shared by every core service the codebase declares — so two core services consuming the same provider want *one* consumer-side test, not two, even though [`uses`](./cicl.md#uses-relationships) is declared per core service.
 
@@ -123,14 +100,14 @@ The developer must also ensure that the Dockerfile produces an environment with 
 
 The contract is one-way and stable: docex injects these on every `stagetest` run; the project's tests are free to read or ignore them. Adding new doctrine-injected variables is a doctrine change, not a project change.
 
-The **codebase test shims** receive one injected variable on the same one-way,
+The **codebase `test.sh`** receives injected variables on the same one-way,
 stable footing:
 
 | Variable | Source | Purpose |
 | -------- | ------ | ------- |
-| `DOCEX_TEST_SELECTOR` | the `[subset]` argument to `docex test unit`/`integration` | An opaque, runner-native selector the shim forwards to its test runner to narrow the run to a subset of its tier. **Unset ⇒ run the whole tier** (the default). Set ⇒ the shim runs only the named tests. |
-| `DOCEX_TEST_SLOT` | the current shard index under `docex test --slots N` | The **1-based** index (`1..N`) of this shard. Injected into the **integration** shim only, and only when sharding (`N ≥ 2`). **Unset ⇒ not sharding ⇒ run the whole tier.** |
-| `DOCEX_TEST_SLOTS` | the shard count `N` from `docex test --slots N` | The total number of shards. Together with `DOCEX_TEST_SLOT` it tells the shim to run only its `1/N` share of the integration tier. |
+| `DOCEX_TEST_SELECTOR` | the `[subset]` argument to `docex test` | An opaque, runner-native selector the shim forwards to its test runner to narrow the run to a subset of the suite. **Unset ⇒ run the whole suite** (the default). Set ⇒ the shim runs only the named tests. |
+| `DOCEX_TEST_SLOT` | the current shard index under `docex test --slots N` | The **1-based** index (`1..N`) of this shard. Injected only when sharding (`N ≥ 2`). **Unset ⇒ not sharding ⇒ run the whole suite.** |
+| `DOCEX_TEST_SLOTS` | the shard count `N` from `docex test --slots N` | The total number of shards. Together with `DOCEX_TEST_SLOT` it tells the shim to run only its `1/N` share of the suite. |
 
 The shim decides how to forward `DOCEX_TEST_SELECTOR` in a way idiomatic to its
 runner (a `pytest` shim splices it as an args fragment — a path and/or `-m`/`-k`
@@ -141,8 +118,7 @@ a shim may be both subset-narrowed and sharded at once. docex **recommends but d
 not mandate** a sharding pattern: it fixes only the two variables and their meaning,
 and a project shards however is idiomatic to its runner (the reference shims ship a
 deterministic modulo split over collected node-ids, so the union of the `N` shards
-is exactly the whole tier). Sharding the no-infra **unit** tier is pointless — under
-`docex test --slots N` the unit tier runs **once** and receives neither variable.
+is exactly the whole suite).
 
 Like the stage injections, this whole contract is one-way and stable — adding to it
 (as parallel test sharding did, with `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`) is a

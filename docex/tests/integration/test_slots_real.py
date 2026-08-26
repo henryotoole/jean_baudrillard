@@ -1,11 +1,11 @@
 """Integration test (Mod 154): ``docex test --slots 2`` shards, isolates, reaps.
 
-The fixture's integration tier is tiny by design, so a 2-slot real run is cheap.
+The fixture's suite is tiny by design, so a 2-slot real run is cheap.
 This exercises the sharded path end-to-end against a real docker daemon:
 two fully name-isolated ``test`` stacks (slot 1 unslotted, slot 2 carrying the
-``-s2-`` segment on every physical name) brought up concurrently, the
-integration shim sharded across them via the injected ``DOCEX_TEST_SLOT`` /
-``DOCEX_TEST_SLOTS``, both torn down on success. It does NOT run a full suite.
+``-s2-`` segment on every physical name) brought up concurrently, the whole
+suite sharded across them via the injected ``DOCEX_TEST_SLOT`` /
+``DOCEX_TEST_SLOTS``, both torn down on success.
 """
 from __future__ import annotations
 

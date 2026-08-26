@@ -43,10 +43,9 @@ def _run_test_body(ctx, docker, params) -> int:
     # dispatcher load and keeps the module free of an import cycle.
     from docex.orchestrate.test import run_test
 
-    tiers = tuple(params.get("tiers") or ("unit", "integration"))
     selector = params.get("selector")
     slots = int(params.get("slots") or 1)
-    return run_test(ctx, docker, tiers=tiers, selector=selector, slots=slots)
+    return run_test(ctx, docker, selector=selector, slots=slots)
 
 
 def _run_check_body(ctx, docker, params) -> int:  # params unused
@@ -167,17 +166,15 @@ def _launch_durable_job(
 
 def run_test_job(
     ctx, docker, *, detach: bool,
-    tiers: tuple[str, ...] = ("unit", "integration"),
     selector: str | None = None,
     slots: int = 1,
 ) -> int:
-    """Launch ``docex test`` (or ``docex test integration [subset]``) as a
-    durable, container-vessel job.
+    """Launch ``docex test`` as a durable, container-vessel job.
 
     Blocks and attaches by default (exit code == the run's); with
-    ``detach=True`` prints the handle and returns fast (~seconds). The
-    integration lane shares ``test``'s lock scope — both contend over the same
-    ``test`` stack, so they refuse each other.
+    ``detach=True`` prints the handle and returns fast (~seconds). A ``[subset]``
+    reaches the codebase shim as ``DOCEX_TEST_SELECTOR``; ``slots`` shards the
+    whole suite across N isolated stacks.
     """
     label = dns_label(ctx.project.name)
     return _launch_durable_job(
@@ -185,7 +182,7 @@ def run_test_job(
         kind="test",
         scope=f"{label}/test",
         vessel_name=f"{label}-test-runner",
-        params={"tiers": list(tiers), "selector": selector, "slots": slots},
+        params={"selector": selector, "slots": slots},
         detach=detach,
     )
 

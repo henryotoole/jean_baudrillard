@@ -35,8 +35,7 @@ _HELP_TEXT: dict[str, str] = {
     "envinfra": "Bring up or tear down a local dev or test environment.",
     "build": "Refresh dist/ for one or all codebases.",
     "test": "Run build-time tests in a fresh test env (durable job; --detach for a "
-            "handle). 'test unit [sel]' = no-stack fast lane; 'test integration "
-            "[sel]' = stack-backed subset.",
+            "handle). 'test [subset]' narrows the run; --slots N shards it.",
     "migrate": "Apply database migrations against an env.",
     "job": "Operate on durable run handles (ls/status/wait/logs/result).",
     "check": "Run CI gate checks in an ephemeral worktree (durable job; --detach for a handle).",
@@ -430,28 +429,20 @@ def _cmd_build(args: list[str]) -> int:
 def _cmd_test(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex test", add_help=True)
     parser.add_argument(
-        "tier", nargs="?", choices=["unit", "integration"], default=None,
-        help="restrict to one execution mode: 'unit' (no-stack fast lane) or "
-             "'integration' (stack-backed). Omit to run both tiers in a fresh "
-             "throwaway stack (the formal isolation mode).",
-    )
-    parser.add_argument(
         "subset", nargs="?", default=None,
-        help="optional within-tier selector forwarded to the codebase test shim "
-             "as DOCEX_TEST_SELECTOR (a pytest-args fragment for the exemplar "
-             "shim: a path and/or -m/-k expression). Omit to run the whole tier.",
+        help="optional selector forwarded to the codebase test shim as "
+             "DOCEX_TEST_SELECTOR (a pytest-args fragment for the exemplar "
+             "shim: a path and/or -m/-k expression). Omit to run the whole suite.",
     )
     parser.add_argument(
         "--detach", action="store_true",
-        help="launch the run detached and print its handle instead of blocking "
-             "(not valid for the synchronous 'unit' lane)",
+        help="launch the run detached and print its handle instead of blocking",
     )
     parser.add_argument(
         "--slots", type=int, default=1, metavar="N",
-        help="shard the integration tier across N isolated test stacks on this "
-             "host (unit runs once). N=1 (default) is byte-identical to today. "
-             "Capped at MAX_TEST_SLOTS (the band is 1..MAX_TEST_SLOTS). "
-             "Only for 'test'/'test integration'; not valid for the 'unit' lane.",
+        help="shard the whole suite across N isolated test stacks on this host. "
+             "N=1 (default) is byte-identical to plain `docex test`. "
+             "Capped at MAX_TEST_SLOTS (the band is 1..MAX_TEST_SLOTS).",
     )
     ns = parser.parse_args(args)
 
@@ -471,32 +462,9 @@ def _cmd_test(args: list[str]) -> int:
         )
         return 64  # EX_USAGE
 
-    if ns.tier == "unit":
-        if ns.detach:
-            print(
-                "error: 'docex test unit' is a synchronous no-stack run; "
-                "--detach does not apply.",
-                file=sys.stderr,
-            )
-            return 64  # EX_USAGE
-        if ns.slots != 1:
-            print(
-                "error: 'docex test unit' is a no-stack synchronous run; "
-                "--slots does not apply (sharding needs a stack).",
-                file=sys.stderr,
-            )
-            return 64  # EX_USAGE
-        from docex.orchestrate.test import run_test_unit
-        return run_test_unit(ctx, docker, selector=ns.subset)
-
     from docex.jobs.commands import run_test_job
-    if ns.tier == "integration":
-        return run_test_job(
-            ctx, docker, detach=ns.detach,
-            tiers=("integration",), selector=ns.subset, slots=ns.slots,
-        )
-    # No tier → the full durable job.
-    return run_test_job(ctx, docker, detach=ns.detach, slots=ns.slots)
+    return run_test_job(ctx, docker, detach=ns.detach,
+                        selector=ns.subset, slots=ns.slots)
 
 
 def _cmd_job(args: list[str]) -> int:

@@ -113,7 +113,6 @@ class FakeDockerClient:
         *,
         env: dict[str, str] | None = None,
         build: bool = False,
-        no_deps: bool = False,
         env_file: Path | None = None,
         project_dir: Path | None = None,
         project_name: str | None = None,
@@ -131,16 +130,12 @@ class FakeDockerClient:
             self.calls.append(
                 ("compose_run_one_off_build", service, tuple(command))
             )
-        # Mod 151: `env` (the injected DOCEX_TEST_SELECTOR) and `no_deps` (the
-        # no-stack fast-lane flag) recorded as SIDE-calls, same pattern, so the
-        # primary tuple stays untouched.
+        # Mod 151: `env` (the injected DOCEX_TEST_SELECTOR / DOCEX_TEST_SLOT*)
+        # recorded as a SIDE-call, same pattern, so the primary tuple stays
+        # untouched.
         if env:
             self.calls.append(
                 ("compose_run_one_off_env", service, tuple(command), tuple(sorted(env.items())))
-            )
-        if no_deps:
-            self.calls.append(
-                ("compose_run_one_off_no_deps", service, tuple(command))
             )
         # Mod 099: same finer scripting shape ``compose_exec`` has, now that
         # the per-codebase operations run through here — a test needs to be

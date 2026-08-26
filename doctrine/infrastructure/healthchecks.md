@@ -24,14 +24,14 @@ Only the third is HTTP, only on `web`-network core services, and only because an
 
 ## The probe
 
-Every codebase ships a `health.sh` at its container root — `/service/health.sh`, per [Codebase Containers](./infrastructure.md#codebase-containers). It joins `build.sh`, `test_unit.sh`, `test_integration.sh`, and `migrate.sh` as a shim whose entire contract is its exit code:
+Every codebase ships a `health.sh` at its container root — `/service/health.sh`, per [Codebase Containers](./infrastructure.md#codebase-containers). It joins `build.sh`, `test.sh`, and `migrate.sh` as a shim whose entire contract is its exit code:
 
 - **`0`** — this core service is working.
 - **non-zero** — it is not.
 
 Nothing else about it is fixed. It may curl a local route, stat a file, query a socket, or run a language-native check; the `doctrine` fixes the interface, not the tool, exactly as it does for [migrations](../practices/databases.md#migrations).
 
-**`health.sh` is invoked per core service**, as `./health.sh <service>`, and this is the one asymmetry against the other codebase shims. `build.sh`, `migrate.sh`, and the two test shims are properties of the *source tree* and so are codebase-scoped. Health is a property of a *running process*, and one codebase's web edge and queue consumer are different processes with different failure modes. It stays **one file** even so: its per-core-service variants share a single invocation environment and differ only by argv, which the compiler supplies, so four files for four branches of a `case` would only be worse. The test tier splits the *other* way — into `test_unit.sh` and `test_integration.sh` — because its two tiers differ by invocation environment itself (no stack vs. a live one), a difference the runner acts on and one argv-dispatched file could not cleanly express.
+**`health.sh` is invoked per core service**, as `./health.sh <service>`, and this is the one asymmetry against the other three shims. `build.sh`, `test.sh`, and `migrate.sh` are properties of the *source tree* and so are codebase-scoped. Health is a property of a *running process*, and one codebase's web edge and queue consumer are different processes with different failure modes. One file still, because four files to hold four branches of a `case` statement is worse; the compiler supplies the argv so the script never has to guess where it is running.
 
 The [check step](./cicd.md#check-step) asserts the file exists. Nothing can statically assert that it is *correct* — which is why what follows matters.
 

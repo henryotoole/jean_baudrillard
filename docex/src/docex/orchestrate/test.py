@@ -6,9 +6,7 @@ Per cicd.md § Build Test Step:
      runs build.sh in the build stage so test images carry correct
      artifacts).
   2. Migrate against the test env.
-  3. Run both test shims phased by tier: each codebase's test_unit.sh
-     (no-infra) first, then each codebase's test_integration.sh
-     (stack-backed, incl. contract), collecting exit codes.
+  3. Run each codebase's test.sh, collecting exit codes.
   4. Always tear down with ``preserve_volumes=False`` (test env is
      throwaway; fresh runs get fresh databases).
 
@@ -37,10 +35,6 @@ from docex.orchestrate.aggregate import aggregate
 
 _TEST_ENV = "test"
 
-# Mod 151: tier name → shim filename, so a parametrized `tiers` can select
-# which shims run (unit before integration). The full run passes both.
-_TIER_SHIMS = {"unit": "./test_unit.sh", "integration": "./test_integration.sh"}
-
 
 def run_test(
     ctx: ProjectContext,
@@ -49,7 +43,6 @@ def run_test(
     project_dir: "Path | None" = None,
     env_file_override: "Path | None" = None,
     project_name: "str | None" = None,
-    tiers: "tuple[str, ...]" = ("unit", "integration"),
     selector: "str | None" = None,
     slots: int = 1,
     slot: int = 1,
@@ -70,19 +63,14 @@ def run_test(
     can't collide with (or get torn down alongside) a real ``test`` env
     stack on the same host. Defaults to the standard env-tier name.
 
-    ``tiers`` selects which shim tiers to run in the up stack; defaults to
-    both (the full ``docex test``). ``("integration",)`` is the
-    ``docex test integration [subset]`` lane — still stack-backed (up +
-    migrate + tear down), but runs only ``test_integration.sh``.
-
-    ``selector``, when set, is injected into each shim's one-off container as
-    ``DOCEX_TEST_SELECTOR`` so the project shim can narrow the run to a
-    subset of its tier.
+    ``selector``, when set, is injected into each codebase's ``test.sh``
+    one-off container as ``DOCEX_TEST_SELECTOR`` so the project shim can
+    narrow the run to a subset of its suite.
 
     ``slots`` (Mod 154): ``1`` (default) is the existing single-stack path
     below, byte- and behavior-identical to today (no new compile call, no
     ``DOCEX_TEST_SLOT`` injection). ``>= 2`` dispatches ``_run_test_sharded``:
-    unit runs once, the integration tier shards across N isolated slot stacks.
+    the whole suite is sharded across N isolated slot stacks.
     Keyword-only so Mod 155 can later add a *distinct* ``slot=`` param (a single
     reserved slot for check/merge) without conflating it with this shard count.
 
@@ -98,7 +86,7 @@ def run_test(
     """
     if slots >= 2:
         return _run_test_sharded(
-            ctx, docker, tiers=tiers, selector=selector, slots=slots,
+            ctx, docker, selector=selector, slots=slots,
         )
     if slot == 1:
         ensure_compiled(ctx)
@@ -173,34 +161,30 @@ def run_test(
                 # Per the doctrine, build test fails on first failure.
                 return rc
 
-        # 3. Requested tiers, phased (unit before integration). Each shim runs
-        # as a one-off in the codebase's exec service against the already-up
-        # stack. Fail-fast on the first non-zero, so the cheap tier gates the
-        # expensive one. `selector`, when set, reaches the project shim as
-        # DOCEX_TEST_SELECTOR so it can narrow the run to a subset (see
-        # tests.md § Two execution modes).
+        # 3. test.sh for each codebase, in the codebase's exec service.
+        # Every codebase runs `test.sh` exactly one way: `compose run --rm`
+        # against its own exec service, which the compiler emits for every
+        # codebase whatever its core services' roles are. `selector`, when
+        # set, reaches the project shim as DOCEX_TEST_SELECTOR so it can
+        # narrow the run to a subset (see tests.md § Injected environment).
         #
         # WHY build=True: see step 2 above — same `test`-env freshness rule.
         selector_env = (
             {"DOCEX_TEST_SELECTOR": selector} if selector else None
         )
-        for tier in ("unit", "integration"):
-            if tier not in tiers:
-                continue
-            shim = _TIER_SHIMS[tier]
-            for svc in codebases(ctx):
-                key = exec_service_key(ctx, _TEST_ENV, svc, slot=slot)
-                rc = docker.compose_run_one_off(
-                    compose_file, key, [shim], build=True,
-                    env=selector_env,
-                    env_file=env_file, project_dir=project_dir,
-                    project_name=project_name,
-                )
-                if rc != 0:
-                    print(f"error: {shim} for {svc!r} exited {rc}.",
-                          file=sys.stderr)
-                    first_failure = rc
-                    return rc
+        for svc in codebases(ctx):
+            key = exec_service_key(ctx, _TEST_ENV, svc, slot=slot)
+            rc = docker.compose_run_one_off(
+                compose_file, key, ["./test.sh"], build=True,
+                env=selector_env,
+                env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
+            )
+            if rc != 0:
+                print(f"error: test.sh for {svc!r} exited {rc}.",
+                      file=sys.stderr)
+                first_failure = rc
+                return rc
     finally:
         # 4. Always tear down — even if a Python exception interrupted
         # us. preserve_volumes=False: test env's data is throwaway.
@@ -224,12 +208,11 @@ def _run_test_sharded(
     ctx: ProjectContext,
     docker: DockerClient,
     *,
-    tiers: "tuple[str, ...]",
     selector: "str | None",
     slots: int,
 ) -> int:
-    """The ``--slots N>=2`` path: unit runs ONCE (no-stack), the integration
-    tier is sharded across N isolated slot stacks brought up concurrently.
+    """The ``--slots N>=2`` path: the whole suite is sharded across N isolated
+    slot stacks brought up concurrently.
 
     Each physical name carries ``_s{k}`` (Mod 152) and the web bridge is
     per-slot (Mod 153), so the N stacks coexist on one host with no collision.
@@ -239,17 +222,8 @@ def _run_test_sharded(
     ensure_compiled(ctx)
     env_file = aggregate(ctx, env=_TEST_ENV)  # per-env, shared by all slots
 
-    # 1. Unit tier ONCE (fail-fast gate) — no stack, standard slot-1 project.
-    if "unit" in tiers:
-        rc = run_test_unit(ctx, docker, selector=selector)
-        if rc != 0:
-            return rc
-
-    if "integration" not in tiers:
-        return 0
-
-    # 2. Compile every slot serially (cheap, deterministic — keeps the
-    #    concurrent section pure docker), then run the N slots concurrently.
+    # Compile every slot serially (cheap, deterministic — keeps the
+    # concurrent section pure docker), then run the N slots concurrently.
     from docex.cicl.compile import compile_slot
 
     for k in range(1, slots + 1):
@@ -286,7 +260,7 @@ def _run_one_slot(
     env_file: "Path | None",
     selector: "str | None",
 ) -> int:
-    """Bring up slot ``slot``, migrate, run the integration shim sharded, then
+    """Bring up slot ``slot``, migrate, run the suite shim sharded, then
     tear down IFF it passed.
 
     A failed slot is LEFT UP for debugging — reaped by the next invocation's
@@ -333,11 +307,11 @@ def _run_one_slot(
         for svc in codebases(ctx):
             key = exec_service_key(ctx, _TEST_ENV, svc, slot=slot)
             rc = docker.compose_run_one_off(
-                compose_file, key, ["./test_integration.sh"], build=True,
+                compose_file, key, ["./test.sh"], build=True,
                 env=slot_env, env_file=env_file, project_name=project_name,
             )
             if rc != 0:
-                print(f"error: ./test_integration.sh for {svc!r} slot {slot} "
+                print(f"error: ./test.sh for {svc!r} slot {slot} "
                       f"exited {rc}.", file=sys.stderr)
                 return rc
         return 0
@@ -351,44 +325,3 @@ def _run_one_slot(
             if td != 0:
                 print(f"warning: slot {slot} teardown exited {td}.",
                       file=sys.stderr)
-
-
-def run_test_unit(
-    ctx: ProjectContext,
-    docker: DockerClient,
-    *,
-    selector: "str | None" = None,
-) -> int:
-    """The no-stack unit fast lane (``docex test unit [subset]``).
-
-    Runs ONLY each codebase's ``test_unit.sh`` in a throwaway ``--rm`` exec
-    container with ``--no-deps`` — so no ``depends_on`` backing services start
-    and **no compose stack is brought up**. There is no migrate (the unit tier
-    is no-infra), no teardown, and no durable job / lock (a stackless run
-    touches no shared infra, so nothing can contend). Seconds, not minutes.
-
-    ``selector``, when set, reaches ``test_unit.sh`` as ``DOCEX_TEST_SELECTOR``
-    so the shim can narrow to a subset (see tests.md § Two execution modes).
-    Uses the standard ``test`` compose project name so the exec image is shared
-    with the full ``test`` env. Fail-fast on the first non-zero; returns that
-    code.
-    """
-    ensure_compiled(ctx)
-    compose_file = compose_file_for(ctx, _TEST_ENV)
-    env_file = aggregate(ctx, env=_TEST_ENV)
-    project_name = env_compose_project(ctx, _TEST_ENV)
-    selector_env = {"DOCEX_TEST_SELECTOR": selector} if selector else None
-
-    for svc in codebases(ctx):
-        key = exec_service_key(ctx, _TEST_ENV, svc)
-        rc = docker.compose_run_one_off(
-            compose_file, key, ["./test_unit.sh"], build=True,
-            no_deps=True,
-            env=selector_env,
-            env_file=env_file, project_name=project_name,
-        )
-        if rc != 0:
-            print(f"error: ./test_unit.sh for {svc!r} exited {rc}.",
-                  file=sys.stderr)
-            return rc
-    return 0
