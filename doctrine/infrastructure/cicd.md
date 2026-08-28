@@ -53,6 +53,7 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	3. `project.yml` version was bumped.
 	4. `project.yml` version has not yet been released.
 	5. No merge conflicts
+	6. Valid git credentials exist to interact with origin. <CHECK> is this true, and worded correctly? </CHECK>
 3. Perform codebase checks:
 	1. All codebases contain `build.sh`, `test.sh`, `health.sh`, and `migrate.sh` if it is required.
 		+ Unlike the other codebase shims, `health.sh` is invoked **per core service**, as `./health.sh <service>`. Still one file per codebase — but a web edge and a queue consumer built from the same image have different probes, so the compiler supplies the argv.
@@ -61,15 +62,12 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	4. Every `web`-network core service declares `health_check_path`. That field is the declaration — on `elastic` with the default `reverse_proxy: alb` it is what the ALB target group probes, and per [rule 33](./cicl.md#validation-rules) it has no consumer anywhere else. Where the service *also* declares an `openapi` surface, its contract declares that path too. A `web`-network core service with no surface (a frontend, say) has no contract for the path to appear in, and needs none.
 4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
 5. Ensure build doesn't fail.
-6. Run build test. The build + test run against a **reserved slot above the `docex test --slots N` band**, so the throwaway `test` stack's compiled physical names (esp. the DB volume `name:`) are disjoint from a concurrent `docex test` or `merge` — closing the `--project-name` DB-volume collision (`--project-name` does not namespace an explicit `container_name:` / volume `name:`; the slot segment does). See [docex.md § check](./docex.md#check).
-7. On a fully-green check, record the validated state to `.docex/checks/` — the feature tip, the `origin/main` commit checked against, the merged worktree's tree SHA, a timestamp, and the docex version. This provenance record is what `merge` trusts to skip a redundant defensive recheck (see [§ Merge](#merge)). It is written only on success; a failed check records nothing.
+6. Run [build test](#build-test-step).
 
 If any steps fail, the repo is reverted back to its original state.
 
 #### `docex`
 `./bin/docex check`
-
-`check` runs as a **durable job** — the gate/build/test sequence runs in a detached vessel container, so a killed foreground monitor no longer orphans the run; `--detach` returns a handle and `docex job wait` re-attaches. This changes nothing about the steps above. See [docex.md § Command Lifecycle](./docex.md#command-lifecycle).
 
 ### Review
 
@@ -82,8 +80,8 @@ This step is optional, and is not covered more deeply in this version of the `do
 This step simply merges the feature branch into the main branch (technically we rebase, but "merge" captures the intent more) and tags the relevant commit. The release tag is applied to the merge tip, not to the original version-bump commit. This way, if any fix-up commits after a failed `./bin/docex check` occur, they require no special handling.
 
 #### Process
-1. Preflight the remote with `git ls-remote origin`: fail fast (in seconds) if `origin` is unreachable or unauthenticated, before building any image or running any test. Skipped on a repo with no `origin` remote. This also guarantees the defensive recheck below sees fresh `main`.
-2. Re-run the gate checks defensively — **unless a trusted green makes it provably redundant.** The check step records the state it validated; `merge` skips the recheck **iff** `origin/main` and the feature tip are still at the commits that record names, the working tree is clean, and the docex version matches. **Any** staleness — trunk moved, feature moved, dirty tree, no record, an unreadable record, or a docex-version mismatch — forces the full recheck. This is a rule, not merely an optimization: the recorded green is a **performance cache, never a correctness gate**, so the safe default is always to run. The `git ls-remote origin` preflight (step 1) already learns `origin/main`'s current tip, so the predicate adds no network round-trip. When the recheck *does* run, it uses a **reserved slot distinct from a standalone `check`'s** (this defensive check is in-process and takes no lock, so the two can co-occur), keeping their `test` stacks name-disjoint.
+1. Check that origin is reachable and authenticated with a preflight: `git ls-remote origin`.
+2. Re-run the gate checks defensively unless git status and code is state-identical to last green check step.
 3. Rebase feature onto current main; fast-forward main to the rebased tip.
 4. Tag the new main tip with `v<version>` from `project.yml`.
 5. Push main and tags to origin.
@@ -91,8 +89,6 @@ This step simply merges the feature branch into the main branch (technically we 
 
 #### `docex`
 `./bin/docex merge`
-
-`merge` runs as a **durable job**, like `check`; `--detach` returns a handle and a killed monitor leaves the run re-attachable via `docex job wait`, changing none of the steps above. One caveat: brokered git-credential passthrough does not survive a detached `merge`, which therefore refuses `--detach` when passthrough is active — see [docex.md § merge](./docex.md#merge). 
 
 ### Build Step
 
@@ -152,7 +148,7 @@ In order for tests to all be automatically run for a project, each codebase will
 4. Tear down the test environment.
 
 #### `docex`
-`./bin/docex test` performs the build testing step. It runs as a **durable job** — the suite runs in a detached vessel container, so a killed foreground monitor no longer orphans the run; `--detach` returns a handle and `docex job wait` re-attaches. See [docex.md § Command Lifecycle](./docex.md#command-lifecycle).
+`./bin/docex test`
 
 ### Containerize Step
 

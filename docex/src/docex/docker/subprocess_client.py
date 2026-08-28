@@ -530,8 +530,11 @@ class SubprocessDockerClient:
             return (127, False)
         if res.returncode == 0:
             out = (res.stdout or "").strip()
+            # WHY stderr: keep stdout carrying only the caller's handle (the
+            # run id printed by the detached-job launcher), so `$(docex …
+            # --detach)` captures the handle alone — not this container id.
             if out:
-                print(out)
+                print(out, file=sys.stderr)
             return (0, False)
         stderr = (res.stderr or "").lower()
         name_conflict = "is already in use" in stderr or "conflict" in stderr

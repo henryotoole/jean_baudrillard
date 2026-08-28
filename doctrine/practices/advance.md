@@ -95,10 +95,6 @@ Drafting up the tactical plan is something of an art because it can take so many
 	2. **A verification gate sits between the pieces.** When one piece must be proven to work before the next is built on top of it (a health check gone green, an auth flow confirmed via `browser-investigate`), that gate is a mod boundary.
 	3. **The combined mod would breach the context ceiling.** Territory sharing keeps *comprehension* cheap, but a large or unfamiliar diff still spends context — roughly lines-changed × a familiarity multiplier, plus test and debugging churn. Estimate conservatively and target well under the corporal's limit; hitting compaction mid-mod drops quality far more than an extra mod cycle costs.
 
-## Test Scope Across an Advance
-
-Test scope is a sanctioned, policy-governed choice — not license to skip tests. Individual mods within the advance may iterate with scoped runs (`docex test [subset]`) and close each cycle on a full run of the suite (see [modifications.md](./modifications.md)). The **advance itself closes on a full run** across the project — before you write `report.md`. CI/CD gates (`check` / `merge`) always run full and never scope. Scope is agent judgment via the `docex test` subset mechanism; no computed "affected" selector exists.
-
 ## Process
 
 The following process should be followed rigidly for every advance.

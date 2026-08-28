@@ -42,7 +42,7 @@ There are three tiers, or types, of infrastructure:
 1. Prerequisite Infrastructure - These resources exist outside the scope of any project. They are required for the project to work, but are not constructed or configured by the project.
 	+ Examples: an AWS account used for an `elastic` setup, the `web_demux` resource in a `fixed` setup, or the master network in both.
 2. Project Infrastructure - These resources are configured and controlled within the scope of the whole project. They are required for environment infrastructure to function.
-	+ Examples: the project-level reverse proxy (whether ALB or Traefik), the `fixed`-foundation `web`-networks. (Exception: the `test` env's `web` network is *env*-tier, not project-tier — a non-external, per-slot bridge the `test` stack owns, because `test` is never routed or TLS'd. This is what lets `docex test` run with no projinfra up. See [networks.md](./specifics/networks.md).)
+	+ Examples: the project-level reverse proxy (whether ALB or Traefik), the `fixed`-foundation `web`-networks.
 3. Environment Infrastructure - These resources are configured and controlled within the scope of a single environment.
 	+ Examples: `elastic` SGs, the `postgres` container for each environment, core service containers.
 
@@ -80,9 +80,13 @@ True to 12-factor app principles, all environments should be as similar to each 
 
 `dev` and `test` are always fixed. This ensures that those environments can run on any developer's machine without cloud credentials, while still allowing production to be elastic.
 
-### The slot axis
+### Environment Slots
 
-Environments are singletons by default, but a **fixed env may be instantiated into multiple isolated *slots* on one machine.** A slot is not a new environment: the env *string* stays singular (`test`), and each slot's stack differs only by a slot *segment* woven into every physical resource name — `{project}_{env}_s{k}_{codebase}_{service}` (e.g. `s2` for slot 2), analogous to a replica but at the environment level. Slot 1 is the default and adds no segment, so a single-slot project is byte-identical to a slotless one. The slot is a **general primitive**: its first and, for now, only user is `test`, which shards its slow integration tier across N isolated stacks on one host; its intended next user is **parallel development** — two agents working different modifications on one machine (see [§ Deferred](#deferred)). Two boundaries hold the primitive cheap: a slot shares its env's configurable values (config and secrets are looked up per env, not per slot — see [configurable.md](./configurable.md)), and the slot lifecycle and ingress models are *not* generalized here (§ Deferred).
+Environments can be duplicated into multiple identical "slots". A slot is merely an independent infrastructure stack with the same resources as all other slots of that environment type. Purpose, configurable environmental variables, and structure are all shared by same-type slots.
+
+Currently, only the `test` env has the capability of multiple slots (for use in parallel testing). All other envs (`dev`, `stage`, and `prod`) are still singletons.
+
+"Slots" are distinct from "replicas" - replicas replicate a specific core service container while slots replicate an entire env's stack of containers.
 
 ## Networking
 
@@ -310,4 +314,3 @@ Some things must be deferred for now:
 3. Fundamental stage tests. This edition of the doctrine places writing and maintenance of the stage tests entirely in the hand of the developer. A future version could probably define some standard things (e.g. DNS and TLS checks) which run alongside project-defined stage tests.
 4. Real defense-in-depth with networks, permissions, and validation cross-service.
 5. GPU workloads on `elastic` foundations. The doctrine commits to Fargate for elastic compute, and Fargate does not run GPU workloads; `resources.gpu` is therefore `fixed`-only and rejected on elastic compiles.
-6. Parallel development on the slot axis. The [slot axis](#the-slot-axis) is the runtime-name isolation needed for two agents to work different modifications on one machine, and it is delivered now for `test`-sharding. Full parallel development additionally needs code isolation (git worktrees) and, for *browsable* dev stacks, ingress multiplicity (per-slot routing / DNS / cert) — the latter genuinely hard because `dev`, unlike `test`, is publicly routed and TLS'd. Two properties are **explicitly not generalized** with the slot primitive: the slot *lifecycle* (test slots are fungible and reaped when idle; a dev slot is owned by a branch and must survive when idle — antithetical policy on the same name/lock primitive), and ingress multiplicity (untouched). Headless parallel dev (code + tests, no browsing) nearly falls out of the slot axis directly; browsable parallel dev needs the ingress work.

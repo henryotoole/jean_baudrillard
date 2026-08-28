@@ -89,19 +89,21 @@ While the `doctrine` describes these files, it is the project developer's respon
 
 The developer must also ensure that the Dockerfile produces an environment with the necessary libraries and tooling to run those tests. Bind-mounting `$pr/infra/stage` directory is handled by `./bin/docex stagetest`.
 
-### Injected environment
+## Test Parallelizing and Subsets
 
-`./bin/docex stagetest` injects a small set of doctrine-defined env vars into the stage tester container so the project's tests can stay free of values that have to be hand-synced on every release:
+The full test suite (and flow tests especially) can take considerable wall-clock time to run. Fortunately, the `test` env supports multiple slots enabling test-running in parallel. The `docex test` command can be run with `--slots N`, causing multiple `test` env slots to be spun up (see [docex.md](./docex.md#test) for command details). When tests are run with multiple slots, the `DOCEX_TEST_SLOT` and `DOCEX_TEST_SLOTS` variables (see [below](#codebase-test-env-vars)) are injected.
 
-| Variable | Source | Purpose |
-| -------- | ------ | ------- |
-| `STAGING_URL` | derived from `infra.yml`'s `apex_domain` field and [domain rules](./cicl.md#domain) | The public URL of the deployed staging environment. Tests issue HTTPS calls against this. |
-| `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. A test asserting that a `web` service's `/health` returns the expected version reads this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. This is the project's own assertion through the public edge; `docex` has already checked the deployed version against the orchestrator. |
+`docex` only handles infrastructure and communication however. It is the responsibility of the project developer to actually use these variables when writing the shim `test.sh` to ensure that a reasonable subset of the full test suite is run e.g. the shim for slot 1 of 3 total should only run about a third of the tests.
 
-The contract is one-way and stable: docex injects these on every `stagetest` run; the project's tests are free to read or ignore them. Adding new doctrine-injected variables is a doctrine change, not a project change.
+Similarly, the `docex test` command's `[subset]` optional parameter is delivered but not enforced by `docex` machinery. The shim decides how to forward `DOCEX_TEST_SELECTOR` in a way idiomatic to its runner (a `pytest` might shim splice it as an args fragment — a path and/or `-m`/`-k` expression); the contract fixes only the variable and its meaning, never the runner.
 
-The **codebase `test.sh`** receives injected variables on the same one-way,
-stable footing:
+`DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` coexist with `DOCEX_TEST_SELECTOR`. A shim may be both subset-narrowed and sharded at once. `docex` recommends but does not mandate a sharding pattern: it fixes only the two variables and their meaning. 
+
+## Test Env Vars
+
+`docex` injects a small set of doctrine-defined env vars into the test containers so the project's tests can stay free of values that have to be hand-synced on every release. The specifics vary for codebase and staging tests. The project is free to read or ignore them.
+
+### Codebase Test Env Vars
 
 | Variable | Source | Purpose |
 | -------- | ------ | ------- |
@@ -109,17 +111,9 @@ stable footing:
 | `DOCEX_TEST_SLOT` | the current shard index under `docex test --slots N` | The **1-based** index (`1..N`) of this shard. Injected only when sharding (`N ≥ 2`). **Unset ⇒ not sharding ⇒ run the whole suite.** |
 | `DOCEX_TEST_SLOTS` | the shard count `N` from `docex test --slots N` | The total number of shards. Together with `DOCEX_TEST_SLOT` it tells the shim to run only its `1/N` share of the suite. |
 
-The shim decides how to forward `DOCEX_TEST_SELECTOR` in a way idiomatic to its
-runner (a `pytest` shim splices it as an args fragment — a path and/or `-m`/`-k`
-expression); the contract fixes only the variable and its meaning, never the runner.
+### Staging Test Env Vars
 
-`DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` compose cleanly with `DOCEX_TEST_SELECTOR` —
-a shim may be both subset-narrowed and sharded at once. docex **recommends but does
-not mandate** a sharding pattern: it fixes only the two variables and their meaning,
-and a project shards however is idiomatic to its runner (the reference shims ship a
-deterministic modulo split over collected node-ids, so the union of the `N` shards
-is exactly the whole suite).
-
-Like the stage injections, this whole contract is one-way and stable — adding to it
-(as parallel test sharding did, with `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`) is a
-doctrine change, not a project change.
+| Variable | Source | Purpose |
+| -------- | ------ | ------- |
+| `STAGING_URL` | derived from `infra.yml`'s `apex_domain` field and [domain rules](./cicl.md#domain) | The public URL of the deployed staging environment. Tests issue HTTPS calls against this. |
+| `PROJECT_VERSION` | `project.yml` `version:` field | The version of the build under test. A test asserting that a `web` service's `/health` returns the expected version reads this rather than maintaining a hardcoded `EXPECTED_VERSION` that drifts on every release. This is the project's own assertion through the public edge; `docex` has already checked the deployed version against the orchestrator. |

@@ -29,22 +29,23 @@ The shim is **version-independent** — one shim serves every `docex` version, a
 ## Usage
 Docex is run from the terminal e.g. `./bin/docex <command>`. Commands will perform a variety of tasks spanning the entire `doctrine`. Docex does so by providing a "command" for each task; `./bin/docex build` builds all codebases, `./bin/docex check` performs CI gate checks. Some commands will call others as part of their execution (e.g. `build` is called as part of `check`).
 
-## Command Lifecycle
+All commands by default run synchronously and block until they complete and return an exit code. Additionally, certain long-running commands can be run with the `--detach` flag, which keeps the command running as a durable job in an independent, temporary container.
 
-Most `docex` commands are **synchronous**: they run, block, and exit with a status code. A few long-running commands are instead **durable jobs** — the work outlives the invoking call.
+### Synchronous Usage
 
-`docex test` is the first. It still **blocks and exits with the run's code by default** (the exit-code contract CI relies on is preserved), but the suite runs in a **detached, deterministically-named "vessel" container** that docex launches over the docker socket. Because the work lives in the vessel and not in the foreground call, a foreground monitor that is **killed does not kill the run** — the run stays alive and re-attachable.
+Simply run the command plain e.g. `./bin/docex <command>`. An exit code is returned when the command's task is complete.
 
-Every durable job writes an **on-disk run record** under `.docex/runs/<id>/` (`meta.json`, `status.json`, an atomically-written `exit` file, and a `log`). The `exit` file is the **authoritative terminal signal**: it survives vessel teardown and a killed monitor, and is what `docex job result` and `docex job wait` read. This reuses the exit-file half of the liveness pattern that [`healthchecks.md § What the probe must actually check`](./healthchecks.md#what-the-probe-must-actually-check) and [`internal_dependency_rules.md § Entrypoints`](../hexagonal_architecture/internal_dependency_rules.md#entrypoints) (rule 6) fix for long-running loops; the tick/staleness half is deliberately **not** used here, because a finite suite differs from a perpetual loop.
+Note that the detachable commands *behave* synchronously when run without `--detach`, but still leverage a detached container to run in. Killing a detachable command (e.g. with CTRL+C) does not kill the container.
 
-Two additions make the durability usable:
+### Asynchronous Usage
 
-- **`--detach`** on a durable command launches the vessel and returns the run **handle** immediately instead of blocking.
-- **`docex job <verb> <handle>`** operates on a handle after the fact — `ls` / `status` / `wait` / `logs` / `result`. `job ls` is the durable, non-fragile way to **rediscover** an in-flight run: a killed or freshly-spawned agent recovers the handle here rather than via a `docker ps` / `pgrep` proxy.
+Run a valid command in detached mode by passing the `--detach` flag e.g. `./bin/docex test --detach`. The command will return a handle that can be used to query the job's status once it starts.
 
-Concurrency is bounded by the vessel's **deterministic name, which is the lock**: a second run against the same scope loses the `docker run --name` create race and **refuses** rather than contending over the shared stack. Each durable command has its **own per-command lock scope** — `test`, `check`, and `merge` runners are independent, so two `test`s (or two `check`s, or two `merge`s) refuse each other while a `check` alongside a `merge` is allowed. `docex test --slots N` does **not** change this: the `N` slot stacks are internal parallelism inside one `test` vessel, not `N` lock scopes, so a slots-`N` run and a plain `docex test` still refuse each other. The three commands that *can* co-occur (distinct locks) are kept name-disjoint by a **reserved slot band**: `test` uses slots `1..MAX_TEST_SLOTS`, while `check` and `merge` each run their defensive `test` stack at a reserved slot just above the band (`CHECK_SLOT` / `MERGE_SLOT`) — so a `check`, a `merge`, and a `docex test` all running at once never collide on an explicit `container_name:` or the DB volume `name:` (the closure of the `--project-name` collision; see [§ `check`](#check)). A vessel that was hard-killed leaves an orphaned record and a leaked resource; the next run's **preflight reaper** clears both (writing an authoritative `exit`, then reclaiming what that run owned) and proceeds. The `./bin/docex` shim is **unchanged** — the vessel is launched by docex itself over the socket, so no shim update is required.
+Wait for the job to complete by running `./bin/docex job wait <handle>` in the background. <CHECK> Did I write this correctly? </CHECK>. Check the output of a job with `./bin/docex job logs <handle>`.
 
-`test`, `check`, and `merge` are all durable jobs. **One vessel kind serves every durable job — a detached sibling container.** There is no second vessel kind (a "host process" cannot be durable under docex's Docker-outside-of-Docker model: the foreground `docex` runs inside the `--rm` container the shim launched, so a child process spawned there dies with it when the call is killed, and an in-container docex can spawn only a *container* over the socket, never a bare host process). What varies by job **kind** is instead two things: the **body** the vessel runs (the suite for `test`; the gate/build/test sequence for `check`; the rebase/tag/push for `merge`), and the **resource the reaper reclaims** on orphan — a `test` run's throwaway compose stack (under `--slots N`, the **fleet** teardown: all `N` deterministic slot stacks the run leaked, `N` read from the run record), or a `check`/`merge` run's ephemeral [worktree](#check) and the throwaway build/test stack its defensive run brought up. The reaper never unwinds `merge`'s real git mutations (an interrupted rebase, a partial fast-forward/tag); those are left for the operator, as `merge` already specifies. One `test`-specific property follows from sharding: a slot whose shard **fails** is deliberately **left up** for debugging (the passing slots are torn down), and is reclaimed by the next run that touches that slot number — either its per-slot pre-up teardown or the fleet reaper — so a failed **higher-numbered** slot can persist across a subsequent **smaller-`N`** run until an `N ≥ k` run touches slot `k`, or the operator tears it down by hand.
+If you lose the handle, you can rediscover it with `./bin/docex job ls`.
+
+Under the hood, detaching is achieved by spinning up a deterministically named container (the "vessel") that actually runs the process. `docex` keeps track of these jobs via an on-disk record stored in `$pr/.docex/runs/<id>`. The full mechanics — vessels, run records, the deterministic-name lock, and the preflight reaper — are discussed in [detachable.md](./specifics/detachable.md).
 
 ## Provided Tools
 
@@ -61,11 +62,11 @@ Concurrency is bounded by the vessel's **deterministic name, which is the lock**
 | `secrets <op> <env> [...]` | Manage an environment's secrets file without exposing secret values to the caller. |
 | `config <op> <env> [...]` | Manage an environment's non-secret config file. |
 | `build <codebase>` | Run `build.sh` for one or all codebases. |
-| `test` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#command-lifecycle); `--detach` returns a handle. `test [subset]` narrows the run; `--slots N` shards it. |
+| `test [subset]` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#asynchronous-usage); `--detach` returns a handle. `test [subset]` narrows the run; `--slots N` shards it. |
 | `job <op> [<handle>]` | Operate on durable run handles: `ls`, `status`, `wait`, `logs`, `result`. |
 | `migrate <env>` | Apply database migrations for each schema-owning codebase in `<env>`. |
-| `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. A [durable job](#command-lifecycle); `--detach` returns a handle instead of blocking. |
-| `merge` | Rebase the feature branch onto main, tag the release commit, and push. A [durable job](#command-lifecycle); `--detach` returns a handle instead of blocking. |
+| `check` | Run the full CI/CD gate-check sequence in an ephemeral worktree. A [durable job](#asynchronous-usage); `--detach` returns a handle instead of blocking. |
+| `merge` | Rebase the feature branch onto main, tag the release commit, and push. A [durable job](#asynchronous-usage); `--detach` returns a handle instead of blocking. |
 | `containerize` | Build and push codebase prod images to the container registry. |
 | `release <env>` | Deploy the containerized build to `<env>` (`stage` or `prod`). |
 | `stagetest` | Run staging tests against the deployed staging environment. |
@@ -173,32 +174,15 @@ Runs each codebase's `build.sh` in a one-off container of that codebase's [exec 
 **This command is for dev iteration only.** The canonical, ship-worthy build happens inside `docker build` during `./bin/docex containerize` (and during `./bin/docex envinfra up` and `./bin/docex test`, where Docker rebuilds images as needed and `build.sh` runs in the image's `build` stage). Direct invocation of `./bin/docex build` is useful when iterating on source without paying for a container rebuild; because the exec service is profile-gated, it does not require the dev stack to be up. See [cicd.md § Build Step](./cicd.md#build-step) for the full two-path model.
 
 ### `test`
-`./bin/docex test`
-`./bin/docex test [subset]`
-`./bin/docex test --detach`
-`./bin/docex test --slots N`
+`./bin/docex test [subset] [--detach] [--slots N]`
 Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `test` environment, migrates, runs each codebase's `test.sh` inside its test-stage container, then tears the environment down. Covers unit, integration, and contract tests across the project. Docker rebuilds images as needed; `build.sh` runs inside each image's `build` stage so the test-stage container contains the same artifact a prod image would. Exits 0 if every codebase's tests pass; non-zero on the first failure.
 
-`test` is a **durable job** (see [Command Lifecycle](#command-lifecycle)): the suite runs in a detached, deterministically-named vessel container, so the blocking default preserves the exit-code contract while a killed foreground monitor leaves the run **alive and re-attachable** via `docex job wait`. `--detach` returns the run handle immediately instead of blocking. The vessel's deterministic name is a per-`(project, test)` lock — a second concurrent run **refuses** rather than contending — and a hard-killed run is **reaped** by the next invocation's preflight.
+`test` is a **durable job** (see [Asynchronous Usage](#asynchronous-usage)) and can be `--detach`ed.
 
-An optional `[subset]` narrows the run to a subset of the suite; docex forwards it
-to the codebase's `test.sh` as `DOCEX_TEST_SELECTOR` (see
-[tests.md § Injected environment](./tests.md#injected-environment)). Omitting the
-subset runs the whole suite.
+The `[subset]` optional arg indicates that the test run should be narrowed to a subset of the suite. However, `docex` merely forwards this to the project codebase's `test.sh` as `DOCEX_TEST_SELECTOR` (see
+[tests.md](./tests.md#injected-environment)); it does not enforce usage. It is up to the project to actually wire this subset into the project test infrastructure.
 
-`docex test --slots N` **shards** the whole suite across `N` fully-isolated `test`
-stacks on one host: every physical resource name carries a slot segment (`_s{k}`)
-and the web network is a per-slot bridge, so the `N` stacks coexist with no
-collision. Each slot's `test.sh` receives `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`
-(see [tests.md § Injected environment](./tests.md#injected-environment)) and runs
-its `1/N` share. `--slots 1` (or omitting it) is **byte-identical** to the plain
-`docex test` above. `N` is capped at `MAX_TEST_SLOTS`; `docex test --slots N` with
-`N > MAX_TEST_SLOTS` is a **usage error** — the `test` band is slots
-`1..MAX_TEST_SLOTS`, and `check` / `merge` reserve the slots just above it for
-their defensive stacks (see [§ `check`](#check)).
-The slot is a general compiler primitive (any fixed env can be instantiated into multiple isolated
-slots — see [infrastructure.md § Environments](./infrastructure.md#environments)),
-but the CLI exposes it **only for `test`**.
+`docex test --slots N` **shards** the whole suite across `N` fully-isolated `test` stacks on one host: every physical resource name carries a slot segment (`_s{k}`). Each slot's `test.sh` receives `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` (see [tests.md](./tests.md#injected-environment)) and runs its `1/N` share. `--slots 1` (or omitting it) is identical to the plain `docex test` above. There is a hard limit of 8 slots max.
 
 ### `job`
 `./bin/docex job ls`
@@ -207,7 +191,7 @@ but the CLI exposes it **only for `test`**.
 `./bin/docex job logs <handle> [-f]`
 `./bin/docex job result <handle>`
 
-Operates on the durable run handles produced by a durable command (see [Command Lifecycle](#command-lifecycle)). A handle is a run id — a unique prefix, or the literal `latest`, resolves too.
+Operates on the durable run handles produced by a durable command (see [Asynchronous Usage](#asynchronous-usage)). A handle is a run id — a unique prefix, or the literal `latest`, resolves too.
 - **`ls`** enumerates every run under `.docex/runs/` — id, kind, scope, state, start time, exit code — reconciling each record against its vessel's liveness. The durable, non-fragile way to rediscover a run whose monitor was lost.
 - **`status`** prints one run's recorded status reconciled with vessel liveness.
 - **`wait`** blocks until the run's authoritative `exit` file appears (optionally bounded by `--timeout`) and exits with its code — the re-attach path for a killed monitor.
@@ -215,14 +199,20 @@ Operates on the durable run handles produced by a durable command (see [Command 
 - **`result`** prints and exits with the run's authoritative exit code (a distinct non-zero if the run has not finished).
 
 ### `check`
-`./bin/docex check`
-`./bin/docex check --detach`
-Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate. A [durable job](#command-lifecycle) (the suite is long): the blocking default preserves the exit-code contract while a killed foreground monitor leaves the run **alive and re-attachable** via `docex job wait`; `--detach` returns the run handle immediately. A hard-killed `check` vessel's ephemeral worktree and throwaway stack are reclaimed by the next run's preflight reaper. On a fully-green run, `check` records what it validated to `.docex/checks/` (the feature tip, the `origin/main` commit, the merged tree SHA, a timestamp, and the docex version); `merge` trusts that record to skip a redundant defensive recheck. The record is written only on success and is machine-local (gitignored). `check`'s defensive build + test compile and run the worktree's `test` env at a **reserved slot (`CHECK_SLOT`) above the `docex test --slots N` band**, so the throwaway stack's compiled physical names — especially the DB volume `name:` — are name-disjoint from any `docex test` run. **This closes the `--project-name` DB-volume collision:** Compose's `--project-name` does **not** namespace an explicit `container_name:` or a top-level volume `name:`, so two stacks compiling `test` at the same slot would collide on the DB volume; the slot segment (`_s{k}`) does namespace them, so a `check` running beside a `docex test` no longer shares a database volume. See [cicd.md](./cicd.md#check-step).
+`./bin/docex check [--detach]`
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate.
+
+A [durable job](#asynchronous-usage) (the suite is long): `--detach` returns the run handle immediately, and a killed monitor leaves the run **alive and re-attachable** via `docex job wait`. On a fully-green run, `check` records what it validated to `.docex/checks/` (the feature tip, the `origin/main` commit, the merged tree SHA, a timestamp, and the docex version); `merge` uses this record to skip a redundant defensive recheck. The record is written only on success and is gitignored. The vessel-reaper behavior and the reserved defensive slot (`CHECK_SLOT`, which closes the `--project-name` DB-volume collision) are covered in [detachable.md § `check`](./specifics/detachable.md#check).
+
+Also see [cicd.md](./cicd.md#check-step).
 
 ### `merge`
-`./bin/docex merge`
-`./bin/docex merge --detach`
-Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. Re-runs gate checks defensively before merging to catch race conditions where main moved between `./bin/docex check` and `./bin/docex merge`. Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. Before any of this, it preflights the remote with `git ls-remote origin` and exits non-zero in seconds if `origin` is unreachable or auth fails — without building an image or running a test (skipped when the repo has no `origin`). `merge` **trusts a recent green forward**: it skips its defensive recheck when `origin/main` and the feature tip are at the commits `check` last recorded in `.docex/checks/`, the working tree is clean, and the docex version matches — reusing the `git ls-remote` preflight to learn the trunk tip rather than fetching again. **Any** staleness (trunk or feature moved, dirty tree, a missing or unreadable record, a version mismatch) forces the full recheck; the record is a performance cache, never a correctness gate, so the safe default is always to run. A [durable job](#command-lifecycle), same as `check`: `--detach` returns a handle, and a killed monitor leaves the run re-attachable via `docex job wait`. **One caveat is specific to `merge`:** brokered git-credential passthrough (`DOCEX_GIT_CREDENTIAL_PASSTHROUGH`, see [credentials.md § Git Host Credentials](./credentials.md#git-host-credentials)) does **not** survive `--detach` or a killed monitor — the shim's host-side credential responder is scoped to the foreground call, so a detached vessel's later `push` cannot re-broker. `merge --detach` therefore **refuses up front** when passthrough is active; run `merge` attached (blocking), or use a static credential (SSH key / `gitconfig` / file-based token), which is cloned into the vessel and does survive. `merge`'s defensive check is an **in-process** call — it does **not** take the `check`-runner lock — so it can co-occur with a standalone `docex check`; it therefore runs at a **reserved `MERGE_SLOT`, distinct from `check`'s `CHECK_SLOT`**, keeping the two defensive stacks name-disjoint too. See [cicd.md](./cicd.md#merge).
+`./bin/docex merge [--detach]`
+Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. If git conditions have changed since the last green `check`, will re-run gate checks defensively before merging. Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. 
+
+A [durable job](#asynchronous-usage), same as `check`: `--detach` returns a handle, and a killed monitor leaves the run re-attachable via `docex job wait`. Two detachment specifics are particular to `merge` — a git-credential-passthrough caveat that makes `merge --detach` refuse up front, and the reserved `MERGE_SLOT` its in-process defensive check runs at — both covered in [detachable.md § `merge`](./specifics/detachable.md#merge).
+
+Also see [cicd.md](./cicd.md#merge).
 
 ### `containerize`
 `./bin/docex containerize`

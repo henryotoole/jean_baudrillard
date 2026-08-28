@@ -215,7 +215,9 @@ Consistent naming and tagging conventions are employed wherever possible to ensu
 
 For `fixed`-foundation infrastructure resources, there are no tags. Naming standards are:
 1. Docker networks: `${project_name}-${env_name}-${network_definition_name}`
-2. Docker containers: `${project}-${env}-${codebase}-${service}`
+2. Docker core service containers: `${project}-${env}[-s{slot_index}]-${codebase}-${service}[-{replica_index}]`
+  + Optional term `slot_index` only present for containers belonging to slots of index 2 or greater. This is currently only possible for the `test` env.
+  + Optional term `replica_index` only present for `prod`-env containers with replicas > 1.
 
 #### Elastic Foundation
 
