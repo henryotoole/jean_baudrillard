@@ -41,7 +41,7 @@ Note that the detachable commands *behave* synchronously when run without `--det
 
 Run a valid command in detached mode by passing the `--detach` flag e.g. `./bin/docex test --detach`. The command will return a handle that can be used to query the job's status once it starts.
 
-Wait for the job to complete by running `./bin/docex job wait <handle>` in the background. <CHECK> Did I write this correctly? </CHECK>. Check the output of a job with `./bin/docex job logs <handle>`.
+Wait for the job to complete by running `./bin/docex job wait <handle>`, which blocks until the job finishes and exits with the job's own exit code. Check the output of a job with `./bin/docex job logs <handle>`.
 
 If you lose the handle, you can rediscover it with `./bin/docex job ls`.
 
@@ -180,9 +180,9 @@ Performs the CI/CD [build test step](./cicd.md#build-test-step). Brings up the `
 `test` is a **durable job** (see [Asynchronous Usage](#asynchronous-usage)) and can be `--detach`ed.
 
 The `[subset]` optional arg indicates that the test run should be narrowed to a subset of the suite. However, `docex` merely forwards this to the project codebase's `test.sh` as `DOCEX_TEST_SELECTOR` (see
-[tests.md](./tests.md#injected-environment)); it does not enforce usage. It is up to the project to actually wire this subset into the project test infrastructure.
+[tests.md](./tests.md#codebase-test-env-vars)); it does not enforce usage. It is up to the project to actually wire this subset into the project test infrastructure.
 
-`docex test --slots N` **shards** the whole suite across `N` fully-isolated `test` stacks on one host: every physical resource name carries a slot segment (`_s{k}`). Each slot's `test.sh` receives `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` (see [tests.md](./tests.md#injected-environment)) and runs its `1/N` share. `--slots 1` (or omitting it) is identical to the plain `docex test` above. There is a hard limit of 8 slots max.
+`docex test --slots N` **shards** the whole suite across `N` fully-isolated `test` stacks on one host: every physical resource name carries a slot segment (`_s{k}`). Each slot's `test.sh` receives `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` (see [tests.md](./tests.md#codebase-test-env-vars)) and runs its `1/N` share. `--slots 1` (or omitting it) is identical to the plain `docex test` above. There is a hard limit of 8 slots max.
 
 ### `job`
 `./bin/docex job ls`

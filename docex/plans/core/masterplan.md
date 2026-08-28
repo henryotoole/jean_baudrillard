@@ -171,7 +171,7 @@ A few commands compose others rather than duplicate logic:
 
 Most commands are synchronous. A long-running command can instead be a **durable
 job** — the run outlives the invoking call — implemented by `src/docex/jobs/`. The
-doctrine rule of record is [`docex.md § Command Lifecycle`](../../../doctrine/infrastructure/docex.md#command-lifecycle);
+doctrine rule of record is [`docex.md § Asynchronous Usage`](../../../doctrine/infrastructure/docex.md#asynchronous-usage);
 this is how `docex` realizes it. `docex test`, `docex check`, and `docex merge`
 are all durable jobs (`test` since mod 148; `check`/`merge` since mod 149).
 Every `docex test` run — plain, `[subset]`, or `--slots N` — takes the vessel,

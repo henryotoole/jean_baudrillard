@@ -23,5 +23,5 @@ You'll ask your C.O. to review the design `overview.md` file, and you can includ
 
 # Test Discipline
 
-Iterate with scoped runs (`docex test [subset]`) to keep the loop fast, but **close the mod's test step on a full run** — a full run of the suite, all green. Scope is your judgment as the diff's author; there is no computed "affected" selector. This is the mod-cycle test rule from [modifications.md](../../doctrine/practices/modifications.md).
+Iterate with scoped runs (`docex test [subset]`) to keep the loop fast but close the mod's test step with a full suite run.
 

@@ -17,6 +17,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-28
+
 Advance 009 ("Test Overhaul") — a **2.2.0 minor**. Every deliverable is additive
 (durable re-attachable jobs, scoped test runs, whole-suite slot sharding, a faster
 `merge`, a projinfra-free `test` env); the single per-codebase `test.sh` shim and
@@ -111,7 +113,7 @@ recompile with no per-codebase migration.
   primitive is invoked as `compile(env, slot=k)` / `compile_slot`; **no CLI flag yet**
   (Mod 154), and slot>1 output lands under the machine-local `.docex/slots/<env>/<k>/`,
   never in `infra/output/`. Doctrine amended (the four-env symmetry now admits a slot
-  axis): [`infrastructure.md § The slot axis` + `§ Deferred`](./doctrine/infrastructure/infrastructure.md),
+  axis): [`infrastructure.md § Environment Slots` + `§ Deferred`](./doctrine/infrastructure/infrastructure.md),
   [`lexicon.md`](./doctrine/lexicon.md),
   [`configurable.md`](./doctrine/infrastructure/configurable.md),
   [`shape.md`](./doctrine/infrastructure/shape.md).
@@ -137,7 +139,7 @@ recompile with no per-codebase migration.
   slot-aware. The slot primitive stays **env-agnostic in the compiler but CLI-exposed
   only for `test`** (SC3). The fixture `test.sh` shims ship a **reference**
   (recommend-not-mandate) modulo shard split. Doctrine amended:
-  [`tests.md § Injected environment`](./doctrine/infrastructure/tests.md) (the
+  [`tests.md § Codebase Test Env Vars`](./doctrine/infrastructure/tests.md) (the
   `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS` contract) and
   [`docex.md`](./doctrine/infrastructure/docex.md) (the `test --slots N` surface + the
   Command-Lifecycle fleet note). `check`/`merge` slot-adoption — the full

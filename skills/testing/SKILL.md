@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Doctrine for a project's test taxonomy and harness — which tier a test belongs to (codebase-level unit / integration / contract, where integration spans module- and codebase-level "flow" tests and folds in contract, vs. project-level staging), where each runs (the test env vs. against a deployed stage), and the test.sh / stage_test.sh shims. Use this when deciding what kinds of tests a codebase needs, whether to write a flow test vs. a contract test, where a test should run, or wiring the test/stage shims, and how `docex test` runs the suite (a durable job; an optional `[subset]` via the injected `DOCEX_TEST_SELECTOR`, and `--slots N` whole-suite sharding), plus the full-vs-scoped test-selection policy (a mod cycle iterates scoped and closes full; an advance closes full; CI/CD is always full). Not for how to write a specific test of a class or function — that is the Resident hexagonal-architecture doctrine.
+description: Doctrine for a project's test taxonomy and harness — which tier a test belongs to (codebase-level unit / integration / contract, where integration spans module- and codebase-level "flow" tests and folds in contract, vs. project-level staging), where each runs (the test env vs. against a deployed stage), and the test.sh / stage_test.sh shims. Use this when deciding what kinds of tests a codebase needs, whether to write a flow test vs. a contract test, where a test should run, wiring the test/stage shims, and how `docex test` runs the suite (durable job, [subset]s, and slot-sharding). Not for how to write a specific test of a class or function — that is the Resident hexagonal-architecture doctrine.
 metadata:
   type: thread
 ---
@@ -24,18 +24,4 @@ The test tiers and how they are invoked. **Read this now.**
 - **Staging tests do not assert liveness.** `docex` reads every core service's health and version from the orchestrator before the stage tester is built, so staging tests cover only what requires being outside — TLS, DNS, routing, and critical-path smoke tests. They cannot reach a non-`web` core service at all.
 - Tests are executed by the pipeline — build tests in the check/test step, staging tests in stagetest — see `cicd-pipeline`.
 - **`docex test` is a durable job.** The suite runs in a detached vessel container, so a killed monitor leaves the run alive and re-attachable (`docex test --detach` + `docex job wait`); the blocking default still exits with the run's code. The async command surface lives in [`docex.md § Asynchronous Usage`](../../doctrine/infrastructure/docex.md#asynchronous-usage) / the `cicd-pipeline` skill, not here.
-- **Subset + slots (both optional, ignore-and-still-correct).** `docex test [subset]`
-  narrows the run and reaches the project's `test.sh` as the injected
-  `DOCEX_TEST_SELECTOR`; `docex test --slots N` shards the **whole suite** across N
-  isolated stacks, injecting `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`. The
-  injected-variable contract is in [`tests.md § Injected environment`](../../doctrine/infrastructure/tests.md#injected-environment).
-- **Test-selection policy (scope is a sanctioned choice).** A mod cycle may
-  iterate with scoped runs but **closes on a full run**; an **advance closes on a
-  full run** across the project; **CI/CD (`check` / `merge`) is always full**.
-  Scope is agent judgment via the subset mechanism above — and `docex test
-  --slots N` sharding is what makes closing on the full suite affordable. **No
-  computed "affected" selector exists**, by design: cross-module driving-port
-  imports, `shared/` blast radius, and domain changes with no test mirror make a
-  computed set give false confidence. The process side lives in
-  [`modifications.md`](../../doctrine/practices/modifications.md) (mod cycle) and
-  [`advance.md`](../../doctrine/practices/advance.md) (advance).
+- **Subset + slots (both optional, ignore-and-still-correct).** `docex test [subset]`  narrows the run and reaches the project's `test.sh` as the injected  `DOCEX_TEST_SELECTOR`; `docex test --slots N` shards the **whole suite** across N  isolated stacks, injecting `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS`. The  injected-variable contract is in [`tests.md § Codebase Test Env Vars`](../../doctrine/infrastructure/tests.md#codebase-test-env-vars).

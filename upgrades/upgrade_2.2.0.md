@@ -91,7 +91,7 @@ Both reach the codebase's `test.sh` as **one-way, stable, injected env vars**
 
 The seeds' `test.sh` carries a copy-pasteable reference implementation of both
 (`--collect-only` + a modulo shard split): `../docex/test_projects/{fixed,elastic}/core/api/test.sh`.
-See [`tests.md § Injected environment`](../doctrine/infrastructure/tests.md#injected-environment).
+See [`tests.md § Codebase Test Env Vars`](../doctrine/infrastructure/tests.md#codebase-test-env-vars).
 
 ## Doctrine / behavior notes
 

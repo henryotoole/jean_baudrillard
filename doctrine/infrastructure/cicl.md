@@ -405,7 +405,7 @@ The `uses` field serves four purposes:
 4. On elastic, it names the endpoints each consumer must be able to resolve.
 
 While `uses` relationships do allow the infrastructure graph to be constructed, they are *not* used by `docex` to implement start ordering between core and backing services. Doctrine-compliant **core services must tolerate the momentary absence of dependencies**. Network outages, deployments, startup sequences, and other factors can all lead to temporary downtime of any service. Graceful handling of these sometimes unavoidable absences is necessary. Use:
-+ Sensible timeouts to produce clean errors when a service is down unreachable.
++ Sensible timeouts to produce clean errors when a service is down or unreachable.
 + Retries with exponential backoff and jitter to reduce hammering when the absent service returns.
 
 The `uses` relationship does allow for cycles. Service A can use Service B while Service B uses Service A.

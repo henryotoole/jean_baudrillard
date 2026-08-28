@@ -393,7 +393,21 @@ def main() -> None:
                          "grader, so this also caps concurrent claude -p load; keep it modest to "
                          "avoid API rate limits / contention that could time a run out.")
     ap.add_argument("--out", help="write full results JSON here")
+    ap.add_argument("--manual", action="store_true",
+                    help="REQUIRED to run. This outcome eval is EXCLUDED BY DEFAULT from the "
+                         "gated pre-cut outcome pass because it is very token-expensive — it "
+                         "assembles scratch projects and runs a headless `claude -p` cohere "
+                         "PLUS a `claude -p` grade per (case x config x run). It is run "
+                         "deliberately, by hand, only when project-cohere itself is under "
+                         "test. Pass --manual to acknowledge the cost and run it.")
     args = ap.parse_args()
+    if not args.manual:
+        sys.exit(
+            "project-cohere's outcome eval is excluded from the default/gated outcome pass "
+            "because it is very token-expensive (a full 2x run spans many headless claude -p "
+            "cohere + grade calls). It is run manually only, when project-cohere is the skill "
+            "under test. Re-run with --manual to acknowledge the cost and proceed."
+        )
     if args.num_workers < 1:
         sys.exit("error: --num-workers must be >= 1")
 

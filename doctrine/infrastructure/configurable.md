@@ -9,7 +9,7 @@ Secrets are distinct from config because their values must be protected. Secrets
 
 ## Environment and Foundation
 
-The actual storage locations and handling differs depending on both environment and foundation. There are three different distinct circumstances when it comes to configurable values:
+The actual storage locations and handling differs depending on both environment and foundation. There are three distinct circumstances when it comes to configurable values:
 
 | Circumstance | Infrastructure Side | Foundation | Envs |
 | ------------ | ------------------- | ---------- | ---- |

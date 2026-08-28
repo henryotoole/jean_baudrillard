@@ -32,7 +32,7 @@ The existing backend needs a frontend which drives core operations. This fronten
 2. Dashboard page shows overview of customers and open orders.
 3. Unified color / styling scheme matching company standards (see references).
 
-## Goal 2: Add Status Email To backend
+## Goal 2: Add Status Email To Backend
 
 The backend should be able to send emails when certain trigger events occur. The trigger events themselves will be part of a future update.
 

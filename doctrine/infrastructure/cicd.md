@@ -53,7 +53,6 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	3. `project.yml` version was bumped.
 	4. `project.yml` version has not yet been released.
 	5. No merge conflicts
-	6. Valid git credentials exist to interact with origin. <CHECK> is this true, and worded correctly? </CHECK>
 3. Perform codebase checks:
 	1. All codebases contain `build.sh`, `test.sh`, `health.sh`, and `migrate.sh` if it is required.
 		+ Unlike the other codebase shims, `health.sh` is invoked **per core service**, as `./health.sh <service>`. Still one file per codebase — but a web edge and a queue consumer built from the same image have different probes, so the compiler supplies the argv.
