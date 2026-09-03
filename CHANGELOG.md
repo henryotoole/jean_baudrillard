@@ -49,6 +49,10 @@ first post-`0.4.0` overhaul.
   check` also runs as a **blocking gate of `docex check`**; both skip when a
   project has no `plans/design` yet. (`docs adr` index generation and the diagram
   comparators are later mods in this advance.)
+- **`docex docs adr` (advance 010, mod 161).** Deterministic, idempotent
+  regeneration of the ADR index files (`adr_index.md`, `adr_active.md`) from
+  `plans/design/adrs/`. ADR-index staleness is now a blocking check in `docex
+  docs check` and the `docex check` gate.
 
 ## [2.2.0] - 2026-08-28
 

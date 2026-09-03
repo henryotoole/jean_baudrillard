@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from docex.context import ProjectContext
+from docex.docs.adr import render_active, render_index
 from docex.docs.standard_set import resolve
 
 # A freshly-scaffolded tree must pass its own `docs check`. The only mandatory,
@@ -42,16 +43,11 @@ _TEMPLATES: dict[str, str] = {
         "| ID | Name | Description | Satisfying Record |\n"
         "| -- | ---- | ----------- | ----------------- |\n"
     ),
-    "design/adr_index.md": (
-        "# ADR Index\n\n"
-        "| ADR ID | Title | Status | Date | Supersedes | Superseded By |\n"
-        "| ------ | ----- | ------ | ---- | ---------- | ------------- |\n"
-    ),
-    "design/adr_active.md": (
-        "# Active ADRs\n\n"
-        "| ADR ID | Title | Date | Supersedes |\n"
-        "| ------ | ----- | ---- | ---------- |\n"
-    ),
+    # Canonical empty-set render — keeps a freshly-scaffolded tree byte-
+    # identical to a `docs adr` run over zero ADRs, so the staleness gate
+    # passes on a fresh scaffold.
+    "design/adr_index.md": render_index([]),
+    "design/adr_active.md": render_active([]),
     "design/project_diagram.mmd": _MMD_STUB,
     "design/service_diagram.mmd": _MMD_STUB,
 }

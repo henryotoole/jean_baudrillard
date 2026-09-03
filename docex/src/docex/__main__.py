@@ -46,8 +46,8 @@ _HELP_TEXT: dict[str, str] = {
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
     "secrets": "Manage per-env secrets (scaffold/status/set/copy) value-blind.",
     "config": "Manage per-env config (scaffold/status/set/get/copy) values visible.",
-    "docs": "Scaffold or check the standard design-doc structure "
-            "(scaffold/check).",
+    "docs": "Scaffold, check, or regenerate ADR indexes for the "
+            "design-doc structure (scaffold/check/adr).",
 }
 
 
@@ -967,8 +967,9 @@ def _cmd_config(args: list[str]) -> int:
 
 
 def _cmd_docs(args: list[str]) -> int:
-    """``docex docs <scaffold|check>`` — scaffold or police the standard
-    design-doc structure (docs.md § Standard Documentation Structure)."""
+    """``docex docs <scaffold|check|adr>`` — scaffold, police, or regenerate
+    the standard design-doc structure (docs.md § Standard Documentation
+    Structure); ``adr`` regenerates the ADR index files."""
     parser = argparse.ArgumentParser(prog="docex docs", add_help=True)
     sub = parser.add_subparsers(dest="op", required=True)
     sub.add_parser(
@@ -980,16 +981,22 @@ def _cmd_docs(args: list[str]) -> int:
         help="validate the design-doc structure "
              "(missing-file + reachability)",
     )
+    sub.add_parser(
+        "adr",
+        help="regenerate the ADR index files from plans/design/adrs/",
+    )
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.docs import run_docs_check, run_docs_scaffold
+    from docex.docs import run_docs_adr, run_docs_check, run_docs_scaffold
 
     ctx = load_project_context(Path(os.getcwd()))
     if ns.op == "scaffold":
         return run_docs_scaffold(ctx)
     if ns.op == "check":
         return run_docs_check(ctx)
+    if ns.op == "adr":
+        return run_docs_adr(ctx)
     return 64  # unreachable — argparse requires a valid subcommand
 
 

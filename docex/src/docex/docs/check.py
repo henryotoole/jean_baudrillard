@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 
 from docex.context import ProjectContext
+from docex.docs.adr import adr_index_drift
 from docex.docs.standard_set import resolve
 
 _MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
@@ -145,6 +146,7 @@ def check_docs(project_root: Path, codebase_names: list[str]) -> int:
     problems = (
         missing_standard_files(project_root, codebase_names)
         + unreachable_docs(project_root, codebase_names)
+        + adr_index_drift(project_root)
     )
     if not problems:
         print(

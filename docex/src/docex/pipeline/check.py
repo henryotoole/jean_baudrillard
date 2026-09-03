@@ -744,6 +744,7 @@ def _gate_docs(
     birth; from then on these gates enforce it.
     """
     from docex.docs import (
+        adr_index_drift,
         design_root_exists,
         missing_standard_files,
         unreachable_docs,
@@ -753,6 +754,7 @@ def _gate_docs(
     if not design_root_exists(worktree):
         report.add("docs_standard_files", True, "no plans/design — skipped")
         report.add("docs_reachability", True, "no plans/design — skipped")
+        report.add("docs_adr_fresh", True, "no plans/design — skipped")
         return
 
     cbs = codebases(ctx)
@@ -768,6 +770,13 @@ def _gate_docs(
         "docs_reachability",
         not orphans,
         "all design docs reachable" if not orphans else "; ".join(orphans),
+    )
+    stale = adr_index_drift(worktree)
+    report.add(
+        "docs_adr_fresh",
+        not stale,
+        "ADR indexes in sync with ADR sources" if not stale
+        else "; ".join(stale),
     )
 
 
