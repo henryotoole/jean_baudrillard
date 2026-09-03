@@ -59,9 +59,13 @@ This step kicks off the CI/CD pipeline. It performs the "gate checks" which are 
 	2. [Contracts](./infrastructure.md#contracts) exist which match `infra.yml`'s declared [surfaces](./cicl.md#surfaces). One contract per surface, at `${codebase}.${service}.${surface}.${format}.${ext}`, in the format that surface's `api_styles` resolve to.
 	3. Every core-service [`uses`](./cicl.md#uses-relationships) target declares at least one surface. A core service that declares none is not a provider and cannot be used. A target that is **directly addressed** also declares a `port`, because a consumer reaching it needs an address; a target reached only through a queue or broker declares none. A `web`-network target is exempt from that last clause — [rule 15](./cicl.md#validation-rules) requires a `port` there regardless, so a consumer that reaches a public edge by its URL rather than by an internal name still finds one.
 	4. Every `web`-network core service declares `health_check_path`. That field is the declaration — on `elastic` with the default `reverse_proxy: alb` it is what the ALB target group probes, and per [rule 33](./cicl.md#validation-rules) it has no consumer anywhere else. Where the service *also* declares an `openapi` surface, its contract declares that path too. A `web`-network core service with no surface (a frontend, say) has no contract for the path to appear in, and needs none.
-4. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
-5. Ensure build doesn't fail.
-6. Run [build test](#build-test-step).
+4. Perform documentation checks against `plans/design` (design-doc validation; the same checks as [`docex docs check`](./docex.md#docs)). All three are **blocking**, and all three are skipped when the project has no `plans/design` yet:
+	1. Every non-optional standard design-doc file and directory is present.
+	2. Every file under `plans/design` is reachable through the link graph from a standard root — no orphaned-but-load-bearing docs.
+	3. The generated ADR index files (`adr_index.md`, `adr_active.md`) are in sync with `plans/design/adrs/`.
+5. Probe the `observability_backend_url` for reachability (see [telemetry_infra.md § Validation Rules](./specifics/telemetry_infra.md#validation-rules)).
+6. Ensure build doesn't fail.
+7. Run [build test](#build-test-step).
 
 If any steps fail, the repo is reverted back to its original state.
 

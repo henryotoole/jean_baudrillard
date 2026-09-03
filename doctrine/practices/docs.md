@@ -236,8 +236,18 @@ plans
 
 ## Docex
 
-TODO *document* how docex interacts with documentation:
-+ reachability check stage
-+ standard doc missing check stage
-+ `infra.yml` matches `service` diagram
-+ standard diagrams match each other
+`docex` provides the [`docex docs`](../infrastructure/docex.md#docs) command family to lay down and police this standard structure:
+
+- **`docex docs scaffold`** idempotently creates every missing standard design-doc entry under `plans/design` — the L1 arc42 files, the standard diagrams, `adrs/` and its two generated index stubs, `references/`, and a `module_diagram.mmd`, `module/`, and `specifics/` per `infra.yml` codebase. It never overwrites an existing file and never creates the optional entries; empty standard directories get a `.gitkeep`. Inception runs it to seed a new project's design docs.
+- **`docex docs check`** validates an existing corpus and blocks (non-zero exit) on any problem: a [missing standard file](#missing-standard-file), an [unreachable doc](#reachability-check), or a stale ADR index. It also runs as a blocking sub-gate of [`docex check`](../infrastructure/cicd.md#check-step); both skip when a project has no `plans/design` yet.
+- **`docex docs adr`** regenerates the two ADR index files from the ADR sources — see [adrs.md § Docex](./adrs.md#docex).
+
+### Reachability Check
+
+The [loading flow](#llm-agent-usage) no longer reads *all* design docs, only the top-level ones; routing is strictly top-down. That makes the **orphaned-but-load-bearing doc** the critical failure to avoid: a file buried in `specifics` that no higher-level section or diagram links to is invisible but may still be load-bearing.
+
+`docex docs check` guards against this mechanically. It enumerates every file under `plans/design`, builds the link graph rooted at the standard roots — the L1 arc42 files, `lexicon.md`, the [standard diagrams](#standard-diagrams) (`project_diagram.mmd`, `service_diagram.mmd`, and each codebase's `module_diagram.mmd`), and the two ADR indexes (`adr_index.md`, `adr_active.md`) — and flags any file a root cannot reach. Both markdown links and mermaid `click` targets count as edges. No per-doc frontmatter is required; reachability is computed from the link graph itself.
+
+### Missing Standard File
+
+`docex docs check` also verifies that every non-optional entry in the standard [documentation structure](#standard-documentation-structure) actually exists — each L1 arc42 file, the standard diagrams and ADR indexes, the `adrs/` and `references/` directories, and each codebase's `module_diagram.mmd`, `module/`, and `specifics/`. `docex docs scaffold` lays these down; this check keeps them from being deleted or forgotten. It is blocking under [`docex check`](../infrastructure/cicd.md#check-step).

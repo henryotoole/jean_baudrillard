@@ -61,6 +61,7 @@ Under the hood, detaching is achieved by spinning up a deterministically named c
 | `envinfra <direction> <env>` | Bring up or tear down a fixed-foundation environment locally. |
 | `secrets <op> <env> [...]` | Manage an environment's secrets file without exposing secret values to the caller. |
 | `config <op> <env> [...]` | Manage an environment's non-secret config file. |
+| `docs <op>` | Scaffold, check, or regenerate the standard design-doc set under `plans/design`. `docs check` is also a blocking sub-gate of [`check`](#check). |
 | `build <codebase>` | Run `build.sh` for one or all codebases. |
 | `test [subset]` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#asynchronous-usage); `--detach` returns a handle. `test [subset]` narrows the run; `--slots N` shards it. |
 | `job <op> [<handle>]` | Operate on durable run handles: `ls`, `status`, `wait`, `logs`, `result`. |
@@ -165,6 +166,17 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 - **`get`** prints one key's value to stdout. There is deliberately no `secrets get`; `config get` exists precisely because config is readable.
 - **`copy`** is identical to [`secrets copy`](#secrets) — value-blind env→env copy, secrets/config only (**never TTE**), same-side blessed / cross-side warns / unset-source errors / target overwritten — just lower-stakes for non-secret values.
 
+### `docs`
+`./bin/docex docs scaffold`
+`./bin/docex docs check`
+`./bin/docex docs adr`
+
+Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is.
+
+- **`scaffold`** idempotently lays down every missing standard design-doc entry — the L1 arc42 files, the standard diagrams, `adrs/` with its two generated index stubs, `references/`, and a per-`infra.yml`-codebase `module_diagram.mmd`, `module/`, and `specifics/`. It never clobbers an existing file (creates only what is missing) and never auto-creates optional entries; empty standard directories get a `.gitkeep`. It reports what it created.
+- **`check`** validates an existing design corpus and exits non-zero on any problem. Three checks: **missing standard file** (a required standard entry is absent), **reachability** (a file under `plans/design` that no standard root can reach through the link graph — an orphaned, potentially load-bearing doc), and **ADR-index freshness** (`adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`). It passes as a no-op when the project has no `plans/design` yet. The same three checks run as a **blocking sub-gate of [`check`](#check)** — see [cicd.md § Check Step](./cicd.md#check-step) and [docs.md § Docex](../practices/docs.md#docex).
+- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent — a no-op run rewrites nothing. `docs check` gates their freshness. See [adrs.md § Docex](../practices/adrs.md#docex).
+
 ### `build`
 `./bin/docex build` to refresh `dist/` for all codebases in the `dev` environment.
 `./bin/docex build <codebase_name>` to refresh a specific codebase.
@@ -200,7 +212,7 @@ Operates on the durable run handles produced by a durable command (see [Asynchro
 
 ### `check`
 `./bin/docex check [--detach]`
-Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate.
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, design-doc validation (the [`docs check`](#docs) sub-gate), build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate.
 
 A [durable job](#asynchronous-usage) (the suite is long): `--detach` returns the run handle immediately, and a killed monitor leaves the run **alive and re-attachable** via `docex job wait`. On a fully-green run, `check` records what it validated to `.docex/checks/` (the feature tip, the `origin/main` commit, the merged tree SHA, a timestamp, and the docex version); `merge` uses this record to skip a redundant defensive recheck. The record is written only on success and is gitignored. The vessel-reaper behavior and the reserved defensive slot (`CHECK_SLOT`, which closes the `--project-name` DB-volume collision) are covered in [detachable.md § `check`](./specifics/detachable.md#check).
 

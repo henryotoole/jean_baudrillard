@@ -56,4 +56,6 @@ These are split into two files so that an LLM won't bloat its context by reading
 
 ## Docex
 
-<TODO> Fill this in with the docex command to generate index files. </TODO>
+`docex docs adr` regenerates both index files from the ADR sources in `plans/design/adrs/`. It parses each ADR's frontmatter and rewrites `adr_index.md` (all ADRs) and `adr_active.md` (accepted and not superseded). The generation is deterministic (stable id sort) and idempotent — re-running when nothing has changed rewrites nothing — and each generated file's first line is a "do not edit by hand" marker. Because old ADRs are immutable and new ones are only ever added, the indexes are brought current simply by re-running the command after adding an ADR.
+
+Index freshness is enforced, not merely offered: [`docex docs check`](../infrastructure/docex.md#docs) — and the `docex check` gate it feeds — blocks if either index is out of sync with the ADR sources, naming `docex docs adr` as the fix. See [docex.md § docs](../infrastructure/docex.md#docs).

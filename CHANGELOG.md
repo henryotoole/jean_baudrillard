@@ -44,6 +44,13 @@ first post-`0.4.0` overhaul.
   `skill-iteration` reference drop "core planning docs" / `masterplan.md` for "design
   docs". References to `docex`'s *own* plans (still on the pre-migration layout) are
   deliberately left untouched pending the docex-plans dogfood migration.
+- **Doctrine prose filled in for the `docex docs` tooling (advance 010, mod 164).**
+  Documented the `docex docs {scaffold, check, adr}` command family in `docex.md`
+  (command reference + `### docs` detail; `docs check` noted as a blocking sub-gate
+  of `docex check`) and `cicd.md` (design-doc validation added to the Check Step).
+  Filled the `## Docex` stubs in `docs.md` (command overview + Reachability Check /
+  Missing Standard File subsections) and `adrs.md` (`docex docs adr` + index-
+  freshness gate). No `docex` behavior change.
 
 ### Added
 
