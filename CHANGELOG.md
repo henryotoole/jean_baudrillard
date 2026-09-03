@@ -66,8 +66,7 @@ first post-`0.4.0` overhaul.
   graph rooted at the arc42 files + standard diagrams, no per-doc frontmatter).
   Scaffold and check share one canonical standard-set definition. `docex docs
   check` also runs as a **blocking gate of `docex check`**; both skip when a
-  project has no `plans/design` yet. (`docs adr` index generation and the diagram
-  comparators are later mods in this advance.)
+  project has no `plans/design` yet.
 - **`docex docs adr` (advance 010, mod 161).** Deterministic, idempotent
   regeneration of the ADR index files (`adr_index.md`, `adr_active.md`) from
   `plans/design/adrs/`. ADR-index staleness is now a blocking check in `docex

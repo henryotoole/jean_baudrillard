@@ -179,7 +179,7 @@ The doctrine mandates three standard mermaid diagrams for inclusion with state d
 
 Arrows between objects point in the direction of "calling" or "usage", and are labelled with the action taken.
 
-As the service diagram actually shows our infrastructure setup, it should match `infra.yml`. See [Docex](#docex) for more info.
+As the service diagram actually shows our infrastructure setup, it should match `infra.yml`; keeping the two consistent is an authoring responsibility (there is no automated check).
 
 If there's a doc *for* a given box (e.g. a module doc for a module black box, or a contract for a surface), that document *must* be linked in this diagram. The standard diagrams form a critical role providing the "router" that directs reader attention to the correct details.
 
