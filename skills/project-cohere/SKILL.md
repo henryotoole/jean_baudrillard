@@ -9,19 +9,20 @@ Projects have both documentation that describes code and the code itself. The do
 
 ## Documentation Tiers
 
-The doctrine-defined documentation levels are:
-1. Product docs
-2. Architecture / design docs
-3. Module docs
-4. Code level docs
+The doctrine recognizes five documentation classifications: Product, Design, Code-Level, Operational, and Reference. This cohere skill targets the **design docs**, which live at `$pr/plans/design/` and split into:
 
-This cohere skill is primarily concerned with architecture / design, and module docs. It is especially concerned with "core planning docs" - levels 2 and 3 above, found in `$pr/plans/core/`. 
+- **L1 project-level state docs**, arc42-structured: `boundary_conditions.md`, `concepts_and_decisions.md`, `structures_and_views.md`, `lexicon.md`, `unknowns.md`, plus the standard diagrams (`project_diagram.mmd`, `service_diagram.mmd`).
+- **L2 codebase-level docs** under `$pr/plans/design/${codebase}/` (including `module_diagram.mmd`, `specifics/`, and an optional `db_schema.md`).
+- **L3 module docs** under `$pr/plans/design/${codebase}/module/`.
+- **ADRs** (reasoning docs) under `$pr/plans/design/adrs/`.
+
+This skill primarily reconciles the state design docs (L1–L3) against the code. "Core planning docs" is a legacy synonym for these design docs.
 
 ## Source of Truth
 
 The trickiest thing about cohere is that a discrepancy (whether between two sections of docs or a doc section and corresponding code) implies two different possible sources of truth. Choosing which source of truth is the "correct" one is genuinely a judgement call.
 
-The higher the "level" of doc, the more it can be considered a source of truth. `masterplan.md`, as the highest form of architecture doc, should never be changed without asking the operator to make a judgement call on the discrepancy. Lower levels of architecture doc (often direct children in the `$pr/plans/core/${codebase_name}` folder) carry more weight than module docs. Module docs are often in a `$pr/plans/core/${codebase_name}/hex` folder.
+The higher the "level" of doc, the more it can be considered a source of truth. The **L1 arc42 project-level state docs** (the most load-bearing being `boundary_conditions.md`) sit at the apex and should never be changed without asking the operator to make a judgement call on the discrepancy. Below them, L2 codebase-level docs (direct children of `$pr/plans/design/${codebase}`) carry more weight than module docs. L3 module docs live under `$pr/plans/design/${codebase}/module`.
 
 For lower forms of architecture doc and module docs, what's present in the actual code can indicate that the docs themselves need to change. If there's a discrepancy between two different sections of documentation, the one that matches the code as-written is often the right one.
 
@@ -62,11 +63,11 @@ In this class, some amount of code is entirely undocumented. It's tricky because
 Examples of things that *should be documented*; if found they are probably undocumented code:
 + A codebase - deserves dedicated folder and architecture docs.
 + A hex module - this should have its own dedicated document.
-+ A first-class hexagonal component like a domain object, port, adapter, or application logic class - these belong in the hex module docs.
++ A first-class hexagonal component like a domain object, port, adapter, or application logic class - these belong in the module docs.
 + A database table
 + A hex shared client
 
-Examples of things that *should not be documented*; if found they are details which don't merit mention in core planning docs. Note that these might well *be documented already*, but should not be considered "undocumented code" if they *aren't*:
+Examples of things that *should not be documented*; if found they are details which don't merit mention in the design docs. Note that these might well *be documented already*, but should not be considered "undocumented code" if they *aren't*:
 + How a function handles weird edge cases
 + Methods of first class hexagonal components
 + Full enumeration of an enum's types
@@ -94,7 +95,9 @@ python3 executor/word_count.py --before --root <project-root>
 
 If you invoke it from inside the target project you may omit `--root` — the script then locates the project by searching upward from the current directory for `project.yml`. Either way it prints the resolved root. **Confirm that reported root is the project you intend to cohere** before doing any work — on a multi-project machine the wrong current directory would target the wrong project.
 
-You should also certainly read the project's core planning docs - they will help you navigate the rest of the process.
+You should also certainly read the project's design docs - they will help you navigate the rest of the process.
+
+The deterministic structural checks — missing standard files, doc reachability/orphans, and ADR-index freshness — can be run mechanically with `./bin/docex docs check` from the project root. This skill focuses on the *semantic* coherence that no compile step can verify.
 
 ### Enumerate Chunks
 
@@ -108,7 +111,7 @@ python3 executor/chunk_map.py --root <project-root>
 
 It walks `core/*/src`, sizing only real source — the executor uses an allowlist of the doctrine's supported languages, so compiled artifacts (`.pyc`, `.o`, `.dll`, extensionless binaries, `node_modules`, `target/`, …) never inflate the count — by character count (a stable proxy for tokens; it reads no file contents), and prints a JSON chunk map. Each chunk is one of these shapes, chosen by size: the **entire source** (small projects), **one or more whole codebases** packed together (bounded contexts stay separate — modules from different codebases are never mixed), or **a subset of a single codebase's hex modules** (a codebase too big to fit whole). Tune the per-chunk budget with `--budget <chars>` (default 1400000, ≈ 400k tokens); keep it below a subagent's context so there's headroom for its reasoning and output.
 
-The chunk map is deliberately **code-only** — it does not pair chunks to docs. Doc selection is *your* job as the skill-agent: you read the full set of core planning docs in [Prep](#prep), so you are the right authority to decide which docs are relevant to each chunk's code. This is a deliberate choice — a codebase's doc layout, especially a non-hex frontend, is irregular and cannot be resolved into a provably-complete file set, so a machine-generated "here are all your docs" list would give the subagent false confidence.
+The chunk map is deliberately **code-only** — it does not pair chunks to docs. Doc selection is *your* job as the skill-agent: you read the full set of design docs in [Prep](#prep), so you are the right authority to decide which docs are relevant to each chunk's code. This is a deliberate choice — a codebase's doc layout, especially a non-hex frontend, is irregular and cannot be resolved into a provably-complete file set, so a machine-generated "here are all your docs" list would give the subagent false confidence.
 
 The JSON gives you, per entry in `chunks`:
 + `code_paths` — the source that chunk's subagent should read.
@@ -120,7 +123,7 @@ And at the top level, two structural signals to inform your doc curation and Cla
 + `hints.undocumented_code_units` — code units with no matching module doc (a head-start on [Class 4](#4-undocumented-code)).
 + `hints.unpaired_docs` — docs with no corresponding code: stale/leftover module docs (possible [Class 3](#3-unimplemented-feature)), or `db_schema.md` whose real counterpart lives in `migrations/` (outside chunked source) and must be verified separately.
 
-Each returned chunk should be given a dedicated sub-agent in the next section. Hand each subagent (a) its `code_paths`, and (b) a **curated list of the docs relevant to that code**, which you assemble by hand: the module docs for the modules it holds, the codebase-level docs for its `codebases`, and the cross-cutting project docs (`masterplan.md`, plus `conventions.md` if present). When a chunk is a partial slice of a larger codebase (`granularity: "modules"`), curate only the docs that pertain to the code in that chunk — keep codebase-wide or cross-module docs for your own later assessment and the [Consistency Pass](#consistency-pass).
+Each returned chunk should be given a dedicated sub-agent in the next section. Hand each subagent (a) its `code_paths`, and (b) a **curated list of the docs relevant to that code**, which you assemble by hand: the module docs for the modules it holds, the codebase-level docs for its `codebases`, and the cross-cutting project docs (the L1 arc42 state docs — `boundary_conditions.md`, `concepts_and_decisions.md`, `structures_and_views.md`, `lexicon.md` — plus the standard diagrams, and `doctrine_ext.md` if present). When a chunk is a partial slice of a larger codebase (`granularity: "modules"`), curate only the docs that pertain to the code in that chunk — keep codebase-wide or cross-module docs for your own later assessment and the [Consistency Pass](#consistency-pass).
 
 ### Subagent Sweep
 
@@ -139,7 +142,7 @@ Operate ONLY on the code and docs listed below — do NOT read the rest of the p
 {curated_docs}
 
 ## Cross-cutting project docs (read for context):
-{project_docs}          # masterplan.md, and conventions.md if present
+{project_docs}          # L1 arc42 state docs + standard diagrams, and doctrine_ext.md if present
 
 {classes_of_problem}
 
@@ -181,11 +184,11 @@ Please use the highest available version of `opus` as the model for the sub-agen
 
 Armed with the full list of issues from the subagents, proceed to fix each of these. You'll need to investigate each issue and make sure you agree with the subagent's assessment. Then, you'll need to correct the issue. Remember to consider the [source of truth](#source-of-truth) weights for different levels of documentation.
 
-When a fix will require you to make a change to `masterplan.md`, **always** let the human operator make the ultimate decision on whether to make the change.
+When a fix will require you to make a change to an L1 arc42 project-level state doc, **always** let the human operator make the ultimate decision on whether to make the change.
 
 ### Consistency Pass
 
-Now that the entire project has been assessed and broadly corrected, do one final documentation consistency pass to catch [Class 1](#1-documentation-is-inconsistent) issues. This pass will be a little different - instead of reading the docs again yourself, use a subagent to scan for inconsistencies / contradictions within the documentation. Then you can iterate across results the subagent found, and choose for yourself how to apply solutions. Remember to keep [source of truth](#source-of-truth) weights in mind for different levels of documentation and to always let the human operator make the ultimate decision on whether to change `masterplan.md`.
+Now that the entire project has been assessed and broadly corrected, do one final documentation consistency pass to catch [Class 1](#1-documentation-is-inconsistent) issues. This pass will be a little different - instead of reading the docs again yourself, use a subagent to scan for inconsistencies / contradictions within the documentation. Then you can iterate across results the subagent found, and choose for yourself how to apply solutions. Remember to keep [source of truth](#source-of-truth) weights in mind for different levels of documentation and to always let the human operator make the ultimate decision on whether to change an L1 arc42 project-level state doc.
 
 ### Final Summary
 
@@ -197,9 +200,9 @@ Run the executor again (same skill-relative path), this time with the `--after` 
 python3 executor/word_count.py --after --root <project-root>
 ```
 
-+ Total words for the entire core planning documentation set, before and after (and as a percentage change)
++ Total words for the entire design-documentation set, before and after (and as a percentage change)
 + Total words for the subset of changed files, before and after (and as a percentage change)
 
 And tell the user those results.
 
-After the summary, commit the files which you have changed with a message like "Ran cohere on core planning docs". You don't have to ask for permission to commit, but please do notify the user that you have made a commit.
+After the summary, commit the files which you have changed with a message like "Ran cohere on design docs". You don't have to ask for permission to commit, but please do notify the user that you have made a commit.

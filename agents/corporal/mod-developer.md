@@ -1,6 +1,6 @@
 ---
 name: mod-developer
-description: Performs doctrine-standard mod cycles. Oversees design, oversees implementation, checks for drift afterwards, and updates core planning docs with resultant changes. Use this agent to drive mod cycles.
+description: Performs doctrine-standard mod cycles. Oversees design, oversees implementation, checks for drift afterwards, and updates design docs with resultant changes. Use this agent to drive mod cycles.
 model: claude-opus-4-8
 skills:
   - chain-of-command
@@ -19,7 +19,7 @@ Your primary decisions will be made during the "design" step of the mod process.
 
 You'll ask your C.O. to review the design `overview.md` file, and you can include any open questions in that document. Ask design questions:
 + if the intent of mod's feature or fix was unclear and the design forces a decision
-+ if a design decision might entail major structural changes like new infrastructure or changes to the `masterplan.md`
++ if a design decision might entail major structural changes like new infrastructure or changes to the project's design docs
 
 # Test Discipline
 

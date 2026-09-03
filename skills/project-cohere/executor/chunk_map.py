@@ -244,7 +244,7 @@ def build_chunks(root: Path, budget: int) -> dict:
 
 def _hints(root: Path, codebases: list[Path]) -> dict:
     """Best-effort structural signals: code with no doc, docs with no code."""
-    plans_core = root / "plans" / "core"
+    plans_design = root / "plans" / "design"
     undocumented: list[str] = []
     unpaired: list[dict] = []
 
@@ -253,14 +253,14 @@ def _hints(root: Path, codebases: list[Path]) -> dict:
         hex_dir = svc_dir / "src" / "hex"
         if hex_dir.is_dir():
             for m in sorted(d for d in hex_dir.iterdir() if d.is_dir()):
-                if not (plans_core / svc / "hex" / f"{m.name}.md").is_file():
+                if not (plans_design / svc / "module" / f"{m.name}.md").is_file():
                     undocumented.append(_rel(root, m))
             # Module docs with no corresponding module dir (stale / deleted).
-            for doc in _mds(plans_core / svc / "hex", recursive=False):
+            for doc in _mds(plans_design / svc / "module", recursive=False):
                 if not (hex_dir / doc.stem).is_dir():
                     unpaired.append({"doc": _rel(root, doc),
                                      "note": "module doc with no code (possible unimplemented / stale doc)"})
-        db_schema = plans_core / svc / "db_schema.md"
+        db_schema = plans_design / svc / "db_schema.md"
         if db_schema.is_file():
             unpaired.append({"doc": _rel(root, db_schema),
                              "note": f"schema doc; code counterpart is core/{svc}/migrations "

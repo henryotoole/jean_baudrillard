@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Word-count tracker for the project-cohere skill.
 
-Measures whether a cohere run grows or shrinks the core planning docs.
+Measures whether a cohere run grows or shrinks the design docs.
 
   --before : snapshot per-file word counts of every markdown doc under
-             $pr/plans/core and write them to a baseline file.
+             $pr/plans/design and write them to a baseline file.
   --after  : recount now, diff against the baseline, and print two summaries:
              (A) all docs, and (B) only the files whose count changed.
 
@@ -25,7 +25,7 @@ from pathlib import Path
 # A prior version wrote under the skill dir; those files accumulated unboundedly
 # and risked being committed with the (untracked) skill.
 TMP_DIR = Path(tempfile.gettempdir()) / "project-cohere-wordcount"
-CORE_DOCS_SUBPATH = Path("plans") / "core"
+DESIGN_DOCS_SUBPATH = Path("plans") / "design"
 
 
 def find_project_root(start: Path) -> Path:
@@ -50,11 +50,11 @@ def baseline_path(root: Path) -> Path:
 
 def count_docs(root: Path) -> dict[str, int]:
     """Map each markdown doc (relative to root) to its whitespace word count."""
-    core = root / CORE_DOCS_SUBPATH
-    if not core.is_dir():
-        sys.exit(f"error: {core} does not exist.")
+    design = root / DESIGN_DOCS_SUBPATH
+    if not design.is_dir():
+        sys.exit(f"error: {design} does not exist.")
     counts: dict[str, int] = {}
-    for md in sorted(core.rglob("*.md")):
+    for md in sorted(design.rglob("*.md")):
         text = md.read_text(encoding="utf-8", errors="replace")
         counts[str(md.relative_to(root))] = len(text.split())
     return counts
@@ -88,7 +88,7 @@ def run_after(root: Path) -> None:
     before_total = sum(before.values())
     after_total = sum(after.values())
 
-    print("=== A) All core planning docs ===")
+    print("=== A) All design docs ===")
     print(f"  before: {before_total} words")
     print(f"  after:  {after_total} words")
     print(f"  change: {pct_change(before_total, after_total)}")

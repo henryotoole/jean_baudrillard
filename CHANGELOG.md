@@ -32,6 +32,18 @@ first post-`0.4.0` overhaul.
   `advance.md`, and `inception.md`; the "Core Planning Docs" lexicon term is now
   "Design Docs" (old phrasings kept as synonyms). The `masterplan` / module
   "master document" model is retired in favor of the arc42 + standard-diagram model.
+- **`skills/` + `agents/` rewired to the new documentation doctrine (advance 010,
+  mod 163).** Propagated mod 159's model into the skills and agents that mod 159 was
+  fenced out of: `inception` now seeds a *design brief* and lays the design-doc set
+  down with `docex docs scaffold`; `project-cohere` targets `plans/design` (arc42
+  L1 state docs + standard diagrams / L2 / L3 / ADRs), takes the L1 arc42 docs as its
+  source-of-truth apex in place of the retired `masterplan.md`, and can now delegate
+  the mechanical missing-file / reachability / ADR-freshness checks to `docex docs
+  check`; its `word_count.py` and `chunk_map.py` executors read `plans/design`
+  (module docs under `${codebase}/module/`, not `/hex/`). `mod-developer` and a
+  `skill-iteration` reference drop "core planning docs" / `masterplan.md` for "design
+  docs". References to `docex`'s *own* plans (still on the pre-migration layout) are
+  deliberately left untouched pending the docex-plans dogfood migration.
 
 ### Added
 

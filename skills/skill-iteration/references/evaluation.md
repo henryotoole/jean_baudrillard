@@ -100,7 +100,7 @@ Case files live at `outcome/<skill>/evals.json` — add one per skill you evalua
 
 ### In-tree mutation cases (graded on a diff)
 
-Most skills produce a *fresh artifact* from a prompt, so the prompt + optional static `files` is the whole input and the produced content is what you grade. A few skills instead **mutate an existing project in place** — `project-cohere` reads a project's core planning docs against its code and heals drift. There the input is a whole doctrine project *in a specific drift state* and the graded artifact is the **diff** the run produces — including the *empty* diff, which is the correct result when the project is already coherent.
+Most skills produce a *fresh artifact* from a prompt, so the prompt + optional static `files` is the whole input and the produced content is what you grade. A few skills instead **mutate an existing project in place** — `project-cohere` reads a project's design docs against its code and heals drift. There the input is a whole doctrine project *in a specific drift state* and the graded artifact is the **diff** the run produces — including the *empty* diff, which is the correct result when the project is already coherent.
 
 These get a fixture harness alongside the usual `evals.json`, at `outcome/project-cohere/` (see its `README.md`). The shape:
 
