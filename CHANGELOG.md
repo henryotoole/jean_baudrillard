@@ -17,6 +17,28 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation doctrine overhauled (advance 010, mod 159).** Replaced
+  `doctrine/practices/docs.md` and `comments.md` with the new model: five doc
+  classifications, design docs split into state (arc42-organized L1/L2/L3) and
+  reasoning (ADRs), and three standard C4-derived diagrams (Project / Service /
+  Module). Code-level docs are recast as docstrings (outward) vs. inline comments
+  (inward), referencing design docs rather than replicating them.
+- **`plans/` layout renamed** across the doctrine corpus: `plans/core` →
+  `plans/design`; `plans/modifications` → `plans/ops/mods`; `plans/advances` →
+  `plans/ops/adv` (`plans/references` unchanged, optional `plans/product` added).
+  Rewired `lexicon.md`, `infrastructure.md`, `hex_overview.md`, `modifications.md`,
+  `advance.md`, and `inception.md`; the "Core Planning Docs" lexicon term is now
+  "Design Docs" (old phrasings kept as synonyms). The `masterplan` / module
+  "master document" model is retired in favor of the arc42 + standard-diagram model.
+
+### Added
+
+- **ADR practice** as conditional-stratum `doctrine/practices/adrs.md` (format,
+  status lifecycle, and generated index files), reached by the new `writing-adrs`
+  thread skill and pointed to by a resident link from `docs.md`.
+
 ## [2.2.0] - 2026-08-28
 
 Advance 009 ("Test Overhaul") — a **2.2.0 minor**. Every deliverable is additive

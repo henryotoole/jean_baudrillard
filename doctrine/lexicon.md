@@ -36,7 +36,7 @@ This guide defines special words and phrases that have unique context for all ma
 | build |  | The process by which source code is compiled into a build artifact. |
 | release |  | The process by which a containerized built artifact is combined with environment-specific config to run in the `stage` or `prod` environments. |
 | Modification | "mod" | The process of designing, implementing, and testing a new feature or change to the project. |
-| Core Planning Docs | "core docs", "core project docs", "project documentation" | The architectural and module docs found at "$pr/plans/core/*". |
+| Design Docs | "core planning docs", "core docs", "project documentation" | The project's design-documentation corpus, stored at "$pr/plans/design/*": the arc42 state docs, the standard diagrams (Project / Service / Module), module docs, and ADRs. |
 | Objectives |  | Strategic goals for the project. These define what a project *does*. The project is neither complete nor successful until it achieves its objectives. |
 | Apex Domain |  | An absolute top-level domain without any subdomains e.g. `example.com` |
 | Master Network | `master_network`, `master_vpc` | The main, toplevel network which spans all projects. |

@@ -4,12 +4,12 @@ stratum: conditional
 
 # Inception
 
-This module describes the opening acts of creating a project from nothing. The inception process covers all the setup steps from "all we have is a rough idea in the form of a [masterplan](./docs.md#the-masterplan) document" to "the project is ready for regular [mod](./modifications.md) cycles and production releases".
+This module describes the opening acts of creating a project from nothing. The inception process covers all the setup steps from "all we have is a rough idea in the form of an initial [design brief](./docs.md#design-documentation)" to "the project is ready for regular [mod](./modifications.md) cycles and production releases".
 
 ## Initial State
 
 Before a project's inception, only the following "inputs" exist:
-1. A `masterplan.md` document, detailing the project's:
+1. An initial design brief, detailing the project's:
 	1. Name
 	2. Objectives
 	3. Project-specific terms and concepts
@@ -24,7 +24,7 @@ Before a project's inception, only the following "inputs" exist:
 This flow is handled by an LLM.
 
 __PART I__: Setup
-1. Read the `masterplan.md`. If the operator has not indicated where this is, ask them.
+1. Read the initial design brief. If the operator has not indicated where this is, ask them.
 2. Determine the project's machine-readable name from its plain text name. It should be in snake_case, and will be immutable after the project is set up. We'll refer to this as `${project_name}`.
 3. Create a git repository for the project with the available credentials.
 	+ Most of the time, the git host will be 'github' and the `gh` command can be used to achieve this.
@@ -45,29 +45,29 @@ __PART I__: Setup
 		2. `infra` folder, all direct child subfolders.
 			+ `secrets`, `config`, `tte`, and `deploy_creds` should each be given [infra `.gitignore`](#infra-gitignore-files) files.
 		3. `plans` folder, all direct child subfolders but no files.
-	6. Write `masterplan.md` verbatim into its place at `$pr/plans/core/masterplan.md`.
+	6. Place the initial design brief under `$pr/plans/design/` to seed the project-level design docs; PART II unpacks it into the full arc42 structure.
 9. Install `docex` (see [install instructions](../infrastructure/docex.md#project-installation)).
 	1. Test that it works with `./bin/docex --version`.
 10. Make a commit with the message "Inception Part I: setup complete".
 
 __PART II__: Design
-The project has now been set up. Basic structure exists and the `masterplan.md` is in the defined place. Everything from this point on goes wherever the `doctrine` prescribes.
+The project has now been set up. Basic structure exists and the initial design brief is in place under `plans/design`. Everything from this point on goes wherever the `doctrine` prescribes.
 
 Pause here to ask the operator whether they wish to design the architecture:
 A) Entirely by themselves
 B) By working with the LLM
 C) By handing full architecture authority to the LLM.
 
-The design phase should "fill out" the [core planning docs](./docs.md#core-planning-documents). Each codebase should be given a folder in `$pr/plans/core`, and filled out with architecture and design docs. Codebases with internal hexagonal architecture should have module docs for each planned hexagonal module. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database should get a `db_schema.md` file documenting relational schema choices.
+The design phase should "fill out" the [design docs](./docs.md#design-documentation) — the arc42 project-level (L1) state docs, the standard diagrams, and per-codebase docs. Each codebase should be given a folder in `$pr/plans/design`, and filled out with codebase-level (L2) and module-level (L3) design docs. Codebases with internal hexagonal architecture should have a module doc for each planned hexagonal module. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database should get a `db_schema.md` file documenting relational schema choices.
 
-All these core planning docs are driven by `masterplan.md`. They "unpack" those high-level plans into more concrete architecture and design docs. 
+All these design docs are driven by the initial design brief. They "unpack" those high-level plans into the concrete arc42 state docs, diagrams, and module docs. 
 
 __PART III__: Infrastructure Smoke Test
 1. Make a commit with the message "Inception Part II: design complete"
 2. Route DNS to `dev`, either with registrar DNS or Route53 depending on what is appropriate.
 3. Verify development preinfra exists with `./bin/docex preinfra development`
 	+ If it doesn't exist or is broken, load the `preinfra-setup` skill and create / fix needed resources.
-4. Write `infra.yml` to reflect the needs of the core planning docs.
+4. Write `infra.yml` to reflect the needs of the design docs.
 5. Create the codebase folders in `$pr/core` and the infrastructural concerns within each:
 	1. A Dockerfile that defines the environment.
 		+ These don't need to be perfect. At this stage, we only know what the codebases are and probably what language they'll be in. These must exist to smoke test the infrastructure; details will be worked out later in the mod cycles.

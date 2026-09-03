@@ -8,7 +8,7 @@ The "advance" is a planned collection of mods and other processes executed toget
 
 ## Structure
 
-Every individual advance gets a folder at `$pr/plans/advances/${advance_number}_${advance_name}/`. This folder contains:
+Every individual advance gets a folder at `$pr/plans/ops/adv/${advance_number}_${advance_name}/`. This folder contains:
 + `advance_plan.md`
 + `report.md`
 
@@ -103,7 +103,7 @@ The following process should be followed rigidly for every advance.
 	1. Read the project's *core planning docs* if you haven't already.
 	2. Ensure that the current branch is `main` and that the working directory is clean. If it isn't, end the turn with a message noting which check failed.
 	3. Make a new branch called `advance_${advance_number}_${advance_name}`. This will be the working branch for the advance's changes.
-	4. Create the advance folder at `$pr/plans/advances/${advance_number}_${advance_name}` if it does not already exist.
+	4. Create the advance folder at `$pr/plans/ops/adv/${advance_number}_${advance_name}` if it does not already exist.
 2. **Plan**
 	1. If `advance_plan.md` already exists:
 		1. Read it.

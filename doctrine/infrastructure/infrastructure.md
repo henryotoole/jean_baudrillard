@@ -191,8 +191,11 @@ $pr
 │       ├── prod
 │       └── prod.pub    # Not required but conventional
 └── plans
-    ├── modifications
-    ├── core
+    ├── product     # Optional; product docs
+    ├── design      # Design docs: arc42 state docs, diagrams, module docs, ADRs
+    ├── ops
+    │   ├── mods    # Modification cycles
+    │   └── adv     # Advances
     └── references
 ```
 

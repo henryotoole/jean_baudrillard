@@ -284,7 +284,7 @@ There will often be multiple controller implementations, each handling a differe
 
 #### Project-Specific Patterns
 
-The provided driven patterns are not meant to be absolute. A specific project may need its own pattern for internal use. In that case, the pattern should be documented in [conventions.md](../practices/docs.md).
+The provided driven patterns are not meant to be absolute. A specific project may need its own pattern for internal use. In that case, the pattern should be documented as a doctrine extension in the project's `doctrine_ext.md` (see [docs.md § Cross-Cutting Concepts](../practices/docs.md#cross-cutting-concepts)).
 
 A project-specific pattern is justified only when it requires a distinct port shape. The interface looks fundamentally different from existing canonical patterns (a Repo's shape is roughly get/save/find - if a candidate is a Repo plus one method, it is a Repo). New patterns should be given clear abbreviations that don't overlap with canonical abbreviations.
 
@@ -345,7 +345,7 @@ This section outlines practices for documenting a hexagonal module. This include
 Best practices for how to write **good** comments can be found [here](../practices/comments.md).
 
 #### Module Docs
-High level conceptual documentation for a module belongs in the module's [master document](../practices/docs.md) file. This file should contain the following:
+High level conceptual documentation for a module belongs in that module's L3 [module doc](../practices/docs.md#design-documentation) — a design doc living under `plans/design/${codebase}/module/`. This file should contain the following:
 
 | Section | What to include |
 | ------- | --------------- |
