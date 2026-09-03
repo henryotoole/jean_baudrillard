@@ -243,7 +243,8 @@ def test_check_happy_path_aggregates_all_passing(
     worktree_setup, fake_docker, stub_test_and_compile, capsys
 ):
     """All gates pass + no test failures → rc 0, and the ROSTER is exactly the
-    nine gates mod 126 left behind plus mod 137's contract_spec_version gate."""
+    nine gates mod 126 left behind, mod 137's contract_spec_version gate, and
+    mod 160's two docs gates (docs_standard_files + docs_reachability)."""
     ctx, fake_git = worktree_setup
     rc = run_check(ctx, fake_docker, fake_git)
     # One readouterr() only — a second call returns the drained-and-empty
@@ -251,9 +252,11 @@ def test_check_happy_path_aggregates_all_passing(
     out = capsys.readouterr().out
     assert rc == 0, out
     assert "all gates and tests passed" in out
-    assert "all 10 gate(s) passed" in out
+    assert "all 12 gate(s) passed" in out
     assert "contract_health_path" in out
     assert "contract_spec_version" in out
+    assert "docs_standard_files" in out
+    assert "docs_reachability" in out
     assert "health_endpoints" not in out
     assert "healthcheck_tooling" not in out
 
@@ -442,3 +445,22 @@ def test_check_writes_no_record_on_failure(
     rc = run_check(ctx, fake_docker, fake_git)
     assert rc == 1
     assert check_record.read_check_record(ctx.project_root) is None
+
+
+# ---------------------------------------------------------------------------
+# Mod 160: the design-doc gates are part of the check roster.
+# ---------------------------------------------------------------------------
+
+
+def test_check_docs_gates_skip_when_no_plans_design(
+    worktree_setup, fake_docker, stub_test_and_compile, capsys
+):
+    """The sample fixture has no plans/ dir, so both docs gates PASS as
+    skipped — and they appear by name in the aggregated report."""
+    ctx, fake_git = worktree_setup
+    rc = run_check(ctx, fake_docker, fake_git)
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "docs_standard_files" in out
+    assert "docs_reachability" in out
+    assert "no plans/design — skipped" in out

@@ -46,6 +46,8 @@ _HELP_TEXT: dict[str, str] = {
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
     "secrets": "Manage per-env secrets (scaffold/status/set/copy) value-blind.",
     "config": "Manage per-env config (scaffold/status/set/get/copy) values visible.",
+    "docs": "Scaffold or check the standard design-doc structure "
+            "(scaffold/check).",
 }
 
 
@@ -60,6 +62,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Pipeline", ("check", "merge", "containerize", "release",
                   "stagetest", "rollback")),
     ("Configuration", ("secrets", "config")),
+    ("Documentation", ("docs",)),
 )
 
 
@@ -959,6 +962,38 @@ def _cmd_config(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Documentation handlers (docs)
+# ---------------------------------------------------------------------------
+
+
+def _cmd_docs(args: list[str]) -> int:
+    """``docex docs <scaffold|check>`` — scaffold or police the standard
+    design-doc structure (docs.md § Standard Documentation Structure)."""
+    parser = argparse.ArgumentParser(prog="docex docs", add_help=True)
+    sub = parser.add_subparsers(dest="op", required=True)
+    sub.add_parser(
+        "scaffold",
+        help="lay down the standard design-doc file set (idempotent)",
+    )
+    sub.add_parser(
+        "check",
+        help="validate the design-doc structure "
+             "(missing-file + reachability)",
+    )
+    ns = parser.parse_args(args)
+
+    from docex.context import load_project_context
+    from docex.docs import run_docs_check, run_docs_scaffold
+
+    ctx = load_project_context(Path(os.getcwd()))
+    if ns.op == "scaffold":
+        return run_docs_scaffold(ctx)
+    if ns.op == "check":
+        return run_docs_check(ctx)
+    return 64  # unreachable — argparse requires a valid subcommand
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -994,6 +1029,8 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         # Configuration
         "secrets": _cmd_secrets,
         "config": _cmd_config,
+        # Documentation
+        "docs": _cmd_docs,
     }
 
 

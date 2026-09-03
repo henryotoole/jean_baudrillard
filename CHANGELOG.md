@@ -38,6 +38,17 @@ first post-`0.4.0` overhaul.
 - **ADR practice** as conditional-stratum `doctrine/practices/adrs.md` (format,
   status lifecycle, and generated index files), reached by the new `writing-adrs`
   thread skill and pointed to by a resident link from `docs.md`.
+- **`docex docs` command group (advance 010, mod 160).** `docex docs scaffold`
+  lays down the standard design-doc set under `plans/design` idempotently (L1
+  arc42 files, standard diagrams, `adrs/` + index stubs, `references/`, and a
+  per-`infra.yml`-codebase `module_diagram.mmd` / `module/` / `specifics/`);
+  `docex docs check` blocks on two checks — **missing-standard-file** and
+  **doc reachability** (orphaned-but-load-bearing docs, computed from the link
+  graph rooted at the arc42 files + standard diagrams, no per-doc frontmatter).
+  Scaffold and check share one canonical standard-set definition. `docex docs
+  check` also runs as a **blocking gate of `docex check`**; both skip when a
+  project has no `plans/design` yet. (`docs adr` index generation and the diagram
+  comparators are later mods in this advance.)
 
 ## [2.2.0] - 2026-08-28
 

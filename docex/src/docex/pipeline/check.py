@@ -731,6 +731,46 @@ def _is_executable(path: Path) -> bool:
     return os.access(path, os.X_OK)
 
 
+def _gate_docs(
+    worktree: Path,
+    ctx: ProjectContext,
+    report: CheckReport,
+) -> None:
+    """Blocking design-doc gates: standard files present + all docs reachable.
+
+    Skips (PASS) when the worktree has no ``plans/design`` — the checks are
+    anti-drift guards for an EXISTING design corpus, mirroring `_gate_contracts`
+    skipping when there is no infra.yml. Inception scaffolds the tree at project
+    birth; from then on these gates enforce it.
+    """
+    from docex.docs import (
+        design_root_exists,
+        missing_standard_files,
+        unreachable_docs,
+    )
+    from docex.orchestrate._common import codebases
+
+    if not design_root_exists(worktree):
+        report.add("docs_standard_files", True, "no plans/design — skipped")
+        report.add("docs_reachability", True, "no plans/design — skipped")
+        return
+
+    cbs = codebases(ctx)
+    missing = missing_standard_files(worktree, cbs)
+    report.add(
+        "docs_standard_files",
+        not missing,
+        "all standard design docs present" if not missing
+        else "; ".join(missing),
+    )
+    orphans = unreachable_docs(worktree, cbs)
+    report.add(
+        "docs_reachability",
+        not orphans,
+        "all design docs reachable" if not orphans else "; ".join(orphans),
+    )
+
+
 def _gate_observability_backend_url_reachable(
     ctx: ProjectContext,
     report: CheckReport,
@@ -911,6 +951,7 @@ def run_check(
         _gate_contract_health_path(worktree_ctx, contracts, report)
         _gate_contract_spec_version(worktree_ctx, contracts, report)
         _gate_codebase_scripts(worktree, worktree_ctx, report)
+        _gate_docs(worktree, worktree_ctx, report)
         _gate_observability_backend_url_reachable(worktree_ctx, report)
 
         # If any gate failed, surface aggregated report and stop.
