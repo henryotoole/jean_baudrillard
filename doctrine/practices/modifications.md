@@ -12,6 +12,12 @@ A modification or 'mod' is the fundamental unit of change to a project; whether 
 
 This process is **intentionally agnostic** to broader release cycles, branching, and version control workflow. Formal branching and merging is outside of the scope of a single modification cycle. Git is used within the cycle only for the practical purpose of giving the review step a clean diff to read against. Aside from the two commits specified below, git activity should not occur within a mod cycle.
 
+## Structure
+
+Every individual modification gets a folder at `$pr/plans/ops/mods/${mod_number}_${mod_name}/`. Each complete mod folder contains at least:
+1. `overview.md` - An overview of the requested modification from a design perspective.
+2. `implementation.md` - Specific implementation steps to effect the modifications on the source code.
+
 ## Process
 
 The process is performed by you (the agent) as follows:
