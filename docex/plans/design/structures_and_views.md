@@ -65,7 +65,7 @@ jean_baudrillard/docex/
 │       ├── secretsmgmt/     (SSM / .env secret backends)
 │       ├── registry/        (container-registry HTTP adapter)
 │       ├── context.py  naming.py  errors.py  envfile.py
-│       └── docs/            (standard_set, adr, linkmap — the docs command family)
+│       └── docs/            (standard_set, adr, linkmap + its consumers overhead/changed/cxt_groups — the docs command family)
 ├── tables/                  (canonical transfer tables, copied to /opt/docex/tables/)
 ├── doctrine_excerpts/       (data feeding `docex why`)
 ├── bin/                     (the project-installed shim, sourced from here)

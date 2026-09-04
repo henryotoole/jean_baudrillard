@@ -171,6 +171,9 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 `./bin/docex docs check`
 `./bin/docex docs adr`
 `./bin/docex docs linkmap <depth>`
+`./bin/docex docs overhead <file>`
+`./bin/docex docs changed <git_ref>`
+`./bin/docex docs cxt_groups <tokens_max> {<git_ref> | all}`
 
 Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is. `check`'s reachability test and `linkmap` share one link-graph builder, so the orphan gate and the emitted graph can never disagree on what links to what.
 
@@ -185,6 +188,12 @@ Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../p
 	+ **`code_level`** — `plans/design/**` **plus** each codebase's git-tracked `core/<cb>/src/**` (a strict superset; untracked / compiled artifacts like `.pyc` never appear).
 
 	The JSON is `{ "depth", "nodes", "edges" }`. Each **node** is one file keyed by its project-relative `fpath`, carrying: `type` (`design` under `plans/design`, `source` under a codebase's tracked `core/<cb>/src`, or `neither` for an edge target outside *this depth's* tracked scope — recorded so the edge is not lost, but never read); `is_standard` (a doctrine-named standard file); `level` (`L1`/`L2`/`L3` for design, `C` for source, `null` for `neither`); `codebase`; `module`; and `tokens` (an estimated read cost, `null` for `neither`). Each **edge** connects two nodes `a`/`b` (their `fpath`s ordered lexicographically) with a `link_type` (`markdown`, `mermaid_click`, or `emergent` — a hex source file to its module doc) and a `direction` (`a_to_b`, `b_to_a`, or `both`; reciprocal same-type links merge to `both`).
+
+The last three verbs are **consumers** of the `code_level` linkmap — none re-walks the tree; each shares `linkmap`'s output discipline (deterministic to stdout, diagnostics to stderr, non-zero exit on failure).
+
+- **`overhead`** lists a subject `<file>`'s **structurally-inferred overhead** — the higher/adjacent design docs that should be in context to make informed edits to it — as JSON (`{ "subject", "overhead": [ … ] }`, each entry the node's own metadata, ordered **high→low abstraction** then `fpath`). `<file>` must be an in-scope `design`/`source` node (else stderr + non-zero exit). Overhead is always **design docs only**, by three rules: (1) all L1 root docs — the arc42 files + all standard diagrams; (2) any L1/L2/L3 doc the subject directly links to (any `link_type`, so a source file's emergent module-doc edge folds in); (3) for a source file with a module doc, any doc that module doc directly links to. It is a **best guess, not exhaustive**.
+- **`changed`** emits a **plain sorted newline list** of in-scope files changed since `<git_ref>` — the **location allowlist** is `plans/design/**` + each codebase's `core/<cb>/src/**`, git-tracked only. Semantics are `git diff --name-only <ref>` against the **working tree** (so a mod's still-uncommitted edits to tracked files count; brand-new untracked files do not); deleted-since-`ref` paths are dropped. Passing git's **empty-tree** id as the ref means **all** in-scope files.
+- **`cxt_groups`** partitions the selected subjects into **context groups** — sets of subjects with overlapping overhead whose combined in-context cost (subjects + shared overhead, by `tokens`) stays under `<tokens_max>` — as JSON (per group: `estimated_tokens`, shared `overhead` high→low then `fpath`, and `subjects`). The groups **fully cover** the selection with **no repeated subject**. Selection is the literal `all` (every `design`/`source` node) or a `<git_ref>` (the `changed <ref>` set intersected with the graph's nodes). The packing is a **heuristic** — `tokens_max` is an estimate, not exact; a single subject whose own self+overhead exceeds it forms its own group with a stderr note (exit stays 0). The `doc-refine-orchestration` skill consumes this to spawn one subagent per group.
 
 ### `build`
 `./bin/docex build` to refresh `dist/` for all codebases in the `dev` environment.

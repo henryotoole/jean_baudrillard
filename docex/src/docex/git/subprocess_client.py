@@ -111,6 +111,14 @@ class SubprocessGitClient:
             return []
         return sorted(line.strip() for line in res.splitlines() if line.strip())
 
+    def diff_names(self, cwd: Path, ref: str, pathspecs: list[str]) -> list[str]:
+        res = self._capture(
+            ["diff", "--name-only", ref, "--", *pathspecs], cwd=cwd
+        )
+        if res is None:
+            return []
+        return sorted(line.strip() for line in res.splitlines() if line.strip())
+
     # ------------------------------------------------------------------
     # Mutating operations
     # ------------------------------------------------------------------

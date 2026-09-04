@@ -440,3 +440,28 @@ def run_docs_linkmap(ctx: ProjectContext, depth: str) -> int:
     )
     print(render_linkmap_json(depth, nodes, edges))
     return 0
+
+
+def load_code_level_graph(
+    project_root: Path,
+    codebase_names: list[str],
+    git: object | None = None,
+) -> tuple[list[Node], list[Edge]]:
+    """Build the ``code_level`` graph for a project from an explicit root.
+
+    Reuses ``_enumerate_design_files`` + ``_resolve_tracked_source`` +
+    ``build_linkmap``. Takes an explicit ``project_root`` + ``codebase_names``
+    (NOT a ``ProjectContext``) so it can be driven against a tree that has no
+    ``project.yml`` — e.g. docex's own corpus in Mod 168's calibration. ``git``
+    defaults to ``SubprocessGitClient()``.
+    """
+    from docex.git import SubprocessGitClient
+
+    project_root = Path(project_root)
+    if git is None:
+        git = SubprocessGitClient()
+    design_files = _enumerate_design_files(project_root)
+    source_files = _resolve_tracked_source(git, project_root, codebase_names)
+    return build_linkmap(
+        project_root, codebase_names, "code_level", design_files, source_files
+    )

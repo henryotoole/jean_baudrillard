@@ -398,6 +398,9 @@ class FakeGitClient:
     # ⇒ empty (nothing tracked under it). Used by the linkmap's code_level
     # source enumeration.
     ls_files_map: dict[str, list[str]] = field(default_factory=dict)
+    # Mod 167: scripted `diff_names` results, keyed purely by `ref`. Absent ref
+    # ⇒ empty. Pathspec filtering is asserted at the pure-filter layer, not here.
+    diff_names_map: dict[str, list[str]] = field(default_factory=dict)
     merge_bases: dict[tuple, str] = field(default_factory=dict)
     # Mod 105: scripted content for ``show``. Maps ``(ref, path)`` to the
     # file's content, or to None to model "git show failed" (bad ref,
@@ -489,6 +492,10 @@ class FakeGitClient:
     def ls_files(self, cwd, pathspec):
         self.calls.append(("ls_files", str(cwd), pathspec))
         return sorted(self.ls_files_map.get(pathspec, []))
+
+    def diff_names(self, cwd, ref, pathspecs):
+        self.calls.append(("diff_names", str(cwd), ref, tuple(pathspecs)))
+        return sorted(self.diff_names_map.get(ref, []))
 
     # -- writes -------------------------------------------------------
 

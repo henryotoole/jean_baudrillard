@@ -46,8 +46,9 @@ _HELP_TEXT: dict[str, str] = {
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
     "secrets": "Manage per-env secrets (scaffold/status/set/copy) value-blind.",
     "config": "Manage per-env config (scaffold/status/set/get/copy) values visible.",
-    "docs": "Scaffold, check, regenerate ADR indexes, or emit the link graph "
-            "for the design-doc structure (scaffold/check/adr/linkmap).",
+    "docs": "Scaffold, check, regenerate ADR indexes, emit the link graph, or "
+            "consume it (overhead/changed/cxt_groups) for the design-doc "
+            "structure (scaffold/check/adr/linkmap/overhead/changed/cxt_groups).",
 }
 
 
@@ -967,10 +968,15 @@ def _cmd_config(args: list[str]) -> int:
 
 
 def _cmd_docs(args: list[str]) -> int:
-    """``docex docs <scaffold|check|adr|linkmap>`` — scaffold, police, or
-    regenerate the standard design-doc structure (docs.md § Standard
-    Documentation Structure); ``adr`` regenerates the ADR index files;
-    ``linkmap <depth>`` emits the doc/code link graph as deterministic JSON."""
+    """``docex docs <scaffold|check|adr|linkmap|overhead|changed|cxt_groups>`` —
+    scaffold, police, or regenerate the standard design-doc structure (docs.md §
+    Standard Documentation Structure); ``adr`` regenerates the ADR index files;
+    ``linkmap <depth>`` emits the doc/code link graph as deterministic JSON; the
+    three consumer verbs read that graph — ``overhead <file>`` lists a subject's
+    structural overhead (JSON), ``changed <git_ref>`` lists in-scope files
+    changed since a ref (plain list), and ``cxt_groups <tokens_max>
+    {<git_ref>|all}`` groups subjects into token-budgeted context groups
+    (JSON)."""
     parser = argparse.ArgumentParser(prog="docex docs", add_help=True)
     sub = parser.add_subparsers(dest="op", required=True)
     sub.add_parser(
@@ -996,13 +1002,39 @@ def _cmd_docs(args: list[str]) -> int:
         help="design_docs (plans/design only) | code_level (adds tracked "
              "core/<cb>/src)",
     )
+    p_overhead = sub.add_parser(
+        "overhead",
+        help="list a subject file's structurally-inferred overhead docs (JSON)",
+    )
+    p_overhead.add_argument(
+        "file", help="project-relative path to a design or source file"
+    )
+    p_changed = sub.add_parser(
+        "changed",
+        help="list in-scope files changed since <git_ref> (plain list)",
+    )
+    p_changed.add_argument(
+        "git_ref", help="git ref; the empty-tree id means 'all'"
+    )
+    p_cxt = sub.add_parser(
+        "cxt_groups",
+        help="group changed/all subject files into context groups under a "
+             "token budget (JSON)",
+    )
+    p_cxt.add_argument(
+        "tokens_max", type=int, help="max total in-context tokens per group"
+    )
+    p_cxt.add_argument("selection", help="a git ref, or the literal 'all'")
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
     from docex.docs import (
         run_docs_adr,
+        run_docs_changed,
         run_docs_check,
+        run_docs_cxt_groups,
         run_docs_linkmap,
+        run_docs_overhead,
         run_docs_scaffold,
     )
 
@@ -1015,6 +1047,12 @@ def _cmd_docs(args: list[str]) -> int:
         return run_docs_adr(ctx)
     if ns.op == "linkmap":
         return run_docs_linkmap(ctx, ns.depth)
+    if ns.op == "overhead":
+        return run_docs_overhead(ctx, ns.file)
+    if ns.op == "changed":
+        return run_docs_changed(ctx, ns.git_ref)
+    if ns.op == "cxt_groups":
+        return run_docs_cxt_groups(ctx, ns.tokens_max, ns.selection)
     return 64  # unreachable — argparse requires a valid subcommand
 
 

@@ -144,6 +144,20 @@ class GitClient(Protocol):
         """
         ...
 
+    def diff_names(
+        self, cwd: Path, ref: str, pathspecs: list[str]
+    ) -> list[str]:
+        """Return the tracked paths that differ between ``ref`` and the working
+        tree, restricted to ``pathspecs`` (cwd-relative, POSIX), sorted.
+
+        Thin wrapper over ``git diff --name-only <ref> -- <pathspecs...>``:
+        compares ``ref`` against the current working tree (so uncommitted edits
+        to tracked files are included; brand-new untracked files are not).
+        Passing git's empty-tree object as ``ref`` lists every tracked file under
+        ``pathspecs``. Empty list if nothing differs or on failure.
+        """
+        ...
+
     def rebase(self, cwd: Path, onto: str) -> int:
         """``git rebase <onto>``. Returns exit code.
 

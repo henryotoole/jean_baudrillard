@@ -84,3 +84,79 @@ def test_cmd_docs_linkmap_requires_a_depth():
     with pytest.raises(SystemExit) as excinfo:
         _cmd_docs(["linkmap"])
     assert excinfo.value.code == 2
+
+
+# ---------------------------------------------------------------------------
+# Consumer verbs (mod 167)
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_docs_overhead_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+
+    seen = {}
+
+    def fake(ctx, file):
+        seen["file"] = file
+        return 0
+
+    monkeypatch.setattr("docex.docs.run_docs_overhead", fake)
+
+    assert _cmd_docs(["overhead", "plans/design/x.md"]) == 0
+    assert seen["file"] == "plans/design/x.md"
+
+
+def test_cmd_docs_changed_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+
+    seen = {}
+
+    def fake(ctx, git_ref):
+        seen["ref"] = git_ref
+        return 0
+
+    monkeypatch.setattr("docex.docs.run_docs_changed", fake)
+
+    assert _cmd_docs(["changed", "HEAD~3"]) == 0
+    assert seen["ref"] == "HEAD~3"
+
+
+def test_cmd_docs_cxt_groups_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+
+    seen = {}
+
+    def fake(ctx, tokens_max, selection):
+        seen["tokens_max"] = tokens_max
+        seen["selection"] = selection
+        return 0
+
+    monkeypatch.setattr("docex.docs.run_docs_cxt_groups", fake)
+
+    assert _cmd_docs(["cxt_groups", "40000", "all"]) == 0
+    assert seen["tokens_max"] == 40000
+    assert seen["selection"] == "all"
+
+
+def test_cmd_docs_cxt_groups_rejects_non_int_tokens_max():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["cxt_groups", "lots", "all"])
+    assert excinfo.value.code == 2
+
+
+def test_cmd_docs_overhead_requires_a_file():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["overhead"])
+    assert excinfo.value.code == 2
+
+
+def test_cmd_docs_changed_requires_a_ref():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["changed"])
+    assert excinfo.value.code == 2
+
+
+def test_cmd_docs_cxt_groups_requires_both_args():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["cxt_groups", "40000"])
+    assert excinfo.value.code == 2

@@ -8,9 +8,9 @@ metadata:
 # Documentation Refinement Orchestration
 
 | Name | Definition |
+| ---- | ---------- |
 | subject file | A doc or source code file which we are planning to make load-bearing edits to. |
 | overhead | The docs which must be in-context to make good, meaningful edits to a subject file. |
-| docmap | The full mapping of all subject files and related overhead documents. |
 
 Orchestrating any documentation-refining process is tricky. The full sum of code and docs is usually far more than a single context can hold. Fortunately editing a **subject file** (single design doc or file's worth of code-level comments) doesn't require whole-project context. It only requires that certain files be loaded - relevant "adjacent" docs and "higher" docs that link to it.
 + "adjacent" - docs of the same abstraction level, cross linked.
@@ -18,17 +18,14 @@ Orchestrating any documentation-refining process is tricky. The full sum of code
 
 We can summarize this in the concept of "overhead" - all the documents that must be in context to make changes to documentation within a subject file (whether source code or design doc).
 
-Now, overhead is tricky. It's hard to deterministically say exactly what composes a subject file's overhead in all cases. However, we can do a decent job in most cases with the following **overhead rules**. A file's *likely overhead* is:
-1. All L1 root docs (`boundary_conditions.md`, `concepts_and_decisions.md`, `structures_and_views.md`, and all standard diagrams).
-2. Any L2 or L3 doc to which the subject file directly links to.
-3. For code-level comments that have a module doc, any L2 or L3 that the *module doc* directly links to.
+Overhead is inferred structurally. We do not restate the rules here — they live in one place, `docex docs overhead` (see [`docex.md § docs`](../../doctrine/infrastructure/docex.md#docs)), and `docex docs cxt_groups` applies them for us. A pointer can't drift from its source; a restatement did.
 
-Now this gives us a deterministic "recommended pool" of overhead for a subject file. It won't be exhaustive, but it lets us do orchestration math. The general procedure is:
+This gives us a deterministic "recommended pool" of overhead for a subject file. It won't be exhaustive, but it lets us do orchestration math. The general procedure is:
 1. Identify all subject files that we wish to do work on.
 2. Establish the recommended pool of overhead files for each.
 3. Denote the "approximate" context usage of loading each file.
 4. Clump together groups of subject files which share overhead (*context groups*), aiming for 50% context usage when all subject files and overhead have been loaded.
-5. Kick off a sub-agent to use the `docs-refine` skill, giving it a full list of the subject files to assess and the full list of overhead to load into context *before loading any subject file*.
+5. Kick off a sub-agent to use the `doc-refine` skill, giving it a full list of the subject files to assess and the full list of overhead to load into context *before loading any subject file*.
 6. For each subject file, the sub-agent will already have the recommended pool of overhead files in context, and can then read the subject file and load any additional files into context intelligently. Then it can make load-bearing edits to the subject file with the best possible information.
 
 This process helps conserve context (we only load overhead files once per full subagent run spanning many subject files).
@@ -61,5 +58,20 @@ Use the results of the `cxt_groups` command to set up one subagent for each cont
 *Never parallelize this work* - it's almost impossible to predict what docs will be edited as a result of refinement, and we don't want one agent editing an overhead file actively loaded into context in another agent and being used as reference (or even worse, a collision!).
 
 ```md
-TEMPLATE TODO
+You are refining documentation for one context group. Work strictly in this order.
+
+1. FIRST, read these overhead files into context (highest abstraction first) — do
+   NOT edit them; they are reference for editing the subjects:
+   {{overhead_files, one per line, high→low abstraction}}
+
+2. Invoke the `doc-refine` skill and follow it to make load-bearing edits to each of
+   these subject files, one at a time:
+   {{subject_files, one per line}}
+
+   For each subject: read it, pull any additional docs you find you need, then make
+   only subtractive / condensing / organizing edits per `doc-refine`.
+
+Do not edit any file outside the subject list except as `doc-refine` directs. Report
+which subjects you changed and any overhead file that itself turned out to need work
+(flag it; do not edit it — a later group owns it).
 ```

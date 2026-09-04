@@ -83,6 +83,24 @@ first post-`0.4.0` overhaul.
   regeneration of the ADR index files (`adr_index.md`, `adr_active.md`) from
   `plans/design/adrs/`. ADR-index staleness is now a blocking check in `docex
   docs check` and the `docex check` gate.
+- **`docex docs` linkmap consumers — `overhead` / `changed` / `cxt_groups`
+  (advance 011, mod 167).** Three verbs that consume the `code_level` link graph
+  (mod 165's `linkmap`), sharing its output discipline (deterministic to stdout,
+  diagnostics to stderr, non-zero exit on failure). `overhead <file>` lists a
+  subject file's structurally-inferred overhead docs as JSON (L1 roots + docs it
+  directly links to + a source file's module-doc links, high→low abstraction — a
+  best guess, not exhaustive). `changed <git_ref>` emits a plain sorted list of
+  in-scope files (`plans/design/**` + tracked `core/<cb>/src/**`) changed since a
+  ref, working-tree-relative; the empty-tree id means all. `cxt_groups
+  <tokens_max> {<git_ref>|all}` partitions the selection into token-budgeted
+  context groups (shared overhead high→low, then subjects) that fully cover it
+  with no repeated subject — an overlap-greedy heuristic the
+  `doc-refine-orchestration` skill consumes to spawn one subagent per group. The
+  graph builder and the pure `overhead`/`cxt_groups` cores take an explicit
+  project root, so they run against docex's own `project.yml`-less corpus. Also
+  finalized the `doc-refine-orchestration` skill: filled its subagent template,
+  routed grouping to `cxt_groups`, and replaced its drifted, restated overhead
+  rules with a pointer to `docex docs overhead`.
 
 ## [2.2.0] - 2026-08-28
 
