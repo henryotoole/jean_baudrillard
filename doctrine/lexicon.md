@@ -36,8 +36,8 @@ This guide defines special words and phrases that have unique context for all ma
 | build |  | The process by which source code is compiled into a build artifact. |
 | release |  | The process by which a containerized built artifact is combined with environment-specific config to run in the `stage` or `prod` environments. |
 | Modification | "mod" | The process of designing, implementing, and testing a new feature or change to the project. |
-| Design Docs | "core planning docs", "core docs", "project documentation" | The project's design-documentation corpus, stored at "$pr/plans/design/*": the arc42 state docs, the standard diagrams (Project / Service / Module), module docs, and ADRs. |
-| Objectives |  | Strategic goals for the project. These define what a project *does*. The project is neither complete nor successful until it achieves its objectives. |
+| Design Docs | "core planning docs", "core docs", "project documentation" | The project's design-documentation corpus: the arc42 state docs, module docs, and ADRs. The "map" of the project. |
+| Requirements | "objectives" | What a project must do in order to satisfy its strategic raison d'être. The project is neither complete nor successful until it fulfills its requirements. |
 | Apex Domain |  | An absolute top-level domain without any subdomains e.g. `example.com` |
 | Master Network | `master_network`, `master_vpc` | The main, toplevel network which spans all projects. |
 | Stratum | "strata" (pl.) | A classification of doctrine *information* by when it is needed. There are three: the resident, conditional, and executor strata. See [overview](./doctrine.md#strata). |

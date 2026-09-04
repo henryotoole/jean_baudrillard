@@ -956,11 +956,14 @@ def run_check(
 
         if not empty_origin:
             _gate_version_not_released(project_root, worktree, git, report)
+        # WHY: the docs gates are cheap, deterministic file-graph checks — run
+        # them right after the git/version gates and before the costlier
+        # contract/codebase gates so a doc slip fails fast.
+        _gate_docs(worktree, worktree_ctx, report)
         contracts, _providers = _gate_contracts(worktree, worktree_ctx, report)
         _gate_contract_health_path(worktree_ctx, contracts, report)
         _gate_contract_spec_version(worktree_ctx, contracts, report)
         _gate_codebase_scripts(worktree, worktree_ctx, report)
-        _gate_docs(worktree, worktree_ctx, report)
         _gate_observability_backend_url_reachable(worktree_ctx, report)
 
         # If any gate failed, surface aggregated report and stop.

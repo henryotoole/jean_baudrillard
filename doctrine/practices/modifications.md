@@ -26,7 +26,7 @@ The process is performed by you (the agent) as follows:
 2. **Pre-Mod Checks**
 	1. Ensure that the current branch is **not** `main`. If it is, end the turn noting that you cannot proceed for this reason.
 3. **Design**: Creating `overview.md`.
-	1. Create a new [modification folder](./docs.md#standard-documentation-structure) in the modification documentation in `$pr/plans/ops/mods`.
+	1. Create a new [modification folder](#structure) in the modification documentation in `$pr/plans/ops/mods`.
 	2. Outline the mod's change at a design level and write the design plan to `overview.md` in the mod folder. Include any "design questions" which shake out during design at the bottom of this file.
 	3. End the turn. Report to whoever assigned this mod cycle that you've completed the mod's design overview (note the filepath), request their approval, and direct their attention to any unresolved "design questions".
 4. **Implementation**: Creating `implementation.md`.

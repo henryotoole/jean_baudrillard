@@ -8,16 +8,21 @@ This module describes the opening acts of creating a project from nothing. The i
 
 ## Initial State
 
-Before a project's inception, only the following "inputs" exist:
-1. An initial design brief, detailing the project's:
-	1. Name
-	2. Objectives
-	3. Project-specific terms and concepts
-	4. Infrastructure, sometimes down to the hexagonal-module level.
-		+ Includes domain and foundation.
-	5. Flows
-2. A "projects" directory on a development machine where the github repo will be cloned.
-3. The project owner's github credentials, available on the development machine.
+Before a project's inception, *at least* the following "inputs" must exist:
+1. The project's name.
+2. Boundary Conditions e.g. the `boundary_conditions.md` [arc42](./docs.md#arc42) sections:
+	+ Intro & Goals (most critically, *requirements* ought to be defined well)
+	+ Constraints
+	+ Context & Scope
+	+ Quality Requirements (probably far from totally filled out)
+3. A "projects" directory on a development machine where the github repo will be cloned.
+4. The project owner's github credentials, available on the development machine.
+
+A more complete initial design brief will likely also have additional first-draft *arc42* sections:
+1. Cross-Cutting Concepts - key ideas and domain in prose.
+2. Solution Strategy - initial ideas of how to solve the technical problems presented by the requirements.
+3. Building-Block View - thoughts or plans on structure; back-of-envelope diagrams which will inform `infra.yml` and the standard diagrams.
+4. Runtime View - project-wide flows which inform how the project will be used.
 
 ## Inception Process
 
@@ -60,7 +65,7 @@ C) By handing full architecture authority to the LLM.
 
 The design phase should "fill out" the [design docs](./docs.md#design-documentation) — the arc42 project-level (L1) state docs, the standard diagrams, and per-codebase docs. Each codebase should be given a folder in `$pr/plans/design`, and filled out with codebase-level (L2) and module-level (L3) design docs. Codebases with internal hexagonal architecture should have a module doc for each planned hexagonal module. Codebases which [own the schema](../infrastructure/cicl.md#the-cicl-format) for a relational database should get a `db_schema.md` file documenting relational schema choices.
 
-All these design docs are driven by the initial design brief. They "unpack" those high-level plans into the concrete arc42 state docs, diagrams, and module docs. 
+All these design docs are driven by the initial design brief. They "unpack" those high-level plans into the concrete arc42 state docs, diagrams, and module docs. The "boundary condition" inputs likely to transfer over with little change as they represent conditions the project developer cannot often change. Any additional inputs (like solution strategy ideas and structure diagrams) may require more translation work to fit them into the right *arc42* sections. 
 
 __PART III__: Infrastructure Smoke Test
 1. Make a commit with the message "Inception Part II: design complete"

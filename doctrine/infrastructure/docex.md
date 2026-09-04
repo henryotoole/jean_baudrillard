@@ -1,5 +1,5 @@
 ---
-stratum: conditional
+stratum: resident
 ---
 
 # `docex` Overview
@@ -61,7 +61,7 @@ Under the hood, detaching is achieved by spinning up a deterministically named c
 | `envinfra <direction> <env>` | Bring up or tear down a fixed-foundation environment locally. |
 | `secrets <op> <env> [...]` | Manage an environment's secrets file without exposing secret values to the caller. |
 | `config <op> <env> [...]` | Manage an environment's non-secret config file. |
-| `docs <op>` | Scaffold, check, or regenerate the standard design-doc set under `plans/design`. `docs check` is also a blocking sub-gate of [`check`](#check). |
+| `docs <op>` | Scaffold, check, or regenerate the standard design-doc set under `plans/design`. |
 | `build <codebase>` | Run `build.sh` for one or all codebases. |
 | `test [subset]` | Run build-time tests (unit, integration, contract) in a fresh `test` environment. A [durable job](#asynchronous-usage); `--detach` returns a handle. `test [subset]` narrows the run; `--slots N` shards it. |
 | `job <op> [<handle>]` | Operate on durable run handles: `ls`, `status`, `wait`, `logs`, `result`. |
@@ -174,8 +174,11 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is.
 
 - **`scaffold`** idempotently lays down every missing standard design-doc entry — the L1 arc42 files, the standard diagrams, `adrs/` with its two generated index stubs, `references/`, and a per-`infra.yml`-codebase `module_diagram.mmd`, `module/`, and `specifics/`. It never clobbers an existing file (creates only what is missing) and never auto-creates optional entries; empty standard directories get a `.gitkeep`. It reports what it created.
-- **`check`** validates an existing design corpus and exits non-zero on any problem. Three checks: **missing standard file** (a required standard entry is absent), **reachability** (a file under `plans/design` that no standard root can reach through the link graph — an orphaned, potentially load-bearing doc), and **ADR-index freshness** (`adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`). It passes as a no-op when the project has no `plans/design` yet. The same three checks run as a **blocking sub-gate of [`check`](#check)** — see [cicd.md § Check Step](./cicd.md#check-step) and [docs.md § Docex](../practices/docs.md#docex).
-- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent — a no-op run rewrites nothing. `docs check` gates their freshness. See [adrs.md § Docex](../practices/adrs.md#docex).
+- **`check`** validates an existing design corpus and exits non-zero on any problem. Passes as no-op if there's no `plans/design` folder.1` Three checks:
+	+ Standard File Missing - a required standard entry is absent.
+	+ Reachability - All design docs can be reached through via link graph starting in one of the [standard doc roots](../practices/docs.md#reachability-check).
+	+ ADR-index Freshness - `adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`.
+- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing.
 
 ### `build`
 `./bin/docex build` to refresh `dist/` for all codebases in the `dev` environment.

@@ -18,27 +18,7 @@ The doctrine recognizes five distinct forms of documentation:
 | Operational Docs | These document active development workflows in-process. They coordinate active developers and provide a literal historic record of project development. |
 | Reference Docs | These document topics *outside* of the project. Could be an API reference that the project will use, a data sample that indicates an interesting edge, a sample of a textbook on helical spur gears, etc. Literally used for reference when designing. |
 
-┌─────────────────┐┌──────────────────────────────────────────┐┌──────────────────┐
-│                 ││                                          ││                  │
-│  Product Docs   ││               Design Docs                ││ Code-Level Docs  │
-│                 ││                                          ││                  │
-│                 ││ ┌────────────┬────────────┬────────────┐ ││                  │
-│                 ││ │            │            │            │ ││                  │
-│                 ││ │   **L1**   │   **L2**   │   **L3**   │ ││                  │
-│                 ││ │            │            │            │ ││                  │
-│                 ││ │   project  │   codebase │   module   │ ││                  │
-│                 ││ │   level    │   level    │   level    │ ││                  │
-│                 ││ │            │            │            │ ││                  │
-│                 ││ │            │            │            │ ││                  │
-│                 ││ ├────────────┴────────────┴────────────┤ ││                  │
-│                 ││ │                                      │ ││                  │
-│                 ││ │                ADR's                 │ ││                  │
-│                 ││ │                                      │ ││                  │
-│                 ││ └──────────────────────────────────────┘ ││                  │
-└─────────────────┘└──────────────────────────────────────────┘└──────────────────┘
-*above chart boxes are on an axis from more abstract ---> less abstract (left to right)
-
-<TODO> Move the above to `diagrams` and link. </TODO>
+Human readers, see diagram [design_docs.md](../charts/design_docs.md#abstraction-axis).
 
 ## Product Documentation
 
@@ -66,56 +46,15 @@ Design docs also naturally land on different levels of *abstraction*. Project-sp
 
 ### arc42
 
-                                                             DESIGN DOCS                                                            
-                                                                                                                                    
-┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                │                                │                                │                               │
-│  **ARC42 Section**             │             **L1**             │             **L2**             │             **L3**            │
-│                                │                                │                                │                               │
-│                                │             project            │             codebase           │             module            │
-│                                │             level              │             level              │             level             │
-│                                │                                │                                │                               │
-│  Intro & Objectives            │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Constraints                   │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Context & Scope               │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Quality Requirements──────────┼─►quality_scenarios.md          │                                │                               │
-│                                │                                │                                │                               │
-│  Cross-cutting Concepts──────┬─┼─►specifics (L1 folder)         │                                │                               │
-│                              └─┼─►doctrine_ext.md               │                                │                               │
-│  Solution Strategy             │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Risk, Unknowns────────────────┼─►unknowns.md                   │                                │                               │
-│  & Tech. Debt                  │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Building Block View───────────┼─►Project + Service Diagrams┬───┼─►Module Diagrams───────────────┼─►module docs                  │
-│                                │                            └───┼─►specifics (L2 folder)         │                               │
-│  Runtime View                  │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Deployment View               │                                │                                │                               │
-│                                │                                │                                │                               │
-│  Glossary                      │  lexicon.md                    │                                │                               │
-│                                │                                │                                │                               │
-├────────────────────────────────┴────────────────────────────────┴────────────────────────────────┴───────────────────────────────┤
-│                                                                                                                                  │
-│                                                                                                                                  │
-│  Arch. Decisions                  ADR's                                                                                          │
-│                                                                                                                                  │
-│                                                                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-*arrows represent routing direction; if A─►B then reading A provides an overview of and links to B.
-
-<TODO> Move the above diagram to diagrams, link from here. </TODO>
-
 The doctrine mandates the use of *arc42* sections to organize design docs. The marriage of *arc42* and the doctrine proves symbiotic and allows us to understand easily what belongs in each *arc42* section. L1 is formally organized into *arc42* sections split across a handful of files. L2 and L3 docs are not *arc42*-structured; they can take more flexible form and represent more detailed sections that L1 docs will reference "downwards" into.
+
+Human readers, see diagram [design_docs.md](../charts/design_docs.md#arc42-inset).
 
 The table below describes each standard section and its non-standard quirks when used under the doctrine:
 
 | *arc42* Name | L1 File | Header | Notes |
 | ------------ | ------- | ------ | ----- |
-| Introduction & Goals | `boundary_conditions.md` | `# Intro and Goals` | We do not ever have a stakeholder section. |
+| Introduction & Goals | `boundary_conditions.md` | `# Intro and Goals` | We do not ever have a stakeholder section. "Goals" break down into requirements and quality goals. |
 | Constraints | `boundary_conditions.md` | `# Constraints` | |
 | Context & Scope | `boundary_conditions.md` | `# Context and Scope` | Light embellishment on the "Project Diagram", which captures this more completely. |
 | Quality Requirements | `boundary_conditions.md` | `# Quality Requirements` | Only include the "overview" - specific scenarios in detail are stored in the `quality_scenarios.md`. |
@@ -236,18 +175,27 @@ plans
 
 ## Docex
 
-`docex` provides the [`docex docs`](../infrastructure/docex.md#docs) command family to lay down and police this standard structure:
+`docex` provides the [`docex docs`](../infrastructure/docex.md#docs) command family to lay down and police this standard structure: `./bin/docex docs <verb>`. Verbs include:
++ `scaffold` to generate blank files and structure,
++ `check` to verify links and structure,
++ and `adr` to sync ADR Indices. 
 
-- **`docex docs scaffold`** idempotently creates every missing standard design-doc entry under `plans/design` — the L1 arc42 files, the standard diagrams, `adrs/` and its two generated index stubs, `references/`, and a `module_diagram.mmd`, `module/`, and `specifics/` per `infra.yml` codebase. It never overwrites an existing file and never creates the optional entries; empty standard directories get a `.gitkeep`. Inception runs it to seed a new project's design docs.
-- **`docex docs check`** validates an existing corpus and blocks (non-zero exit) on any problem: a [missing standard file](#missing-standard-file), an [unreachable doc](#reachability-check), or a stale ADR index. It also runs as a blocking sub-gate of [`docex check`](../infrastructure/cicd.md#check-step); both skip when a project has no `plans/design` yet.
-- **`docex docs adr`** regenerates the two ADR index files from the ADR sources — see [adrs.md § Docex](./adrs.md#docex).
+See [docex.md](../infrastructure/docex.md#docs) for command details.
+
+Notably, the `docs check` checks must pass in order for the CI/CD check gate to pass. This enforces (rather than merely suggests) the absolute base necessities of the design doc mechanism in all projects.
 
 ### Reachability Check
 
-The [loading flow](#llm-agent-usage) no longer reads *all* design docs, only the top-level ones; routing is strictly top-down. That makes the **orphaned-but-load-bearing doc** the critical failure to avoid: a file buried in `specifics` that no higher-level section or diagram links to is invisible but may still be load-bearing.
+The [loading flow](#llm-agent-usage) is only guaranteed to read L1 standard docs. Routing is strictly top-down. If a critical load-bearing doc gets buried in `specifics` without any reference "from above", it could get lost forever.
 
-`docex docs check` guards against this mechanically. It enumerates every file under `plans/design`, builds the link graph rooted at the standard roots — the L1 arc42 files, `lexicon.md`, the [standard diagrams](#standard-diagrams) (`project_diagram.mmd`, `service_diagram.mmd`, and each codebase's `module_diagram.mmd`), and the two ADR indexes (`adr_index.md`, `adr_active.md`) — and flags any file a root cannot reach. Both markdown links and mermaid `click` targets count as edges. No per-doc frontmatter is required; reachability is computed from the link graph itself.
+`docex docs check` guards against this mechanically. It enumerates every file under `plans/design`, builds the link graph rooted at the standard roots, and flags any file a root cannot reach. Both markdown links and mermaid `click` targets count as edges. As long as a doc is reachable in some number of reference hops from a standard root doc, it qualifies.
+
+A handful of files form the "standard roots" for doc reachability:
++ `lexicon.md`
++ The L1 *arc42* files (`boundary_conditions.md`, `concepts_and_decisions.md`, `structures_and_views.md`)
++ The [standard diagrams](#standard-diagrams) (`project_diagram.mmd`, `service_diagram.mmd`, and each codebase's `module_diagram.mmd`)
++ The ADR indexes (`adr_index.md`, `adr_active.md`) 
 
 ### Missing Standard File
 
-`docex docs check` also verifies that every non-optional entry in the standard [documentation structure](#standard-documentation-structure) actually exists — each L1 arc42 file, the standard diagrams and ADR indexes, the `adrs/` and `references/` directories, and each codebase's `module_diagram.mmd`, `module/`, and `specifics/`. `docex docs scaffold` lays these down; this check keeps them from being deleted or forgotten. It is blocking under [`docex check`](../infrastructure/cicd.md#check-step).
+`docex docs check` also verifies that every non-optional entry in the standard [documentation structure](#standard-documentation-structure) actually exists. `docex docs scaffold` lays these down; this check keeps them from being deleted or forgotten.

@@ -1,3 +1,14 @@
+> **STATUS — STOPPED (hard pause after Mod 164).** This advance was halted
+> deliberately after Mod 164 plus two sarge fallout commits. **Completed:** Mods
+> 159–164 (Mod 162 = comparators *dropped* by operator ruling) and the
+> `docs`-gate reorder. **NOT performed:** Mod 7 (docex dogfood) and the entire
+> Close-out (steps 8–11 below — cohere, skill evals, docex release gates, fixed
+> smoke walk). The deferred work was **carried forward into
+> [advance 011 (`archdoc_skills`)](../011_archdoc_skills/advance_plan.md)**, which
+> also builds the doc-refinement tooling; the `3.0.0` cut (steps 12–14) follows
+> 011 and bundles both advances. See [`report.md`](./report.md) for the full
+> resume state.
+
 # Goals
 
 This advance replaces the doctrine's documentation model wholesale: `docs.md` and
@@ -110,7 +121,7 @@ a sarge ruling), → GATE (must be green before dependents start), → DEPENDS.
    gates live. If migration proves out-of-budget, record the exemption (Goal 3 SC1).
    → DEPENDS: Mods 2–3.
 
-## Close-out (tonight)
+## Close-out — NOT PERFORMED (carried to advance 011 / the 3.0.0 cut)
 
 8. **`cohere` pass.** `corporal`, run once (token heuristic). Gate: static audit +
    `verify_examples.py` + `linkcheck` all green.
