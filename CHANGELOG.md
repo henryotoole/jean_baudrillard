@@ -110,6 +110,16 @@ first post-`0.4.0` overhaul.
   finalized the `doc-refine-orchestration` skill: filled its subagent template,
   routed grouping to `cxt_groups`, and replaced its drifted, restated overhead
   rules with a pointer to `docex docs overhead`.
+- **`docs` token estimator recalibrated `len/4` → `len/2.4` (advance 011, mod 168).**
+  Calibrated the `linkmap`/`cxt_groups` per-file `tokens` heuristic against real,
+  transcript-measured token counts of docex's own migrated corpus (a subagent read
+  each file; its measured input tokens vs. the estimate). Technical markdown and
+  Python source tokenize far denser than the ~4-chars/token English-prose rule of
+  thumb — measured ~2.4 chars/token for both, so the old `len/4` undercounted real
+  content cost by ~1.65–1.7× (and the as-read cost, incl. the Read tool's
+  line-number prefixes, by ~1.9×). A single divisor (prose and source did not
+  materially diverge); no tokenizer dependency added. See
+  `docex/plans/modifications/168_cxt_groups_calibration/calibration.md`.
 
 ## [2.2.0] - 2026-08-28
 

@@ -293,12 +293,13 @@ def test_render_is_deterministic_and_sorted(tmp_path):
 
 
 def test_tokens_heuristic(tmp_path):
-    text = "x" * 40  # 40 chars → round(40/4) = 10
+    # Divisor calibrated to 2.4 chars/token in mod 168 (was 4).
+    text = "x" * 48  # 48 chars → round(48/2.4) = 20
     p = _write(tmp_path, "plans/design/z.md", text)
     nodes, _ = build_linkmap(tmp_path, ["api"], "design_docs", [p], [])
     n = _nodes_by_fpath(nodes)["plans/design/z.md"]
-    assert n.tokens == max(1, round(len(text) / 4))
-    assert n.tokens == 10
+    assert n.tokens == max(1, round(len(text) / 2.4))
+    assert n.tokens == 20
 
 
 def test_tokens_floor_is_one(tmp_path):

@@ -1,7 +1,7 @@
 """Unit tests for ``docex docs cxt_groups`` — context grouping (mod 167).
 
 ``build_context_groups`` is pure; tests build small graphs with controlled
-``tokens`` (recall ``tokens == max(1, round(len(text)/4))``) via ``build_linkmap``.
+``tokens`` (recall ``tokens == max(1, round(len(text)/2.4))``) via ``build_linkmap``.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ def _write(root, rel, text="x\n"):
 
 
 def _big(n):
-    # n tokens ≈ 4n chars.
-    return "x" * (4 * n)
+    # n tokens ≈ 2.4n chars (divisor calibrated to 2.4 in mod 168).
+    return "x" * round(2.4 * n)
 
 
 # ---------------------------------------------------------------------------

@@ -105,13 +105,31 @@ def _tagged_links_in(path: Path) -> list[tuple[Path, str]]:
 # ---------------------------------------------------------------------------
 
 
+# WHY: 2.4, not the ~4-chars/token rule of thumb. Mod 168 calibrated this
+# divisor against REAL transcript-measured token counts of docex's own migrated
+# corpus (a subagent read each file; its measured input tokens were compared to
+# the estimate). Technical markdown (design docs) measured 2.43 chars/token and
+# Python source 2.34 — both far denser than the ~4 cpt English-prose heuristic,
+# because this content is thick with paths, symbols, identifiers, tables, and
+# punctuation. The old len/4 undercounted real content tokens by ~1.65-1.7x
+# (and the as-read cost, incl. the Read tool's line-number prefixes, by ~1.9x).
+# 2.4 is the char-weighted empirical density across both content types (they did
+# not materially diverge, so one divisor suffices). No tokenizer dependency is
+# added — that remains a deliberate operator ruling. See
+# plans/modifications/168_cxt_groups_calibration/calibration.md.
+_CHARS_PER_TOKEN = 2.4
+
+
 def _estimate_tokens(text: str) -> int:
     """Estimate the LLM context cost of reading ``text``.
 
-    The standard ~4-chars-per-token heuristic. Deterministic; no dependency
-    (deliberately avoids ``tiktoken``, which would be new infrastructure).
+    A chars-per-token heuristic calibrated (mod 168) against real
+    transcript-measured token counts of docex's own design + source corpus
+    (~2.4 chars/token for technical markdown and Python). Deterministic; no
+    dependency (deliberately avoids ``tiktoken``, which would be new
+    infrastructure).
     """
-    return max(1, round(len(text) / 4))
+    return max(1, round(len(text) / _CHARS_PER_TOKEN))
 
 
 def _fpath(project_root: Path, abs_path: Path) -> str:
