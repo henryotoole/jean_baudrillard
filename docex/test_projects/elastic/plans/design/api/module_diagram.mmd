@@ -1,0 +1,27 @@
+%% Module Diagram (C4 component) for the api codebase.
+%% The four hex modules and the api.{web,worker,clock} core services that
+%% reach into them. The sole cross-module import is jobs' runner taking
+%% retention's driving port — the one the doctrine permits.
+flowchart TB
+    web["api.web<br/>(web edge)"]
+    worker["api.worker<br/>(poll loop + rpc surface)"]
+    clock["api.clock<br/>(cron loop)"]
+
+    subgraph modules["api hex modules"]
+        pings["pings<br/>Ping entity · POST /pings"]
+        processor["processor<br/>claim & mark pings processed"]
+        jobs["jobs<br/>deferred-work queue (defer + perform + drain)"]
+        retention["retention<br/>prune processed pings past the window"]
+    end
+
+    web -->|"create pings; drain jobs"| pings
+    web -->|"drain (consumer half)"| jobs
+    worker -->|"process pings"| processor
+    worker -->|"perform jobs"| jobs
+    clock -->|"defer jobs"| jobs
+    jobs -->|"prune_pings handler (driving port import)"| retention
+
+    click pings "./module/pings.md" "pings module doc"
+    click processor "./module/processor.md" "processor module doc"
+    click jobs "./module/jobs.md" "jobs module doc"
+    click retention "./module/retention.md" "retention module doc"

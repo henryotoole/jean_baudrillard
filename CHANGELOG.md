@@ -56,6 +56,19 @@ first post-`0.4.0` overhaul.
   `doctrine-update` skills, `linkcheck.py` roots + its test fixtures, `RELEASING.md`,
   `PRE_CUT_CHECKLIST.md`, two `docex` docstrings, and `pyproject.toml`'s `readme`).
   `$jb/doctrine/**` unchanged apart from the one `credentials.md` link. No `docex` behavior change.
+- **Both smoke-test projects migrated to the 3.0.0 arc42 doc structure (advance 011, mod 169).**
+  Converted `docex/test_projects/{fixed,elastic}/plans/core` → `plans/design` — the
+  masterplan/`api.md` split into the arc42 L1 nucleus (`boundary_conditions.md`,
+  `concepts_and_decisions.md`, `structures_and_views.md`, `lexicon.md`, `unknowns.md`),
+  four ADRs each (one-codebase-three-core-services, postgres-tables-as-queues,
+  tick-file-liveness, no-cross-service-health-fanout), the three standard diagrams
+  (`project_diagram.mmd`, `service_diagram.mmd`, `api/module_diagram.mmd`), and the
+  per-codebase L3 layer (`plans/design/api/{module,specifics}`) — the **full** doctrine
+  shape, since (unlike `docex` itself) these are complete `project.yml`+`infra.yml`
+  projects. Each now passes `docex docs check`; the `§ Shape` citations repoint to
+  `docex/plans/design/specifics/test_projects.md`. The migration is committed inside each
+  project's own nested repo (its own CHANGELOG, no version bump); the doctrine-repo copy
+  rides this commit. Validates advance 010's docs tooling against two compliant projects.
 - **Doctrine prose filled in for the `docex docs` tooling (advance 010, mod 164).**
   Documented the `docex docs {scaffold, check, adr}` command family in `docex.md`
   (command reference + `### docs` detail; `docs check` noted as a blocking sub-gate

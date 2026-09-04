@@ -3,7 +3,7 @@
 `processor` is the module the `api.worker` core service drives. Verifies
 the alogic processes pings correctly against a stub repo. Real postgres
 exercise happens implicitly through module integration during the dev/test
-compose stack — see plans/core/api/hex/processor.md.
+compose stack — see plans/design/api/module/processor.md.
 """
 
 from __future__ import annotations

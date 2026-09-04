@@ -1,0 +1,20 @@
+%% Project Diagram (C4 system-context) for docex_smoke_elastic.
+%% One black box (the project) against the operator and the external
+%% systems an elastic-foundation walk touches. Detail is in the service diagram.
+flowchart TB
+    operator["Operator<br/>(developer on the dev machine)"]
+    route53["Route53<br/>luxrnd.tech parent + docex-smoke-elastic zone (DNS + ACM validation)"]
+    registry["Container registry<br/>ECR (one repo, one codebase)"]
+    preinfra["Preinfra<br/>master VPC (us-east-1) · shared NAT egress"]
+
+    subgraph projBox["docex-smoke-elastic — elastic-foundation smoke-test project"]
+        proj["api codebase<br/>web · worker · clock (+ appdb / probe / events)"]
+    end
+
+    operator -->|"drives the pre-cut walk via docex"| proj
+    proj -->|"pushes / pulls the one image tag"| registry
+    proj -->|"provisions the zone, validates ACM certs, resolves hosts"| route53
+    preinfra -->|"hosts the project ALB, ECS tasks, RDS, and EFS"| proj
+
+    click proj "./service_diagram.mmd" "Codebase, core services, and backings"
+    click projBox "./boundary_conditions.md" "Intro, goals, scope, constraints"

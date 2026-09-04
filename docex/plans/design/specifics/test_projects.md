@@ -66,7 +66,7 @@ docex/test_projects/
 │   ├── bin/docex                (shim, installed by docex_install.sh)
 │   ├── core/api/                (full hex structure, identical to elastic's)
 │   ├── infra/{infra.yml, contracts/, stage/, secrets/, deploy_creds/, output/}
-│   ├── plans/core/              (masterplan + service docs)
+│   ├── plans/design/            (arc42 L1 + ADRs + standard diagrams + api/{module,specifics})
 │   ├── teardown.sh
 │   └── verify_clean.sh
 └── elastic/                     (same shape, foundation: elastic)

@@ -1,0 +1,20 @@
+%% Project Diagram (C4 system-context) for docex_smoke_fixed.
+%% One black box (the project) against the operator and the external
+%% systems a fixed-foundation walk touches. Detail is in the service diagram.
+flowchart TB
+    operator["Operator<br/>(developer on the dev machine)"]
+    route53["Route53 zone<br/>luxrnd.tech (DNS + ACME DNS-01)"]
+    registry["Container registry<br/>registry.luxrnd.tech"]
+    preinfra["Preinfra<br/>HAProxy web_demux · master network"]
+
+    subgraph projBox["docex-smoke-fixed — fixed-foundation smoke-test project"]
+        proj["api codebase<br/>web · worker · clock (+ appdb / probe / events)"]
+    end
+
+    operator -->|"drives the pre-cut walk via docex"| proj
+    proj -->|"pushes / pulls the one image tag"| registry
+    proj -->|"issues TLS certs (DNS-01), resolves hosts"| route53
+    preinfra -->|"SNI-routes 443/80 to the project Traefik"| proj
+
+    click proj "./service_diagram.mmd" "Codebase, core services, and backings"
+    click projBox "./boundary_conditions.md" "Intro, goals, scope, constraints"

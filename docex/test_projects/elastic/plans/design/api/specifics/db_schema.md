@@ -32,7 +32,7 @@ That ownership is the reason this table lives in `api` at all. A clock may only 
 
 **Index.** `jobs_pending_idx` on `(enqueued_at)` is **partial** — `WHERE started_at IS NULL`. The worker's claim only ever reads unstarted rows, so the index covers exactly the hot query and stops growing as completed jobs accumulate.
 
-**Claiming.** `SELECT … FOR UPDATE SKIP LOCKED` inside one transaction, then `UPDATE … SET started_at`. `FOR UPDATE` buys exclusivity (`api.worker` runs `replicas: 2` in prod, so this is a genuine two-consumer race); `SKIP LOCKED` buys liveness (without it the second worker blocks behind the first's batch instead of taking different rows). See [`hex/jobs.md`](./hex/jobs.md#concurrency).
+**Claiming.** `SELECT … FOR UPDATE SKIP LOCKED` inside one transaction, then `UPDATE … SET started_at`. `FOR UPDATE` buys exclusivity (`api.worker` runs `replicas: 2` in prod, so this is a genuine two-consumer race); `SKIP LOCKED` buys liveness (without it the second worker blocks behind the first's batch instead of taking different rows). See [`jobs.md`](../module/jobs.md#concurrency).
 
 **Retention of the queue itself** is deliberately not implemented. Rows accumulate; the smoke project is torn down between walks. A real project would prune finished jobs — most likely with a scheduled job of its own.
 

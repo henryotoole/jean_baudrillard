@@ -1,0 +1,36 @@
+%% Service Diagram (C4 container) for docex_smoke_elastic.
+%% One codebase (api) → three core services, three backing services.
+%% Must stay consistent with infra/infra.yml. Arrows point in the
+%% direction of calling/usage, labelled with the action. On elastic
+%% stage/prod each core service is a task_definition + ecs_service;
+%% only `web` carries an ALB target group.
+flowchart TB
+    subgraph api["api codebase — one ECR repo, one image, three ECS services"]
+        web["api.web<br/>role: web · port 8080 · ALB target group"]
+        worker["api.worker<br/>role: worker · port 8081 · replicas 2 (prod) · no target group"]
+        clock["api.clock<br/>role: clock · no port · not Service-Connect-registered · schedules: prune_pings, heartbeat"]
+        webRest["rest surface"]
+        workerRpc["rpc surface (POST /drain)"]
+        workerEvents["events surface (pings + jobs channels)"]
+        web --- webRest
+        worker --- workerRpc
+        worker --- workerEvents
+    end
+
+    appdb[("appdb<br/>relational_db · postgres 15 · RDS<br/>pings + jobs tables")]
+    probe["probe<br/>sidecar · nginx · ECS Fargate task"]
+    events[("events<br/>analytics_db · clickhouse · ECS Fargate + EFS")]
+
+    web -->|"POST /drain: drain the job queue now (Service Connect)"| workerRpc
+    web -->|"save/claim pings; enqueue via /jobs; drain"| appdb
+    worker -->|"claim & process pings; claim & perform jobs"| appdb
+    clock -->|"enqueue a job row when a schedule fires"| appdb
+    web -->|"GET /diagnostics/probe: reachability"| probe
+    web -->|"GET /diagnostics/events: TCP reachability"| events
+
+    click web "./api/module_diagram.mmd" "api core-service modules"
+    click worker "./api/module_diagram.mmd" "api core-service modules"
+    click clock "./api/module_diagram.mmd" "api core-service modules"
+    click webRest "../../infra/contracts/api.web.rest.openapi.yml" "rest surface contract"
+    click workerRpc "../../infra/contracts/api.worker.rpc.asyncapi.yml" "rpc surface contract"
+    click workerEvents "../../infra/contracts/api.worker.events.asyncapi.yml" "events surface contract"

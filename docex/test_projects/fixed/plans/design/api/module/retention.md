@@ -4,12 +4,11 @@
 
 Deletes processed pings that have outlived the retention window.
 
-This module is the retired **`reaper` codebase**, transplanted into `api` and
-renamed for what it does rather than for the deployment that used to run it.
-Nothing about the rule changed; only its home did. The move was forced by the
-clock rule that a clock may only enqueue onto its own codebase's queue: `reaper`
-owned no schema, no worker, and no queue, so it could not become a clock, and
-its work had to live in the codebase that owns the `pings` table.
+The pruning rule lives in `api` — named for what it does rather than for a
+deployment — because a clock may only enqueue onto its own codebase's queue, and
+`api` is the codebase that owns the `pings` table. Why the rule lives here rather
+than in a scheduler codebase of its own is recorded in
+[ADR 0001](../../adrs/0001_one_codebase_three_core_services.md).
 
 ## Domain
 

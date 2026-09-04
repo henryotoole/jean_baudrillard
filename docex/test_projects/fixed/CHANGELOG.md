@@ -46,6 +46,13 @@ task instead.)
 - **`api.worker` and `api.clock` dropped `health_check_path`.** That field is
   confined to `web`-network core services, where it is what the reverse proxy
   reads. `api.web` keeps it.
+- **Design docs migrated to the 3.0.0 arc42 structure under `plans/design/`.**
+  The old masterplan-centric layout is replaced by the arc42 L1 files
+  (`boundary_conditions.md`, `concepts_and_decisions.md`,
+  `structures_and_views.md`, `lexicon.md`, `unknowns.md`), four ADRs, the
+  standard `project_diagram.mmd` / `service_diagram.mmd`, and the per-codebase
+  `plans/design/api/{module,specifics}` L3 layer with `module_diagram.mmd`. The
+  project now passes `docex docs check`. No source, infra, or version change.
 
 ### Added
 

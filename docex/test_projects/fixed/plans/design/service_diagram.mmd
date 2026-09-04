@@ -1,0 +1,34 @@
+%% Service Diagram (C4 container) for docex_smoke_fixed.
+%% One codebase (api) → three core services, three backing services.
+%% Must stay consistent with infra/infra.yml. Arrows point in the
+%% direction of calling/usage, labelled with the action.
+flowchart TB
+    subgraph api["api codebase — one image, three core services"]
+        web["api.web<br/>role: web · port 8080"]
+        worker["api.worker<br/>role: worker · port 8081 · replicas 2 (prod)"]
+        clock["api.clock<br/>role: clock · no port · schedules: prune_pings, heartbeat"]
+        webRest["rest surface"]
+        workerRpc["rpc surface (POST /drain)"]
+        workerEvents["events surface (pings + jobs channels)"]
+        web --- webRest
+        worker --- workerRpc
+        worker --- workerEvents
+    end
+
+    appdb[("appdb<br/>relational_db · postgres 15<br/>pings + jobs tables")]
+    probe["probe<br/>sidecar · nginx"]
+    events[("events<br/>analytics_db · clickhouse")]
+
+    web -->|"POST /drain: drain the job queue now"| workerRpc
+    web -->|"save/claim pings; enqueue via /jobs; drain"| appdb
+    worker -->|"claim & process pings; claim & perform jobs"| appdb
+    clock -->|"enqueue a job row when a schedule fires"| appdb
+    web -->|"GET /diagnostics/probe: reachability"| probe
+    web -->|"GET /diagnostics/events: TCP reachability"| events
+
+    click web "./api/module_diagram.mmd" "api core-service modules"
+    click worker "./api/module_diagram.mmd" "api core-service modules"
+    click clock "./api/module_diagram.mmd" "api core-service modules"
+    click webRest "../../infra/contracts/api.web.rest.openapi.yml" "rest surface contract"
+    click workerRpc "../../infra/contracts/api.worker.rpc.asyncapi.yml" "rpc surface contract"
+    click workerEvents "../../infra/contracts/api.worker.events.asyncapi.yml" "events surface contract"
