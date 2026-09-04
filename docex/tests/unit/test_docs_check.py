@@ -77,3 +77,30 @@ def test_check_docs_return_codes(tmp_path):
     # Add an orphan -> 1.
     (tmp_path / "plans" / "design" / "orphan.md").write_text("# Orphan\n")
     assert check_docs(tmp_path, ["api"]) == 1
+
+
+def test_orphan_message_format_is_preserved(tmp_path):
+    # Mod 165 refactored unreachable_docs onto the linkmap; the exact problem
+    # string must stay byte-for-byte identical (the docex check gate + its
+    # tests depend on it).
+    scaffold_design(tmp_path, ["api"])
+    (tmp_path / "plans" / "design" / "orphan.md").write_text("# Orphan\n")
+    problems = unreachable_docs(tmp_path, ["api"])
+    assert (
+        "unreachable doc: plans/design/orphan.md "
+        "(not linked from any standard doc or diagram)"
+    ) in problems
+
+
+def test_orphan_message_format_nested_path(tmp_path):
+    # A nested orphan formats its path relative to plans/design (not the
+    # project root), exactly as the pre-refactor code did.
+    scaffold_design(tmp_path, ["api"])
+    nested = tmp_path / "plans" / "design" / "api" / "specifics" / "loose.md"
+    nested.parent.mkdir(parents=True, exist_ok=True)
+    nested.write_text("# Loose\n")
+    problems = unreachable_docs(tmp_path, ["api"])
+    assert (
+        "unreachable doc: plans/design/api/specifics/loose.md "
+        "(not linked from any standard doc or diagram)"
+    ) in problems

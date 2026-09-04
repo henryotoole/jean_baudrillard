@@ -132,6 +132,18 @@ class GitClient(Protocol):
         """
         ...
 
+    def ls_files(self, cwd: Path, pathspec: str) -> list[str]:
+        """Return git-tracked file paths under ``pathspec`` (cwd-relative,
+        POSIX), sorted. Empty list if none tracked or on failure.
+
+        Used to enumerate a codebase's tracked source so compiled / generated
+        artifacts (e.g. ``.pyc``) never enter the linkmap. ``git ls-files``
+        emits paths relative to ``cwd`` (not the repo root), so a caller that
+        passes ``cwd=project_root`` and a ``project_root``-relative pathspec
+        gets ``project_root``-relative results back.
+        """
+        ...
+
     def rebase(self, cwd: Path, onto: str) -> int:
         """``git rebase <onto>``. Returns exit code.
 

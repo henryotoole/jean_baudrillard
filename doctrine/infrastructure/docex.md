@@ -170,8 +170,9 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 `./bin/docex docs scaffold`
 `./bin/docex docs check`
 `./bin/docex docs adr`
+`./bin/docex docs linkmap <depth>`
 
-Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is.
+Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is. `check`'s reachability test and `linkmap` share one link-graph builder, so the orphan gate and the emitted graph can never disagree on what links to what.
 
 - **`scaffold`** idempotently lays down every missing standard design-doc entry — the L1 arc42 files, the standard diagrams, `adrs/` with its two generated index stubs, `references/`, and a per-`infra.yml`-codebase `module_diagram.mmd`, `module/`, and `specifics/`. It never clobbers an existing file (creates only what is missing) and never auto-creates optional entries; empty standard directories get a `.gitkeep`. It reports what it created.
 - **`check`** validates an existing design corpus and exits non-zero on any problem. Passes as no-op if there's no `plans/design` folder.1` Three checks:
@@ -179,6 +180,11 @@ Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../p
 	+ Reachability - All design docs can be reached through via link graph starting in one of the [standard doc roots](../practices/docs.md#reachability-check).
 	+ ADR-index Freshness - `adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`.
 - **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing.
+- **`linkmap`** emits the documentation/code link graph as **deterministic JSON on stdout** (diagnostics go to stderr; `indent=2, sort_keys=True`, every list sorted), for outside agents and skills to consume. It takes a required `<depth>`:
+	+ **`design_docs`** — the tracked scope is `plans/design/**` only.
+	+ **`code_level`** — `plans/design/**` **plus** each codebase's git-tracked `core/<cb>/src/**` (a strict superset; untracked / compiled artifacts like `.pyc` never appear).
+
+	The JSON is `{ "depth", "nodes", "edges" }`. Each **node** is one file keyed by its project-relative `fpath`, carrying: `type` (`design` under `plans/design`, `source` under a codebase's tracked `core/<cb>/src`, or `neither` for an edge target outside *this depth's* tracked scope — recorded so the edge is not lost, but never read); `is_standard` (a doctrine-named standard file); `level` (`L1`/`L2`/`L3` for design, `C` for source, `null` for `neither`); `codebase`; `module`; and `tokens` (an estimated read cost, `null` for `neither`). Each **edge** connects two nodes `a`/`b` (their `fpath`s ordered lexicographically) with a `link_type` (`markdown`, `mermaid_click`, or `emergent` — a hex source file to its module doc) and a `direction` (`a_to_b`, `b_to_a`, or `both`; reciprocal same-type links merge to `both`).
 
 ### `build`
 `./bin/docex build` to refresh `dist/` for all codebases in the `dev` environment.

@@ -24,6 +24,13 @@ from docex.docs.check import (
     run_docs_check,
     unreachable_docs,
 )
+from docex.docs.linkmap import (
+    Edge,
+    Node,
+    build_linkmap,
+    render_linkmap_json,
+    run_docs_linkmap,
+)
 from docex.docs.scaffold import run_docs_scaffold, scaffold_design
 
 __all__ = [
@@ -40,6 +47,11 @@ __all__ = [
     "missing_standard_files",
     "unreachable_docs",
     "run_docs_check",
+    "build_linkmap",
+    "render_linkmap_json",
+    "run_docs_linkmap",
+    "Node",
+    "Edge",
     "run_docs_scaffold",
     "scaffold_design",
 ]

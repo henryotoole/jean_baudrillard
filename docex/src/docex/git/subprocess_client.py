@@ -105,6 +105,12 @@ class SubprocessGitClient:
             return []
         return [line.strip() for line in res.splitlines() if line.strip()]
 
+    def ls_files(self, cwd: Path, pathspec: str) -> list[str]:
+        res = self._capture(["ls-files", "--", pathspec], cwd=cwd)
+        if res is None:
+            return []
+        return sorted(line.strip() for line in res.splitlines() if line.strip())
+
     # ------------------------------------------------------------------
     # Mutating operations
     # ------------------------------------------------------------------

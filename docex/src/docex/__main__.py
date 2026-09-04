@@ -46,8 +46,8 @@ _HELP_TEXT: dict[str, str] = {
     "rollback": "Roll a deployed env back to a prior version (narrow-window emergency).",
     "secrets": "Manage per-env secrets (scaffold/status/set/copy) value-blind.",
     "config": "Manage per-env config (scaffold/status/set/get/copy) values visible.",
-    "docs": "Scaffold, check, or regenerate ADR indexes for the "
-            "design-doc structure (scaffold/check/adr).",
+    "docs": "Scaffold, check, regenerate ADR indexes, or emit the link graph "
+            "for the design-doc structure (scaffold/check/adr/linkmap).",
 }
 
 
@@ -967,9 +967,10 @@ def _cmd_config(args: list[str]) -> int:
 
 
 def _cmd_docs(args: list[str]) -> int:
-    """``docex docs <scaffold|check|adr>`` — scaffold, police, or regenerate
-    the standard design-doc structure (docs.md § Standard Documentation
-    Structure); ``adr`` regenerates the ADR index files."""
+    """``docex docs <scaffold|check|adr|linkmap>`` — scaffold, police, or
+    regenerate the standard design-doc structure (docs.md § Standard
+    Documentation Structure); ``adr`` regenerates the ADR index files;
+    ``linkmap <depth>`` emits the doc/code link graph as deterministic JSON."""
     parser = argparse.ArgumentParser(prog="docex docs", add_help=True)
     sub = parser.add_subparsers(dest="op", required=True)
     sub.add_parser(
@@ -985,10 +986,25 @@ def _cmd_docs(args: list[str]) -> int:
         "adr",
         help="regenerate the ADR index files from plans/design/adrs/",
     )
+    p_linkmap = sub.add_parser(
+        "linkmap",
+        help="emit the doc/code link graph as deterministic JSON to stdout",
+    )
+    p_linkmap.add_argument(
+        "depth",
+        choices=["design_docs", "code_level"],
+        help="design_docs (plans/design only) | code_level (adds tracked "
+             "core/<cb>/src)",
+    )
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
-    from docex.docs import run_docs_adr, run_docs_check, run_docs_scaffold
+    from docex.docs import (
+        run_docs_adr,
+        run_docs_check,
+        run_docs_linkmap,
+        run_docs_scaffold,
+    )
 
     ctx = load_project_context(Path(os.getcwd()))
     if ns.op == "scaffold":
@@ -997,6 +1013,8 @@ def _cmd_docs(args: list[str]) -> int:
         return run_docs_check(ctx)
     if ns.op == "adr":
         return run_docs_adr(ctx)
+    if ns.op == "linkmap":
+        return run_docs_linkmap(ctx, ns.depth)
     return 64  # unreachable — argparse requires a valid subcommand
 
 

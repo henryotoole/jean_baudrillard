@@ -11,18 +11,31 @@ Both checks are exposed as pure functions so the standalone command AND the
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from docex.context import ProjectContext
 from docex.docs.adr import adr_index_drift
+from docex.docs.linkmap import (
+    _MD_LINK,
+    _MMD_CLICK,
+    _SCHEME,
+    _tagged_links_in,
+    build_linkmap,
+)
 from docex.docs.standard_set import resolve
 
-_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-_MMD_CLICK = re.compile(
-    r'^\s*click\s+\S+\s+(?:href\s+|call\s+)?"([^"]+)"', re.MULTILINE
-)
-_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+# The three link regexes now live in linkmap.py (check's reachability is built
+# on the linkmap); re-exported here so existing importers keep working.
+__all__ = [
+    "_MD_LINK",
+    "_MMD_CLICK",
+    "_SCHEME",
+    "check_docs",
+    "design_root_exists",
+    "missing_standard_files",
+    "run_docs_check",
+    "unreachable_docs",
+]
 
 # Reachability roots — the always-loadable top-level entry set (docs.md § LLM
 # Agent Usage). Per-codebase module_diagram.mmd files are added in code.
@@ -70,68 +83,83 @@ def missing_standard_files(
 
 
 def _links_in(path: Path) -> list[Path]:
-    """Resolved link targets referenced by a design file (md + mermaid-click)."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return []
-    raws = _MD_LINK.findall(text)
-    raws += _MMD_CLICK.findall(text)  # md files may embed mermaid blocks too
-    out: list[Path] = []
-    for raw in raws:
-        raw = raw.strip().split("#", 1)[0].strip()  # drop anchor
-        if not raw or _SCHEME.match(raw):
-            continue
-        try:
-            out.append((path.parent / raw).resolve())
-        except (OSError, ValueError):
-            continue
-    return out
+    """Resolved link targets referenced by a design file (md + mermaid-click).
+
+    A thin wrapper over the linkmap's tagged extractor — the shared link
+    primitive — kept so any external caller/test of this name is untouched.
+    """
+    return [target for target, _ in _tagged_links_in(path)]
 
 
 def unreachable_docs(
     project_root: Path, codebase_names: list[str]
 ) -> list[str]:
-    """Files under plans/design not reachable from any standard root."""
+    """Files under plans/design not reachable from any standard root.
+
+    Built on the ``design_docs`` linkmap so the reachability check and the
+    ``docex docs linkmap`` command share ONE graph. The returned problem
+    strings are byte-for-byte the historical format.
+    """
     base = _design_root(project_root)
     if not base.is_dir():
         return []
 
-    all_files: set[Path] = set()
+    design_files: list[Path] = []
     for p in base.rglob("*"):
         if not p.is_file():
             continue
         rel = p.relative_to(base)
         if any(part.startswith(".") for part in rel.parts):
             continue  # skip .gitkeep and anything under a dot-dir
-        all_files.add(p.resolve())
+        design_files.append(p)
 
-    roots: list[Path] = []
+    nodes, edges = build_linkmap(
+        project_root, codebase_names, "design_docs", design_files, []
+    )
+    node_type = {n.fpath: n.type for n in nodes}
+
+    # Directed adjacency derived from the merged edges: an edge contributes
+    # a→b when direction ∈ {a_to_b, both} and b→a when ∈ {b_to_a, both}.
+    adjacency: dict[str, set[str]] = {}
+    for e in edges:
+        if e.direction in ("a_to_b", "both"):
+            adjacency.setdefault(e.a, set()).add(e.b)
+        if e.direction in ("b_to_a", "both"):
+            adjacency.setdefault(e.b, set()).add(e.a)
+
+    # Roots: the standard top-level entry set + each codebase's module diagram,
+    # expressed as project-relative fpaths.
+    roots: list[str] = []
     for name in _ROOT_NAMES:
         f = base / name
         if f.is_file():
-            roots.append(f.resolve())
+            roots.append((base / name).relative_to(project_root).as_posix())
     for cb in codebase_names:
         f = base / cb / "module_diagram.mmd"
         if f.is_file():
-            roots.append(f.resolve())
+            roots.append(f.relative_to(project_root).as_posix())
 
-    reachable: set[Path] = set()
-    queue: list[Path] = list(roots)
+    reachable: set[str] = set()
+    queue: list[str] = list(roots)
     while queue:
         cur = queue.pop()
         if cur in reachable:
             continue
         reachable.add(cur)
-        for tgt in _links_in(cur):
-            if tgt in all_files and tgt not in reachable:
-                queue.append(tgt)
+        for nxt in adjacency.get(cur, ()):
+            # Follow only edges to in-scope design nodes.
+            if node_type.get(nxt) == "design" and nxt not in reachable:
+                queue.append(nxt)
 
-    orphans = sorted(all_files - reachable)
+    orphan_rels = sorted(
+        fp[len("plans/design/"):]
+        for fp, t in node_type.items()
+        if t == "design" and fp not in reachable
+    )
     return [
-        f"unreachable doc: plans/design/{p.relative_to(base).as_posix()} "
+        f"unreachable doc: plans/design/{rel} "
         f"(not linked from any standard doc or diagram)"
-        for p in orphans
+        for rel in orphan_rels
     ]
 
 

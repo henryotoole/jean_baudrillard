@@ -394,6 +394,10 @@ class FakeGitClient:
     remote_main_sha: str = "abc1234"
     tags: list[str] = field(default_factory=list)
     tag_exists_map: dict[str, bool] = field(default_factory=dict)
+    # Mod 165: scripted `ls_files` results, keyed by pathspec. Absent pathspec
+    # ⇒ empty (nothing tracked under it). Used by the linkmap's code_level
+    # source enumeration.
+    ls_files_map: dict[str, list[str]] = field(default_factory=dict)
     merge_bases: dict[tuple, str] = field(default_factory=dict)
     # Mod 105: scripted content for ``show``. Maps ``(ref, path)`` to the
     # file's content, or to None to model "git show failed" (bad ref,
@@ -481,6 +485,10 @@ class FakeGitClient:
     def list_tags(self, cwd, *, pattern=None):
         self.calls.append(("list_tags", str(cwd), pattern))
         return list(self.tags)
+
+    def ls_files(self, cwd, pathspec):
+        self.calls.append(("ls_files", str(cwd), pathspec))
+        return sorted(self.ls_files_map.get(pathspec, []))
 
     # -- writes -------------------------------------------------------
 

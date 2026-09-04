@@ -57,3 +57,30 @@ def test_cmd_docs_requires_a_subcommand():
     with pytest.raises(SystemExit) as excinfo:
         _cmd_docs([])
     assert excinfo.value.code == 2
+
+
+def test_cmd_docs_linkmap_routes(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+
+    seen = {}
+
+    def fake(ctx, depth):
+        seen["depth"] = depth
+        return 0
+
+    monkeypatch.setattr("docex.docs.run_docs_linkmap", fake)
+
+    assert _cmd_docs(["linkmap", "design_docs"]) == 0
+    assert seen["depth"] == "design_docs"
+
+
+def test_cmd_docs_linkmap_rejects_invalid_depth():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["linkmap", "bogus"])
+    assert excinfo.value.code == 2
+
+
+def test_cmd_docs_linkmap_requires_a_depth():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["linkmap"])
+    assert excinfo.value.code == 2
