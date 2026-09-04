@@ -83,6 +83,15 @@ first post-`0.4.0` overhaul.
   regeneration of the ADR index files (`adr_index.md`, `adr_active.md`) from
   `plans/design/adrs/`. ADR-index staleness is now a blocking check in `docex
   docs check` and the `docex check` gate.
+- **`docex docs linkmap <depth>` (advance 011, mod 165).** New verb emitting the
+  documentation/code link graph as deterministic JSON to stdout (`design_docs`
+  scopes to `plans/design`; `code_level` also covers each codebase's git-tracked
+  `core/<cb>/src`). Nodes carry `type` / `level` / `codebase` / `module` /
+  `is_standard` and an estimated `tokens` context cost; edges carry `link_type`
+  (`markdown` / `mermaid_click` / `emergent`) and `direction`, including the
+  structurally-emergent hex-source→module-doc edge. The `docs check` reachability
+  (orphan) test is refactored to consume this one graph as its single source of
+  truth (orphan output byte-for-byte unchanged).
 - **`docex docs` linkmap consumers — `overhead` / `changed` / `cxt_groups`
   (advance 011, mod 167).** Three verbs that consume the `code_level` link graph
   (mod 165's `linkmap`), sharing its output discipline (deterministic to stdout,
