@@ -57,7 +57,7 @@ operator to start a new session to pick them up. Plan the report around that.
 6. **Build the `docex` image for `NEW` if missing.** `docker images docex:NEW`;
    if absent, `docker build -t docex:NEW $jb/docex`. A later `project-upgrade`
    that repins a project to `NEW` needs this image present locally (images are
-   built locally, not pulled — see `$jb/docex/plans/core/masterplan.md`).
+   built locally, not pulled — see `$jb/docex/plans/design/concepts_and_decisions.md`).
 
 7. **Report the delta.** Tell the operator:
    - `OLD → NEW`.

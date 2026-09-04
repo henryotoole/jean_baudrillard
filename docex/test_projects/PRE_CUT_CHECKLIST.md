@@ -4,7 +4,7 @@ The agent's manual procedure before cutting a doctrine minor or major version. W
 
 **Skip this for patch cuts.** Patches fix unit-testable bugs; the smoke walk would burn real AWS spend without proportionate value.
 
-If anything in this checklist fails, **the cut does not happen.** Fix the bug (in doctrine, `docex`, the seed, or all three — per the six-artifact alignment in [`docex_process.md`](../plans/core/docex_process.md)) and restart from the failing step.
+If anything in this checklist fails, **the cut does not happen.** Fix the bug (in doctrine, `docex`, the seed, or all three — per the six-artifact alignment in [`docex_process.md`](../plans/design/specifics/docex_process.md)) and restart from the failing step.
 
 ---
 
@@ -35,13 +35,13 @@ Every box below must be checked off on the dev machine before the walk begins.
   bash ~/.claude/jean_baudrillard/docex_install.sh test_projects/elastic
   ```
 - [ ] `cd test_projects/fixed && ./bin/docex --version` prints the candidate version. Same for `elastic/`.
-- [ ] **If the repin changed anything, commit it inward before assessing A.2.1.** The repin edits `project.yml`, which dirties both repos; A.2.1 requires a **clean** inner tree with the version tag at HEAD. Commit in the inner repo per [`test_projects.md § Commit cadence`](../plans/core/test_projects.md#commit-cadence) and force-move `v<version>` to the new HEAD. Skipping this does not fail here — it fails at A.2.1, or worse, silently leaves `containerize` pointed at a commit that predates the repin.
+- [ ] **If the repin changed anything, commit it inward before assessing A.2.1.** The repin edits `project.yml`, which dirties both repos; A.2.1 requires a **clean** inner tree with the version tag at HEAD. Commit in the inner repo per [`test_projects.md § Commit cadence`](../plans/design/specifics/test_projects.md#commit-cadence) and force-move `v<version>` to the new HEAD. Skipping this does not fail here — it fails at A.2.1, or worse, silently leaves `containerize` pointed at a commit that predates the repin.
 
 ### A.2.1 Test projects are self-contained git repos
 
 The doctrine assumes a project is its own git repository (per [`inception.md`](../../doctrine/practices/inception.md)). The smoke-test projects under `test_projects/` are also tracked at the doctrine-repo level for distribution convenience, but each MUST additionally be its own git repo so docex's CI/CD gate checks (`check`, `merge`, `containerize`) can introspect a real repo state inside the docex container. This is one-time setup at first walk and persists; later walks just verify it's still present.
 
-- [ ] `test_projects/fixed/.git` exists, on branch `main`, with a tag `v<version>` (matching the inner `project.yml`'s `version:`) at HEAD and a clean working tree. If not, initialize per [`test_projects.md § Why the test projects are their own git repos`](../plans/core/test_projects.md#why-the-test-projects-are-their-own-git-repos).
+- [ ] `test_projects/fixed/.git` exists, on branch `main`, with a tag `v<version>` (matching the inner `project.yml`'s `version:`) at HEAD and a clean working tree. If not, initialize per [`test_projects.md § Why the test projects are their own git repos`](../plans/design/specifics/test_projects.md#why-the-test-projects-are-their-own-git-repos).
 - [ ] Same for `test_projects/elastic/`.
 
 > **Ordering carve-out — A.2.1 vs. C.6 / D.8.** A.2.1 describes each inner
@@ -55,7 +55,7 @@ The doctrine assumes a project is its own git repository (per [`inception.md`](.
 > that failure is expected: **do not "repair" it by moving the tag**, which
 > silently defeats the `check` version-bump gate.
 
-Edits inside `test_projects/*/` dirty both the inner repo and the outer doctrine repo. Commit inner-first per [`test_projects.md § Commit cadence`](../plans/core/test_projects.md#commit-cadence).
+Edits inside `test_projects/*/` dirty both the inner repo and the outer doctrine repo. Commit inner-first per [`test_projects.md § Commit cadence`](../plans/design/specifics/test_projects.md#commit-cadence).
 
 ### A.3 Preinfra — both sides
 
@@ -183,7 +183,7 @@ For each project (`fixed/`, `elastic/`):
 
 ## B. Doctrine-conformance audit — run before any provisioning
 
-Before running `docex compile` or any release command, walk this audit against each test project's tree. Each item cites the doctrine doc that prescribes it. If any item fails, the seed is out of alignment with current doctrine and must be repaired (in the seed, in doctrine, or both — per the six-artifact alignment rule in [`docex_process.md`](../plans/core/docex_process.md)) before the smoke walk proceeds.
+Before running `docex compile` or any release command, walk this audit against each test project's tree. Each item cites the doctrine doc that prescribes it. If any item fails, the seed is out of alignment with current doctrine and must be repaired (in the seed, in doctrine, or both — per the six-artifact alignment rule in [`docex_process.md`](../plans/design/specifics/docex_process.md)) before the smoke walk proceeds.
 
 Run this audit *once per cut*, against each project independently.
 

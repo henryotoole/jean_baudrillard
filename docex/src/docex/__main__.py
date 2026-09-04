@@ -5,7 +5,7 @@ are grouped in ``--help`` by purpose (Introspection / Infrastructure /
 Development / Pipeline / Reference) matching the doctrine's
 ``docex.md`` provided-tools table.
 
-See ``plans/core/masterplan.md`` § Subcommand Surface for the complete list.
+See ``plans/design/specifics/subcommand_surface.md`` § Subcommand Surface for the complete list.
 """
 
 from __future__ import annotations

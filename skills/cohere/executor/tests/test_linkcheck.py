@@ -206,8 +206,8 @@ def test_positive_control_reports_nothing(tmp_path):
         "doctrine/citing.md": CITING,
         # Two mirrored trees OUTSIDE doctrine/ sharing a filename: check 3 is an
         # allowlist of the doctrine tree, so this can never fire.
-        "mirror_a/plans/core/mirrored.md": "# Mirrored A\n",
-        "mirror_b/plans/core/mirrored.md": "# Mirrored B\n",
+        "mirror_a/plans/design/mirrored.md": "# Mirrored A\n",
+        "mirror_b/plans/design/mirrored.md": "# Mirrored B\n",
         # A released changelog section carrying a dead citation AND a broken link.
         "proj/CHANGELOG.md": CHANGELOG,
     })

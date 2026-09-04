@@ -15,27 +15,28 @@ The rough, toplevel process for change is this:
 3. **Run expensive tests** - When mod cycles are complete, run the "expensive" tests. These include:
 	1. End-to-end integration tests — see [§ Running the automated tests](#running-the-automated-tests) for the invocation, which is **not** the obvious one.
 	2. The ["test project" tests](#test-project-tests), which call for you to manually step through critical `docex` steps for two distinct sample projects with different foundations.
-4. **Cut a new version** - a `docex` change ships in a doctrine-wide release; see [`RELEASING.md`](../../../RELEASING.md) and § [Versioning & Releasing](#versioning--releasing) below.
+4. **Cut a new version** - a `docex` change ships in a doctrine-wide release; see [`RELEASING.md`](../../../../RELEASING.md) and § [Versioning & Releasing](#versioning--releasing) below.
 
 ## Docex Documentation
 
-The docex project structure does not adhere to the doctrine-defined standard by design. This means the `src` directory is rather different from a regular doctrine-adherent project and that the project documentation also has slightly different structure.
+The docex project structure does not adhere to the doctrine-defined standard by design. `docex` is the *executor* of the doctrine, not a doctrine-authored product — a doctrine-based product cannot structurally *produce* a tool like `docex` — so its `src` layout differs from a hexagonal project and its design docs only *resemble* the standard arc42 corpus for ergonomics rather than complying with it. docex has no `infra.yml` or `project.yml`, so the docex docs CLI (`docex docs scaffold` / `check` / `linkmap`) cannot run against docex itself; this corpus is maintained by hand.
 
-Toplevel structure is the same:
+Toplevel structure:
 ```
 plans
 ├── modifications
-├── core
+├── design
 └── references
 ```
 
-The interiors of `modifications` and `references` are also the same. `core`, however, is different. It is simply a flat folder containing markdown files (no deeper structure corresponding to modules) because `docex` is not hexagonally-architectured and has no per-module docs to host. It still serves the same purpose of holding "core planning documents":
+`modifications` and `references` are the same as a standard project. `design` holds the arc42 L1 state docs, ADRs, and an L1 `specifics/` detail tier — but **no per-codebase/module L3 layer**, because `docex` is not hexagonally-architectured and has no modules to host:
 
-- [`masterplan.md`](./masterplan.md) — the toplevel architecture / design proposal. Note the framing at the top of that file explaining why a `docex` masterplan reads differently from a standard one.
-- [`docex_process.md`](./docex_process.md) — this file. The development process for `docex` itself.
-- [`compiler.md`](./compiler.md) — the CICL compiler: service expansion, magic refs, validation, and the emit layer.
-- [`release_flow.md`](./release_flow.md) — the release and rollback paths: preconditions, the ephemeral worktree, and the per-foundation apply.
-- [`test_projects.md`](./test_projects.md) — the two nested smoke-test projects: why two foundations, their shape, git structure, and commit cadence.
+- [`boundary_conditions.md`](../boundary_conditions.md) — arc42 Intro & Goals, Constraints, Context & Scope, Quality Requirements. Its intro carries the framing on why a `docex` design doc reads differently from a standard one.
+- [`concepts_and_decisions.md`](../concepts_and_decisions.md) — arc42 Cross-Cutting Concepts (distribution, the shim, DooD, foundation parity, credentials, the durable-job substrate…), Solution Strategy, and Risk / Tech Debt.
+- [`structures_and_views.md`](../structures_and_views.md) — arc42 Building-Block, Runtime, and Deployment views (architecture, repository structure, the subcommand surface, cross-command orchestration).
+- [`lexicon.md`](../lexicon.md) — the project glossary; [`project_diagram.mmd`](../project_diagram.mmd) — the C4 system-context diagram (there is no `service_diagram.mmd`: docex has no `infra.yml` and no backing services).
+- [`adrs/`](../adrs/) + [`adr_index.md`](../adr_index.md) / [`adr_active.md`](../adr_active.md) — the reasoning behind load-bearing decisions.
+- `specifics/` — the detail tier: [`compiler.md`](./compiler.md) (the CICL compiler: expansion, magic refs, validation, emit), [`release_flow.md`](./release_flow.md) (release + rollback), [`test_projects.md`](./test_projects.md) (the two nested smoke projects), [`the_shim.md`](./the_shim.md) (the `bin/docex` shim), [`subcommand_surface.md`](./subcommand_surface.md) (the full command table), and this file — `docex_process.md`, the development process for `docex` itself.
 
 ### Additional Artifacts
 
@@ -44,7 +45,7 @@ Unfortunately, the unique nature of `docex` means that it has six successive lay
 | Artifact | Role |
 | -------- | ---- |
 | `doctrine/.../*.md` | The rule of record. The *why* and the canonical statement. |
-| `docex/plans/core/*.md` | Architecture and design docs for `docex`. This is the *how*. |
+| `docex/plans/design/**` | Architecture and design docs for `docex`. This is the *how*. |
 | `tables/roles/*.yml` | Transfer tables — how a role/engine compiles per foundation. |
 | `src/docex/**` | Compiler / orchestration code that executes the rule. |
 | `tests/**` | Proof the executor matches the rule. |
@@ -165,7 +166,7 @@ full overhaul below rather than booked separately.
 Mod 134 then audited all eighteen entries against the doctrine rather than against a
 term list, and found the drift is far wider than the rows above: **15 of 18 carry
 defects and three actively misinstruct.** That audit is booked as a full overhaul at
-[`008_housekeeping/doctrine_excerpts_overhaul.md`](../advances/008_housekeeping/references/doctrine_excerpts_overhaul.md),
+[`008_housekeeping/doctrine_excerpts_overhaul.md`](../../advances/008_housekeeping/references/doctrine_excerpts_overhaul.md),
 which subsumes the four still-open defects above. **Mod 140 landed that overhaul.**
 All 18 entries were audited against current doctrine and rewritten; the four
 still-open defects above are fixed, `aws_account`'s one-project-per-account
@@ -246,7 +247,7 @@ doctrine version `1.3.0` the version is **doctrine-wide** — doctrine prose,
 skills, and `docex` advance together under one number — and a `docex` change
 ships as part of a doctrine release. The full procedure (version semantics, the
 four synced artifacts, the tag, the image build) lives in
-[`RELEASING.md`](../../../RELEASING.md). Cuts now tag `v<v>`, **not** the old
+[`RELEASING.md`](../../../../RELEASING.md). Cuts now tag `v<v>`, **not** the old
 `docex-v<v>` form: the namespacing that once anticipated "a bare version tag
 would collide if the doctrine is ever versioned" is now realized by the unified
 scheme, so the one version owns the bare tag. Historical `docex-v*` tags remain
@@ -255,7 +256,7 @@ only for archaeology.
 Two `docex`-specific properties the release process relies on:
 
 - **The image is the unit of determinism.** The image tag always equals the
-  version — no floating tags (see [masterplan.md § Distribution](./masterplan.md#distribution)).
+  version — no floating tags (see [concepts_and_decisions.md § Distribution](../concepts_and_decisions.md#distribution)).
   A version is only meaningful once its image is built, and `RELEASING.md` builds
   `docex:<v>` on every cut — even a no-op `docex` rebuild on a doctrine-only
   release, to keep the *doctrine version ⟺ image* invariant.
@@ -268,11 +269,11 @@ Two `docex`-specific properties the release process relies on:
 ### Git
 
 Trunk-based: commit directly to `main`, consistent with the doctrine's
-[branch conventions](../../../doctrine/infrastructure/version_control.md#branch-conventions)
+[branch conventions](../../../../doctrine/infrastructure/version_control.md#branch-conventions)
 and how the rest of this repo is maintained.
 
 ## Test Project Tests
 
-Two doctrine-faithful smoke-test projects live at [`docex/test_projects/`](../../test_projects/): one per foundation. Before cutting a minor or major version, the operator walks both through their full release paths (`compile → containerize → release stage → stagetest → release prod → teardown`) against real infrastructure. The procedure — including the pre-walk doctrine-conformance audit — is in [`docex/test_projects/PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md). Patch cuts skip this; minor and major cuts require it green.
+Two doctrine-faithful smoke-test projects live at [`docex/test_projects/`](../../../test_projects/): one per foundation. Before cutting a minor or major version, the operator walks both through their full release paths (`compile → containerize → release stage → stagetest → release prod → teardown`) against real infrastructure. The procedure — including the pre-walk doctrine-conformance audit — is in [`docex/test_projects/PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md). Patch cuts skip this; minor and major cuts require it green.
 
 For the architecture and design of those projects (why two foundations, code identity, git structure, commit cadence, cut lifecycle), see [`test_projects.md`](./test_projects.md).

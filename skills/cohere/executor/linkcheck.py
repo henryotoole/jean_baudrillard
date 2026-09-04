@@ -121,7 +121,7 @@ DEFAULT_ROOTS = [
     DOCTRINE_ROOT,
     SKILLS_ROOT,
     os.path.join(JB_ROOT, "docex", "doctrine_excerpts"),
-    os.path.join(JB_ROOT, "docex", "plans", "core"),
+    os.path.join(JB_ROOT, "docex", "plans", "design"),
     os.path.join(JB_ROOT, "docex", "test_projects"),
     os.path.join(JB_ROOT, "CHANGELOG.md"),
     os.path.join(JB_ROOT, "README.md"),

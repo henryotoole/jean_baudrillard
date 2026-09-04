@@ -8,5 +8,5 @@ number), and the single canonical changelog lives at the repo root:
 
 All historical `docex` entries (`1.2.0` and earlier) were moved there verbatim.
 See [`../RELEASING.md`](../RELEASING.md) for the release process and
-[`plans/core/docex_process.md`](./plans/core/docex_process.md) for `docex`'s own
+[`plans/design/specifics/docex_process.md`](./plans/design/specifics/docex_process.md) for `docex`'s own
 development process.

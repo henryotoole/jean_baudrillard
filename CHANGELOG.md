@@ -44,6 +44,18 @@ first post-`0.4.0` overhaul.
   `skill-iteration` reference drop "core planning docs" / `masterplan.md` for "design
   docs". References to `docex`'s *own* plans (still on the pre-migration layout) are
   deliberately left untouched pending the docex-plans dogfood migration.
+- **`docex`'s own design docs dogfooded onto the new structure (advance 011, mod 166).**
+  Migrated `docex/plans/core` → `docex/plans/design` by hand: the masterplan split into
+  the arc42 L1 nucleus (`boundary_conditions.md`, `concepts_and_decisions.md`,
+  `structures_and_views.md`, `lexicon.md`), a `project_diagram.mmd`, six ADRs, and an L1
+  `specifics/` detail tier (`compiler.md`, `release_flow.md`, `docex_process.md`,
+  `test_projects.md`, `the_shim.md`, `subcommand_surface.md`). Per operator ruling docex
+  only *resembles* the doctrine corpus (no forced module L3 layer, no service diagram, no
+  `project.yml`/`infra.yml`), so `linkcheck` — not `docex docs check` — is the gate. Swept
+  the advance-010 deferral ledger to the new paths (`credentials.md`, `cohere`/`docex-edit`/
+  `doctrine-update` skills, `linkcheck.py` roots + its test fixtures, `RELEASING.md`,
+  `PRE_CUT_CHECKLIST.md`, two `docex` docstrings, and `pyproject.toml`'s `readme`).
+  `$jb/doctrine/**` unchanged apart from the one `credentials.md` link. No `docex` behavior change.
 - **Doctrine prose filled in for the `docex docs` tooling (advance 010, mod 164).**
   Documented the `docex docs {scaffold, check, adr}` command family in `docex.md`
   (command reference + `### docs` detail; `docs check` noted as a blocking sub-gate

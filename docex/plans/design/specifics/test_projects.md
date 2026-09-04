@@ -6,8 +6,8 @@ Two minimal, doctrine-faithful projects (`fixed/` and `elastic/`) that live insi
 
 The doctrine commits to two foundations. Bugs hit each foundation differently — first-time release on elastic exposed eight bugs in v0.7.0 that `fixed`-only testing would have missed. Each project exercises its own foundation's full release path:
 
-- [`fixed/`](../../test_projects/fixed/README.md) — `foundation: fixed`. Runs entirely on the dev machine via docker-compose + Traefik + Let's Encrypt. Domain: `docex-smoke-fixed.luxrnd.tech`.
-- [`elastic/`](../../test_projects/elastic/README.md) — `foundation: elastic`. Runs against real AWS in `us-east-1`. Domain: `docex-smoke-elastic.luxrnd.tech` (Route53 zone created by `docex projinfra up production`).
+- [`fixed/`](../../../test_projects/fixed/README.md) — `foundation: fixed`. Runs entirely on the dev machine via docker-compose + Traefik + Let's Encrypt. Domain: `docex-smoke-fixed.luxrnd.tech`.
+- [`elastic/`](../../../test_projects/elastic/README.md) — `foundation: elastic`. Runs against real AWS in `us-east-1`. Domain: `docex-smoke-elastic.luxrnd.tech` (Route53 zone created by `docex projinfra up production`).
 
 ## Shape
 
@@ -76,12 +76,12 @@ docex/test_projects/
 
 The `fixed` and `elastic` seeds carried a second codebase, `reaper`, until `role: scheduler` was retired. This section is the record of what that cost, so a reader who finds one codebase can find an accounting rather than a gap.
 
-**Why the codebase could not survive.** A clock defers onto its **own** codebase's queue, and only the schema-owning codebase may enqueue ([`clock.md § The clock defers; it does not work`](../../../doctrine/infrastructure/specifics/clock.md#the-clock-defers-it-does-not-work)). `reaper` owned no schema — it reached into `api`'s `pings` table through its own repo adapter — and it had no worker and no queue. A `reaper.clock` would therefore have had to *perform* the prune inside the singleton, which is precisely the one thing the rule forbids. `api` owns the schema, owns a polling worker, and can own a queue, so the clock folded into `api` and the prune became a job on `api`'s driving port.
+**Why the codebase could not survive.** A clock defers onto its **own** codebase's queue, and only the schema-owning codebase may enqueue ([`clock.md § The clock defers; it does not work`](../../../../doctrine/infrastructure/specifics/clock.md#the-clock-defers-it-does-not-work)). `reaper` owned no schema — it reached into `api`'s `pings` table through its own repo adapter — and it had no worker and no queue. A `reaper.clock` would therefore have had to *perform* the prune inside the singleton, which is precisely the one thing the rule forbids. `api` owns the schema, owns a polling worker, and can own a queue, so the clock folded into `api` and the prune became a job on `api`'s driving port.
 
 **What the walk stopped exercising:**
 
 - **One image per codebase** — the multi-codebase build fan-out. With one codebase, `build` and `containerize` no longer iterate.
-- **Two registry repos on fixed** (checked at C.6 of [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md)) and **two ECR repos on elastic** (D.8 checked the count explicitly). Both counts are now one, and both checks now guard against a *second* repo appearing rather than confirming a second is present.
+- **Two registry repos on fixed** (checked at C.6 of [`PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md)) and **two ECR repos on elastic** (D.8 checked the count explicitly). Both counts are now one, and both checks now guard against a *second* repo appearing rather than confirming a second is present.
 - **The per-codebase `migrate.sh` / `test.sh` fan-out** — and the sharpest edge of all: a codebase that owns **no** schema, and therefore has no `migrate.sh` at all, is a shape the walk no longer contains anywhere. `reaper` was that shape.
 
 **What was gained,** so the trade is legible rather than only a loss: a real clock **container** running in both walks, a compiler-delivered schedule table (`infra/output/<env>/schedules.yml` plus the `DOCEX_SCHEDULES_YAML` literal), and a fire → defer → drain path exercised end-to-end on both foundations.
@@ -90,7 +90,7 @@ The `fixed` and `elastic` seeds carried a second codebase, `reaper`, until `role
 
 ### A checklist box should assert against what the tool prints
 
-The newest lesson the seeds teach by example. For two releases [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md) told the walker that the elastic project's Service Connect consumers were `api-web` and `api-worker` and that they formed a `uses` cycle, and its prescribed `describe-services` command queried that pair. Both halves were false: `api.worker` declares `uses: [appdb]`, so it is a target and never a consumer, there is no cycle anywhere in the project, and the real consumers are `api-web` and `api-clock`. The claim had been true when written and went stale when `infra.yml` moved — silently, because nothing connected the two.
+The newest lesson the seeds teach by example. For two releases [`PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md) told the walker that the elastic project's Service Connect consumers were `api-web` and `api-worker` and that they formed a `uses` cycle, and its prescribed `describe-services` command queried that pair. Both halves were false: `api.worker` declares `uses: [appdb]`, so it is a target and never a consumer, there is no cycle anywhere in the project, and the real consumers are `api-web` and `api-clock`. The claim had been true when written and went stale when `infra.yml` moved — silently, because nothing connected the two.
 
 **A static claim about the seed's configuration is a copy of that configuration, and copies drift.** So the repair was not to correct the pair; that leaves the drift mechanism fully intact for the next `infra.yml` change. Both boxes now derive the consumer set from the *rule* — a **core-targeted** `uses` entry — and then check themselves against the executor's own output: `release` prints `N consumer(s) checked`, and `N ≠ 2` tells the walker the box is stale before they record anything.
 
@@ -107,11 +107,11 @@ produced a number close enough to the truth to be believed.
 
 ## Inception-flow divergences
 
-These projects were created by walking [`doctrine/practices/inception.md`](../../../doctrine/practices/inception.md) PARTs I–IV, with two carve-outs:
+These projects were created by walking [`doctrine/practices/inception.md`](../../../../doctrine/practices/inception.md) PARTs I–IV, with two carve-outs:
 
 1. **PART I steps 3–5 skipped** — no `gh repo create` and no `git clone`. Each test project is initialized as its own git repo in place (`git init -b main`) inside the `docex/` tree, so `docex` commands that introspect a real repo state from inside the docex container (`check`, `merge`, `containerize`) see one. The outer `jean_baudrillard` repo also tracks the same files as a directory snapshot at each of its commit boundaries; an edit dirties both repos. See [§ Git structure](#git-structure) below for the full layout and the commit cadence between the two.
 	- **PART I step 6 is adapted, not skipped.** Step 6 establishes `main` as the trunk (an empty initial commit) and pushes it so `origin/main` exists. The `git init -b main` above already establishes `main` in place; the seeds simply **skip the `git push -u origin main`** half because they have no `origin` remote at all. That absent trunk-on-a-remote is exactly why `docex merge`/`check` here take their no-`origin` "compare against local trunk" path rather than the `origin/main` path a real project uses.
-2. **PART III steps 6–7 skipped** — bringing up `dev` and tearing it down is the operator's smoke-test work (driven by [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md)), not part of the seed-creation work.
+2. **PART III steps 6–7 skipped** — bringing up `dev` and tearing it down is the operator's smoke-test work (driven by [`PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md)), not part of the seed-creation work.
 
 These carve-outs are flagged for possible doctrine-level codification — "the inception flow needs a bundled-test-project mode." See [`docex_process.md`](./docex_process.md) § Test Project Tests for the surrounding workflow.
 
@@ -124,11 +124,11 @@ Each test project under `test_projects/` is its own git repo, nested inside the 
 
 The two histories evolve independently. The inner repo's log shows project-level commits (`Bump 0.0.2: migrate.sh sslmode default`, `Repin to docex 0.8.3`); the outer repo's log shows doctrine/docex commits, with periodic catchup entries that sync the outer-tracked snapshot to the current inner-repo HEAD.
 
-[`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md) § A.2.1 is the pre-walk audit for this structure — confirm each inner repo exists, is on `main`, has the right `v<version>` tag at HEAD, and has a clean working tree before starting any smoke walk.
+[`PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md) § A.2.1 is the pre-walk audit for this structure — confirm each inner repo exists, is on `main`, has the right `v<version>` tag at HEAD, and has a clean working tree before starting any smoke walk.
 
 ### Why the test projects are their own git repos
 
-The doctrine assumes a project IS its own git repository (per [`inception.md`](../../../doctrine/practices/inception.md)). Several `docex` commands rely on that:
+The doctrine assumes a project IS its own git repository (per [`inception.md`](../../../../doctrine/practices/inception.md)). Several `docex` commands rely on that:
 
 - `docex check` introspects the feature branch, fetches latest `main`, runs gate checks against an ephemeral worktree.
 - `docex merge` rebases onto `main`, tags the new HEAD with `v<project.yml version>`, pushes both.
@@ -174,4 +174,4 @@ This script-side override pattern keeps the safety nets intact for prod projects
 | Minor (e.g. 0.7.x → 0.8.0) | Yes — audit + walk both projects per `PRE_CUT_CHECKLIST.md`. |
 | Major (e.g. 0.x → 1.0) | Yes, plus a full re-inception (a successor agent re-walks PARTs I–IV from scratch against the current doctrine, replacing this seed). |
 
-See [`PRE_CUT_CHECKLIST.md`](../../test_projects/PRE_CUT_CHECKLIST.md) for the actual procedure.
+See [`PRE_CUT_CHECKLIST.md`](../../../test_projects/PRE_CUT_CHECKLIST.md) for the actual procedure.

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "docex"
 version = "2.2.0"
 description = "The executor of the doctrine."
-readme = "plans/core/masterplan.md"
+readme = "plans/design/boundary_conditions.md"
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2",

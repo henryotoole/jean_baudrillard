@@ -1,6 +1,6 @@
 # Compiler
 
-How docex's `compile` pipeline walks `infra.yml` and the transfer tables to produce the emitted artifacts under `infra/output/`. The doctrine specifies the *what* — [`cicl.md`](../../../doctrine/infrastructure/cicl.md) for the input language, [`transfer_tables.md`](../../../doctrine/infrastructure/specifics/transfer_tables.md) for the per-role-per-engine translation rules, [`networks.md`](../../../doctrine/infrastructure/specifics/networks.md) for the network plane. This doc covers the *how*: data flow, key types, and the layered emit stage.
+How docex's `compile` pipeline walks `infra.yml` and the transfer tables to produce the emitted artifacts under `infra/output/`. The doctrine specifies the *what* — [`cicl.md`](../../../../doctrine/infrastructure/cicl.md) for the input language, [`transfer_tables.md`](../../../../doctrine/infrastructure/specifics/transfer_tables.md) for the per-role-per-engine translation rules, [`networks.md`](../../../../doctrine/infrastructure/specifics/networks.md) for the network plane. This doc covers the *how*: data flow, key types, and the layered emit stage.
 
 ## Scope
 
@@ -12,7 +12,7 @@ How docex's `compile` pipeline walks `infra.yml` and the transfer tables to prod
 
 and writes, under `infra/output/`:
 
-- `dev/docker-compose.yml`, `test/docker-compose.yml` — always emitted (dev and test are always fixed-foundation per [`shape.md`](../../../doctrine/infrastructure/shape.md#shape-and-environment)).
+- `dev/docker-compose.yml`, `test/docker-compose.yml` — always emitted (dev and test are always fixed-foundation per [`shape.md`](../../../../doctrine/infrastructure/shape.md#shape-and-environment)).
 - `stage/docker-compose.yml`, `prod/docker-compose.yml` plus `playbook.yml`, `inventory.yml`, `ansible.cfg` — fixed-foundation projects.
 - `project/main.tf`, `stage/main.tf`, `prod/main.tf` — elastic-foundation projects.
 
@@ -62,12 +62,12 @@ In `src/docex/cicl/`:
 - **`TransferTables`** — the loaded, merged tables. `by_role[role][engine] → EngineEntry`, plus `naming_policies: NamingPolicies`. Built by `load_transfer_tables` (does the doctrine-bundled + project-local deep-merge).
 - **`EngineEntry`** — one engine of one role. Carries `foundation` (`fixed`/`elastic`/`both`), `defaults`, `fields`, `provides`, `env` (now `dict[str, EnvVarSpec]` — mod 076), `naming` (string ref into `naming_policies`), `default_port`, `reserved_names`.
 - **`EnvVarSpec`** — the per-var schema of an engine `env:` block (mod 076, `cicl/transfer.py`). Carries `name`, `kind` (`fixed`/`minted`/`secret`, default `secret`), `value` (fixed only), `policy` (minted only — a `generation_policies` ref), and `desc`. The `kind` drives how the var is treated at compile and emit (see Substitution grammar below).
-- **`GenerationPolicy` / `generate`** (`cicl/generate.py`, a sibling to `naming.py`) — a minted var's value is drawn by the CSPRNG `generate` from a named policy (`{length, alphabet}`, alphabets `url_safe`/`alnum`); policies load from `tables/generation_policies.yml`. Minting itself runs during aggregation at bring-up/release, never in `compile` — see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md).
-- **`SourceKeyCategories` / `classify_source_keys`** (`cicl/categories.py`, mod 078) — a pure partition of a service's source-key namespace into TTE / secret / config. `secret_manifest` / `config_manifest` derive the per-category key sets (mods 083/084) and `minted_policies` derives the minted key→policy map. These back the three-category model in [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md); don't re-derive it here.
-- **`NamingPolicy` / `NamingPolicies`** — see [`transfer_tables.md § Naming Policies`](../../../doctrine/infrastructure/specifics/transfer_tables.md#naming-policies). Lifted from inline engine `naming` structs in mod 005 so structural emitters can share the table.
+- **`GenerationPolicy` / `generate`** (`cicl/generate.py`, a sibling to `naming.py`) — a minted var's value is drawn by the CSPRNG `generate` from a named policy (`{length, alphabet}`, alphabets `url_safe`/`alnum`); policies load from `tables/generation_policies.yml`. Minting itself runs during aggregation at bring-up/release, never in `compile` — see [`config_and_secrets.md`](../../../../doctrine/infrastructure/specifics/config_and_secrets.md).
+- **`SourceKeyCategories` / `classify_source_keys`** (`cicl/categories.py`, mod 078) — a pure partition of a service's source-key namespace into TTE / secret / config. `secret_manifest` / `config_manifest` derive the per-category key sets (mods 083/084) and `minted_policies` derives the minted key→policy map. These back the three-category model in [`config_and_secrets.md`](../../../../doctrine/infrastructure/specifics/config_and_secrets.md); don't re-derive it here.
+- **`NamingPolicy` / `NamingPolicies`** — see [`transfer_tables.md § Naming Policies`](../../../../doctrine/infrastructure/specifics/transfer_tables.md#naming-policies). Lifted from inline engine `naming` structs in mod 005 so structural emitters can share the table.
 - **`CompiledEnv` / `CompiledService`** — the per-env compile result. `CompiledService` carries `name`, `role`, `engine`, `is_core`, `global_name` (policy-applied), `body` (engine defaults merged with project overrides), `env` block, `networks`, `port`, etc. This is what the emit layer reads. Since mod 096 it also carries the service-expansion fields — see [Service expansion](#service-expansion). The one relation is on it as a single stored field `uses`, holding the authored entries **verbatim** (bare for a backing target, dotted for a core one). `uses_backing` and `uses_core` are read-only **derived properties**, not fields — the backing/core split is derived from target kind rather than authored, so there is no way to construct a `CompiledService` whose edge landed in the wrong list. `uses_core` yields **compiled** identities (`api-worker`), so a core edge resolves against `CompiledEnv.services` with one dict lookup. See [The union view](#the-union-view).
-- **`CoreService` / `ServiceRef`** (`cicl/model.py`, mod 096) — `CoreService` is one named way of invoking a codebase's build artifact (`role`, `command`, `networks`, `resources`, `port`, `uses`, `surfaces`, `replicas`, `env`), per [`cicl.md § Core Services`](../../../doctrine/infrastructure/cicl.md#core-services). `ServiceRef` is the value type carrying the dots-for-reference / hyphens-for-emission rule: `.dotted` → `api.web`, `.compiled` → `api-web`, `.parse()` rejecting a bare name. It is the single place that rule is expressed, so read sites never re-derive it.
-- **`Surface` / `API_STYLE_FORMATS` / `IMPLEMENTED_CONTRACT_FORMATS`** (`cicl/model.py`, advance 006) — a `Surface` is one described boundary of a core service (`name` + `api_styles`), per [`cicl.md § Surfaces`](../../../doctrine/infrastructure/cicl.md#surfaces). `API_STYLE_FORMATS` maps each style to its contract format and `IMPLEMENTED_CONTRACT_FORMATS` is the subset docex can check today. Rule 29 is **derived** from the first map rather than tabulated against it, so it cannot drift as styles are added; two consumers read the map — the rule-29 validator and `check.py::_gate_contracts` — which is why it lives on the model. Do not restate the mapping here; `cicl.md § Surfaces` is the table and a literal-equality test pins the code to it.
+- **`CoreService` / `ServiceRef`** (`cicl/model.py`, mod 096) — `CoreService` is one named way of invoking a codebase's build artifact (`role`, `command`, `networks`, `resources`, `port`, `uses`, `surfaces`, `replicas`, `env`), per [`cicl.md § Core Services`](../../../../doctrine/infrastructure/cicl.md#core-services). `ServiceRef` is the value type carrying the dots-for-reference / hyphens-for-emission rule: `.dotted` → `api.web`, `.compiled` → `api-web`, `.parse()` rejecting a bare name. It is the single place that rule is expressed, so read sites never re-derive it.
+- **`Surface` / `API_STYLE_FORMATS` / `IMPLEMENTED_CONTRACT_FORMATS`** (`cicl/model.py`, advance 006) — a `Surface` is one described boundary of a core service (`name` + `api_styles`), per [`cicl.md § Surfaces`](../../../../doctrine/infrastructure/cicl.md#surfaces). `API_STYLE_FORMATS` maps each style to its contract format and `IMPLEMENTED_CONTRACT_FORMATS` is the subset docex can check today. Rule 29 is **derived** from the first map rather than tabulated against it, so it cannot drift as styles are added; two consumers read the map — the rule-29 validator and `check.py::_gate_contracts` — which is why it lives on the model. Do not restate the mapping here; `cicl.md § Surfaces` is the table and a literal-equality test pins the code to it.
 
 In `src/docex/naming.py`:
 
@@ -87,13 +87,13 @@ In `src/docex/cicl/magic_refs.py`:
   ${backing_services.<service>.<part>}                     # three segments — database.host
   ```
 
-  A core ref resolves against the **compiled** identity (`api-web`), which is what `contexts` and `engines` are keyed on. A core service may not reference itself — `provides.host` is the internal discovery name, so the one plausible motive would not return what the author expects. See [`cicl.md § Magic Refs`](../../../doctrine/infrastructure/cicl.md#magic-refs).
+  A core ref resolves against the **compiled** identity (`api-web`), which is what `contexts` and `engines` are keyed on. A core service may not reference itself — `provides.host` is the internal discovery name, so the one plausible motive would not return what the author expects. See [`cicl.md § Magic Refs`](../../../../doctrine/infrastructure/cicl.md#magic-refs).
 
 - **Parse generically, then arity-check by kind** (mod 097). `_MAGIC_RE` matches *any* `${codebases.…}` / `${backing_services.…}`, whatever its body; the body is split on `.` and its segment count checked against the kind by one shared generator, so the two wrong-arity messages cannot drift apart. This is deliberate rather than a widened pattern: whether a string **is** a magic ref must be decided independently of whether that ref is **well-formed**. When the two were coupled, an over-long ref — or any ref carrying a `-` in a name — matched neither `_MAGIC_RE` nor `substitute._COMPILE_RE` and was written verbatim into the emitted compose/HCL as literal `${…}` text. That is silent corruption of infrastructure config, not a message-quality problem, and generic capture is what closes it structurally.
 
 ## Substitution grammar — three layers, three resolvers
 
-The doctrine spec is in [`transfer_tables.md § Substitution Grammar`](../../../doctrine/infrastructure/specifics/transfer_tables.md#substitution-grammar). The implementation enforces the layering:
+The doctrine spec is in [`transfer_tables.md § Substitution Grammar`](../../../../doctrine/infrastructure/specifics/transfer_tables.md#substitution-grammar). The implementation enforces the layering:
 
 | Syntax | Stage | Resolver |
 | ------ | ----- | -------- |
@@ -108,7 +108,7 @@ A compile-time `${var}` embedded inside a `@<expr>` is resolved during emit; the
 ## Service expansion
 
 Mod 096. One codebase key in `infra.yml` maps to **N** `CompiledService`
-objects, one per [core service](../../../doctrine/infrastructure/cicl.md#core-services) —
+objects, one per [core service](../../../../doctrine/infrastructure/cicl.md#core-services) —
 a codebase invoked several ways from one image.
 
 ```
@@ -184,7 +184,7 @@ are runtime-only.
 
 **`replicas`** is the **declared** count. `effective_replicas(svc, env)`
 (`cicl/compile.py`) applies the clamp — the count applies in `prod` only, per
-[`shape.md`](../../../doctrine/infrastructure/shape.md)'s Runtime Shape
+[`shape.md`](../../../../doctrine/infrastructure/shape.md)'s Runtime Shape
 paragraphs — and all three readers call it (both emitters plus the `stagetest`
 pre-step, which computes replica container names to inspect), so the prod-only
 rule is stated once.
@@ -357,7 +357,7 @@ needed a carve-out at nearly every emission site. Its role table is modelled on
 — `compose_service` on fixed, `task_definition` + `ecs_service` +
 `container_definition` on elastic, no target group — and it needs no special
 case in the emitters' service loops, which is the point. See
-[`clock.md`](../../../doctrine/infrastructure/specifics/clock.md).
+[`clock.md`](../../../../doctrine/infrastructure/specifics/clock.md).
 
 Three things are clock-specific.
 
@@ -377,7 +377,7 @@ translation together, so nothing in the current compiler can reproduce it.
 
 | Artifact | Purpose | Shape |
 | --- | --- | --- |
-| `infra/output/<env>/schedules.yml` | **visibility** — git-tracked and diff-visible per [`cicl.md § Compiler Output`](../../../doctrine/infrastructure/cicl.md#compiler-output) | aggregate, keyed `<codebase>.<service>` |
+| `infra/output/<env>/schedules.yml` | **visibility** — git-tracked and diff-visible per [`cicl.md § Compiler Output`](../../../../doctrine/infrastructure/cicl.md#compiler-output) | aggregate, keyed `<codebase>.<service>` |
 | `DOCEX_SCHEDULES_YAML` | **delivery** — the literal rendered YAML, one variable, both foundations | that clock's bare job map |
 
 **Nothing reads `schedules.yml` at runtime, and that is not an oversight.** It
@@ -422,7 +422,7 @@ load-bearing:
 
 - **Node ids are the dotted reference form** (`api.web`), bare for a backing
   service, with the emitted `global_name` shown alongside on the same line. This
-  is [`cicl.md § Magic Refs`](../../../doctrine/infrastructure/cicl.md#magic-refs)
+  is [`cicl.md § Magic Refs`](../../../../doctrine/infrastructure/cicl.md#magic-refs)
   naming `describe` node ids in its dotted list. The compiled key does not
   decompose — both segments may contain `-` — and a view whose whole purpose is
   human understanding must not hand the reader an ambiguous token. Same argument
@@ -486,7 +486,7 @@ too, which is re-tiered there to an env-tier, non-external, per-slot bridge
 (`{project}-test-s{k}-web`) because `test` is never routed. For `dev`/`stage`/
 `prod` the `web` network stays the projinfra-owned external one (slot-shared, and
 those envs are never instantiated in slots). The slot axis is doctrine — see
-[`infrastructure.md § Environments`](../../../doctrine/infrastructure/infrastructure.md#environments).
+[`infrastructure.md § Environments`](../../../../doctrine/infrastructure/infrastructure.md#environments).
 
 **Out-of-compiler re-derivers (seam closed, Mod 154).** Identities reconstructed
 from `codebase_global_name` outside the compiler now take a `slot` kwarg and thread
@@ -515,7 +515,7 @@ the explicit names a Compose `--project-name` cannot.
 
 Mod 127. Every core service's container health check is `["CMD", "./health.sh", "<service>"]`
 on both foundations, with a doctrine-fixed and uniform cadence
-([`healthchecks.md`](../../../doctrine/infrastructure/healthchecks.md)). It reaches the
+([`healthchecks.md`](../../../../doctrine/infrastructure/healthchecks.md)). It reaches the
 compiled output as a **transfer-table `defaults` entry** on `web`, `worker`, and `clock`
 — never a `fields:` translation, because it needs nothing from `infra.yml` but the core
 service's own name, which the substitution context already supplies as `${service}`.
@@ -534,7 +534,7 @@ service's own name, which the substitution context already supplies as `${servic
 It emphatically does *not* travel through the `container_definition` merge target, which
 is where a reader familiar with mod 095 will look first. It cannot: a `defaults:` block
 is unable to route off the engine's default target at all
-([`transfer_tables.md § Anatomy of a Role Definition`](../../../doctrine/infrastructure/specifics/transfer_tables.md#anatomy-of-a-role-definition)),
+([`transfer_tables.md § Anatomy of a Role Definition`](../../../../doctrine/infrastructure/specifics/transfer_tables.md#anatomy-of-a-role-definition)),
 and on elastic that default target is `task_definition`.
 
 **Three derivatives must not inherit the probe**, each pinned by a test with a positive
@@ -542,22 +542,22 @@ control in the same compiled document:
 
 | Derivative | Why not | Safe because |
 | --- | --- | --- |
-| the per-codebase `-exec` block | a one-off that runs a script and exits; its liveness is the exit code it was invoked for ([`exec_service.md`](../../../doctrine/infrastructure/specifics/exec_service.md)). A probe here would also change what `depends_on: service_healthy` means for anything gating on it | built key-by-key as a fresh dict, reads one key off a core service (`image`) |
+| the per-codebase `-exec` block | a one-off that runs a script and exits; its liveness is the exit code it was invoked for ([`exec_service.md`](../../../../doctrine/infrastructure/specifics/exec_service.md)). A probe here would also change what `depends_on: service_healthy` means for anything gating on it | built key-by-key as a fresh dict, reads one key off a core service (`image`) |
 | the elastic `_migrate` task definition | same reason, plus ECS would *kill* an essential container that fails — the wrong treatment of a job meant to end | same construction |
-| the paired `-otelcol` sidecar | the collector image is `FROM scratch` and carries no probe tool, so a probe would report `starting` forever ([`telemetry_infra.md`](../../../doctrine/infrastructure/specifics/telemetry_infra.md)) | both emitters build it as a dict literal |
+| the paired `-otelcol` sidecar | the collector image is `FROM scratch` and carries no probe tool, so a probe would report `starting` forever ([`telemetry_infra.md`](../../../../doctrine/infrastructure/specifics/telemetry_infra.md)) | both emitters build it as a dict literal |
 
 `health_check_path` survives as **one** translation only: `elastic` → `target_group`, the
 ALB's own HTTP probe. On fixed it has **no consumer at all** — the compiler emits no
 health-aware load-balancer labels, only `loadbalancer.server.port`, so the project traefik
 does no probing of its own; whether it *passively* withholds routing from a container Docker
 has marked unhealthy is a property of that tool which nothing here verifies
-([rule 33](../../../doctrine/infrastructure/cicl.md#validation-rules)). The field stays
+([rule 33](../../../../doctrine/infrastructure/cicl.md#validation-rules)). The field stays
 *declared* on the `web` engine so rule 4 accepts it in a fixed project's `infra.yml`.
 On fixed the **container probe** has exactly two consumers and neither reroutes traffic:
 Docker, which reports a status and restarts nothing of its own accord, and
 `docex stagetest`, which reads that status and fails a release on it.
 It is gone from `worker` and `clock` entirely, which is how
-[rule 33](../../../doctrine/infrastructure/cicl.md#validation-rules)'s negative arm is
+[rule 33](../../../../doctrine/infrastructure/cicl.md#validation-rules)'s negative arm is
 enforced at the table layer by rule 4 — for those two roles. Rule 4 cannot enforce the
 whole arm, because it only ever rejects a field the *engine* does not declare: a
 `role: web` core service off the `web` network declares `health_check_path` legally as
@@ -661,7 +661,7 @@ The compiler no longer emits a secrets manifest file (mod 092 removed
 env vars + doctrine-injected secrets — and is materialized on demand by `docex
 secrets scaffold`/`status`, never written by `compile`. `emit/secrets.py` retains
 only `render_manifest_env`, the shared grouped-`KEY=value` renderer those scaffold
-commands use (see [`config_and_secrets.md`](../../../doctrine/infrastructure/specifics/config_and_secrets.md)).
+commands use (see [`config_and_secrets.md`](../../../../doctrine/infrastructure/specifics/config_and_secrets.md)).
 
 The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-tier HCL), `project.tf.j2` (project-tier HCL), `ec2_traefik_user_data.sh.j2`, `playbook.yml.j2`, `inventory.yml.j2`, `ansible.cfg.j2`. Pre-translated names (state bucket, ALB name, ECS cluster, etc.) are computed in Python by `apply_policy` and passed to the templates as context; the project segment is passed the same way, as `project_dns_label` (`naming.dns_label` of the raw name), so no template re-derives it inline. Mod 138 closed a divergence here: four HCL sites (`project.tf.j2:325`, `main.tf.j2:63,128,130`) each re-derived the segment as `{{ project | replace('_', '-') }}`, and two omitted `| lower`, so a mixed-case project name compiled to two disagreeing spellings of its own project segment — a case-sensitive-AWS-name failure (`MyProject-prod-web` vs `myproject-prod-web` are different resources), not a cosmetic one. All four now read the threaded `project_dns_label` (`emit_hcl` from `CompiledEnv.project_dns_label`, `emit_hcl_project` from `dns_label(project)`), and a mixed-case project name is rejected at load (see § Validation), so the DNS-label rule has one expression. Do not re-derive the project segment in a template.
 
@@ -669,9 +669,9 @@ The Jinja templates live in `src/docex/emit/templates/` — `main.tf.j2` (env-ti
 
 Validation lives at two layers:
 
-**Load-time** (`cicl/transfer.py::load_transfer_tables` + `naming.py::_validate_policy_keys`) — runs before any `infra.yml` is compiled. Strict schema enforcement on every transfer-table YAML file, bundled or project-local. Allowlist-based: unknown top-level keys, unknown engine sub-keys, unknown naming-policy sub-keys, and unknown emit destinations all hard-error at load with source attribution and "did you mean X?" hints for plausible typos. Per [`transfer_tables.md § Failure-mode contract`](../../../doctrine/infrastructure/specifics/transfer_tables.md#failure-mode-contract). Allowlists live as `_ALLOWED_*` constants in `transfer.py` and `naming.py` (mod 012). Separately, `project.yml`'s `name` is validated when the manifest loads: a `field_validator` on `ProjectManifest.name` (`cicl/model.py`, `_PROJECT_NAME_RE = ^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`) rejects a name that is not already a valid DNS label — lowercase alphanumerics with interior hyphens/underscores (underscores are converted to hyphens by `dns_label`). This aligns the project name to the DNS-label rule of record ([`cicl.md § Domain`](../../../doctrine/infrastructure/cicl.md#domain)) so it compiles to exactly one spelling of its project segment; a mixed-case name is rejected rather than silently producing two (mod 138).
+**Load-time** (`cicl/transfer.py::load_transfer_tables` + `naming.py::_validate_policy_keys`) — runs before any `infra.yml` is compiled. Strict schema enforcement on every transfer-table YAML file, bundled or project-local. Allowlist-based: unknown top-level keys, unknown engine sub-keys, unknown naming-policy sub-keys, and unknown emit destinations all hard-error at load with source attribution and "did you mean X?" hints for plausible typos. Per [`transfer_tables.md § Failure-mode contract`](../../../../doctrine/infrastructure/specifics/transfer_tables.md#failure-mode-contract). Allowlists live as `_ALLOWED_*` constants in `transfer.py` and `naming.py` (mod 012). Separately, `project.yml`'s `name` is validated when the manifest loads: a `field_validator` on `ProjectManifest.name` (`cicl/model.py`, `_PROJECT_NAME_RE = ^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`) rejects a name that is not already a valid DNS label — lowercase alphanumerics with interior hyphens/underscores (underscores are converted to hyphens by `dns_label`). This aligns the project name to the DNS-label rule of record ([`cicl.md § Domain`](../../../../doctrine/infrastructure/cicl.md#domain)) so it compiles to exactly one spelling of its project segment; a mixed-case name is rejected rather than silently producing two (mod 138).
 
-**Compile-time** (`cicl/validate.py`) — runs against the loaded tables + `infra.yml`. Enforces the rules listed in [`cicl.md § Validation Rules`](../../../doctrine/infrastructure/cicl.md#validation-rules). Among them:
+**Compile-time** (`cicl/validate.py`) — runs against the loaded tables + `infra.yml`. Enforces the rules listed in [`cicl.md § Validation Rules`](../../../../doctrine/infrastructure/cicl.md#validation-rules). Among them:
 
 - Every magic ref resolves to a `provides:` part the referenced engine exposes.
 - Every engine is permitted on the target foundation.
@@ -687,11 +687,11 @@ Validation lives at two layers:
 - Rendered data-plane identities are unique after naming-policy normalization, across core services, backing services, **and the derivatives the compiler appends to them** (rule 5; mod 096 added the first two, mod 099 the third, mod 100 the replica index). The check normalizes to hyphenate-and-lowercase and compares the un-prefixed suffix — the `{project}_{env}` prefix is common to every service, which is what lets the rule run without a project name or env. It catches collisions the exact-name check cannot: `api`+`web-v2` against `api-web`+`v2`, and a core service rendering `api-db` against a backing service literally named `api-db`. The derivatives are `-otelcol` (collector sidecar), per core service, and `-exec` (operations container) and `-migrate` (migration task definition), per codebase — so a core service named `exec` on codebase `api` renders `api-exec` and is rejected rather than silently sharing a compose key with `api`'s exec container. Two of the three holes predate mod 099. Mod 100 added a fourth derivative, the `-1`…`-N` replica index the fixed-`prod` unroll appends, seeded only where the core service declares `replicas > 1` — with a count of 1 the suffix is never emitted by anything, and the rule does not forbid a name that collides with nothing. Seeding the container identity alone is sufficient: a sidecar collision would need `{P}-otelcol == {Q}-{i}-otelcol`, i.e. `P == Q-i`, which is exactly the container-level collision already seeded. The rule is keyed on **collision, not on a reserved-name list**, which is what makes it cover every suffix the compiler learns in future with no further edit, and what keeps a name that collides with nothing from being forbidden for its own sake. `-migrate` is seeded even for a codebase that owns no schema today: schema ownership is declared on a *backing* service and can be added later without touching the codebase, so a name that would collide the moment it is should not be legal in the meantime.
 - **Rules 6 and 24 are retired (2.0.0) and their numbers tombstoned**, never reused. Rule 24 restricted `depends_on` to backing services; there is one relation now and its shape rule is rule 25. Rule 6's cycle DFS is gone because **only core services declare `uses`**, which makes a backing service a graph **sink** — no path leaves one, so a backing-targeted cycle cannot be *constructed*, let alone detected. Acyclicity therefore falls out of the graph's shape rather than being enforced against it. A cycle among **core** targets is legal — `web ↔ worker` is the most common topology there is — and its legality is asserted rather than merely unchecked. The unknown-**target** check that lived under rule 6's id survives as the bare-name arm of `rule_25_unresolved_uses`: a typo'd target must still fail at compile time.
 - `uses` names **either** a backing service, bare, **or** a core service fully qualified as `<codebase>.<service>`; a bare *codebase* name is an error, not shorthand for "all its core services", and a core service may not use itself (rule 25). Classification is **by form**, which is total and unambiguous because `_SERVICE_NAME_RE` forbids a dot in any service name — so bare/dotted partitions the entries with no overlap and no gap, and rule 25 makes that partition *mean* target kind. A bare entry naming a *codebase* is dispatched on the namespace first, because that is the mistake the merged field invites. Mod 101 added a clause forbidding the retired cron role as a target — it exposed no boundary to use and was exempt from the health fan-out and contract requirement that `uses` drove at the time — and mod 116 deleted that clause with the role, bringing the implementation back into step with committed rule 25, which never carried it. **Every core service is now a legal target**, so the rule is shape-only. Separately, `uses` on a **backing service** is rejected as `rule_uses_on_backing_service` — not a numbered rule, but the Service Fields scope column plus the standing "fails loudly when a field is in the wrong scope" sentence. `ServiceRef.parse` is the parser, so the bare-name rule lives in one place. Every reporting branch of the rule-25 loop `continue`s, so one malformed entry never yields two issues; a test pins it.
-- `uses` drives **validation** (rules 7, 25, 31, 32), the elastic release's Service Connect reconcile, one *view* (`describe`), and **one emission**: the per-codebase exec block's readiness gate. Contracts are driven by [`surfaces:`](../../../doctrine/infrastructure/cicl.md#surfaces) and no longer by `uses` at all; the health fan-out it once drove is deleted. Nothing else in the compiled output reads it, and that it *cannot* be read is structural rather than incidental — it is a declared pydantic field on the authoring model and a declared dataclass field on `CompiledService`, so it never appears in `model_extra` and cannot reach field translation. A test asserts that the word `uses` appears in no emitted artifact.
+- `uses` drives **validation** (rules 7, 25, 31, 32), the elastic release's Service Connect reconcile, one *view* (`describe`), and **one emission**: the per-codebase exec block's readiness gate. Contracts are driven by [`surfaces:`](../../../../doctrine/infrastructure/cicl.md#surfaces) and no longer by `uses` at all; the health fan-out it once drove is deleted. Nothing else in the compiled output reads it, and that it *cannot* be read is structural rather than incidental — it is a declared pydantic field on the authoring model and a declared dataclass field on `CompiledService`, so it never appears in `model_extra` and cannot reach field translation. A test asserts that the word `uses` appears in no emitted artifact.
 - The `uses` **parse lives on the model**, as `CoreService.core_uses()` / `backing_uses()`, both routing through the shared `names_core_service` classifier so the split is written exactly once. `core_uses()` normalizes to dotted form and drops entries that do not parse — rule 25 reports each malformed entry once, and a malformed entry must not *also* surface downstream as a mystifying rule-7 miss or as a missing contract for a target the author plainly named. Rules 7, 31 and 32 and the compiler all read through it — "a second parser would be a second place for that rule to drift". `check.py` is **no longer** among the readers: its contract gate derives the provider set from `surfaces:`, so the one-parser argument now earns its keep entirely inside validation. A dropped entry therefore cannot reappear as a phantom node in `describe`, which matters more than it looks — `compile_env` does not validate, so the renderer sees whatever the compiler kept.
 - `replicas` is not declared on a `clock`, and `worker` / `clock` core services do not declare `web` in `networks` (rules 26 + 27, mods 096 + 115 + 116) — the latter replaces a prose-only, unenforced note. Rule 26 originally forbade `replicas` on the retired cron role, where a replica count was merely *inert*; mod 115 added a clock arm as a **separate branch**, because on a clock the count is not inert but *actively wrong* (N replicas means N ticks and N enqueues per fire). Keeping the two apart is what let mod 116 delete the old arm rather than rewrite a fused condition — and the clock rule is now rule 26 entire.
 - A `clock` declares a non-empty `schedules:` mapping of job name → 5-field cron (`rule_clock_schedules_required`), job names are valid identifiers because they are the dispatch keys the clock's controller looks up (`rule_clock_job_name_invalid`), and every value parses as a 5-field expression (`rule_clock_cron_invalid`, mod 115). Issues are reported **per offending job**, not per service. The half of the doctrine's rule that rejects `schedules:` on every *other* role needs no code: rule 4 already rejects a role-specific field the engine does not declare. `DOCEX_SCHEDULES_YAML` joins the reserved doctrine-injected env keys, so rule 20 rejects a project declaring it.
-- Every [surface](../../../doctrine/infrastructure/cicl.md#surfaces)'s `api_styles` resolve to exactly one contract format (rule 29, mod 125). The check is **derived** — `len(surface.formats()) == 1` over `model.py::API_STYLE_FORMATS` — never a table of legal style pairs, so adding a style cannot leave a stale pair list behind. `[rest, stream, webhook]` passes (all `openapi`); `[rest, rpc]` fails with a message that groups the offending styles by the format each resolves to and says to split. Two sibling ids under the same number: an unrecognized style is `rule_29_unknown_api_style` and does **not** also read as a mixed-format surface, because an unknown style resolves to no format at all. `API_STYLE_FORMATS` lives on the **model**, not in `validate.py`, because `check.py`'s contract gate resolves a surface to a contract *filename* from the same table — one copy of a transcribed doctrine table, pinned by a literal-equality test.
+- Every [surface](../../../../doctrine/infrastructure/cicl.md#surfaces)'s `api_styles` resolve to exactly one contract format (rule 29, mod 125). The check is **derived** — `len(surface.formats()) == 1` over `model.py::API_STYLE_FORMATS` — never a table of legal style pairs, so adding a style cannot leave a stale pair list behind. `[rest, stream, webhook]` passes (all `openapi`); `[rest, rpc]` fails with a message that groups the offending styles by the format each resolves to and says to split. Two sibling ids under the same number: an unrecognized style is `rule_29_unknown_api_style` and does **not** also read as a mixed-format surface, because an unknown style resolves to no format at all. `API_STYLE_FORMATS` lives on the **model**, not in `validate.py`, because `check.py`'s contract gate resolves a surface to a contract *filename* from the same table — one copy of a transcribed doctrine table, pinned by a literal-equality test.
 - `graphql` and `proto` are **defined language that is not implemented**, and a surface resolving to either fails at *compile* with `rule_contract_format_not_implemented` (un-numbered: `contracts.md § Standards` states it in prose, not in the numbered list). The separate `IMPLEMENTED_CONTRACT_FORMATS` set is what makes the author hear "format not yet implemented" instead of "unknown style" — a named, honest boundary rather than a silent gap. Enforced here rather than in a CI gate, because a gate would let `docex compile` accept it.
 - Surface names match the same pattern as codebase and core-service names (rule 30, mod 125). Enforced in `model.py::_validate_service_names` against the existing `_SERVICE_NAME_RE`, **reused rather than reinvented**: that pattern is already dot-free, which is the property that keeps a contract filename's right-anchored four-segment parse (`api.web.rest.openapi.yml`) unambiguous. Like rule 5's, this is a name-*shape* rule and raises rather than aggregating.
 - Every core-service `uses` target declares at least one surface (rule 31, mod 125) — declaring a surface is what makes a core service a provider, so an edge onto one that declares none is an error rather than a missing contract. Implemented as a **third clause inside the rule-25 loop**, not a sibling function: that branch has already parsed the ref and resolved the target, and its `continue`s are what keep a typo'd entry from reporting twice (once as rule 25, once as a mystifying "declares no surface" for a target that does not exist). A test pins that.

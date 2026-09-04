@@ -192,7 +192,7 @@ def ecs_cluster_name(
     clusters). That last one is why the drift surface was worth closing at all:
     the emitter and the readers must agree, or a runtime read silently addresses
     a cluster nothing created. Same reasoning as ``CURRENT_CICL_VERSION`` being a
-    constant — see ``plans/core/compiler.md``.
+    constant — see ``plans/design/specifics/compiler.md``.
 
     Takes primitives rather than a ``ProjectContext`` on purpose: ``naming.py``
     is a low-level module and importing ``docex.context`` would create a cycle.

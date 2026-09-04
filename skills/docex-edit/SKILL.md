@@ -7,9 +7,9 @@ metadata:
 
 `docex` is the executor software of the `doctrine`. It is stored in a subfolder of the `jean_baudrillard` repo which itself can always be found at `~/.claude/jean_baudrillard`.
 
-The exact filepath of the `docex` project root folder is always `~/.claude/jean_baudrillard/docex`. This is the "project folder" for the `docex` code project. Its documentation can be found at the usual place in `$jb/docex/plans/core`. Most importantly `.../docex/plans/core/masterplan.md` describes the project software and `$jb/docex/plans/core/docex_process.md` describes the development process.
+The exact filepath of the `docex` project root folder is always `~/.claude/jean_baudrillard/docex`. This is the "project folder" for the `docex` code project. Its documentation lives at `$jb/docex/plans/design` — a hand-maintained corpus that *resembles* the doctrine arc42 shape without complying with it (docex is the executor, not a doctrine-authored project). Start with the L1 state docs `$jb/docex/plans/design/{boundary_conditions,concepts_and_decisions,structures_and_views}.md` and `lexicon.md`; the detail tier is `$jb/docex/plans/design/specifics/` (`compiler.md`, `release_flow.md`, `test_projects.md`, `the_shim.md`, `subcommand_surface.md`, and `docex_process.md` — the development process). The reasoning behind load-bearing decisions is in `$jb/docex/plans/design/adrs/`.
 
-Read all files in `$jb/docex/plans/core` before making any changes to the code.
+Read the L1 arc42 docs, then the relevant `specifics/` files under `$jb/docex/plans/design`, before making any changes to the code.
 
 Also read `~/.claude/jean_baudrillard/doctrine/infrastructure/*.md` to get a good grounding on high level infrastructure concepts.
 

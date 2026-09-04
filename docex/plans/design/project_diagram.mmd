@@ -1,0 +1,25 @@
+%% Project Diagram (C4 system-context) for docex.
+%% docex is a single image + shim; it has no infra.yml, so there is no service diagram.
+flowchart TB
+    operator["Operator<br/>(developer on the dev machine)"]
+    doctrine["The Doctrine<br/>(rules docex executes)"]
+
+    subgraph docexBox["docex — the doctrine executor (one versioned image + project shim)"]
+        docex["docex CLI<br/>compiler · orchestration · pipeline"]
+    end
+
+    project["Project repository<br/>project.yml · infra.yml · core/ · bin/docex"]
+    hostdocker["Host docker daemon<br/>(via /var/run/docker.sock, DooD)"]
+    creds["Operator credentials<br/>~/.aws · ~/.docker · ~/.ssh · ~/.gitconfig"]
+    targets["External targets<br/>container registries · AWS API · SSH hosts"]
+
+    operator -->|"invokes ./bin/docex &lt;command&gt;"| docex
+    doctrine -.->|"embodied in the image"| docex
+    docex -->|"reads/writes the project tree"| project
+    docex -->|"builds / runs / pushes containers"| hostdocker
+    docex -->|"consumes (never manages)"| creds
+    docex -->|"deploys / probes"| targets
+
+    click docex "./structures_and_views.md" "Building-block, runtime, and deployment views"
+    click docexBox "./boundary_conditions.md" "Intro, goals, scope, constraints"
+    click doctrine "../../../doctrine/doctrine.md" "The doctrine"
