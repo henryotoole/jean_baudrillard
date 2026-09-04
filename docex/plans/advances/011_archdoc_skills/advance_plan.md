@@ -41,17 +41,34 @@ Continues mod numbering from 010: next mod is **165**.
 ## Goal 2: `docex` dogfoods the new doc structure
 
 ### Success Criteria
+
+> **Operator ruling (2026-09-04, folded in during 011):** docex is *not* a
+> doctrine-standard project — doctrine-based products cannot structurally produce
+> a tool like docex, so its docs only need to *resemble* doctrine docs for
+> ergonomics, not comply. Expected shape is **L1 arc42 docs + ADRs + an L1
+> `specifics/`, and very little else** — **no** forced per-codebase/module L3
+> layer (docex has no `infra.yml`, so `codebases()` is empty and none would
+> scaffold). **docex itself is NOT obligated to pass `docex docs check`;** do not
+> contort its structure to satisfy checks. This relaxes SC1's "per-module L3 docs"
+> and SC3 below ("passes live" → best-effort resemblance). Dogfood, not compliance.
+
 1. `docex`'s own project docs migrated `docex/plans/core` → `docex/plans/design`:
-   arc42 L1 files, the standard diagrams, per-module L3 docs, and any ADRs
-   warranted — laid down via `docex docs scaffold`, then populated from the
-   existing `masterplan.md`/`docex_process.md`/etc. content. Done **by hand**
-   (docex is the executor, not a typical doctrine-authored project — the
-   `doc-refine` skill is deliberately *not* exercised on it; see Non-Goals).
+   arc42 L1 files, standard diagram(s) as far as they fit (docex has no
+   `infra.yml`, so the service diagram is light/optional), an L1 `specifics/` for
+   detail that doesn't fit an arc42 section, and any ADRs warranted — laid down via
+   `docex docs scaffold`, then populated from the existing
+   `masterplan.md`/`docex_process.md`/etc. content. Done **by hand** (docex is the
+   executor, not a typical doctrine-authored project — the `doc-refine` skill is
+   deliberately *not* exercised on it; see Non-Goals). No per-module L3 layer
+   (per the ruling above).
 2. `$jb/doctrine/**` is **NOT modified** by this migration. docex's docs may
    *link* to the doctrine freely, but the doctrine is not part of docex's design
    corpus.
-3. The migrated corpus passes `docex docs check` (reachability + missing-file +
-   adr-fresh) **live**.
+3. The migrated corpus should be laid out so `docex docs check` is *satisfiable in
+   principle* (standard L1 files present + reachable), but **passing the live check
+   is best-effort, not a hard gate** (per the ruling above) — docex is not obliged
+   to contort to pass. The hard requirement is the deferral-ledger sweep + green
+   `linkcheck` (SC4), not `docex docs check`.
 4. The 010 **deferral ledger** is swept to the new `plans/design` paths:
    `credentials.md` masterplan link, `cohere/SKILL.md:41`, `linkcheck.py` default
    roots + `test_linkcheck` `mirror_*` fixtures, `docex-edit`/`doctrine-update`
