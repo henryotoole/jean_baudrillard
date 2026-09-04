@@ -3,29 +3,40 @@
 Advance 011 is the second half of the archdoc campaign begun in
 [advance 010](../010_archdoc_overhaul/advance_plan.md). Where 010 installed the
 new documentation doctrine and the `docex docs {scaffold,check,adr}` tooling,
-011 builds the **documentation-refinement tooling** (the `docex docs linkmap`
-command and the `docmapper` doc-grouping tooling (built into `docex`) behind the `doc-refine-orchestration`
-skill), **dogfoods** the new structure onto `docex`'s own docs, brings the
+011 builds the **documentation-refinement tooling** — new `docex docs` verbs
+(`linkmap`, `overhead`, `changed`, `cxt_groups`) that the
+`doc-refine-orchestration` skill drives — **dogfoods** the new structure onto
+`docex`'s own docs, brings the
 smoke-test projects onto the new style, and validates the combined 010+011 state
 with a fixed-foundation smoke walk. It does **not** cut the release — the `3.0.0`
 cut (bundling 010+011) follows this advance (see *Deferred*).
 
 Continues mod numbering from 010: next mod is **165**.
 
-## Goal 1: `docex docs linkmap` ships
+## Goal 1: `docex docs linkmap` — the doc/code link graph
 
 ### Success Criteria
-1. `./bin/docex docs linkmap` emits the **complete directed doc-link graph** of
-   `plans/design` as JSON to **stdout** (every file → its outbound link targets;
-   both outbound and inbound adjacency derivable from it — not just the
-   reachable-from-roots set the `docs check` gate computes).
-2. Output discipline matching `docex describe --format llm`: pure JSON on stdout,
-   diagnostics to stderr, deterministic (`sort_keys`), built once and emitted in a
-   single write, nonzero exit on any error (no partial stdout on failure).
-3. Built on the existing link-graph code (`_links_in` in `docs/check.py`), not a
-   reimplementation.
-4. Unit + integration tests green (invocation discipline); six-artifact alignment
-   green; `docex.md § docs` and `masterplan.md` updated.
+1. `docex docs linkmap <depth>` (`design_docs` | `code_level`) emits the full link
+   graph as deterministic JSON to **stdout**. `design_docs` covers `plans/design`;
+   `code_level` also covers each codebase's `core/*/src` (git-tracked files only,
+   so compiled artifacts never appear). Maps **all** in-scope files, including
+   those unreachable from the roots.
+2. **Nodes** are files, each carrying: `is_standard`, `type` (design / source /
+   neither), `fpath` (project-relative), `level` (L1/L2/L3/C, nullable),
+   `codebase`, `module`, and `tokens` (estimated context cost — folded into the
+   linkmap, so there is no separate token-assessment step). `neither`-type nodes
+   exist so edges pointing *outside* the tracked scope are still recorded.
+3. **Edges** carry `link_type` (markdown / mermaid-click / structurally-emergent)
+   and `direction`. Emergent edges follow doctrine structure — e.g. a hex source
+   file `core/{cb}/src/hex/{module}/**` links to its module doc
+   `plans/design/{cb}/module/{module}.md` when present.
+4. Built on the existing `_links_in` primitive in `docs/check.py`; the current
+   **reachability check is refactored to consume this linkmap** (one graph source
+   of truth) and stays green. Output discipline like `docex describe --format
+   llm`: pure JSON on stdout, diagnostics to stderr, deterministic sort,
+   emit-once, nonzero exit on failure.
+5. docex unit + integration tests; six-artifact alignment; `docex.md § docs`
+   (output format documented) + `masterplan` updated.
 
 ## Goal 2: `docex` dogfoods the new doc structure
 
@@ -46,30 +57,31 @@ Continues mod numbering from 010: next mod is **165**.
    roots + `test_linkcheck` `mirror_*` fixtures, `docex-edit`/`doctrine-update`
    references. `linkcheck` green after.
 
-## Goal 3: `docmapper` implemented and empirically calibrated
+## Goal 3: the orchestration verbs (`overhead`, `changed`, `cxt_groups`) + skill
 
 ### Success Criteria
-1. `docmapper` is implemented **as part of `docex`** — a docex command family
-   (surface TBD: e.g. `docex docs map <op>` or `docex docmap <op>`, a naming call
-   for the mod) providing `init`/`map_overhead`/`assess_tokens`/`group <target>`/
-   `print order`/`print group` per [design.md](../../../../skills/doc-refine-orchestration/executor/design.md).
-   `init` is deterministic off a git-ref, allowlists by location (`plans/design/**`
-   + source roots), considers **git-tracked files only** (gitignored build
-   artifacts never appear), treats the **empty-tree SHA** as "all files", and
-   **excludes generated-but-committed files** (the two ADR indexes, by their
-   do-not-edit marker). Living in docex beside `docs linkmap`, `map_overhead` may
-   build the graph in-process; the standalone `docex docs linkmap` still ships.
-2. Covered by **docex's unit + integration tests and six-artifact alignment**
-   (centralizing in docex is what keeps it maintained and gated — this closes the
-   "no owning gate" gap). The `doc-refine-orchestration` skill (SKILL.md + its
-   `executor/design.md`) is rewired to **route to the `docex` commands** rather
-   than a standalone `docmapper` binary.
-3. **Empirical calibration:** run `docmapper` against docex's migrated design
-   corpus (Goal 2 output — using the pre-dogfood commit as the git-ref so the
-   migrated docs register as subject files), with an artificially low `<target>`
-   to force multiple groups. Spawn a subagent to actually **load** one group's
-   overhead + subject files and **measure real context usage** against
-   `assess_tokens`'s estimate. Report the accuracy.
+1. `docex docs overhead <file>` lists a subject file's structurally-inferred
+   overhead per the overhead rules (all L1 root docs; any L1/L2/L3 doc the subject
+   directly links to; for a source file with a module doc, what that module doc
+   links to). Best-guess, not exhaustive.
+2. `docex docs changed <git_ref>` lists the in-scope files changed since a git-ref
+   (git-tracked, location-allowlisted; empty-tree ref = "all").
+3. `docex docs cxt_groups <tokens_max> {<git_ref> | all}` returns context groups —
+   each a set of subject files with highly-overlapping overhead — where a group's
+   total in-context cost (subjects + shared overhead, from the linkmap's `tokens`)
+   stays under `<tokens_max>` (an estimate, not exact). Groups fully cover the
+   selection with no repeats; shared overhead listed high→low abstraction. The
+   grouping is a heuristic (likely clusters on codebase/module lines).
+4. All three verbs covered by docex unit + integration tests + six-artifact
+   alignment + `docex.md`; and the `doc-refine-orchestration` skill routes to
+   `cxt_groups` (SKILL.md already rewritten — finalize its subagent template, drop
+   the now-duplicated overhead-rule prose in favor of a pointer to docex, and
+   retire the superseded `executor/design.md`).
+5. **Empirical calibration:** run `cxt_groups` against docex's migrated corpus
+   (Goal 2 — pre-dogfood commit as the ref so migrated docs are subjects) with an
+   artificially low `<tokens_max>` to force multiple groups; a subagent loads one
+   group and **measures real context usage vs. the `tokens` estimate**, reporting
+   accuracy and any tuning.
 
 ## Goal 4: smoke-test projects on the new doc style
 
@@ -88,9 +100,10 @@ Seams: → DECISION (exceeds corporal authority) · → DEPENDS · → GATE.
 commit 010's outstanding manual-pass edits and the `docs`-gate reorder first.
 
 1. **Mod 165: `docex docs linkmap`.** `corporal` (`docex-edit`).
-   New `docs` subcommand emitting the full directed link graph as deterministic
-   JSON to stdout, per Goal 1. Unit + integration tests; alignment; `docex.md` +
-   `masterplan` command surface.
+   The rich link graph per Goal 1 — node metadata + `tokens`, typed/directed edges
+   incl. structurally-emergent, both depths, all in-scope files (incl.
+   unreachable), reachability refactored onto it. Tests; alignment; `docex.md`
+   (output format) + `masterplan`.
    → DEPENDS: 010's `docs` group (exists).
 
 2. **Mod 166: dogfood — migrate `docex/plans/core` → `plans/design`.** `corporal`.
@@ -99,19 +112,20 @@ commit 010's outstanding manual-pass edits and the `docs`-gate reorder first.
    untouched. Heavy — may split; corporal escalates if over budget.
    → DEPENDS: 010 (`scaffold`/`check`).
 
-3. **Mod 167: `docmapper` in `docex` + skill rewire.** `corporal` (`docex-edit`).
-   Implement docmapper as a docex command family per `design.md` and Goal 3:
-   docex unit+integration tests + six-artifact alignment + `docex.md`/`masterplan`
-   command surface. Rewire `doc-refine-orchestration` (SKILL.md + `executor/design.md`)
-   to route to the new `docex` commands and settle the command-surface name.
-   → DEPENDS: Mod 165 (shares the doc link graph); the finalized
-     `doc-refine-orchestration` SKILL/design.
+3. **Mod 167: `docex docs overhead` / `changed` / `cxt_groups` + skill finalize.** `corporal` (`docex-edit`).
+   The three consumer verbs per Goal 3 (consuming Mod 165's linkmap); docex tests
+   + alignment + `docex.md`. Finalize `doc-refine-orchestration`: fill the subagent
+   template, replace its restated overhead rules with a pointer to docex, drop the
+   stale `docmap` glossary line, and retire `executor/design.md` (superseded by
+   `docex_doc_design.md` / `docex.md`).
+   → DEPENDS: Mod 165 (linkmap).
 
-4. **Mod 168: `docmapper` empirical calibration.** `corporal`.
-   Run `docmapper` against docex's migrated corpus with a low `<target>`; a
-   subagent loads a group and measures real vs. estimated context; report
-   accuracy and any `assess_tokens`/`group` tuning that follows.
-   → DEPENDS: Mod 166 (corpus) + Mod 167 (docmapper).
+4. **Mod 168: context-grouping calibration.** `corporal`.
+   Run `docex docs cxt_groups` against docex's migrated corpus with a low
+   `<tokens_max>`; a subagent loads a group and measures real vs. estimated
+   context; report accuracy and any `linkmap` token-estimate / `cxt_groups` tuning
+   that follows.
+   → DEPENDS: Mod 166 (corpus) + Mod 167 (verbs).
 
 5. **Mod 169: smoke-test projects → new doc style (by hand).** `corporal`.
    Update both test projects' docs; each passes `docex docs check`.
@@ -137,16 +151,33 @@ These are campaign-level release gates and steps, run once after 011, per
   `project-cohere`, etc.
 - **docex release gates** — full `pytest` (unit then `-m integration` separately,
   from `docex/`) + six-artifact alignment on the combined state.
-- **`upgrades/upgrade_3.0.0.md`** (`kind: rebuild`).
+- **`upgrades/upgrade_3.0.0.md`** (`kind: rebuild`) — its design-doc migration
+  section is driven by [`doc_converter_guidelines.md`](./doc_converter_guidelines.md)
+  (the pre-3.0.0 converter; this is the materialization of 010's deferred
+  "doc-assessor").
 - **Version cut `3.0.0`** per `RELEASING.md`: changelog roll; write `VERSION` +
   sync `pyproject.toml`, `__init__.py`, `.claude-plugin/plugin.json`; commit; tag
   `v3.0.0`; `docker build -t docex:3.0.0 ./docex`.
 
+## Open Design Points (resolve at mod time)
+
+From [`docex_doc_design.md`](./docex_doc_design.md), unresolved when the mods start:
+- **`link_type` encoding** — string tags (`md`/`mmd`/`emerg`) vs. an int enum
+  (design doc NOTE).
+- **Other link forms** beyond markdown / mermaid-click / emergent (design doc
+  TODO) — decide whether any more are needed.
+- **`cxt_groups` algorithm** — a heuristic (set-cover + bin-packing); don't
+  over-promise optimality. Expect codebase/module-line clusters.
+- **Skill drift to clean up in Mod 167:** `doc-refine-orchestration` SKILL.md
+  still restates overhead rules that now differ from the docex spec (SKILL says
+  "L2 or L3"; design says "L1/L2/L3") and keeps a now-unused `docmap` glossary
+  line — replace with a pointer to docex rather than a restatement.
+
 ## Non-Goals / Known Gaps
 
 - **The `doc-refine` and `doc-refine-orchestration` skills are NOT exercised
-  end-to-end this campaign.** Only `docmapper`'s grouping/token math is calibrated
-  (Mod 168). docex is not a doctrine-authored project, and the smoke-test-project
+  end-to-end this campaign.** Only the `cxt_groups` grouping/token math is
+  calibrated (Mod 168). docex is not a doctrine-authored project, and the smoke-test-project
   doc updates (Mod 169) are by-hand — so the refinement skills ship *unvalidated
   against a real run*. This is a conscious deferral; the first real exercise will
   be a future refinement on an actual doctrine project. (Flagged for operator

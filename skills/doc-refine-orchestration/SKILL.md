@@ -27,7 +27,7 @@ Now this gives us a deterministic "recommended pool" of overhead for a subject f
 1. Identify all subject files that we wish to do work on.
 2. Establish the recommended pool of overhead files for each.
 3. Denote the "approximate" context usage of loading each file.
-4. Clump together groups of subject files which share overhead (clumps likely form on module or codebase lines), aiming for 50% context usage when all subject files and overhead have been loaded.
+4. Clump together groups of subject files which share overhead (*context groups*), aiming for 50% context usage when all subject files and overhead have been loaded.
 5. Kick off a sub-agent to use the `docs-refine` skill, giving it a full list of the subject files to assess and the full list of overhead to load into context *before loading any subject file*.
 6. For each subject file, the sub-agent will already have the recommended pool of overhead files in context, and can then read the subject file and load any additional files into context intelligently. Then it can make load-bearing edits to the subject file with the best possible information.
 
@@ -46,26 +46,20 @@ The start point can vary on circumstance:
 
 If the start point has not been indicated to you, you should ask what it is.
 
-Convert that start point to a specific git commit, and then use `docmapper init <git_ref>` to setup the *docmap* for this orchestration run.
+Convert that start point to a specific git commit.
 
-### Enrich Docmap
+### Establish Context Groups
 
-Filling out the docmap is done entirely with deterministic code. Running the following commands in series should produce an operational *docmap* for the run.
+Steps (2) to (4) are handled by `docex` code.
 
-`docmapper map_overhead <linkmap>` - `<linkmap>` is a filepath to the project doc linkmap json, which should be produced freshly with `./bin/docex docs linkmap > <fpath>`
-`docmapper assess_tokens`
-`docmapper group <target>` - `<target>` refers to the target (and absolute maximum) total token cost of loading all group files into context. Generally this should be set to 50% of the context limit of whatever model is going to do the refinement work.
+Simply run `docex docs cxt_groups <tokens_max> {<git_ref> | all}` to get the full list of context groups.
 
 ### Orchestrate Subagents
 
-Use `docmapper print order` to learn the order in which to perform subagent subject file group refinements. `docmapper` deterministically works out the correct order and lists all ID's. *Never parallelize this work* - it's almost impossible to predict what docs will be edited as a result of refinement, and we don't want one agent editing an overhead file actively loaded into context in another agent and being used as reference (or even worse, a collision!).
+Use the results of the `cxt_groups` command to set up one subagent for each context group. Use the below template, and note that loading the overhead files first is by design to take advantage of primacy bias.
 
-Then, for each group, use `docmapper print group <group_id>` to get a list of overhead files and subject files for each run. Construct a prompt for a subagent using the below template and then kick off the subagent to refine all files in the group.
+*Never parallelize this work* - it's almost impossible to predict what docs will be edited as a result of refinement, and we don't want one agent editing an overhead file actively loaded into context in another agent and being used as reference (or even worse, a collision!).
 
 ```md
 TEMPLATE TODO
 ```
-
-## Docmap Format
-
-<TODO> Document the docmap format and where it lives during work. </TODO>
