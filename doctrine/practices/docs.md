@@ -188,7 +188,7 @@ Notably, the `docs check` checks must pass in order for the CI/CD check gate to 
 
 The [loading process](#llm-loading-process) is only guaranteed to read L1 standard docs. Routing is strictly top-down. If a critical load-bearing doc gets buried in `specifics` without any reference "from above", it could get lost forever.
 
-`docex docs check` guards against this mechanically. It enumerates every file under `plans/design`, builds the link graph rooted at the standard roots, and flags any file a root cannot reach. Both markdown links and mermaid `click` targets count as edges. As long as a doc is reachable in some number of reference hops from a standard root doc, it qualifies.
+`docex docs check` guards against this mechanically. It enumerates every **documentation file** (`.md`, `.mmd`, `.txt`) under `plans/design`, builds the link graph rooted at the standard roots, and flags any file a root cannot reach. Both markdown links and mermaid `click` targets count as edges. As long as a doc is reachable in some number of reference hops from a standard root doc, it qualifies.
 
 A handful of files form the "standard roots" for doc reachability:
 + `lexicon.md`
@@ -197,6 +197,21 @@ A handful of files form the "standard roots" for doc reachability:
 + The ADR indexes (`adr_index.md`, `adr_active.md`) 
 
 Because the two ADR indexes are standard roots **and** the generated index links each ADR by its `ADR ID` cell (see [adrs.md § ADR Index](./adrs.md#adr-index)), every ADR is reachable *through its index*. An individual ADR therefore does not need an inbound link from a narrative doc to pass this check — which is what lets a superseded ADR stay out of the live design docs.
+
+### Anchor Resolution
+
+Reachability proves a doc is *linked*; it cannot prove a `#fragment` *resolves*.
+`docex docs check` additionally validates that every markdown link carrying a
+`#fragment` whose target is an in-scope design doc (a same-file `#frag` included)
+points at a real anchor in that target — a heading whose GitHub-style slug equals
+the fragment, or an explicit `<a id="…">` anchor. A non-resolving fragment fails
+with `unresolved anchor: <file> -> <target>#<frag>`. This catches a link to a
+reworded or de-emoji'd heading and cross-file anchor drift, which reachability
+passes silently.
+
+The rule is scoped to targets the check can actually see: a `#fragment` into a
+target *outside* the tracked design scope (a `references/*` file, a source file)
+is **not** validated, since the check does not scan the target for its anchors.
 
 ### Missing Standard File
 

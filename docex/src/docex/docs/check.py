@@ -19,8 +19,11 @@ from docex.docs.linkmap import (
     _MD_LINK,
     _MMD_CLICK,
     _SCHEME,
+    _enumerate_design_files,
     _tagged_links_in,
+    anchors_in,
     build_linkmap,
+    fragment_links_in,
 )
 from docex.docs.standard_set import resolve
 
@@ -35,6 +38,7 @@ __all__ = [
     "missing_standard_files",
     "run_docs_check",
     "unreachable_docs",
+    "unresolved_anchors",
 ]
 
 # Reachability roots — the always-loadable top-level entry set (docs.md § LLM
@@ -104,14 +108,7 @@ def unreachable_docs(
     if not base.is_dir():
         return []
 
-    design_files: list[Path] = []
-    for p in base.rglob("*"):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(base)
-        if any(part.startswith(".") for part in rel.parts):
-            continue  # skip .gitkeep and anything under a dot-dir
-        design_files.append(p)
+    design_files = _enumerate_design_files(project_root)
 
     nodes, edges = build_linkmap(
         project_root, codebase_names, "design_docs", design_files, []
@@ -163,8 +160,58 @@ def unreachable_docs(
     ]
 
 
+def unresolved_anchors(
+    project_root: Path, codebase_names: list[str]
+) -> list[str]:
+    """Fragment links whose ``#anchor`` does not resolve in the target doc.
+
+    For every markdown link in a design doc carrying a ``#fragment`` whose target
+    is an IN-SCOPE design doc (same-file ``#frag`` included), the fragment must be
+    a heading slug or an explicit ``<a id>`` anchor in that target. Reachability
+    validates that a file is *linked*, never that a fragment *resolves*; this is
+    the class it cannot see (a reworded / de-emoji'd heading, cross-file anchor
+    drift).
+
+    Scope (deliberate, not accidental): a ``#fragment`` whose target is NOT an
+    in-scope design doc — a ``references/*`` file, a source file, an out-of-tree
+    path, or any target the design enumeration does not scan — is NOT validated
+    and NOT failed. The check only asserts anchors whose definitions it can see.
+
+    Built on the shared design enumeration and the linkmap's link/anchor
+    primitives — no second walker.
+    """
+    base = _design_root(project_root)
+    if not base.is_dir():
+        return []
+    design_files = _enumerate_design_files(project_root)
+    rel_by_resolved = {
+        p.resolve(): p.relative_to(project_root).as_posix()
+        for p in design_files
+    }
+    in_scope = set(rel_by_resolved)
+    anchor_cache: dict[Path, set[str]] = {}
+
+    def _anchors(target: Path) -> set[str]:
+        if target not in anchor_cache:
+            anchor_cache[target] = anchors_in(target)
+        return anchor_cache[target]
+
+    problems: list[str] = []
+    for p in design_files:
+        src_rel = p.relative_to(project_root).as_posix()
+        for target_abs, frag in fragment_links_in(p):
+            if target_abs not in in_scope:
+                continue  # target not scanned -> fragment not validated (docstring)
+            if frag not in _anchors(target_abs):
+                tgt_rel = rel_by_resolved[target_abs]
+                problems.append(
+                    f"unresolved anchor: {src_rel} -> {tgt_rel}#{frag}"
+                )
+    return sorted(problems)
+
+
 def check_docs(project_root: Path, codebase_names: list[str]) -> int:
-    """Run both checks; print a report; return 0 (clean) or 1 (problems)."""
+    """Run the four checks; print a report; return 0 (clean) or 1 (problems)."""
     if not design_root_exists(project_root):
         print(
             "docex docs check: no plans/design/ — skipped "
@@ -174,6 +221,7 @@ def check_docs(project_root: Path, codebase_names: list[str]) -> int:
     problems = (
         missing_standard_files(project_root, codebase_names)
         + unreachable_docs(project_root, codebase_names)
+        + unresolved_anchors(project_root, codebase_names)
         + adr_index_drift(project_root)
     )
     if not problems:

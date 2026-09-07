@@ -10,7 +10,11 @@ from __future__ import annotations
 import json
 
 from docex.docs.linkmap import (
+    _enumerate_design_files,
+    _slug,
+    anchors_in,
     build_linkmap,
+    fragment_links_in,
     render_linkmap_json,
 )
 from docex.docs.scaffold import scaffold_design
@@ -307,3 +311,72 @@ def test_tokens_floor_is_one(tmp_path):
     nodes, _ = build_linkmap(tmp_path, ["api"], "design_docs", [p], [])
     n = _nodes_by_fpath(nodes)["plans/design/empty.md"]
     assert n.tokens == 1
+
+
+# ---------------------------------------------------------------------------
+# Anchor primitives + doc-extension enumeration (mod 171)
+# ---------------------------------------------------------------------------
+
+
+def test_slug_matches_github_no_collapse():
+    # Runs of whitespace are NOT collapsed: each whitespace char -> one hyphen.
+    assert _slug("Driven Port / Adapter Patterns") == "driven-port--adapter-patterns"
+    # Emoji + variation selector stripped, leaving a leading space -> hyphen.
+    assert _slug("⚠️ meta is data").startswith("-")
+    # Underscore is a \w char, kept.
+    assert _slug("Keeps_Underscore") == "keeps_underscore"
+
+
+def test_anchors_in_headings_and_dedup(tmp_path):
+    p = _write(tmp_path, "plans/design/h.md", "# A\n## A\n### B C\n")
+    anchors = anchors_in(p)
+    assert "a" in anchors
+    assert "a-1" in anchors
+    assert "b-c" in anchors
+
+
+def test_anchors_in_skips_fenced_headings(tmp_path):
+    text = "# Real\n\n```\n# Not A Heading\n```\n"
+    p = _write(tmp_path, "plans/design/f.md", text)
+    anchors = anchors_in(p)
+    assert "real" in anchors
+    assert "not-a-heading" not in anchors
+
+
+def test_anchors_in_explicit_id(tmp_path):
+    p = _write(
+        tmp_path,
+        "plans/design/e.md",
+        '# Title\n\n<a class="x" id="frozen"></a>\n',
+    )
+    assert "frozen" in anchors_in(p)
+
+
+def test_fragment_links_in(tmp_path):
+    text = (
+        "[x](./other.md#sec)\n"
+        "[y](#local)\n"
+        "[z](./plain.md)\n"
+        "[w](https://h/x#f)\n"
+    )
+    p = _write(tmp_path, "plans/design/src.md", text)
+    frags = fragment_links_in(p)
+    assert len(frags) == 2
+    resolved = {(target, frag) for target, frag in frags}
+    assert ((p.parent / "other.md").resolve(), "sec") in resolved
+    assert (p.resolve(), "local") in resolved
+
+
+def test_enumerate_design_files_doc_exts_only(tmp_path):
+    _write(tmp_path, "plans/design/a.md")
+    _write(tmp_path, "plans/design/x/diagram.mmd")
+    _write(tmp_path, "plans/design/notes.txt")
+    _write(tmp_path, "plans/design/x/logo.svg", "<svg/>")
+    found = {
+        p.relative_to(tmp_path).as_posix() for p in _enumerate_design_files(tmp_path)
+    }
+    assert found == {
+        "plans/design/a.md",
+        "plans/design/x/diagram.mmd",
+        "plans/design/notes.txt",
+    }

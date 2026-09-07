@@ -7,6 +7,7 @@ from docex.docs.check import (
     design_root_exists,
     missing_standard_files,
     unreachable_docs,
+    unresolved_anchors,
 )
 from docex.docs.scaffold import scaffold_design
 from docex.docs.adr import regenerate_adr_indexes
@@ -125,4 +126,96 @@ def test_adr_reachable_only_via_generated_index(tmp_path):
     # Regenerate: the index now links the ADR -> reachable, whole check green.
     regenerate_adr_indexes(tmp_path)
     assert unreachable_docs(tmp_path, ["api"]) == []
+    assert check_docs(tmp_path, ["api"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Anchor resolution + doc-extension reachability scope (mod 171)
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_cross_file_unresolved_is_named(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    target = tmp_path / "plans" / "design" / "target.md"
+    target.write_text("# Real Heading\n")
+    root = tmp_path / "plans" / "design" / "structures_and_views.md"
+    root.write_text(
+        root.read_text()
+        + "\n[t](./target.md#no-such-heading)\n[t2](./target.md)\n"
+    )
+    problems = unresolved_anchors(tmp_path, ["api"])
+    assert (
+        "unresolved anchor: plans/design/structures_and_views.md "
+        "-> plans/design/target.md#no-such-heading"
+    ) in problems
+    assert check_docs(tmp_path, ["api"]) == 1
+
+
+def test_anchor_same_file_dangling_is_named(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    root = tmp_path / "plans" / "design" / "structures_and_views.md"
+    root.write_text(root.read_text() + "\n[g](#gone)\n")
+    problems = unresolved_anchors(tmp_path, ["api"])
+    assert (
+        "unresolved anchor: plans/design/structures_and_views.md "
+        "-> plans/design/structures_and_views.md#gone"
+    ) in problems
+
+
+def test_anchor_resolves_when_corrected(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    target = tmp_path / "plans" / "design" / "target.md"
+    target.write_text("# Real Heading\n")
+    root = tmp_path / "plans" / "design" / "structures_and_views.md"
+    root.write_text(
+        root.read_text()
+        + "\n[t](./target.md#real-heading)\n[t2](./target.md)\n"
+    )
+    assert unresolved_anchors(tmp_path, ["api"]) == []
+    assert check_docs(tmp_path, ["api"]) == 0
+
+
+def test_anchor_explicit_id_resolves(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    target = tmp_path / "plans" / "design" / "target.md"
+    target.write_text("# Heading\n\n<a id=\"pinned\"></a>\n")
+    root = tmp_path / "plans" / "design" / "structures_and_views.md"
+    root.write_text(
+        root.read_text() + "\n[t](./target.md#pinned)\n[t2](./target.md)\n"
+    )
+    assert unresolved_anchors(tmp_path, ["api"]) == []
+
+
+def test_anchor_into_unscanned_target_not_failed(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    root = tmp_path / "plans" / "design" / "structures_and_views.md"
+    # Target is OUTSIDE plans/design; never scanned -> fragment not validated.
+    root.write_text(
+        root.read_text() + "\n[r](../references/foo.md#whatever)\n"
+    )
+    assert unresolved_anchors(tmp_path, ["api"]) == []
+
+
+def test_loose_asset_does_not_fail_reachability(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    asset = (
+        tmp_path / "plans" / "design" / "api" / "specifics" / "icons" / "logo.svg"
+    )
+    asset.parent.mkdir(parents=True, exist_ok=True)
+    asset.write_bytes(b"\x00\x01\x02<svg></svg>")
+    assert unreachable_docs(tmp_path, ["api"]) == []
+    assert check_docs(tmp_path, ["api"]) == 0
+
+
+def test_mod170_adr_index_links_survive_anchor_check(tmp_path):
+    scaffold_design(tmp_path, ["api"])
+    adrs = tmp_path / "plans" / "design" / "adrs"
+    adrs.mkdir(parents=True, exist_ok=True)
+    (adrs / "0001_thing.md").write_text(
+        "---\nid: 0001\ntitle: thing\nstatus: accepted\n"
+        "date: 2026-01-01\nsupersedes: []\nsuperseded-by: []\ntags: []\n---\n\n"
+        "## Context\n...\n"
+    )
+    regenerate_adr_indexes(tmp_path)
+    assert unresolved_anchors(tmp_path, ["api"]) == []
     assert check_docs(tmp_path, ["api"]) == 0

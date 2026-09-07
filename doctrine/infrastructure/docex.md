@@ -178,10 +178,11 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is. `check`'s reachability test and `linkmap` share one link-graph builder, so the orphan gate and the emitted graph can never disagree on what links to what.
 
 - **`scaffold`** idempotently lays down every missing standard design-doc entry — the L1 arc42 files, the standard diagrams, `adrs/` with its two generated index stubs, `references/`, and a per-`infra.yml`-codebase `module_diagram.mmd`, `module/`, and `specifics/`. It never clobbers an existing file (creates only what is missing) and never auto-creates optional entries; empty standard directories get a `.gitkeep`. It reports what it created.
-- **`check`** validates an existing design corpus and exits non-zero on any problem. Passes as no-op if there's no `plans/design` folder. Three checks:
+- **`check`** validates an existing design corpus and exits non-zero on any problem. Passes as no-op if there's no `plans/design` folder. Four checks:
 	+ Standard File Missing - a required standard entry is absent.
 	+ Reachability - All design docs can be reached through via link graph starting in one of the [standard doc roots](../practices/docs.md#reachability-check).
 	+ ADR-index Freshness - `adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`.
+	+ Anchor Resolution - a markdown link's `#fragment` into an in-scope design doc must resolve to a real heading (GitHub slug) or explicit `<a id>` anchor. A fragment into a target the check does not scan (e.g. `references/*`, source) is not validated.
 - **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing. Each row's `ADR ID` cell links to the ADR's file, so the generated index alone makes every ADR reachable to the reachability check.
 - **`linkmap`** emits the documentation/code link graph as **deterministic JSON on stdout** (diagnostics go to stderr; `indent=2, sort_keys=True`, every list sorted), for outside agents and skills to consume. It takes a required `<depth>`:
 	+ **`design_docs`** — the tracked scope is `plans/design/**` only.

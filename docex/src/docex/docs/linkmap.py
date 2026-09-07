@@ -35,6 +35,18 @@ _MMD_CLICK = re.compile(
 )
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
+_HEADING = re.compile(r"^#{1,6}\s+(.*)$", re.MULTILINE)
+_EXPLICIT_ANCHOR = re.compile(
+    r'<a\s+[^>]*\bid\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE
+)
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+# Reachability / design-scope population is documentation files only (mod 171,
+# snag O): a loose non-doc asset (an icon .svg, a .png) under plans/design is
+# not a design doc and must not be required to be reachable. `.mmd` stays — the
+# standard diagrams are first-class docs and are link sources/roots.
+_DOC_EXTS = {".md", ".mmd", ".txt"}
+
 
 @dataclass(frozen=True)
 class Node:
@@ -97,6 +109,93 @@ def _tagged_links_in(path: Path) -> list[tuple[Path, str]]:
         resolved = _resolve_link(path, raw)
         if resolved is not None:
             out.append((resolved, "mermaid_click"))
+    return out
+
+
+def _slug(heading: str) -> str:
+    """GitHub's heading-anchor slug.
+
+    Lowercase, strip characters outside ``[\\w\\s-]``, then map EACH whitespace
+    char to one hyphen (runs are NOT collapsed — ``Driven Port / Adapter
+    Patterns`` -> ``driven-port--adapter-patterns``). Byte-for-byte the algorithm
+    the cohere executor ``linkcheck.py::slugify`` uses and the hand-rolled checker
+    used during the Nasmyth conversion test — the renderer assumed elsewhere.
+    """
+    h = heading.strip().lower()
+    h = re.sub(r"[^\w\s-]", "", h)
+    h = re.sub(r"\s", "-", h)
+    return h
+
+
+def anchors_in(path: Path) -> set[str]:
+    """Every anchor a file defines: heading slugs + explicit ``<a id>`` anchors.
+
+    Heading slugs carry GitHub's numeric de-duplication (``foo``, ``foo-1``,
+    ``foo-2`` …). Headings inside fenced code blocks (```` ``` ````/``~~~``) are
+    ignored — a ``#`` there is not a heading. Explicit ``<a id="...">`` anchors are
+    honored so a source-cited frozen anchor can be pinned deliberately. Pure;
+    returns an empty set for an unreadable file.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return set()
+    non_fence: list[str] = []
+    in_fence = False
+    for line in text.splitlines(keepends=True):
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if not in_fence:
+            non_fence.append(line)
+    heading_src = "".join(non_fence)
+    anchors: set[str] = set()
+    seen: dict[str, int] = {}
+    for m in _HEADING.finditer(heading_src):
+        s = _slug(m.group(1))
+        if s in seen:
+            seen[s] += 1
+            anchors.add(f"{s}-{seen[s]}")
+        else:
+            seen[s] = 0
+            anchors.add(s)
+    for m in _EXPLICIT_ANCHOR.finditer(text):
+        anchors.add(m.group(1))
+    return anchors
+
+
+def fragment_links_in(path: Path) -> list[tuple[Path, str]]:
+    """``(resolved_target_abs, fragment)`` for each markdown link with a
+    non-empty ``#fragment``.
+
+    Reuses the shared ``_MD_LINK`` regex — no second link walker. A bare same-file
+    ``#frag`` resolves its target to ``path`` itself; a scheme-bearing (external)
+    target is dropped, matching ``_resolve_link``'s guards. Returns ``[]`` for an
+    unreadable file.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    out: list[tuple[Path, str]] = []
+    for raw in _MD_LINK.findall(text):
+        raw = raw.strip()
+        if "#" not in raw:
+            continue
+        target_part, frag = raw.split("#", 1)
+        target_part = target_part.strip()
+        frag = frag.strip()
+        if not frag:
+            continue
+        if target_part == "":
+            out.append((path.resolve(), frag))
+            continue
+        if _SCHEME.match(target_part):
+            continue
+        try:
+            out.append(((path.parent / target_part).resolve(), frag))
+        except (OSError, ValueError):
+            continue
     return out
 
 
@@ -378,10 +477,14 @@ def render_linkmap_json(
 
 
 def _enumerate_design_files(project_root: Path) -> list[Path]:
-    """Every file under ``plans/design``, skipping dot-parts.
+    """Every DOCUMENTATION file (``.md``/``.mmd``/``.txt``) under ``plans/design``,
+    skipping dot-parts.
 
-    Matches ``unreachable_docs``' enumeration exactly so the two share one
-    view of the design scope.
+    Restricting to doc extensions (mod 171, snag O) keeps a loose non-doc asset —
+    an icon ``.svg``, a ``.png`` — from being enumerated as a design node and thus
+    failing reachability as an "unreachable doc." This is THE single design-scope
+    enumeration: ``unreachable_docs`` and the anchor check consume it too, so the
+    three keep one view of the design scope.
     """
     base = project_root / "plans" / "design"
     if not base.is_dir():
@@ -389,6 +492,8 @@ def _enumerate_design_files(project_root: Path) -> list[Path]:
     out: list[Path] = []
     for p in base.rglob("*"):
         if not p.is_file():
+            continue
+        if p.suffix.lower() not in _DOC_EXTS:
             continue
         rel = p.relative_to(base)
         if any(part.startswith(".") for part in rel.parts):

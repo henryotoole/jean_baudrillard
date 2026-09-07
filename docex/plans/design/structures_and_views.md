@@ -90,9 +90,9 @@ heaviest command families have their own detail docs:
 A few commands compose others rather than duplicate logic:
 
 - `check` invokes `compile` (to verify it succeeds), `build` (via `docker build` during
-  test), and `test`. It also runs `docs check`'s three gates (missing-standard-file + doc
-  reachability + ADR-index freshness) against the worktree, all blocking; they skip when
-  the project has no `plans/design`.
+  test), and `test`. It also runs `docs check`'s four gates (missing-standard-file + doc
+  reachability + ADR-index freshness + anchor resolution) against the worktree, all
+  blocking; they skip when the project has no `plans/design`.
 - `up` and `test` cause `docker build` to run as needed, which runs each codebase's
   `build.sh` inside the `build` stage. Two subtleties, both because **`compose up --build`
   does not build a `profiles:`-gated service** and `compose run` builds only when an image

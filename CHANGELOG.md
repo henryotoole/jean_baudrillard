@@ -27,6 +27,19 @@ first post-`0.4.0` overhaul.
   live design docs. Generation stays deterministic and idempotent; only the ID
   cell of each data row changed. Doctrine (`practices/adrs.md`, `practices/docs.md`,
   `infrastructure/docex.md`) updated to match.
+- **`docex docs check` gains anchor resolution and doc-extension-scoped
+  reachability (advance 013, mod 171).** A fourth check, **Anchor Resolution**,
+  now fails any markdown link whose `#fragment` into an in-scope design doc does
+  not resolve to a real heading (GitHub slug) or explicit `<a id>` anchor —
+  catching reworded/de-emoji'd headings and cross-file anchor drift that
+  reachability passed silently (`unresolved anchor: <file> -> <target>#<frag>`).
+  A fragment into a target the check does not scan (`references/*`, source) is
+  deliberately not validated. Separately, the **reachability** population is now
+  restricted to documentation files (`.md`/`.mmd`/`.txt`), so a loose non-doc
+  asset (an icon `.svg`, a `.png`) under `plans/design` no longer fails as an
+  "unreachable doc." Both additions ride the one shared link-graph builder
+  (`src/docex/docs/linkmap.py`); the linkmap JSON shape is unchanged. Doctrine
+  (`practices/docs.md`, `infrastructure/docex.md`) updated to match.
 - **Documentation doctrine overhauled (advance 010, mod 159).** Replaced
   `doctrine/practices/docs.md` and `comments.md` with the new model: five doc
   classifications, design docs split into state (arc42-organized L1/L2/L3) and
