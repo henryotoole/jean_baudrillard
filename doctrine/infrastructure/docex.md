@@ -178,7 +178,7 @@ Manages the per-environment config file `$pr/infra/config/<env>.env` — declare
 Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../practices/docs.md)). `scaffold` and `check` share one canonical definition of the standard set, so they can never disagree on what "the standard set" is. `check`'s reachability test and `linkmap` share one link-graph builder, so the orphan gate and the emitted graph can never disagree on what links to what.
 
 - **`scaffold`** idempotently lays down every missing standard design-doc entry — the L1 arc42 files, the standard diagrams, `adrs/` with its two generated index stubs, `references/`, and a per-`infra.yml`-codebase `module_diagram.mmd`, `module/`, and `specifics/`. It never clobbers an existing file (creates only what is missing) and never auto-creates optional entries; empty standard directories get a `.gitkeep`. It reports what it created.
-- **`check`** validates an existing design corpus and exits non-zero on any problem. Passes as no-op if there's no `plans/design` folder.1` Three checks:
+- **`check`** validates an existing design corpus and exits non-zero on any problem. Passes as no-op if there's no `plans/design` folder. Three checks:
 	+ Standard File Missing - a required standard entry is absent.
 	+ Reachability - All design docs can be reached through via link graph starting in one of the [standard doc roots](../practices/docs.md#reachability-check).
 	+ ADR-index Freshness - `adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`.

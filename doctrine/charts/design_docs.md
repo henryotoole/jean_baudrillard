@@ -31,7 +31,7 @@
 │                                │             project            │             codebase           │             module            │
 │                                │             level              │             level              │             level             │
 │                                │                                │                                │                               │
-│  Intro & Objectives            │                                │                                │                               │
+│  Intro & Goals                 │                                │                                │                               │
 │                                │                                │                                │                               │
 │  Constraints                   │                                │                                │                               │
 │                                │                                │                                │                               │

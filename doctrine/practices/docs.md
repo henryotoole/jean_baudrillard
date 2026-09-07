@@ -89,7 +89,7 @@ Risks and technical debts are similar, can be summarized briefly, and belong in 
 
 The "unknown" is a non-*arc42* concept which belongs here. An unknown is some detail about reality which we need to complete or implement a design. An unknown could be documentation for an API we expect to use, or an edge-case sample for a datatype the project will work with. Generally when we satisfy an unknown, the result ends up as a file in the `references` folder.
 
-Unknowns are stored in a separate markdown file `unknowns.md` containing a table. We track these alongside design docs because design so that future design work can benefit from past discovery.
+Unknowns are stored in a separate markdown file `unknowns.md` containing a table. We track these alongside design docs so that future design work can benefit from past discovery.
 
 | ID | Name | Description | Satisfying Record |
 | -- | ---- | ----------- | ----------------- |

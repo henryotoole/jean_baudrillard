@@ -47,7 +47,7 @@ deprecated   # retired, no replacement
 ## ADR Index
 
 We create two index files to act as the "map" of all ADR's:
-1. An "active" table, listing approved decisions that have not been superceded.
+1. An "active" table, listing approved decisions that have not been superseded.
 	+ `| ADR ID | Title | Date | Supersedes |`
 2. The "index" table, listing all decisions.
 	+ `| ADR ID | Title | Status | Date | Supersedes | Superseded By |`
