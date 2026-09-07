@@ -27,8 +27,9 @@ The process is performed by you (the agent) as follows:
 	1. Ensure that the current branch is **not** `main`. If it is, end the turn noting that you cannot proceed for this reason.
 3. **Design**: Creating `overview.md`.
 	1. Create a new [modification folder](#structure) in the modification documentation in `$pr/plans/ops/mods`.
-	2. Outline the mod's change at a design level and write the design plan to `overview.md` in the mod folder. Include any "design questions" which shake out during design at the bottom of this file.
-	3. End the turn. Report to whoever assigned this mod cycle that you've completed the mod's design overview (note the filepath), request their approval, and direct their attention to any unresolved "design questions".
+	2. Load relevant *core planning docs* into context by following the [standard loading process](./docs.md#llm-loading-process).
+	3. Outline the mod's change at a design level and write the design plan to `overview.md` in the mod folder. Include any "design questions" which shake out during design at the bottom of this file.
+	4. End the turn. Report to whoever assigned this mod cycle that you've completed the mod's design overview (note the filepath), request their approval, and direct their attention to any unresolved "design questions".
 4. **Implementation**: Creating `implementation.md`.
 	1. You create `implementation.md` with implementation steps based on the current codebase. The implementation document should be written such that it can be handed to a fresh context.
 		1. *DO NOT* write instructions in the implementation to update core planning docs.
@@ -45,6 +46,7 @@ The process is performed by you (the agent) as follows:
 	1. End the turn to let whoever assigned this mod cycle perform any manual testing they desire.
 8. **Documentation**:
 	1. You update the [core planning docs](./docs.md) to reflect the newly modified project. Core planning docs should **never** link to modification documents. Relevant design info from the modification docs should be copied over.
-	2. Update [changelog](../infrastructure/version_control.md) with a quick description of changes.
+	2. Run `./bin/docex docs check` to ensure docs are still doctrine compliant.
+	3. Update [changelog](../infrastructure/version_control.md) with a quick description of changes.
 9. **Cleanup**:
 	1. Commit with the message `mod ${mod_number} complete; designed, implemented, and documented.`

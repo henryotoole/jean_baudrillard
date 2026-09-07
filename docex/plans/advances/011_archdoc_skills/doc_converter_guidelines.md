@@ -26,23 +26,70 @@ the `doc-refine` skill, and this plan only sequences them.
    final **reconciliation pass** confirms nothing substantive vanished before it
    is deleted. Structural checks validate *shape*, not *completeness* — this pass
    is the completeness backstop.
-2. **References are repo-wide and two-wave.** Files that merely move get their
-   references fixed early; design docs that get split/merged get theirs fixed only
-   after the refactor settles. Both waves sweep the *whole repo* (source comments,
-   `infra.yml`, `CLAUDE.md`, …), not just `plans/` — `linkcheck` sees only
-   doctrine-scoped links.
+2. **References are repo-wide and two-wave — but the historical archive is frozen.**
+   Files that merely move get their references fixed early; design docs that get
+   split/merged get theirs fixed only after the refactor settles. Both waves sweep
+   the *whole repo* (source comments, `infra.yml`, `CLAUDE.md`, …), not just
+   `plans/` — `linkcheck` sees only doctrine-scoped links. **Exception: never rewrite
+   references inside the historical record** — `plans/ops/{mods,adv}` and
+   `CHANGELOG.md`. Those are point-in-time snapshots that deliberately keep the
+   vocabulary and paths of their era; rewriting hundreds of them is large, wrong, and
+   would falsify the record. Their links into the old design tree *will* dangle once
+   `_old_plans` is deleted, and that is expected — they are outside `docs check`'s
+   scope, so the gate stays green. The reference waves target **live surfaces only**:
+   source under `core/`, `infra.yml`, `README`, top-level config, and the new design
+   docs.
 3. **De-historicize, don't blind-delete.** Historical prose ("mod 020 did X")
    often carries a still-true decision; strip the narrative framing but preserve
    the durable fact (present tense, or an ADR).
 4. **Bracket with `docex`.** `docex docs scaffold` lays the skeleton up front;
-   `docex docs check` (missing-file + reachability + adr-fresh) runs iteratively
-   and as the final gate.
+   `docex docs check` (missing-file + reachability + adr-fresh + anchor-resolution)
+   runs iteratively and as the final gate.
 5. **Top-down.** Convert high-abstraction first (masterplan → L1) before the docs
    that depend on it.
+6. **One old doc rarely maps to one new doc.** A legacy doc is *shredded* across many
+   destinations — `conventions.md` alone lands in `doctrine_ext.md`, several
+   `specifics/` files, `lexicon.md`, and ADRs; even a single section can split three
+   ways. Classify at the **section** level, not the file level, and track where each
+   section goes so its inbound references can be repointed (see the protocol below).
+7. **A doc may be cited from source by anchor.** Some legacy docs (a testing/guard
+   register especially) are referenced from shipped source code by *section anchor*.
+   Those anchors are a frozen interface: relocate such a doc **whole**, preserve its
+   headings and explicit `<a id>` anchors verbatim, and do not shard or reword its
+   cited headings. This is why recon lists every doc's inbound code references *before*
+   translation begins.
+
+## The Per-File Translation Protocol
+
+Every legacy design doc is converted by the same four-step protocol. Its first two
+steps run in **Phase 1 recon** (they are pure discovery and produce the reference
+target-lists the waves consume); its last two run when that doc is translated in
+Phase 2.
+
+- **(i) Read to translate.** Read the old file with the intent to transcribe it into
+  the new structure — not to summarize it.
+- **(ii) List every reference to it (Phase 1).** Grep the **whole repo** (source,
+  `infra.yml`, other design docs, `README`, config — but *not* the frozen historical
+  archive, per Principle 2) for links and prose citations *into this file*, including
+  citations to its individual section **anchors**. This is the per-file target list.
+- **(iii) Transcribe, recording where each section lands (Phase 2).** As you
+  de-historicize and split the file, keep a section→destination map (which new file,
+  which new heading/anchor each section became). Shredding across destinations
+  (Principle 6) makes this map the only reliable record of where a reference should now
+  point.
+- **(iv) Update every reference (Phase 2).** Using the list from (ii) and the map from
+  (iii), repoint each inbound reference to the new file **and** the new anchor. A
+  heading that was reworded or de-emoji'd (see step 5) has a **new slug**, so a
+  reference to its old slug dangles silently — (iii)'s map is what prevents that.
 
 ---
 
 ## Translation Reference
+
+This is a **section-level** map, not a file-level one. Per Principle 6, expect a legacy
+doc to shred across several destinations at once — the rows below say where a given
+*kind of content* goes, and one old file will match many rows. Let *arc42* and the true
+nature of each section decide; the table is a starting point.
 
 ### Masterplan Translation
 
@@ -67,26 +114,50 @@ movement, let *arc42* guidelines decide.
 `quality_scenarios.md` and `unknowns.md` are scaffolded fresh; seed them only if
 the old masterplan carried the corresponding content.
 
-### `conventions.md` → `doctrine_ext.md`
+### `conventions.md` (the old name for `doctrine_ext.md`)
 
 The old `doctrine_ext.md` was called `conventions.md`, and in many projects it
-became a general-purpose dumping ground. Read it carefully and transfer **only**:
-- transfer-table extension notes, and
-- hexagonal naming-convention extensions
+became a general-purpose dumping ground. It is the canonical shredded file — read it
+carefully and route each section to its true home. **Only** these go to
+`doctrine_ext.md`:
+- transfer-table extension notes,
+- hexagonal naming-convention extensions, and
+- bespoke hex patterns (project-specific driven/driving port shapes with their own
+  abbreviation) and non-standard controller-mechanism suffixes.
 
-to `doctrine_ext.md`. Everything else is relocated per its true nature (detail →
-`specifics`, reasoning → ADR, or deleted).
+Everything else is relocated per its true nature, and in practice this means several
+destinations from one file:
+- codebase-specific detail → that codebase's L2 `specifics/` (see the row below),
+- a project-wide concept → an overview in `concepts_and_decisions.md` + detail in an L1
+  `specifics/` file, linked down,
+- vocabulary / naming notes → `lexicon.md`,
+- load-bearing reasoning → an ADR,
+- pure historical chronicle → deleted.
 
-### `db_schema.md`
+### Codebase-level (L2) docs that are not module docs
 
-Most projects have a `db_schema.md` in the codebase directory of whichever
-codebase owns the database. It belongs in that codebase's new L2 `specifics`
-folder.
+Docs that describe one codebase as a whole rather than a single module — an execution
+model, an SDK doc, a shared-clients doc, a telemetry doc, and `db_schema.md` (in the
+schema-owning codebase) — go to that codebase's L2 folder,
+`plans/design/{codebase}/specifics/`. They are not module docs and not project-level.
+
+### Bespoke top-level practice / register docs
+
+A project may carry a durable, project-wide practice doc that is neither arc42, nor a
+module doc, nor `conventions.md` — e.g. a testing/guard-discipline **register**. It has
+no dedicated arc42 home, so: add a short overview as a Cross-Cutting Concept in
+`concepts_and_decisions.md` and put the full register at an L1
+`plans/design/specifics/{name}.md`, linked down from that concept (the link satisfies
+reachability). If such a doc is cited from source by anchor, relocate it **whole** and
+freeze its headings (Principle 7).
 
 ### Module Docs
 
-Most module docs transfer over more or less intact, into
-`plans/design/{codebase}/module/{module}.md`.
+Module docs go to `plans/design/{codebase}/module/{module}.md`. Their *structure*
+usually transfers cleanly, but do not expect them to be **near-intact** in content: in
+an old project they are typically thick with status narrative and ⚠️/⛔ self-corrections
+that the de-historicize pass (step 5) must strip. Conform each to the module-doc shape
+(Purpose / Domain / Driving Ports / Driven Ports / Adapters Included / Hard Boundaries).
 
 ---
 
@@ -95,39 +166,67 @@ Most module docs transfer over more or less intact, into
 ### Phase 1 — Mechanical relocation (deterministic, safe)
 
 **0. Inventory / recon.** Enumerate the old tree: `masterplan.md`,
-`conventions.md`, `db_schema.md`, module docs, and any bespoke folders (e.g.
-`notes/`). Read `infra.yml` for the codebase list (the new per-codebase design
-dirs) and the codebase→module mapping. Grep the **whole repo** for references
-into `plans/` — this is the target list for the reference waves.
+`conventions.md`, `db_schema.md`, module docs, codebase-level docs, and any bespoke
+folders (e.g. `notes/`). Read `infra.yml` for the codebase list (the new per-codebase
+design dirs) and the codebase→module mapping. Then run the Per-File Translation
+Protocol's discovery half:
+- **(ii) Build a per-file inbound-reference list** for each old design doc — grep the
+  whole repo (source, `infra.yml`, other design docs, `README`, config; **not** the
+  frozen `plans/ops/**` or `CHANGELOG.md`) for links and prose citations into it,
+  *including citations to its section anchors*. These lists are the target list for the
+  reference waves.
+- **Inventory project-owned doc tooling.** Grep source for the *old doc root as a scope
+  constant* (e.g. a `DOC_ROOT = "plans/core"` in a project-owned link-checker or a docs
+  test-axis), not just as links. A project may ship its own doc gate coupled to the old
+  layout; note it now, because the conversion will break it and disposing of it is
+  project follow-up beyond this procedure.
 
 **1. Preserve the old tree.** `git mv plans _old_plans` — a sibling of the new
 `plans/`, outside it so nothing (`docs check`, `linkmap`) scans it. Retained as
-fallback and reference until the final reconciliation.
+fallback and reference until the final reconciliation. (Note: after this there is no
+`plans/` at all until step 2 scaffolds it.)
 
-**2. Scaffold the new tree.** `docex docs scaffold` (lays down `plans/design`:
-arc42 stubs, diagram stubs, `adrs/` + index stubs, per-codebase dirs), and
-recreate `plans/product`, `plans/ops/{mods,adv}`, and `plans/references`.
+**2. Scaffold the new tree.** `docex docs scaffold` lays down `plans/design` (arc42
+stubs, diagram stubs, `adrs/` + index stubs, per-codebase dirs) **and**
+`plans/product/` and `plans/references/`. The only standard dir it does *not* create is
+`plans/ops/{mods,adv}` — make those two by hand.
 
 **3. Mechanical relocations (no content change).** Copy the purely-moved files
 into place: old `references` → `references`; `modifications` → `ops/mods`;
-`advances` → `ops/adv`; bespoke folders (e.g. `notes/`) carried over.
+`advances` → `ops/adv`; bespoke folders (e.g. `notes/`) carried over. **Non-markdown
+assets** (images, SVGs, PDFs) do **not** belong loose under `plans/design` — route them
+to `plans/references/` (or leave them in the codebase) and repoint any doc that embeds
+them; a binary under `plans/design` cannot be a "reachable design doc."
 
-**4. Reference-update — wave 1.** Repo-wide, for the moved-file paths only
+**4. Reference-update — wave 1.** Repo-wide **live surfaces only** (not the frozen
+`plans/ops/**` or `CHANGELOG.md`, per Principle 2), for the moved-file paths only
 (`ops/mods`, `ops/adv`, `references`, bespoke). Watch for the residue a link
 checker can't see: prose, ASCII trees, source-comment references.
 → GATE: `docex docs check` (structure present) + a repo-wide grep confirms no
-  stale references to the moved paths remain.
+  stale references to the moved paths remain in live surfaces.
 
 ### Phase 2 — Design-doc refactor (judgment; reuses `doc-refine` passes)
 
 **5. De-historicize.** Across the old design docs, strip "mod N did X" narrative
 framing — preserving any still-true decision it carries (present tense, or route
-to an ADR in step 6). (`doc-refine` State pass, subtractive.)
+to an ADR in step 6). (`doc-refine` State pass, subtractive.) Two specifics:
+- **Headings are in scope, and emojis are stripped.** A `## ⚠️ …` / `## ⛔ …` /
+  `## ✅ …` heading is exactly the status chrome this pass removes; emojis do not belong
+  in documentation at all. Strip emoji and status markers from **headings** as well as
+  prose, consistently across every file.
+- **Editing a heading moves its anchor.** De-emoji'ing or rewording a heading changes
+  its slug, so every inbound reference to the old slug dangles. This is why the Per-File
+  Protocol's step (iii) records the new heading for each moved section and step (iv)
+  repoints its references. (Exception: a heading frozen because source cites it by anchor
+  — Principle 7 — is left verbatim.)
 
 **6. Reasoning → ADRs.** Extract load-bearing reasoning into ADRs, numbered from
 `0001`. If a decision's *reasoning* is absent but the decision is load-bearing,
-still record the ADR. End the pass with `docex docs adr` so the indexes exist
-(else the adr-fresh gate fails). (`doc-refine` State pass, subtractive/condensing.)
+still record the ADR. End the pass with `docex docs adr`, which regenerates the ADR
+indexes **with reference links to each ADR** — so ADRs are reachable through the index
+(a standard root) and need no inbound link from a narrative doc. Linking an ADR from the
+concept whose decision it records is good practice, not a reachability requirement.
+(`doc-refine` State pass, subtractive/condensing.)
 
 **7. Masterplan → L1 nucleus.** Split `masterplan.md` per the Translation
 Reference into `boundary_conditions.md` / `concepts_and_decisions.md` /
@@ -142,19 +241,29 @@ Author `project_diagram.mmd`, `service_diagram.mmd`, and each codebase's
 mermaid `click` links to the docs/contracts for each box. The service diagram must
 be consistent with `infra.yml`.
 
-**9. Remaining docs.** Module docs → `plans/design/{codebase}/module/`
-(near-intact); `conventions.md` → `doctrine_ext.md` (selective, per above);
-`db_schema.md` → the owning codebase's L2 `specifics`. Apply `doc-refine`'s detail
-and categorization passes throughout (over-detail → `specifics`/module doc;
-concepts into their correct arc42 section).
+**9. Remaining docs.** Convert each remaining legacy doc via the Per-File Translation
+Protocol: module docs → `plans/design/{codebase}/module/` (structure carries, content
+de-historicized to the module-doc shape — *not* near-intact); `conventions.md` shredded
+per the Translation Reference (`doctrine_ext.md` for genuine extensions, the rest to
+`specifics`/`lexicon`/ADR); codebase-level docs → `{codebase}/specifics/`;
+`db_schema.md` → the owning codebase's L2 `specifics`; a bespoke practice register →
+`concepts_and_decisions.md` overview + L1 `specifics/`. Apply `doc-refine`'s detail and
+categorization passes throughout (over-detail → `specifics`/module doc; concepts into
+their correct arc42 section).
 
-**10. Reference-update — wave 2.** Repo-wide, now that design content has landed:
-fix every reference into the split/moved design docs.
+**10. Reference-update — wave 2.** Repo-wide **live surfaces only** (never the frozen
+`plans/ops/**` or `CHANGELOG.md`), now that design content has landed: using each file's
+section→destination map from step (iii), fix every reference into the split/moved design
+docs — path **and** anchor.
 
 ### Phase 3 — Verify, refine, finalize
 
 **11. Structural verification.** `docex docs check` green (missing-file +
-reachability + adr-fresh); repo-wide reference grep clean.
+reachability + adr-fresh + **anchor resolution** — every `#fragment` in a design-doc
+link resolves to a real heading or explicit anchor); repo-wide reference grep clean over
+live surfaces. The anchor check is what catches a reference to a heading that step 5
+reworded or de-emoji'd, and cross-file anchor drift when files were converted
+independently — a class reachability alone cannot see.
 
 **12. `doc-refine` polish — DESIGN DOCS ONLY.** Run a `doc-refine` pass scoped to
 `design_docs` depth (never `code_level` — this conversion never touches source).

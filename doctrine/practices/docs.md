@@ -122,7 +122,7 @@ As the service diagram actually shows our infrastructure setup, it should match 
 
 If there's a doc *for* a given box (e.g. a module doc for a module black box, or a contract for a surface), that document *must* be linked in this diagram. The standard diagrams form a critical role providing the "router" that directs reader attention to the correct details.
 
-### LLM Agent Usage
+### LLM Loading Process
 
 The highest level of state design docs can generally always be loaded into context, with lower levels selectively loaded as needed for the task at hand. ADR's are only loaded when needed to understand a previous design decision or to ratify a new one.
 
@@ -186,7 +186,7 @@ Notably, the `docs check` checks must pass in order for the CI/CD check gate to 
 
 ### Reachability Check
 
-The [loading flow](#llm-agent-usage) is only guaranteed to read L1 standard docs. Routing is strictly top-down. If a critical load-bearing doc gets buried in `specifics` without any reference "from above", it could get lost forever.
+The [loading process](#llm-loading-process) is only guaranteed to read L1 standard docs. Routing is strictly top-down. If a critical load-bearing doc gets buried in `specifics` without any reference "from above", it could get lost forever.
 
 `docex docs check` guards against this mechanically. It enumerates every file under `plans/design`, builds the link graph rooted at the standard roots, and flags any file a root cannot reach. Both markdown links and mermaid `click` targets count as edges. As long as a doc is reachable in some number of reference hops from a standard root doc, it qualifies.
 
