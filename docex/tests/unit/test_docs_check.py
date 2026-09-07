@@ -9,6 +9,7 @@ from docex.docs.check import (
     unreachable_docs,
 )
 from docex.docs.scaffold import scaffold_design
+from docex.docs.adr import regenerate_adr_indexes
 
 
 def test_missing_standard_file_is_named(tmp_path):
@@ -104,3 +105,24 @@ def test_orphan_message_format_nested_path(tmp_path):
         "unreachable doc: plans/design/api/specifics/loose.md "
         "(not linked from any standard doc or diagram)"
     ) in problems
+
+
+def test_adr_reachable_only_via_generated_index(tmp_path):
+    # An ADR linked from NOWHERE but the generated index is still reachable: the
+    # linked index carries the edge (mod 170). Before regeneration the stub index
+    # is empty, so the ADR is a genuine orphan — proving the link is load-bearing.
+    scaffold_design(tmp_path, ["api"])
+    adrs = tmp_path / "plans" / "design" / "adrs"
+    adrs.mkdir(parents=True, exist_ok=True)
+    (adrs / "0001_thing.md").write_text(
+        "---\nid: 0001\ntitle: thing\nstatus: accepted\n"
+        "date: 2026-01-01\nsupersedes: []\nsuperseded-by: []\ntags: []\n---\n\n"
+        "## Context\n...\n"
+    )
+    # Empty stub index -> the ADR is unreachable.
+    before = unreachable_docs(tmp_path, ["api"])
+    assert any("adrs/0001_thing.md" in p for p in before)
+    # Regenerate: the index now links the ADR -> reachable, whole check green.
+    regenerate_adr_indexes(tmp_path)
+    assert unreachable_docs(tmp_path, ["api"]) == []
+    assert check_docs(tmp_path, ["api"]) == 0

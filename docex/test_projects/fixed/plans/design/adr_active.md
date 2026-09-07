@@ -4,7 +4,7 @@
 
 | ADR ID | Title | Date | Supersedes |
 | ------ | ----- | ---- | ---------- |
-| 0001 | one_codebase_three_core_services | 2026-09-04 |  |
-| 0002 | postgres_tables_as_queues | 2026-09-04 |  |
-| 0003 | tick_file_liveness | 2026-09-04 |  |
-| 0004 | no_cross_service_health_fanout | 2026-09-04 |  |
+| [0001](adrs/0001_one_codebase_three_core_services.md) | one_codebase_three_core_services | 2026-09-04 |  |
+| [0002](adrs/0002_postgres_tables_as_queues.md) | postgres_tables_as_queues | 2026-09-04 |  |
+| [0003](adrs/0003_tick_file_liveness.md) | tick_file_liveness | 2026-09-04 |  |
+| [0004](adrs/0004_no_cross_service_health_fanout.md) | no_cross_service_health_fanout | 2026-09-04 |  |

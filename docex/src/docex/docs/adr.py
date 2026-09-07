@@ -39,6 +39,10 @@ class Adr:
     supersedes: tuple[str, ...]
     superseded_by: tuple[str, ...]
     tags: tuple[str, ...]
+    # The ADR's real on-disk filename (e.g. "0001_foo.md"), captured by
+    # parse_adr. The index links to THIS, never a path derived from id+title,
+    # which could drift from the actual file and dangle. See mod 170.
+    filename: str
 
     @property
     def is_active(self) -> bool:
@@ -91,6 +95,7 @@ def parse_adr(path: Path) -> Adr:
         supersedes=_as_id_list(data.get("supersedes")),
         superseded_by=_as_id_list(data.get("superseded-by")),
         tags=_as_id_list(data.get("tags")),
+        filename=path.name,
     )
 
 
@@ -111,6 +116,19 @@ def _row(cells: list[str]) -> str:
     return "| " + " | ".join(cells) + " |"
 
 
+def _adr_link(a: Adr) -> str:
+    """Render the ADR id as a markdown link to its source file.
+
+    The path is relative to the index files, which both sit at plans/design/, so
+    it targets plans/design/adrs/<file>. The link TEXT is the ADR id; the link
+    TARGET is the ADR's real on-disk filename (``Adr.filename``) — never a path
+    derived from id+title, which could drift from the actual file and dangle. This
+    resolvable link is what makes an ADR reachable from the index root in
+    ``docs check`` (doctrine/practices/docs.md § Reachability Check).
+    """
+    return f"[{a.id}](adrs/{a.filename})"
+
+
 def render_index(adrs: list[Adr]) -> str:
     """Render adr_index.md (ALL ADRs). Canonical bytes; ends with newline."""
     lines = [
@@ -123,7 +141,7 @@ def render_index(adrs: list[Adr]) -> str:
     ]
     for a in sorted(adrs, key=_sort_key):
         lines.append(_row([
-            a.id, a.title, a.status, a.date,
+            _adr_link(a), a.title, a.status, a.date,
             ", ".join(a.supersedes), ", ".join(a.superseded_by),
         ]))
     return "\n".join(lines) + "\n"
@@ -140,7 +158,7 @@ def render_active(adrs: list[Adr]) -> str:
         "| ------ | ----- | ---- | ---------- |",
     ]
     for a in sorted((a for a in adrs if a.is_active), key=_sort_key):
-        lines.append(_row([a.id, a.title, a.date, ", ".join(a.supersedes)]))
+        lines.append(_row([_adr_link(a), a.title, a.date, ", ".join(a.supersedes)]))
     return "\n".join(lines) + "\n"
 
 

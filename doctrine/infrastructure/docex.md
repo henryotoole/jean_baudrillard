@@ -182,7 +182,7 @@ Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../p
 	+ Standard File Missing - a required standard entry is absent.
 	+ Reachability - All design docs can be reached through via link graph starting in one of the [standard doc roots](../practices/docs.md#reachability-check).
 	+ ADR-index Freshness - `adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`.
-- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing.
+- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing. Each row's `ADR ID` cell links to the ADR's file, so the generated index alone makes every ADR reachable to the reachability check.
 - **`linkmap`** emits the documentation/code link graph as **deterministic JSON on stdout** (diagnostics go to stderr; `indent=2, sort_keys=True`, every list sorted), for outside agents and skills to consume. It takes a required `<depth>`:
 	+ **`design_docs`** — the tracked scope is `plans/design/**` only.
 	+ **`code_level`** — `plans/design/**` **plus** each codebase's git-tracked `core/<cb>/src/**` (a strict superset; untracked / compiled artifacts like `.pyc` never appear).

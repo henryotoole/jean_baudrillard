@@ -19,6 +19,14 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **`docex docs adr` emits a reference-linked ADR index (advance 013, mod 170).**
+  Each row's `ADR ID` cell in `adr_index.md` / `adr_active.md` is now a markdown
+  link to that ADR's source file (its real on-disk filename), so the generated
+  index alone makes every ADR reachable to `docs check` — an ADR no longer needs
+  an inbound link from a narrative doc, letting a superseded ADR stay out of the
+  live design docs. Generation stays deterministic and idempotent; only the ID
+  cell of each data row changed. Doctrine (`practices/adrs.md`, `practices/docs.md`,
+  `infrastructure/docex.md`) updated to match.
 - **Documentation doctrine overhauled (advance 010, mod 159).** Replaced
   `doctrine/practices/docs.md` and `comments.md` with the new model: five doc
   classifications, design docs split into state (arc42-organized L1/L2/L3) and

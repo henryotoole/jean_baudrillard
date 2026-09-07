@@ -47,6 +47,7 @@ def test_parse_preserves_zero_padded_id(tmp_path):
     assert adr.title == "thing"
     assert adr.status == "accepted"
     assert adr.date == "2026-01-01"
+    assert adr.filename == "0004_thing.md"   # real on-disk name (mod 170)
 
 
 def test_parse_id_list_fields(tmp_path):
@@ -70,9 +71,9 @@ def test_active_excludes_non_accepted_and_superseded(tmp_path):
                superseded_by="[0007]")
     adrs = load_adrs(tmp_path)
     active = render_active(adrs)
-    assert "| 0001 |" in active
+    assert "[0001](adrs/0001_a.md)" in active
     for excluded in ("0002", "0003", "0004", "0005", "0006"):
-        assert f"| {excluded} |" not in active
+        assert f"[{excluded}]" not in active
 
 
 def test_index_lists_all_and_renders_supersede_chain(tmp_path):
@@ -83,8 +84,14 @@ def test_index_lists_all_and_renders_supersede_chain(tmp_path):
                supersedes="[0001]")
     index = render_index(load_adrs(tmp_path))
     assert index.startswith(GENERATED_MARKER)
-    assert "| 0001 | old | superseded | 2026-01-01 |  | 0002 |" in index
-    assert "| 0002 | new | accepted | 2026-01-01 | 0001 |  |" in index
+    assert (
+        "| [0001](adrs/0001_old.md) | old | superseded | 2026-01-01 |  | 0002 |"
+        in index
+    )
+    assert (
+        "| [0002](adrs/0002_new.md) | new | accepted | 2026-01-01 | 0001 |  |"
+        in index
+    )
 
 
 def test_sorted_by_id(tmp_path):
@@ -92,7 +99,9 @@ def test_sorted_by_id(tmp_path):
     _write_adr(d, "0010_j.md", id="0010", title="j", status="accepted")
     _write_adr(d, "0002_b.md", id="0002", title="b", status="accepted")
     index = render_index(load_adrs(tmp_path))
-    assert index.index("| 0002 |") < index.index("| 0010 |")
+    assert index.index("[0002](adrs/0002_b.md)") < index.index(
+        "[0010](adrs/0010_j.md)"
+    )
 
 
 def test_empty_adrs_case(tmp_path):
@@ -117,7 +126,7 @@ def test_regenerate_and_idempotency(tmp_path):
     # Second run: byte-identical -> nothing rewritten.
     assert regenerate_adr_indexes(tmp_path) == []
     idx = (tmp_path / "plans" / "design" / "adr_index.md").read_text()
-    assert "| 0001 | a | accepted |" in idx
+    assert "| [0001](adrs/0001_a.md) | a | accepted |" in idx
 
 
 def test_drift_detection(tmp_path):
@@ -164,3 +173,29 @@ def test_cmd_docs_adr_routes(monkeypatch, sample_ctx):
     monkeypatch.setattr("docex.docs.run_docs_adr", fake)
     assert _cmd_docs(["adr"]) == 0
     assert "adr" in seen
+
+
+def test_id_cell_is_linked_to_adr_file(tmp_path):
+    # The ADR id cell is a markdown link to the ADR's source file, in BOTH
+    # indexes (mod 170 success criterion 1).
+    d = _adrs_dir(tmp_path)
+    _write_adr(d, "0001_thing.md", id="0001", title="thing", status="accepted")
+    adrs = load_adrs(tmp_path)
+    link = "[0001](adrs/0001_thing.md)"
+    assert link in render_index(adrs)
+    assert link in render_active(adrs)
+
+
+def test_link_target_is_real_filename_not_derived_from_title(tmp_path):
+    # The link target is the real on-disk filename, NOT a slug derived from the
+    # human title — so it can never drift from the file it points at (mod 170
+    # design decision 2). Human title differs from the snake_case filename stem.
+    d = _adrs_dir(tmp_path)
+    _write_adr(
+        d, "0007_use_postgres.md",
+        id="0007", title="Use Postgres for storage", status="accepted",
+    )
+    idx = render_index(load_adrs(tmp_path))
+    assert "[0007](adrs/0007_use_postgres.md)" in idx        # real filename
+    assert "use-postgres-for-storage" not in idx             # not a title slug
+    assert "| Use Postgres for storage |" in idx             # title stays bare
