@@ -21,12 +21,14 @@ We can summarize this in the concept of "overhead" - all the documents that must
 Overhead is inferred structurally. We do not restate the rules here — they live in one place, `docex docs overhead` (see [`docex.md § docs`](../../doctrine/infrastructure/docex.md#docs)), and `docex docs cxt_groups` applies them for us. A pointer can't drift from its source; a restatement did.
 
 This gives us a deterministic "recommended pool" of overhead for a subject file. It won't be exhaustive, but it lets us do orchestration math. The general procedure is:
-1. Identify all subject files that we wish to do work on.
-2. Establish the recommended pool of overhead files for each.
-3. Denote the "approximate" context usage of loading each file.
-4. Clump together groups of subject files which share overhead (*context groups*), aiming for 50% context usage when all subject files and overhead have been loaded.
-5. Kick off a sub-agent to use the `doc-refine` skill, giving it a full list of the subject files to assess and the full list of overhead to load into context *before loading any subject file*.
-6. For each subject file, the sub-agent will already have the recommended pool of overhead files in context, and can then read the subject file and load any additional files into context intelligently. Then it can make load-bearing edits to the subject file with the best possible information.
+1. Ask the user what to use for max tokens when when generating context groups.
+   + Recommend 400k for 1M context windows, and 100k for 200k windows.
+2. Identify all subject files that we wish to do work on.
+3. Establish the recommended pool of overhead files for each.
+4. Denote the "approximate" context usage of loading each file.
+5. Clump together groups of subject files which share overhead (*context groups*), aiming for 50% context usage when all subject files and overhead have been loaded.
+6. Kick off a sub-agent to use the `doc-refine` skill, giving it a full list of the subject files to assess and the full list of overhead to load into context *before loading any subject file*.
+7. For each subject file, the sub-agent will already have the recommended pool of overhead files in context, and can then read the subject file and load any additional files into context intelligently. Then it can make load-bearing edits to the subject file with the best possible information.
 
 This process helps conserve context (we only load overhead files once per full subagent run spanning many subject files).
 
