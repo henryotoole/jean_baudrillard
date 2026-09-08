@@ -17,6 +17,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-08
+
 ### Changed
 
 - **`docex docs adr` emits a reference-linked ADR index (advance 013, mod 170).**
