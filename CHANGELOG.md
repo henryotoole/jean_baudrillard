@@ -17,6 +17,19 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Changed
+
+- **`docex docs overhead` / `docs cxt_groups` no longer follow the outbound
+  links of an L1 standard root (mod 172).** A standard-root file — the arc42 L1
+  docs, the standard diagrams, the ADR indices — is a *router* that links across
+  a large fraction of the design corpus. When such a file was the overhead
+  subject, rule 2 followed every one of its links and produced a tremendous,
+  mostly-irrelevant overhead span (which in turn bloated `cxt_groups`). Overhead
+  now never follows a standard root's outbound links: rule 1 still includes
+  every root as membership (a root's *presence* as overhead is unchanged), and
+  only its transitive fan-out **as a subject** is removed. Consequently a
+  diagram-as-subject no longer pulls its mermaid `click` targets into overhead.
+
 ## [3.0.0] - 2026-09-08
 
 ### Changed

@@ -14,6 +14,11 @@ The three rules (verbatim from ``docex_doc_design.md § overhead``):
   3. For a source file with a corresponding module doc, any L1/L2/L3 doc the
      module doc directly links to.
 
+A standard root is a router file; its own outbound links are never followed, so
+rules 2 and 3 contribute nothing when their source file is a standard root. (In
+practice this only affects a standard-root *subject* under rule 2, since a
+module doc is never a root.)
+
 The pure core (``compute_overhead`` / ``outgoing_design_targets``) takes the
 already-built ``(nodes, edges)`` graph so it is unit-testable without git or a
 ``ProjectContext``.
@@ -97,17 +102,25 @@ def compute_overhead(nodes, edges, subject_fpath) -> list[Node]:
 
     fpaths: set[str] = set()
 
+    roots = _rule_one_roots(nodes)
+
     # Rule 1 — L1 roots + standard diagrams.
-    fpaths |= _rule_one_roots(nodes)
+    fpaths |= roots
 
     # Rule 2 — design docs the subject directly links to (incl. emergent).
-    rule2 = outgoing_design_targets(nodes, edges, subject_fpath)
+    # A standard root is a router: never follow its outbound links (mod 172).
+    if subject_fpath in roots:
+        rule2: set[str] = set()
+    else:
+        rule2 = outgoing_design_targets(nodes, edges, subject_fpath)
     fpaths |= rule2
 
     # Rule 3 — for a source subject with a module doc, the module doc's links.
+    # Guarded by the same root check for uniformity (a module doc is never a
+    # root, so this never fires; the guard makes the invariant explicit).
     if subject is not None and subject.type == "source":
         module_doc = _module_doc_fpath(by_fpath, rule2, subject)
-        if module_doc is not None:
+        if module_doc is not None and module_doc not in roots:
             fpaths |= outgoing_design_targets(nodes, edges, module_doc)
 
     # Exclude the subject itself; resolve to nodes; order high→low then fpath.

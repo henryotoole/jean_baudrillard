@@ -71,20 +71,48 @@ def test_rule2_markdown_link_is_overhead(tmp_path):
     assert "plans/design/api/specifics/foo.md" in ov
 
 
-def test_rule2_mermaid_click_is_overhead(tmp_path):
-    diagram = _write(
+def test_diagram_subject_does_not_follow_click_links(tmp_path):
+    # A standard diagram is a root/router (mod 172): a diagram-as-subject no
+    # longer pulls its mermaid `click` targets into overhead. Build from a
+    # scaffolded tree so the diagram registers as a standard root.
+    scaffold_design(tmp_path, ["api"])
+    _write(
         tmp_path,
         "plans/design/api/module_diagram.mmd",
         'graph TD\n    click orders "./module/orders.md"\n',
     )
-    doc = _write(tmp_path, "plans/design/api/module/orders.md")
-    nodes, edges = build_linkmap(
-        tmp_path, ["api"], "code_level", [diagram, doc], []
-    )
+    _write(tmp_path, "plans/design/api/module/orders.md")
+    design = _enumerate_design_files(tmp_path)
+    nodes, edges = build_linkmap(tmp_path, ["api"], "code_level", design, [])
     ov = set(
         _overhead_fpaths(nodes, edges, "plans/design/api/module_diagram.mmd")
     )
-    assert "plans/design/api/module/orders.md" in ov
+    # Click target of a root subject is NOT followed.
+    assert "plans/design/api/module/orders.md" not in ov
+    # Rule 1 unaffected: sibling roots are still present.
+    assert "plans/design/boundary_conditions.md" in ov
+
+
+def test_root_subject_does_not_follow_markdown_links(tmp_path):
+    # A standard-root subject with an outbound markdown link to a non-root doc
+    # does not pull that doc into overhead (mod 172); rule 1 still supplies all
+    # roots.
+    scaffold_design(tmp_path, ["api"])
+    _write(
+        tmp_path,
+        "plans/design/concepts_and_decisions.md",
+        "# Concepts\n[detail](./api/specifics/detail.md)\n",
+    )
+    _write(tmp_path, "plans/design/api/specifics/detail.md")
+    design = _enumerate_design_files(tmp_path)
+    nodes, edges = build_linkmap(tmp_path, ["api"], "code_level", design, [])
+    ov = set(
+        _overhead_fpaths(nodes, edges, "plans/design/concepts_and_decisions.md")
+    )
+    # Root subject's outbound link is NOT followed.
+    assert "plans/design/api/specifics/detail.md" not in ov
+    # Rule 1 still fires for a root subject: sibling roots present.
+    assert "plans/design/boundary_conditions.md" in ov
 
 
 # ---------------------------------------------------------------------------
