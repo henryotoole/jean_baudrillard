@@ -43,10 +43,8 @@ A) **Apply to only source code files**
   + Are design docs replicated here? (subtractive)
     - Delete prose and replace with a reference.
 B) **Apply to only design docs**
-  + Is any part of this section purely historic (e.g. mod 101 added X)? (subtractive)
-    - Delete it.
   + Does any part of this section try to justify the reasoning behind a decision or state? (subtractive, condensing)
-    + Is *the decision or state* already recorded in an ADR?
+    + Is *the decision or reasoning* already recorded in an ADR?
       - If so, delete the reasoning, even if the reasoning itself was not captured completely.
       - If not:
         - Load `writing-adrs` skill if not yet loaded
@@ -56,6 +54,8 @@ C) **Apply to L1 standard arc42 docs**
   + Does X concept really belong in this arc42 section? (organizing)
     - If blatantly in the wrong place, move it.
 D) **Apply to all files**
+  + Is any part of this section purely historic (e.g. mod 101 added X) or self-referential (e.g. "this used to say Y")? (subtractive)
+    - Delete it.
   + Is the description of X concept over-detailed?
     + Can we just get rid of the details? (subtractive)
       - Then do so.
