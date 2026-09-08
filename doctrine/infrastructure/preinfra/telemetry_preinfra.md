@@ -126,7 +126,30 @@ HyperDX is installed by cloning its self-hosted repository and configuring the b
 
    ClickHouse runs the cleanup automatically on its merge schedule once TTL is set; the operator doesn't schedule recurring jobs. The TTL is part of the table's metadata, so it survives HyperDX restarts and re-deploys — but it does NOT survive a wholesale schema reset (e.g., dropping and recreating tables across a HyperDX major-version upgrade). Re-verify after any operation that touches the schema.
 
-6. **Bring up the stack:**
+6. **Cap container log growth.** HyperDX's ClickHouse container is extremely chatty on stdout, and Docker's default `json-file` log driver has **no size limit**. Left unbounded, a single container's log file grows without end — on a real deployment ClickHouse's stdout reached tens of gigabytes and filled the host disk. A full disk then takes the whole stack down in a way that is easy to misread: healthchecks and `docker exec` start failing with `no space left on device`, and traefik can no longer update its dynamic config, so it silently drops its routers and **every route returns a bare `404`** (traefik's own 404, distinct from the `502` the fresh-install OpAMP sequencing produces). This is a *different axis* from the retention TTLs in step 5 — those bound ClickHouse's **table data**; this bounds **container stdout**.
+
+   The canonical fix is a host-wide Docker log cap in `/etc/docker/daemon.json`:
+
+   ```json
+   { "log-driver": "json-file", "log-opts": { "max-size": "100m", "max-file": "3" } }
+   ```
+
+   Then restart the daemon so it takes effect: `sudo systemctl restart docker`.
+
+   Two caveats:
+
+   - **The daemon default applies only to containers created *after* it is set.** On a first install this is automatic — the daemon is already configured when the stack is first brought up (step 7), so its containers are born capped. When *retrofitting* an already-running stack, existing containers keep unlimited logging until recreated (`docker compose up -d --force-recreate`), and an already-oversized log file is reclaimed with `truncate -s 0 <container>-json.log` — safe, as it discards only disposable stdout, never the telemetry data under `.volumes`.
+   - **On a shared `fixed` host** the daemon default applies to *every* container on the machine, not just HyperDX. That is the right default, but restarting the daemon bounces all of them. An operator who would rather not touch the shared daemon can instead scope the cap to HyperDX by adding a `logging:` block to each service in the `docker-compose.override.yml` from step 3:
+
+     ```yaml
+     logging:
+       driver: json-file
+       options: { max-size: "100m", max-file: "3" }
+     ```
+
+   On the dedicated elastic HyperDX EC2 instance there is no shared-host concern, so prefer the host-wide `daemon.json`.
+
+7. **Bring up the stack:**
 
    ```bash
    docker compose up -d
@@ -151,7 +174,7 @@ After the stack is up, the operator (or LLM agent) verifies that HyperDX is reac
 1. **UI reachability.** In a browser, navigate to `https://hyperdx.${base_domain}`. Expect the HyperDX login or onboarding page. Likely failures and their meanings:
    - Connection refused / timeout → DNS hasn't propagated, the security group isn't open, or traefik isn't running.
    - TLS error (invalid cert, untrusted issuer) → cert resolver hasn't completed an ACME challenge; check traefik's logs for ACME failures.
-   - 404 or 502 from traefik → traefik labels are misconfigured or HyperDX's UI service isn't running; check `docker compose ps` for service health.
+   - 404 or 502 from traefik → traefik labels are misconfigured or HyperDX's UI service isn't running; check `docker compose ps` for service health. On a stack that *was* working and has since gone `404`, also check `df -h` — a **full host disk** makes traefik drop its routers (see [step 6](#hyperdx-installation)) and is an easy failure to misread as a routing problem.
 
 2. **Admin account.** Complete HyperDX's onboarding flow to create the initial admin account. Save the password — it isn't recoverable without operator access to the ClickHouse database.
 
@@ -177,7 +200,7 @@ After the stack is up, the operator (or LLM agent) verifies that HyperDX is reac
      }'
    ```
 
-   A `2xx` response indicates ingestion succeeded — HyperDX 2.x's collector responds with `HTTP 200` and body `{"partialSuccess":{}}`. Then navigate to the HyperDX UI's traces view; the probe span should appear within seconds, attributed to `service.name=reachability-probe`. A `401` means the API key was wrong; a `404` means the OTLP router isn't matching `/v1/traces` (re-check the path-prefix rule from step 4); a `502` means traefik can route but the target backend isn't accepting on `4318`. In HyperDX 2.x, the **overwhelmingly most common cause of a 502 on a fresh install is the OpAMP-supervisor sequencing covered in [HyperDX Installation § step 6](#hyperdx-installation)** — verify the operator has finished UI admin and source setup before chasing network or label issues.
+   A `2xx` response indicates ingestion succeeded — HyperDX 2.x's collector responds with `HTTP 200` and body `{"partialSuccess":{}}`. Then navigate to the HyperDX UI's traces view; the probe span should appear within seconds, attributed to `service.name=reachability-probe`. A `401` means the API key was wrong; a `404` means the OTLP router isn't matching `/v1/traces` (re-check the path-prefix rule from step 4); a `502` means traefik can route but the target backend isn't accepting on `4318`. In HyperDX 2.x, the **overwhelmingly most common cause of a 502 on a fresh install is the OpAMP-supervisor sequencing covered in [HyperDX Installation § step 7](#hyperdx-installation)** — verify the operator has finished UI admin and source setup before chasing network or label issues.
 
 4. **Retention.** Confirm the TTL was set correctly by querying the schema:
 

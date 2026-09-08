@@ -17,6 +17,20 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.0.5] - 2026-09-08
+
+### Fixed
+
+- **HyperDX preinfra setup now caps Docker container log growth.** The
+  `telemetry_preinfra.md` HyperDX install flow gained a step to configure a
+  host-wide `json-file` log cap (`/etc/docker/daemon.json`,
+  `max-size`/`max-file`), with a scoped per-service `logging:` override
+  alternative for shared fixed hosts. Closes a gap where ClickHouse's unbounded
+  container stdout could fill the host disk and make traefik silently drop its
+  routers — surfacing as a bare `404` that is easy to misread as a routing
+  problem. A diagnostic pointer to check `df -h` on a stack that has gone `404`
+  was added to the reachability checks.
+
 ## [3.0.4] - 2026-09-08
 
 ### Changed
