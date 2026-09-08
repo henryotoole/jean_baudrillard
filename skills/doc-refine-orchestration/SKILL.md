@@ -68,9 +68,6 @@ You are refining documentation for one context group. Work strictly in this orde
    these subject files, one at a time:
    {{subject_files, one per line}}
 
-   For each subject: read it, pull any additional docs you find you need, then make
-   only subtractive / condensing / organizing edits per `doc-refine`.
-
 Do not edit any file outside the subject list except as `doc-refine` directs. Report
 which subjects you changed and any overhead file that itself turned out to need work
 (flag it; do not edit it — a later group owns it).
