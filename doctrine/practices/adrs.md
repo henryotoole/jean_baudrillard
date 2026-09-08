@@ -48,16 +48,16 @@ deprecated   # retired, no replacement
 
 We create two index files to act as the "map" of all ADR's:
 1. An "active" table, listing approved decisions that have not been superseded.
-	+ `| ADR ID | Title | Date | Supersedes |`
+	+ `| ADR ID | Link | Title | Date | Supersedes |`
 2. The "index" table, listing all decisions.
-	+ `| ADR ID | Title | Status | Date | Supersedes | Superseded By |`
+	+ `| ADR ID | Link | Title | Status | Date | Supersedes | Superseded By |`
 
 These are split into two files so that an LLM won't bloat its context by reading the full big table.
 
-In both tables the `ADR ID` cell is a markdown link to that ADR's file under `adrs/`. Because the two indexes are themselves [reachability roots](./docs.md#reachability-check), this link makes every ADR reachable *through its index* — a superseded ADR need not link back into the design docs to satisfy `docs check`.
+In both tables the `ADR ID` cell holds the bare ADR id and a dedicated `Link` cell holds a markdown link to that ADR's file under `adrs/`. Because the two indexes are themselves [reachability roots](./docs.md#reachability-check), that link makes every ADR reachable *through its index* — a superseded ADR need not link back into the design docs to satisfy `docs check`.
 
 ## Docex
 
 `docex` provides a deterministic command to synchronize the ADR Indices with the ADR's.
 
-`docex docs adr` regenerates both index files from the ADR sources in `plans/design/adrs/`. Generation is deterministic and idempotent. Each `ADR ID` cell is rendered as a markdown link to the ADR's source file, so the generated index alone makes every ADR reachable to `docs check`.
+`docex docs adr` regenerates both index files from the ADR sources in `plans/design/adrs/`. Generation is deterministic and idempotent. Each row's `Link` cell is rendered as a markdown link to the ADR's source file (the `ADR ID` cell stays the bare id), so the generated index alone makes every ADR reachable to `docs check`.

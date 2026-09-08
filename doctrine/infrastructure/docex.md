@@ -183,7 +183,7 @@ Manages the standard design-doc set under `$pr/plans/design` (see [docs.md](../p
 	+ Reachability - All design docs can be reached through via link graph starting in one of the [standard doc roots](../practices/docs.md#reachability-check).
 	+ ADR-index Freshness - `adr_index.md` / `adr_active.md` out of sync with `plans/design/adrs/`.
 	+ Anchor Resolution - a markdown link's `#fragment` into an in-scope design doc must resolve to a real heading (GitHub slug) or explicit `<a id>` anchor. A fragment into a target the check does not scan (e.g. `references/*`, source) is not validated.
-- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing. Each row's `ADR ID` cell links to the ADR's file, so the generated index alone makes every ADR reachable to the reachability check.
+- **`adr`** regenerates the two ADR index files (`adr_index.md`, `adr_active.md`) from the ADR sources in `plans/design/adrs/`. Deterministic and idempotent. A no-op run rewrites nothing. Each row carries a bare `ADR ID` cell and a dedicated `Link` cell that links to the ADR's file, so the generated index alone makes every ADR reachable to the reachability check.
 - **`linkmap`** emits the documentation/code link graph as **deterministic JSON on stdout** (diagnostics go to stderr; `indent=2, sort_keys=True`, every list sorted), for outside agents and skills to consume. It takes a required `<depth>`:
 	+ **`design_docs`** — the tracked scope is `plans/design/**` only.
 	+ **`code_level`** — `plans/design/**` **plus** each codebase's git-tracked `core/<cb>/src/**` (a strict superset; untracked / compiled artifacts like `.pyc` never appear).

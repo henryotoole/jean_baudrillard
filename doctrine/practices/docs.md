@@ -196,7 +196,7 @@ A handful of files form the "standard roots" for doc reachability:
 + The [standard diagrams](#standard-diagrams) (`project_diagram.mmd`, `service_diagram.mmd`, and each codebase's `module_diagram.mmd`)
 + The ADR indexes (`adr_index.md`, `adr_active.md`) 
 
-Because the two ADR indexes are standard roots **and** the generated index links each ADR by its `ADR ID` cell (see [adrs.md § ADR Index](./adrs.md#adr-index)), every ADR is reachable *through its index*. An individual ADR therefore does not need an inbound link from a narrative doc to pass this check — which is what lets a superseded ADR stay out of the live design docs.
+Because the two ADR indexes are standard roots **and** the generated index links each ADR by its `Link` cell (see [adrs.md § ADR Index](./adrs.md#adr-index)), every ADR is reachable *through its index*. An individual ADR therefore does not need an inbound link from a narrative doc to pass this check — which is what lets a superseded ADR stay out of the live design docs.
 
 ### Anchor Resolution
 

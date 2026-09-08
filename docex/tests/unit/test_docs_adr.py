@@ -85,11 +85,11 @@ def test_index_lists_all_and_renders_supersede_chain(tmp_path):
     index = render_index(load_adrs(tmp_path))
     assert index.startswith(GENERATED_MARKER)
     assert (
-        "| [0001](adrs/0001_old.md) | old | superseded | 2026-01-01 |  | 0002 |"
+        "| 0001 | [0001](adrs/0001_old.md) | old | superseded | 2026-01-01 |  | 0002 |"
         in index
     )
     assert (
-        "| [0002](adrs/0002_new.md) | new | accepted | 2026-01-01 | 0001 |  |"
+        "| 0002 | [0002](adrs/0002_new.md) | new | accepted | 2026-01-01 | 0001 |  |"
         in index
     )
 
@@ -126,7 +126,7 @@ def test_regenerate_and_idempotency(tmp_path):
     # Second run: byte-identical -> nothing rewritten.
     assert regenerate_adr_indexes(tmp_path) == []
     idx = (tmp_path / "plans" / "design" / "adr_index.md").read_text()
-    assert "| [0001](adrs/0001_a.md) | a | accepted |" in idx
+    assert "| 0001 | [0001](adrs/0001_a.md) | a | accepted |" in idx
 
 
 def test_drift_detection(tmp_path):
@@ -175,15 +175,44 @@ def test_cmd_docs_adr_routes(monkeypatch, sample_ctx):
     assert "adr" in seen
 
 
-def test_id_cell_is_linked_to_adr_file(tmp_path):
-    # The ADR id cell is a markdown link to the ADR's source file, in BOTH
-    # indexes (mod 170 success criterion 1).
+def test_link_column_links_to_adr_file(tmp_path):
+    # The markdown link to the ADR's source file now lives in the dedicated
+    # `Link` column (mod 173), in BOTH indexes, and the `ADR ID` column carries
+    # the bare id (mod 170 success criterion 1 preserved via the Link column).
     d = _adrs_dir(tmp_path)
     _write_adr(d, "0001_thing.md", id="0001", title="thing", status="accepted")
     adrs = load_adrs(tmp_path)
     link = "[0001](adrs/0001_thing.md)"
-    assert link in render_index(adrs)
-    assert link in render_active(adrs)
+    index = render_index(adrs)
+    active = render_active(adrs)
+    assert link in index
+    assert link in active
+    # The new column header is present in both renders.
+    assert "| ADR ID | Link |" in index
+    assert "| ADR ID | Link |" in active
+    # The data row's first cell is the bare id, second cell the link.
+    assert "| 0001 | [0001](adrs/0001_thing.md) |" in index
+    assert "| 0001 | [0001](adrs/0001_thing.md) |" in active
+
+
+def test_id_and_link_are_distinct_columns(tmp_path):
+    # Focused test on the mod-173 structure: `ADR ID` (bare) and `Link` are two
+    # separate columns, in both renders, with exact header + data-row shapes.
+    d = _adrs_dir(tmp_path)
+    _write_adr(d, "0001_a.md", id="0001", title="a", status="accepted")
+    adrs = load_adrs(tmp_path)
+    index_lines = render_index(adrs).split("\n")
+    active_lines = render_active(adrs).split("\n")
+    assert (
+        "| ADR ID | Link | Title | Status | Date | Supersedes | Superseded By |"
+        in index_lines
+    )
+    assert "| ADR ID | Link | Title | Date | Supersedes |" in active_lines
+    assert (
+        "| 0001 | [0001](adrs/0001_a.md) | a | accepted | 2026-01-01 |  |  |"
+        in index_lines
+    )
+    assert "| 0001 | [0001](adrs/0001_a.md) | a | 2026-01-01 |  |" in active_lines
 
 
 def test_link_target_is_real_filename_not_derived_from_title(tmp_path):

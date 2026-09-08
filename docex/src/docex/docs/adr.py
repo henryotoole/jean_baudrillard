@@ -117,7 +117,7 @@ def _row(cells: list[str]) -> str:
 
 
 def _adr_link(a: Adr) -> str:
-    """Render the ADR id as a markdown link to its source file.
+    """Render the ``Link``-column cell: the ADR id as a markdown link to its file.
 
     The path is relative to the index files, which both sit at plans/design/, so
     it targets plans/design/adrs/<file>. The link TEXT is the ADR id; the link
@@ -136,12 +136,12 @@ def render_index(adrs: list[Adr]) -> str:
         "",
         "# ADR Index",
         "",
-        "| ADR ID | Title | Status | Date | Supersedes | Superseded By |",
-        "| ------ | ----- | ------ | ---- | ---------- | ------------- |",
+        "| ADR ID | Link | Title | Status | Date | Supersedes | Superseded By |",
+        "| ------ | ---- | ----- | ------ | ---- | ---------- | ------------- |",
     ]
     for a in sorted(adrs, key=_sort_key):
         lines.append(_row([
-            _adr_link(a), a.title, a.status, a.date,
+            a.id, _adr_link(a), a.title, a.status, a.date,
             ", ".join(a.supersedes), ", ".join(a.superseded_by),
         ]))
     return "\n".join(lines) + "\n"
@@ -154,11 +154,11 @@ def render_active(adrs: list[Adr]) -> str:
         "",
         "# Active ADRs",
         "",
-        "| ADR ID | Title | Date | Supersedes |",
-        "| ------ | ----- | ---- | ---------- |",
+        "| ADR ID | Link | Title | Date | Supersedes |",
+        "| ------ | ---- | ----- | ---- | ---------- |",
     ]
     for a in sorted((a for a in adrs if a.is_active), key=_sort_key):
-        lines.append(_row([_adr_link(a), a.title, a.date, ", ".join(a.supersedes)]))
+        lines.append(_row([a.id, _adr_link(a), a.title, a.date, ", ".join(a.supersedes)]))
     return "\n".join(lines) + "\n"
 
 

@@ -19,6 +19,14 @@ first post-`0.4.0` overhaul.
 
 ### Changed
 
+- **`docex docs adr` splits the ADR index's linked ID cell into two columns
+  (mod 173).** `adr_index.md` / `adr_active.md` now render a bare-number
+  `ADR ID` column plus a dedicated `Link` column (`[<id>](adrs/<file>)`),
+  where previously the single `ADR ID` cell was itself the link. This removes
+  the confusion of an "ID" that was actually a link. `docs check` reachability
+  is unaffected — it parses every link regardless of column — and the
+  freshness check uses the same canonical render.
+
 - **`docex docs overhead` / `docs cxt_groups` no longer follow the outbound
   links of an L1 standard root (mod 172).** A standard-root file — the arc42 L1
   docs, the standard diagrams, the ADR indices — is a *router* that links across
