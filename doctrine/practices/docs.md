@@ -196,22 +196,7 @@ A handful of files form the "standard roots" for doc reachability:
 + The [standard diagrams](#standard-diagrams) (`project_diagram.mmd`, `service_diagram.mmd`, and each codebase's `module_diagram.mmd`)
 + The ADR indexes (`adr_index.md`, `adr_active.md`) 
 
-Because the two ADR indexes are standard roots **and** the generated index links each ADR by its `Link` cell (see [adrs.md § ADR Index](./adrs.md#adr-index)), every ADR is reachable *through its index*. An individual ADR therefore does not need an inbound link from a narrative doc to pass this check — which is what lets a superseded ADR stay out of the live design docs.
-
-### Anchor Resolution
-
-Reachability proves a doc is *linked*; it cannot prove a `#fragment` *resolves*.
-`docex docs check` additionally validates that every markdown link carrying a
-`#fragment` whose target is an in-scope design doc (a same-file `#frag` included)
-points at a real anchor in that target — a heading whose GitHub-style slug equals
-the fragment, or an explicit `<a id="…">` anchor. A non-resolving fragment fails
-with `unresolved anchor: <file> -> <target>#<frag>`. This catches a link to a
-reworded or de-emoji'd heading and cross-file anchor drift, which reachability
-passes silently.
-
-The rule is scoped to targets the check can actually see: a `#fragment` into a
-target *outside* the tracked design scope (a `references/*` file, a source file)
-is **not** validated, since the check does not scan the target for its anchors.
+Reachability does not verify that link anchors resolve. Anchor resolution is part of `docex check`.
 
 ### Missing Standard File
 

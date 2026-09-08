@@ -54,10 +54,10 @@ We create two index files to act as the "map" of all ADR's:
 
 These are split into two files so that an LLM won't bloat its context by reading the full big table.
 
-In both tables the `ADR ID` cell holds the bare ADR id and a dedicated `Link` cell holds a markdown link to that ADR's file under `adrs/`. Because the two indexes are themselves [reachability roots](./docs.md#reachability-check), that link makes every ADR reachable *through its index* — a superseded ADR need not link back into the design docs to satisfy `docs check`.
+The "Link" column is included so that docex [reachability checks](./docs.md#reachability-check) pass the ADR's.
 
 ## Docex
 
 `docex` provides a deterministic command to synchronize the ADR Indices with the ADR's.
 
-`docex docs adr` regenerates both index files from the ADR sources in `plans/design/adrs/`. Generation is deterministic and idempotent. Each row's `Link` cell is rendered as a markdown link to the ADR's source file (the `ADR ID` cell stays the bare id), so the generated index alone makes every ADR reachable to `docs check`.
+`docex docs adr` regenerates both index files from the ADR sources in `plans/design/adrs/`. Generation is deterministic and idempotent.
