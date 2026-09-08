@@ -17,6 +17,15 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.0.3] - 2026-09-08
+
+### Changed
+
+- **`doc-refine` edit passes refined.** The removal of purely-historic /
+  self-referential text is generalized from design-docs-only to all files
+  (moved to Pass D), and the ADR-capture check is reworded to "decision or
+  reasoning."
+
 ## [3.0.2] - 2026-09-08
 
 ### Changed
