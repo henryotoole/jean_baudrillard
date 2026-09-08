@@ -17,6 +17,15 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.0.4] - 2026-09-08
+
+### Changed
+
+- **`doc-refine-orchestration` now asks for the `cxt_groups` token budget.**
+  A new first step prompts the user for the max-tokens value used when
+  generating context groups (recommending 400k for 1M-context models, 100k
+  for 200k-context ones) before identifying subjects.
+
 ## [3.0.3] - 2026-09-08
 
 ### Changed
