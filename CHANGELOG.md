@@ -17,6 +17,22 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-09-08
+
+### Changed
+
+- **`doc-refine` skill developed from a draft into an executable process.**
+  It now defines a per-subject loop (load the subject, classify it by file
+  type and whether it is an L1 standard arc42 doc, apply the matching edit
+  passes) followed by a single closing verification step (`docex docs adr`
+  then `docex docs check`, fixing any resulting broken links). ADR creation
+  routes through the `writing-adrs` skill. The `doc-refine-orchestration`
+  prompt is trimmed to route into `doc-refine` rather than restating the
+  per-subject procedure.
+- **Doctrine prose condensed around the ADR index and reachability.**
+  `adrs.md` and `docs.md` tightened their descriptions of the ADR index's
+  `ADR ID`/`Link` columns and the reachability/anchor-resolution checks.
+
 ## [3.0.1] - 2026-09-08
 
 ### Changed
