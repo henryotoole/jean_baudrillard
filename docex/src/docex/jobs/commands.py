@@ -48,21 +48,25 @@ def _run_test_body(ctx, docker, params) -> int:
     return run_test(ctx, docker, selector=selector, slots=slots)
 
 
-def _run_check_body(ctx, docker, params) -> int:  # params unused
+def _run_check_body(ctx, docker, params) -> int:
     # Lazy imports (same rationale as _run_test_body). The _JOB_BODIES
     # signature is body(ctx, docker, params), so the git client is constructed
     # here rather than threaded through — matching how _require_git builds it.
     from docex.git import SubprocessGitClient
     from docex.pipeline.check import run_check
 
-    return run_check(ctx, docker, SubprocessGitClient())
+    # `slots` doubles as the recorded shard count (Mod 174); base_slot defaults
+    # to CHECK_BASE inside run_check.
+    slots = int((params or {}).get("slots") or 1)
+    return run_check(ctx, docker, SubprocessGitClient(), slots=slots)
 
 
-def _run_merge_body(ctx, docker, params) -> int:  # params unused
+def _run_merge_body(ctx, docker, params) -> int:
     from docex.git import SubprocessGitClient
     from docex.pipeline.merge import run_merge
 
-    return run_merge(ctx, docker, SubprocessGitClient())
+    slots = int((params or {}).get("slots") or 1)
+    return run_merge(ctx, docker, SubprocessGitClient(), slots=slots)
 
 
 def _run_noop_body(ctx, docker, params) -> int:  # ctx/docker/params unused
@@ -192,24 +196,32 @@ def run_test_job(
 # ---------------------------------------------------------------------------
 
 
-def _check_teardown_params(ctx, git, *, slot: int) -> dict:
+def _check_teardown_params(ctx, git, *, base_slot: int, slots: int) -> dict:
     """Deterministic identities the reaper reclaims for a hard-killed
     check/merge vessel.
 
-    ``run_check`` recomputes the same project name inside the vessel:
-    ``env_compose_project(ctx, "test", slot=slot)`` (the reserved-slot stack,
-    Mod 155). The worktree dir is still ``check-<short_sha>`` (run_check names it
-    that regardless of which command drove it). Recording these here lets the
-    reaper reclaim the leak by label without threading anything through
-    ``run_check``'s signature.
+    ``run_check`` recomputes the same project names inside the vessel:
+    ``env_compose_project(ctx, "test", slot=k)`` for each slot ``k`` in the
+    gate's band (Mod 155/174). A hard-killed SHARDED gate leaks all ``slots``
+    band stacks, so the reaper needs the whole band, not one slot. The worktree
+    dir is still ``check-<short_sha>`` (run_check names it that regardless of
+    which command drove it). Recording these here lets the reaper reclaim the
+    leak by label without threading anything through ``run_check``'s signature.
+
+    ``slots`` doubles as the body's shard count — one key serves both the
+    in-vessel ``run_check(slots=…)`` and the reaper's band width.
     """
-    from docex.orchestrate._common import env_compose_project
+    from docex.orchestrate._common import band_slots, env_compose_project
 
     short_sha = git.head_sha(ctx.project_root, short=True)
     return {
         "worktree_slug": f"check-{short_sha}",
-        "compose_project": env_compose_project(ctx, "test", slot=slot),
-        "slot": slot,
+        "compose_projects": [
+            env_compose_project(ctx, "test", slot=k)
+            for k in band_slots(base_slot, slots)
+        ],
+        "base_slot": base_slot,
+        "slots": slots,
     }
 
 
@@ -229,15 +241,16 @@ def _brokered_passthrough_active() -> bool:
     return False
 
 
-def run_check_job(ctx, docker, git, *, detach: bool) -> int:
+def run_check_job(ctx, docker, git, *, detach: bool, slots: int = 1) -> int:
     """Launch ``docex check`` as a durable, container-vessel job.
 
     Blocks by default (exit code == the run's); ``detach=True`` prints the
     handle and returns fast. ``git`` is taken so the foreground can record the
     deterministic teardown identities (``short_sha``) the reaper reclaims on a
-    hard-killed vessel.
+    hard-killed vessel. ``slots`` (Mod 174) shards the defensive test run across
+    the check band and is recorded for the reaper's band teardown.
     """
-    from docex.orchestrate._common import CHECK_SLOT
+    from docex.orchestrate._common import CHECK_BASE
 
     label = dns_label(ctx.project.name)
     return _launch_durable_job(
@@ -245,12 +258,12 @@ def run_check_job(ctx, docker, git, *, detach: bool) -> int:
         kind="check",
         scope=f"{label}/check",
         vessel_name=f"{label}-check-runner",
-        params=_check_teardown_params(ctx, git, slot=CHECK_SLOT),
+        params=_check_teardown_params(ctx, git, base_slot=CHECK_BASE, slots=slots),
         detach=detach,
     )
 
 
-def run_merge_job(ctx, docker, git, *, detach: bool) -> int:
+def run_merge_job(ctx, docker, git, *, detach: bool, slots: int = 1) -> int:
     """Launch ``docex merge`` as a durable, container-vessel job.
 
     Same shape as ``run_check_job`` (merge's defensive check owns the same
@@ -278,14 +291,14 @@ def run_merge_job(ctx, docker, git, *, detach: bool) -> int:
             file=sys.stderr,
         )
         return _MERGE_DETACH_PASSTHROUGH_EXIT
-    from docex.orchestrate._common import MERGE_SLOT
+    from docex.orchestrate._common import MERGE_BASE
 
     return _launch_durable_job(
         ctx, docker,
         kind="merge",
         scope=f"{label}/merge",
         vessel_name=f"{label}-merge-runner",
-        params=_check_teardown_params(ctx, git, slot=MERGE_SLOT),
+        params=_check_teardown_params(ctx, git, base_slot=MERGE_BASE, slots=slots),
         detach=detach,
     )
 

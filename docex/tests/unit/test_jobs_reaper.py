@@ -157,3 +157,64 @@ def test_fleet_reaper_slots1_record_reaps_slot1_only(sample_ctx, fake_docker):
     )
     assert pf.proceed is True
     assert len([c for c in fake_docker.calls if c[0] == "compose_down"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Mod 174: the check/merge worktree reaper reclaims the whole BAND — a sharded
+# gate leaks N band stacks, each downed by its per-band project name. A legacy
+# (pre-mod-174) record with a single `compose_project` still downs one stack.
+# ---------------------------------------------------------------------------
+
+
+def _make_meta(*, kind: str, params: dict):
+    return record.RunMeta(
+        id="rid", kind=kind, scope=f"sample/{kind}", slot=1,
+        vessel_kind="container", vessel_name=f"sample-{kind}-runner",
+        created_at=record.now_iso(), docex_version="0.5.0", params=params,
+    )
+
+
+def test_worktree_reaper_downs_every_band_project(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    monkeypatch.setattr("docex.git.SubprocessGitClient", lambda: fake_git)
+    p9 = "sample-test-s9"
+    p10 = "sample-test-s10"
+    meta = _make_meta(
+        kind="check",
+        params={
+            "worktree_slug": "check-abc1234",
+            "compose_projects": [p9, p10],
+            "base_slot": 9,
+            "slots": 2,
+        },
+    )
+
+    reaper._teardown_worktree_job(sample_ctx, fake_docker, meta)
+
+    downs = [c for c in fake_docker.calls if c[0] == "compose_down"]
+    assert len(downs) == 2
+    assert all(c[2] is False for c in downs)  # -v: throwaway data must not survive.
+    named = [c[1] for c in fake_docker.calls if c[0] == "compose_down_project_name"]
+    assert named == [p9, p10]
+    # Worktree prune still issued.
+    assert any(c[0] == "worktree_prune" for c in fake_git.calls)
+
+
+def test_worktree_reaper_legacy_single_project(
+    sample_ctx, fake_docker, fake_git, monkeypatch
+):
+    """A pre-mod-174 record carries a single `compose_project`; the fallback
+    still downs exactly that one stack."""
+    monkeypatch.setattr("docex.git.SubprocessGitClient", lambda: fake_git)
+    meta = _make_meta(
+        kind="check",
+        params={"worktree_slug": "check-abc1234", "compose_project": "sample-check-abc"},
+    )
+
+    reaper._teardown_worktree_job(sample_ctx, fake_docker, meta)
+
+    downs = [c for c in fake_docker.calls if c[0] == "compose_down"]
+    assert len(downs) == 1
+    named = [c[1] for c in fake_docker.calls if c[0] == "compose_down_project_name"]
+    assert named == ["sample-check-abc"]

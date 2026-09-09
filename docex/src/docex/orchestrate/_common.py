@@ -26,19 +26,36 @@ _FIXED_ENVS = ("dev", "test")
 _ALL_ENVS = ("dev", "test", "stage", "prod")
 
 
-# Mod 155 — the reserved-slot band. `docex test --slots N` uses slots
-# 1..MAX_TEST_SLOTS; check/merge run their defensive test/check at a reserved
-# slot ABOVE that band, so their compiled `test`-env physical names (esp. the DB
+# Mod 155 / Mod 174 — the reserved slot BANDS. `docex test --slots N` uses slots
+# 1..MAX_TEST_SLOTS; check/merge run their defensive test/check in a reserved
+# BAND ABOVE that band, so their compiled `test`-env physical names (esp. the DB
 # volume `name:`) are name-disjoint from any `test` run and from each other. This
 # is what closes the `--project-name` DB-volume collision (compose's
 # --project-name does NOT namespace explicit container_name:/volume name:; the
-# Mod 152 slot segment does). CHECK_SLOT/MERGE_SLOT are DERIVED from the ceiling
-# so they stay disjoint by construction if MAX_TEST_SLOTS is ever retuned (a
-# beefier host may bump it). They are ephemeral per-run slot indices, never a
+# Mod 152 slot segment does).
+#
+# Mod 174 generalizes the two single reserved slots into two reserved BANDS, each
+# MAX_TEST_SLOTS wide, so `check`/`merge` can THEMSELVES shard their defensive run
+# across N stacks (`--slots N`). Fixed-width bands keep test (1..8), check (9..16),
+# and merge (17..24) disjoint BY CONSTRUCTION regardless of the N a given run uses
+# — the exact three-way co-occurrence the vessel locks already permit (≤1 test,
+# ≤1 check, ≤1 merge). Highest possible slot is 3*MAX_TEST_SLOTS (24).
+#
+# The BASE of each gate's band doubles as its single-stack (`--slots 1`) slot, so
+# CHECK_SLOT == CHECK_BASE and MERGE_SLOT == MERGE_BASE. All are DERIVED from the
+# ceiling so they stay disjoint by construction if MAX_TEST_SLOTS is ever retuned
+# (a beefier host may bump it). They are ephemeral per-run slot indices, never a
 # persisted identity, so deriving them carries no cross-version-stability duty.
 MAX_TEST_SLOTS = 8
-CHECK_SLOT = MAX_TEST_SLOTS + 1   # 9
-MERGE_SLOT = MAX_TEST_SLOTS + 2   # 10
+CHECK_BASE = MAX_TEST_SLOTS + 1        # 9    check --slots N → slots 9 .. 9+N-1
+MERGE_BASE = 2 * MAX_TEST_SLOTS + 1    # 17   merge --slots N → slots 17 .. 17+N-1
+CHECK_SLOT = CHECK_BASE                 # 9    (single-stack default; unchanged)
+MERGE_SLOT = MERGE_BASE                 # 17   (was 10 — deliberate renumber)
+
+
+def band_slots(base: int, slots: int) -> list[int]:
+    """The physical slot indices for a `slots`-wide fan-out based at `base`."""
+    return list(range(base, base + slots))
 
 
 def env_compose_project(ctx: ProjectContext, env: str, *, slot: int = 1) -> str:

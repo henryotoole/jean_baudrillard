@@ -30,7 +30,7 @@ from docex.context import ProjectContext
 from docex.docker.client import DockerClient
 from docex.errors import VersionAlreadyReleased
 from docex.git.client import GitClient
-from docex.orchestrate._common import MERGE_SLOT
+from docex.orchestrate._common import MERGE_BASE
 from docex.pipeline import check_record
 from docex.pipeline.check import run_check
 
@@ -39,8 +39,15 @@ def run_merge(
     ctx: ProjectContext,
     docker: DockerClient,
     git: GitClient,
+    *,
+    slots: int = 1,
 ) -> int:
-    """Run the full merge sequence. Returns process exit code."""
+    """Run the full merge sequence. Returns process exit code.
+
+    ``slots`` (Mod 174): shards merge's in-process defensive ``check`` across
+    ``slots`` isolated stacks in the merge band (``MERGE_BASE .. +slots-1``).
+    ``1`` (default) is single-stack, byte-identical to today.
+    """
     project_root = ctx.project_root
 
     # 0. Remote preflight (fail fast) + learn origin/main's tip ---------
@@ -94,11 +101,12 @@ def run_merge(
         )
     else:
         print("merge: running 'docex check' defensively before rebase...")
-        # WHY slot=MERGE_SLOT: this defensive check is an in-process call — it
-        # does NOT take the check-runner lock — so it can co-occur with a
-        # standalone `docex check` running at CHECK_SLOT. Running at MERGE_SLOT
-        # keeps the two stacks name-disjoint (closing the DB-volume collision).
-        rc = run_check(ctx, docker, git, slot=MERGE_SLOT)
+        # WHY base_slot=MERGE_BASE: this defensive check is an in-process call —
+        # it does NOT take the check-runner lock — so it can co-occur with a
+        # standalone `docex check` running in the CHECK band. Running in the
+        # MERGE band keeps the two name-disjoint (closing the DB-volume
+        # collision), single-stack at slot 17 or sharded across 17.. .
+        rc = run_check(ctx, docker, git, base_slot=MERGE_BASE, slots=slots)
         if rc != 0:
             print(
                 "merge: 'docex check' failed; refusing to merge. "

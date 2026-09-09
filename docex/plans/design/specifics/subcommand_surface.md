@@ -22,8 +22,8 @@ aid, not a re-spec.
 | `test` | fresh `test` env | full project | host docker — launches a detached, deterministically-named **vessel** container that runs the suite; blocks + exits with the run's code (durable underneath), or `--detach` → a handle; writes a run record under `.docex/runs/<id>/`. `test [subset]` narrows the run — `[subset]` reaches the codebase's `test.sh` as the injected `DOCEX_TEST_SELECTOR`. `--slots N` shards the whole suite across `N` per-slot-isolated stacks, injecting `DOCEX_TEST_SLOT`/`DOCEX_TEST_SLOTS`; `--slots 1`/omitted is byte-identical to the plain run |
 | `job <op> [<handle>]` | both | `.docex/runs/` run records; vessel liveness (`docker inspect`) | stdout — `ls`/`status`/`wait`/`logs`/`result` over durable run handles (no state mutated except `wait`/`result` reading the authoritative `exit` file) |
 | `migrate <env>` | both | service images at current version, `infra/output/<env>/docker-compose.yml`, `infra.yml` (for the schema owners), and the whole aggregate — TTE ∪ secrets ∪ config | target env's database(s) via `migrate.sh` |
-| `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version checks, the design-doc structure checks (`docs check`), contract checks, build, test — a [durable job](#durable-jobs-the-job-substrate); blocks + exits with the run's code, or `--detach` → a handle. On success writes a `.docex/checks/` provenance record for `merge` to trust forward |
-| `merge` | both | feature branch, `project.yml`, `.docex/checks/` | preflights origin reachability/auth (`git ls-remote refs/heads/main`, learning the trunk tip in the same round-trip; skipped no-origin), **skips the defensive recheck when the recorded green still holds** (trunk + feature unmoved, tree clean, version matched; any staleness forces it), rebases onto main, tags `v<version>`, pushes both — a [durable job](#durable-jobs-the-job-substrate); `--detach` → a handle (refused under active credential passthrough, which cannot survive detachment) |
+| `check` | both | feature branch + origin/main | ephemeral git worktree, runs git/version checks, the design-doc structure checks (`docs check`), contract checks, build, test (`--slots N` shards the test run across the check slot band, `1..MAX_TEST_SLOTS`; default 1) — a [durable job](#durable-jobs-the-job-substrate); blocks + exits with the run's code, or `--detach` → a handle. On success writes a `.docex/checks/` provenance record for `merge` to trust forward |
+| `merge` | both | feature branch, `project.yml`, `.docex/checks/` | preflights origin reachability/auth (`git ls-remote refs/heads/main`, learning the trunk tip in the same round-trip; skipped no-origin), **skips the defensive recheck when the recorded green still holds** (trunk + feature unmoved, tree clean, version matched; any staleness forces it), rebases onto main, tags `v<version>`, pushes both (`--slots N` shards that defensive check's test run across the merge slot band) — a [durable job](#durable-jobs-the-job-substrate); `--detach` → a handle (refused under active credential passthrough, which cannot survive detachment) |
 | `containerize` | both | clean `main` tip, `project.yml`, `infra.yml` | `docker buildx` per codebase, tag, push to registry |
 | `release <env>` | both, branches internally | `infra/output/<env>/`, `infra/secrets/<env>.env`, deploy creds | fixed: ansible over SSH; elastic: SSM push + `tofu apply` |
 | `stagetest` | both, branches internally for the pre-step | `infra/stage/{Dockerfile,stage_test.sh,tests/}`, deployed stage URL, plus the orchestrator's own state (fixed: `docker inspect` over SSH; elastic: ECS `list_tasks`/`describe_tasks`) | ephemeral stage-tester container, exit code — **preceded** by a liveness/version gate that fails before the tester is built |
@@ -112,18 +112,24 @@ only durable shape under DooD) is [ADR 0005](../adrs/0005_durable_job_substrate.
   reaper: the orphan teardown reclaims all `N` deterministic slot stacks the hard-killed
   vessel leaked (`N` read from `meta.params`), and a slot whose shard *failed* is
   deliberately left up for debugging and reclaimed by the next run that touches that slot
-  number. The slot axis is delivered for `test`, and for `check`/`merge`: each runs its
-  defensive `test` stack at a **reserved slot above the `test --slots` band** — `check` at
-  `CHECK_SLOT`, `merge` at `MERGE_SLOT` (`MAX_TEST_SLOTS + 1` / `+ 2`; the three constants
-  live in `orchestrate/_common.py`). Because the vessel locks serialize to ≤1 `test`, ≤1
-  `check`, and ≤1 `merge`, and the only three-way co-occurrence they permit is
-  `test`(`1..N`) + `check`(`CHECK_SLOT`) + `merge`(`MERGE_SLOT`), three disjoint bands make
-  every explicit `container_name:` and the DB volume `name:` name-disjoint — **closing the
-  `check --project-name` DB-volume collision** (a Compose `--project-name` does not
-  namespace those explicit names; the slot segment does). `merge`'s defensive check needs
-  its own slot precisely because it is an in-process call taking no lock, so it can
-  co-occur with a standalone `check`. No dynamic allocator — deterministic reserved
-  constants; a `docex test --slots N` with `N > MAX_TEST_SLOTS` is a usage error.
+  number. Since **mod 174** a sharded `check`/`merge` leaks its whole band the same way, so
+  its worktree-job reaper downs every recorded band project (the band's compose projects and
+  width live in `meta.params`). The slot axis is delivered for `test`, and for
+  `check`/`merge`: each runs its defensive `test` in a **reserved slot BAND above the `test
+  --slots` band** — `check` based at `CHECK_BASE` (slots `9..16`), `merge` at `MERGE_BASE`
+  (`17..24`), each `MAX_TEST_SLOTS` wide (`MAX_TEST_SLOTS + 1` / `2·MAX_TEST_SLOTS + 1`; the
+  constants live in `orchestrate/_common.py`, and a band's BASE doubles as its single-stack
+  `--slots 1` slot, so `CHECK_SLOT == CHECK_BASE` / `MERGE_SLOT == MERGE_BASE`). Because the
+  vessel locks serialize to ≤1 `test`, ≤1 `check`, and ≤1 `merge`, the only three-way
+  co-occurrence they permit is `test`(`1..8`) + `check`(`9..16`) + `merge`(`17..24`), and
+  three disjoint fixed-width bands make every explicit `container_name:` and the DB volume
+  `name:` name-disjoint — **closing the `check --project-name` DB-volume collision** (a
+  Compose `--project-name` does not namespace those explicit names; the slot segment does).
+  A sharded gate's shards carry the LOGICAL `1..N` index in `DOCEX_TEST_SLOT` (the physical
+  band slot names only compose resources). `merge`'s defensive check needs its own band
+  precisely because it is an in-process call taking no lock, so it can co-occur with a
+  standalone `check`. No dynamic allocator — deterministic reserved bands; `--slots N` on
+  `test`, `check`, or `merge` with `N > MAX_TEST_SLOTS` is a usage error.
 - **The verbs** (`jobs/commands.py`) — `ls` / `status` / `wait` / `logs` / `result`, plus
   the `--detach` launch wrapper and the hidden `__run-job` entrypoint — make a run
   discoverable and re-attachable without a `docker ps` / `pgrep` proxy.

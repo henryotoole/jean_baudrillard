@@ -91,7 +91,7 @@ The developer must also ensure that the Dockerfile produces an environment with 
 
 ## Test Parallelizing and Subsets
 
-The full test suite (and flow tests especially) can take considerable wall-clock time to run. Fortunately, the `test` env supports multiple slots enabling test-running in parallel. The `docex test` command can be run with `--slots N`, causing multiple `test` env slots to be spun up (see [docex.md](./docex.md#test) for command details). When tests are run with multiple slots, the `DOCEX_TEST_SLOT` and `DOCEX_TEST_SLOTS` variables (see [below](#codebase-test-env-vars)) are injected.
+The full test suite (and flow tests especially) can take considerable wall-clock time to run. Fortunately, the `test` env supports multiple slots enabling test-running in parallel. The `docex test` command can be run with `--slots N`, causing multiple `test` env slots to be spun up (see [docex.md](./docex.md#test) for command details). The gate commands `docex check` and `docex merge` accept `--slots N` too, sharding their defensive test run across a reserved slot band above the `test` band (see [docex.md § `check`](./docex.md#check)). When tests are run with multiple slots, the `DOCEX_TEST_SLOT` and `DOCEX_TEST_SLOTS` variables (see [below](#codebase-test-env-vars)) are injected.
 
 `docex` only handles infrastructure and communication however. It is the responsibility of the project developer to actually use these variables when writing the shim `test.sh` to ensure that a reasonable subset of the full test suite is run e.g. the shim for slot 1 of 3 total should only run about a third of the tests.
 

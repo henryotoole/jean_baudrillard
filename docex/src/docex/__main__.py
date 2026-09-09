@@ -430,6 +430,24 @@ def _cmd_build(args: list[str]) -> int:
     return run_build(ctx, docker, codebase=ns.codebase)
 
 
+def _validate_slots(n: int) -> "int | None":
+    """Return an EX_USAGE (64) code if ``n`` is outside the ``1..MAX_TEST_SLOTS``
+    band, else ``None``. Shared by ``test``/``check``/``merge`` so the guard is
+    written once."""
+    from docex.orchestrate._common import MAX_TEST_SLOTS
+    if n < 1:
+        print("error: --slots must be >= 1.", file=sys.stderr)
+        return 64
+    if n > MAX_TEST_SLOTS:
+        print(
+            f"error: --slots {n} exceeds MAX_TEST_SLOTS ({MAX_TEST_SLOTS}); "
+            f"the slot band is 1..{MAX_TEST_SLOTS}.",
+            file=sys.stderr,
+        )
+        return 64
+    return None
+
+
 def _cmd_test(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex test", add_help=True)
     parser.add_argument(
@@ -454,17 +472,9 @@ def _cmd_test(args: list[str]) -> int:
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
 
-    if ns.slots < 1:
-        print("error: --slots must be >= 1.", file=sys.stderr)
-        return 64  # EX_USAGE
-    from docex.orchestrate._common import MAX_TEST_SLOTS
-    if ns.slots > MAX_TEST_SLOTS:
-        print(
-            f"error: --slots {ns.slots} exceeds MAX_TEST_SLOTS "
-            f"({MAX_TEST_SLOTS}); the test slot band is 1..{MAX_TEST_SLOTS}.",
-            file=sys.stderr,
-        )
-        return 64  # EX_USAGE
+    rc = _validate_slots(ns.slots)
+    if rc is not None:
+        return rc
 
     from docex.jobs.commands import run_test_job
     return run_test_job(ctx, docker, detach=ns.detach,
@@ -618,13 +628,29 @@ def _make_registry_client() -> "object":
     return UrllibRegistryClient()
 
 
+_GATE_SLOTS_HELP = (
+    "shard the gate's defensive test run across N isolated stacks on this host "
+    "(check band 9..16 / merge band 17..24). N=1 (default) is single-stack, "
+    "byte-identical to today. Capped at MAX_TEST_SLOTS. CAUTION: a `--slots N` "
+    "gate beside a standalone `docex test --slots M` is up to N+M full test "
+    "stacks on one host — the operator's per-host call."
+)
+
+
 def _cmd_check(args: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="docex check", add_help=True)
     parser.add_argument(
         "--detach", action="store_true",
         help="launch the run detached and print its handle instead of blocking",
     )
+    parser.add_argument(
+        "--slots", type=int, default=1, metavar="N", help=_GATE_SLOTS_HELP,
+    )
     ns = parser.parse_args(args)
+
+    rc = _validate_slots(ns.slots)
+    if rc is not None:
+        return rc
 
     from docex.context import load_project_context
     from docex.jobs.commands import run_check_job
@@ -632,7 +658,7 @@ def _cmd_check(args: list[str]) -> int:
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
     git = _require_git()
-    return run_check_job(ctx, docker, git, detach=ns.detach)
+    return run_check_job(ctx, docker, git, detach=ns.detach, slots=ns.slots)
 
 
 def _cmd_merge(args: list[str]) -> int:
@@ -641,7 +667,14 @@ def _cmd_merge(args: list[str]) -> int:
         "--detach", action="store_true",
         help="launch the run detached and print its handle instead of blocking",
     )
+    parser.add_argument(
+        "--slots", type=int, default=1, metavar="N", help=_GATE_SLOTS_HELP,
+    )
     ns = parser.parse_args(args)
+
+    rc = _validate_slots(ns.slots)
+    if rc is not None:
+        return rc
 
     from docex.context import load_project_context
     from docex.jobs.commands import run_merge_job
@@ -649,7 +682,7 @@ def _cmd_merge(args: list[str]) -> int:
     ctx = load_project_context(Path(os.getcwd()))
     docker = _require_docker()
     git = _require_git()
-    return run_merge_job(ctx, docker, git, detach=ns.detach)
+    return run_merge_job(ctx, docker, git, detach=ns.detach, slots=ns.slots)
 
 
 def _cmd_containerize(args: list[str]) -> int:

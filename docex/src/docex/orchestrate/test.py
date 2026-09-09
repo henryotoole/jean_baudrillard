@@ -46,6 +46,7 @@ def run_test(
     selector: "str | None" = None,
     slots: int = 1,
     slot: int = 1,
+    base_slot: int = 1,
 ) -> int:
     """Run the full build-test cycle. Returns process exit code.
 
@@ -82,11 +83,21 @@ def run_test(
     ``docex test`` run and from each other, closing the ``--project-name``
     DB-volume collision (compose's ``--project-name`` does not namespace explicit
     ``container_name:``/volume ``name:``). ``slot`` and ``slots`` are mutually
-    exclusive: check/merge pass ``slot=``, never ``slots=`` (they never shard).
+    exclusive: a single-stack (``--slots 1``) check/merge passes ``slot=``, a
+    sharded one passes ``slots=``/``base_slot=`` — never both in one call.
+
+    ``base_slot`` (Mod 174): the base of the physical slot band the ``slots>=2``
+    fan-out uses. ``1`` (default) is the standalone ``docex test --slots N`` band
+    (``1..N``); ``check``/``merge`` pass ``CHECK_BASE``/``MERGE_BASE`` so a
+    SHARDED gate's stacks land in their reserved band (``9..`` / ``17..``),
+    disjoint from a standalone ``test`` and from each other. Meaningful only on
+    the ``slots>=2`` path; ignored when ``slots == 1``.
     """
     if slots >= 2:
         return _run_test_sharded(
             ctx, docker, selector=selector, slots=slots,
+            project_dir=project_dir, env_file_override=env_file_override,
+            base_slot=base_slot,
         )
     if slot == 1:
         ensure_compiled(ctx)
@@ -210,6 +221,9 @@ def _run_test_sharded(
     *,
     selector: "str | None",
     slots: int,
+    project_dir: "Path | None" = None,
+    env_file_override: "Path | None" = None,
+    base_slot: int = 1,
 ) -> int:
     """The ``--slots N>=2`` path: the whole suite is sharded across N isolated
     slot stacks brought up concurrently.
@@ -218,15 +232,35 @@ def _run_test_sharded(
     per-slot (Mod 153), so the N stacks coexist on one host with no collision.
     Runs INSIDE the vessel (the durable job); the N slot stacks are sibling
     compose stacks it brings up over DooD.
-    """
-    ensure_compiled(ctx)
-    env_file = aggregate(ctx, env=_TEST_ENV)  # per-env, shared by all slots
 
-    # Compile every slot serially (cheap, deterministic — keeps the
+    Mod 174: the same fan-out now also serves a sharded ``check``/``merge`` gate.
+    Those callers pass ``base_slot`` (``CHECK_BASE``/``MERGE_BASE``) so the N
+    physical slots land in the gate's reserved band (``9..`` / ``17..``),
+    ``project_dir`` (the ephemeral worktree) so builds/bind-mounts resolve there,
+    and ``env_file_override`` (the worktree's pre-built aggregate). Each shard is
+    injected the LOGICAL index ``physical - base_slot + 1`` (``1..N``), never the
+    physical slot — so the project's ``test.sh`` picks the right ``1/N`` share.
+    """
+    from docex.orchestrate._common import band_slots
+
+    # Standalone path (base 1, no override): re-compile defensively, same as
+    # the single-stack path. The gate worktree path passes base_slot != 1 with
+    # an override — its caller already compiled+validated the tree and built the
+    # aggregate, so we skip ensure_compiled and take the override (mirrors the
+    # reserved-slot single-stack path in run_test).
+    if base_slot == 1 and env_file_override is None:
+        ensure_compiled(ctx)
+    env_file = (
+        env_file_override
+        if env_file_override is not None
+        else aggregate(ctx, env=_TEST_ENV)  # per-env, shared by all slots
+    )
+
+    # Compile every band slot serially (cheap, deterministic — keeps the
     # concurrent section pure docker), then run the N slots concurrently.
     from docex.cicl.compile import compile_slot
 
-    for k in range(1, slots + 1):
+    for k in band_slots(base_slot, slots):
         compile_slot(ctx, _TEST_ENV, k)
 
     import concurrent.futures as _f
@@ -236,9 +270,10 @@ def _run_test_sharded(
         futs = {
             pool.submit(
                 _run_one_slot, ctx, docker,
-                slot=k, slots=slots, env_file=env_file, selector=selector,
+                slot=k, shard_index=k - base_slot + 1, slots=slots,
+                env_file=env_file, selector=selector, project_dir=project_dir,
             ): k
-            for k in range(1, slots + 1)
+            for k in band_slots(base_slot, slots)
         }
         for fut in _f.as_completed(futs):
             k = futs[fut]
@@ -259,6 +294,8 @@ def _run_one_slot(
     slots: int,
     env_file: "Path | None",
     selector: "str | None",
+    project_dir: "Path | None" = None,
+    shard_index: "int | None" = None,
 ) -> int:
     """Bring up slot ``slot``, migrate, run the suite shim sharded, then
     tear down IFF it passed.
@@ -267,6 +304,21 @@ def _run_one_slot(
     preflight (fleet reaper) or this slot's own pre-up ``compose down`` on the
     next run. Returns the slot's exit code. Runs on a worker thread;
     ``DockerClient`` is stateless per call, so no state is shared across slots.
+
+    ``slot`` is the PHYSICAL slot index — it names every compose resource
+    (``compose_file``, ``project_name``, the ``-exec`` keys). For a standalone
+    ``docex test`` run these are ``1..N``; for a band-offset gate shard
+    (check/merge) they are ``base..base+N-1``.
+
+    ``shard_index`` (Mod 174) is the LOGICAL ``1..N`` index injected into the
+    project's ``test.sh`` as ``DOCEX_TEST_SLOT`` so the shim picks its ``1/N``
+    share. It MUST be the logical index, never the physical slot — a band-offset
+    shard whose physical slot is 9 is still logical shard 1. Default ``None`` ⇒
+    ``logical == slot``, keeping the standalone base-1 path byte-identical.
+
+    ``project_dir`` (Mod 174), when set, is threaded into every compose call so a
+    gate shard resolves build contexts / bind-mounts against the ephemeral
+    worktree tree, exactly as the single-stack check path does.
     """
     compose_file = slot_compose_file(ctx, _TEST_ENV, slot)
     project_name = env_compose_project(ctx, _TEST_ENV, slot=slot)
@@ -275,10 +327,11 @@ def _run_one_slot(
     # slot left up by a prior run, or an orphan). Idempotent; ignores absence.
     docker.compose_down(
         compose_file, preserve_volumes=False,
-        env_file=env_file, project_name=project_name,
+        env_file=env_file, project_dir=project_dir, project_name=project_name,
     )
 
-    slot_env = {"DOCEX_TEST_SLOT": str(slot), "DOCEX_TEST_SLOTS": str(slots)}
+    logical = shard_index if shard_index is not None else slot
+    slot_env = {"DOCEX_TEST_SLOT": str(logical), "DOCEX_TEST_SLOTS": str(slots)}
     if selector:
         slot_env["DOCEX_TEST_SELECTOR"] = selector
 
@@ -286,7 +339,7 @@ def _run_one_slot(
     try:
         rc = docker.compose_up(
             compose_file, build=True, detach=True,
-            env_file=env_file, project_name=project_name,
+            env_file=env_file, project_dir=project_dir, project_name=project_name,
         )
         if rc != 0:
             print(f"error: 'compose up' for test slot {slot} exited {rc}.",
@@ -297,7 +350,8 @@ def _run_one_slot(
             key = exec_service_key(ctx, _TEST_ENV, cb, slot=slot)
             rc = docker.compose_run_one_off(
                 compose_file, key, ["./migrate.sh"], build=True,
-                env_file=env_file, project_name=project_name,
+                env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
             )
             if rc != 0:
                 print(f"error: migrate.sh for {cb!r} in slot {slot} exited {rc}.",
@@ -308,7 +362,8 @@ def _run_one_slot(
             key = exec_service_key(ctx, _TEST_ENV, svc, slot=slot)
             rc = docker.compose_run_one_off(
                 compose_file, key, ["./test.sh"], build=True,
-                env=slot_env, env_file=env_file, project_name=project_name,
+                env=slot_env, env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
             )
             if rc != 0:
                 print(f"error: ./test.sh for {svc!r} slot {slot} "
@@ -320,7 +375,8 @@ def _run_one_slot(
         if rc == 0:
             td = docker.compose_down(
                 compose_file, preserve_volumes=False,
-                env_file=env_file, project_name=project_name,
+                env_file=env_file, project_dir=project_dir,
+                project_name=project_name,
             )
             if td != 0:
                 print(f"warning: slot {slot} teardown exited {td}.",

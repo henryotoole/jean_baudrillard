@@ -224,6 +224,87 @@ def test_sharded_failed_slot_left_up_passing_torn_down(sharded_env, fake_docker)
 
 
 # ---------------------------------------------------------------------------
+# H3 — Mod 174: band-offset shards (check/merge) — physical vs logical index
+# ---------------------------------------------------------------------------
+
+
+def test_band_offset_shards_inject_logical_index(sharded_env, fake_docker, tmp_path):
+    """The CRITICAL Mod 174 invariant: a band-offset fan-out names its compose
+    resources by the PHYSICAL slot (9/10/11) but injects the LOGICAL 1..N index
+    into the project's test.sh via DOCEX_TEST_SLOT — never the physical slot.
+
+    Getting this wrong makes a sharded gate run the wrong/empty subset while
+    still going green, so it is pinned here explicitly.
+    """
+    from docex.orchestrate._common import CHECK_BASE, env_compose_project
+    from docex.orchestrate.test import _run_test_sharded
+
+    ctx, compiled_slots = sharded_env
+    wt = tmp_path / "worktree"
+    env_override = tmp_path / "agg" / "test.env"
+
+    rc = _run_test_sharded(
+        ctx, fake_docker, selector=None, slots=3,
+        base_slot=CHECK_BASE, project_dir=wt, env_file_override=env_override,
+    )
+    assert rc == 0
+
+    # Compiled the PHYSICAL band slots 9/10/11 (never 1/2/3).
+    assert sorted(compiled_slots) == [9, 10, 11]
+
+    # Physical compose project names carry the band segment -s9/-s10/-s11.
+    up_projects = {
+        c[1] for c in fake_docker.calls if c[0] == "compose_up_project_name"
+    }
+    assert up_projects == {
+        env_compose_project(ctx, "test", slot=k) for k in (9, 10, 11)
+    }
+    assert up_projects == {
+        "docex-smoke-fixed-test-s9",
+        "docex-smoke-fixed-test-s10",
+        "docex-smoke-fixed-test-s11",
+    }
+
+    # The test.sh shim gets the LOGICAL 1..N index, DOCEX_TEST_SLOTS==3.
+    env_calls = _suite_env_calls(fake_docker)
+    assert len(env_calls) == 3
+    logical_values = set()
+    for _tag, _svc, _cmd, items in env_calls:
+        d = dict(items)
+        assert d["DOCEX_TEST_SLOTS"] == "3"
+        logical_values.add(d["DOCEX_TEST_SLOT"])
+    assert logical_values == {"1", "2", "3"}  # NOT {"9","10","11"}
+
+    # The worktree project_dir was threaded into the compose calls.
+    up_dirs = {
+        c[1] for c in fake_docker.calls if c[0] == "compose_up_project_dir"
+    }
+    assert up_dirs == {str(wt)}
+
+
+def test_band_offset_skips_ensure_compiled(sharded_env, fake_docker, tmp_path,
+                                           monkeypatch):
+    """With base_slot != 1 and an env_file_override, the sharded path must NOT
+    call ensure_compiled — the gate caller already compiled+validated the tree."""
+    import docex.orchestrate.test as test_mod
+    from docex.orchestrate._common import CHECK_BASE
+    from docex.orchestrate.test import _run_test_sharded
+
+    ctx, _slots = sharded_env
+    called = []
+    monkeypatch.setattr(
+        test_mod, "ensure_compiled", lambda _ctx: called.append(1)
+    )
+    rc = _run_test_sharded(
+        ctx, fake_docker, selector=None, slots=2,
+        base_slot=CHECK_BASE, project_dir=tmp_path / "wt",
+        env_file_override=tmp_path / "agg.env",
+    )
+    assert rc == 0
+    assert called == []
+
+
+# ---------------------------------------------------------------------------
 # H4 — byte-identical default (slots=1)
 # ---------------------------------------------------------------------------
 

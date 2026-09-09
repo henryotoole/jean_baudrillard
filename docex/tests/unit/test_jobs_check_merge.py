@@ -57,15 +57,15 @@ def _seed_record(ctx, *, kind, vessel, exit_code=None, params=None) -> str:
 
 
 @pytest.mark.parametrize(
-    "runner,job,kind,expected_project,expected_slot",
+    "runner,job,kind,expected_projects,expected_base",
     [
-        (_CHECK_VESSEL, run_check_job, "check", "sample-test-s9", 9),
-        (_MERGE_VESSEL, run_merge_job, "merge", "sample-test-s10", 10),
+        (_CHECK_VESSEL, run_check_job, "check", ["sample-test-s9"], 9),
+        (_MERGE_VESSEL, run_merge_job, "merge", ["sample-test-s17"], 17),
     ],
 )
 def test_detach_returns_handle_launches_once(
     sample_ctx, fake_docker, fake_git, capsys, runner, job, kind,
-    expected_project, expected_slot,
+    expected_projects, expected_base,
 ):
     rc = job(sample_ctx, fake_docker, fake_git, detach=True)
     assert rc == 0
@@ -73,15 +73,32 @@ def test_detach_returns_handle_launches_once(
     assert handle
     meta = record.read_meta(sample_ctx.project_root, handle)
     assert meta is not None and meta.kind == kind
-    # Deterministic teardown identities recorded for the reaper. Mod 155: the
-    # compose project is the reserved-slot name run_check now uses, per kind.
+    # Deterministic teardown identities recorded for the reaper. Mod 174: the
+    # compose projects are the reserved-BAND names run_check now uses, per kind
+    # (a single-stack --slots 1 default records one band base slot).
     assert meta.params["worktree_slug"] == "check-abc1234"
-    assert meta.params["compose_project"] == expected_project
-    assert meta.params["slot"] == expected_slot
+    assert meta.params["compose_projects"] == expected_projects
+    assert meta.params["base_slot"] == expected_base
+    assert meta.params["slots"] == 1
     assert record.read_status(sample_ctx.project_root, handle).state == "running"
     assert record.read_exit(sample_ctx.project_root, handle) is None
     detached = [c for c in fake_docker.calls if c[0] == "run_detached"]
     assert len(detached) == 1
+
+
+def test_detach_sharded_gate_records_whole_band(
+    sample_ctx, fake_docker, fake_git, capsys
+):
+    """`check --slots 3` records the full check band (9/10/11) for the reaper."""
+    rc = run_check_job(sample_ctx, fake_docker, fake_git, detach=True, slots=3)
+    assert rc == 0
+    handle = capsys.readouterr().out.strip()
+    meta = record.read_meta(sample_ctx.project_root, handle)
+    assert meta.params["compose_projects"] == [
+        "sample-test-s9", "sample-test-s10", "sample-test-s11",
+    ]
+    assert meta.params["base_slot"] == 9
+    assert meta.params["slots"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -217,13 +234,16 @@ def test_reaper_test_orphan_unchanged(sample_ctx, fake_docker):
 def test_run_check_body_calls_run_check_with_git(sample_ctx, fake_docker, monkeypatch):
     recorded = {}
 
-    def stub(ctx, docker, git):
+    def stub(ctx, docker, git, *, slots=1):
         recorded["args"] = (ctx, docker, git)
+        recorded["slots"] = slots
         return 3
 
     monkeypatch.setattr("docex.pipeline.check.run_check", stub)
-    rc = commands._run_check_body(sample_ctx, fake_docker, {})
+    # The body reads `slots` out of params (Mod 174) and threads it through.
+    rc = commands._run_check_body(sample_ctx, fake_docker, {"slots": 4})
     assert rc == 3
+    assert recorded["slots"] == 4
     from docex.git import SubprocessGitClient
 
     ctx_, docker_, git_ = recorded["args"]
@@ -231,16 +251,29 @@ def test_run_check_body_calls_run_check_with_git(sample_ctx, fake_docker, monkey
     assert isinstance(git_, SubprocessGitClient)
 
 
+def test_run_check_body_defaults_slots_to_one(sample_ctx, fake_docker, monkeypatch):
+    """No `slots` in params (a pre-mod-174 record) ⇒ single-stack."""
+    recorded = {}
+    monkeypatch.setattr(
+        "docex.pipeline.check.run_check",
+        lambda ctx, docker, git, *, slots=1: recorded.update(slots=slots) or 0,
+    )
+    assert commands._run_check_body(sample_ctx, fake_docker, {}) == 0
+    assert recorded["slots"] == 1
+
+
 def test_run_merge_body_calls_run_merge_with_git(sample_ctx, fake_docker, monkeypatch):
     recorded = {}
 
-    def stub(ctx, docker, git):
+    def stub(ctx, docker, git, *, slots=1):
         recorded["args"] = (ctx, docker, git)
+        recorded["slots"] = slots
         return 5
 
     monkeypatch.setattr("docex.pipeline.merge.run_merge", stub)
-    rc = commands._run_merge_body(sample_ctx, fake_docker, {})
+    rc = commands._run_merge_body(sample_ctx, fake_docker, {"slots": 2})
     assert rc == 5
+    assert recorded["slots"] == 2
     from docex.git import SubprocessGitClient
 
     ctx_, docker_, git_ = recorded["args"]

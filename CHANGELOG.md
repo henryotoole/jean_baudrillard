@@ -17,6 +17,18 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+### Added
+
+- **`docex check` and `docex merge` accept `--slots N`** (mod 174), sharding their
+  defensive test run across a reserved slot band above the `docex test --slots`
+  band (`check` `9..16`, `merge` `17..24`, each `MAX_TEST_SLOTS` wide).
+  `--slots 1`/omitted is single-stack and byte-identical to prior behavior. Shards
+  carry the **logical** `1..N` index in `DOCEX_TEST_SLOT` (the physical band slot
+  names only compose resources), and the fleet reaper reclaims every band stack a
+  hard-killed sharded gate leaks. Internal: the two single reserved slots become
+  fixed-width bands (`CHECK_BASE`/`MERGE_BASE`), and `MERGE_SLOT` renumbers
+  `10 → 17` (an ephemeral per-run index, never persisted).
+
 ## [3.0.5] - 2026-09-08
 
 ### Fixed

@@ -138,9 +138,11 @@ def _teardown_test_stack(ctx, docker, meta=None) -> None:
 def _teardown_worktree_job(ctx, docker, meta) -> None:
     """Reclaim a hard-killed check/merge vessel's ephemeral resources.
 
-    1. ``compose down -v`` the throwaway build/test stack by its recorded
-       project name (``run_check`` inside the vessel named it
-       ``<label>-check-<sha>``).
+    1. ``compose down -v`` each throwaway build/test stack the run brought up.
+       A SHARDED gate (Mod 174) leaks all **N** band stacks (``run_check``
+       ran ``slots`` shards in its reserved band), so we down every recorded
+       band project name — not one. A pre-mod-174 record carries a single
+       ``compose_project``; the legacy fallback still downs that one stack.
     2. Remove the ephemeral worktree dir + ``git worktree prune``.
 
     Never unwinds merge's real git mutations (an interrupted rebase / partial
@@ -163,13 +165,18 @@ def _teardown_worktree_job(ctx, docker, meta) -> None:
     params = (meta.params if meta is not None else {}) or {}
     git = SubprocessGitClient()
 
-    # 1. Throwaway compose stack (test env compose file, worktree-unique name).
-    compose_project = params.get("compose_project")
-    if compose_project:
+    # 1. Throwaway compose stack(s) — one per band slot for a sharded gate
+    #    (test env compose file, worktree-unique per-band names). A pre-mod-174
+    #    record has a single `compose_project`; fall back to it.
+    projects = params.get("compose_projects")
+    if not projects:
+        legacy = params.get("compose_project")  # pre-mod-174 record
+        projects = [legacy] if legacy else []
+    for cp in projects:
         docker.compose_down(
             compose_file_for(ctx, "test"),
             preserve_volumes=False,
-            project_name=compose_project,
+            project_name=cp,
         )
 
     # 2. Worktree dir(s).

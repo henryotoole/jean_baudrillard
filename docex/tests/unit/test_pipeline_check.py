@@ -467,3 +467,69 @@ def test_check_docs_gates_skip_when_no_plans_design(
     assert "docs_reachability" in out
     assert "docs_adr_fresh" in out
     assert "no plans/design — skipped" in out
+
+
+# ---------------------------------------------------------------------------
+# Mod 174: `run_check(slots>=2)` drives the sharded worktree path
+# ---------------------------------------------------------------------------
+
+
+def test_sharded_check_wires_worktree_into_run_test(
+    worktree_setup, fake_docker, monkeypatch, capsys
+):
+    """`run_check(..., slots=2)` drives the SHARDED path: it calls run_test with
+    the worktree as project_dir, an env_file_override, slots=2 and
+    base_slot=CHECK_BASE — and it does NOT run the single-stack _compose_build
+    gate (each shard builds its own image instead)."""
+    from docex.orchestrate._common import CHECK_BASE
+
+    ctx, fake_git = worktree_setup
+
+    # Spy run_test (imported lazily inside run_check from orchestrate.test).
+    import docex.orchestrate.test as orch_test
+    recorded = {}
+
+    def run_test_spy(ctx_, docker_, **kw):
+        recorded.update(kw)
+        return 0
+
+    monkeypatch.setattr(orch_test, "run_test", run_test_spy)
+
+    # _compose_build must NOT fire on the sharded path — record if it does.
+    build_calls = []
+    monkeypatch.setattr(
+        check_mod, "_compose_build",
+        lambda *a, **kw: build_calls.append(1) or 0,
+    )
+
+    # Insulate the remaining expensive/real bits (compile + urlopen), same as
+    # _stub_expensive_steps, but WITHOUT stubbing run_test (we spy it above).
+    import docex.cicl.compile as cicl_compile
+    monkeypatch.setattr(cicl_compile, "compile_slot", lambda *a, **kw: None)
+    monkeypatch.setattr(cicl_compile, "run_compile", lambda *a, **kw: 0)
+    from unittest.mock import MagicMock
+    fake_response = MagicMock()
+    fake_response.__enter__ = MagicMock(return_value=fake_response)
+    fake_response.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "docex.pipeline.check.urllib.request.urlopen",
+        lambda *_a, **_kw: fake_response,
+    )
+
+    rc = run_check(ctx, fake_docker, fake_git, slots=2)
+    assert rc == 0, capsys.readouterr().out
+
+    # run_test received the sharded wiring.
+    assert recorded.get("slots") == 2
+    assert recorded.get("base_slot") == CHECK_BASE
+    assert recorded.get("env_file_override") is not None
+    project_dir = recorded.get("project_dir")
+    assert project_dir is not None
+    # It is the ephemeral worktree, NOT the main project tree.
+    assert ".docex/worktrees/check-" in str(project_dir)
+    # The sharded path passes NO single-stack project_name / slot.
+    assert "slot" not in recorded
+    assert recorded.get("project_name") is None
+
+    # The single-stack build gate was never invoked.
+    assert build_calls == []

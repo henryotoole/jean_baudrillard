@@ -25,9 +25,11 @@ ephemeral, machine-local test scaffolding, so it writes to
 **never** into the git-tracked `infra/output/` tree. `docex compile` itself
 never reaches `compile_slot`; its callers are the test suite, the `docex test
 --slots N` orchestration (mod 154, `orchestrate/test.py::_run_test_sharded`),
-and — since mod 155 — `check`/`merge`'s defensive `test` compile at their
-reserved slot (`pipeline/check.py`, reached by the `docex check` and `docex
-merge` verbs; see [§ The slot segment](#the-slot-segment)). The secret key set is not emitted as a file — it is derived on demand
+and — since mod 155 (mod 174 for the sharded case) — `check`/`merge`'s defensive
+`test` compile across their reserved slot band (`pipeline/check.py` →
+`orchestrate/test.py`, reached by the `docex check` and `docex merge` verbs; a
+`--slots N` gate compiles each of its band slots, see [§ The slot
+segment](#the-slot-segment)). The secret key set is not emitted as a file — it is derived on demand
 by `secret_manifest` and reconciled into `infra/secrets/<env>.env` by `docex
 secrets scaffold` (mod 092 removed the old `infra/secrets/example.env` manifest).
 

@@ -45,7 +45,7 @@ from docex.docker.client import DockerClient
 from docex.errors import WorkingTreeDirty
 from docex.git.client import GitClient
 from docex.orchestrate._common import (
-    CHECK_SLOT,
+    CHECK_BASE,
     codebases,
     codebases_with_schema,
     env_compose_project,
@@ -840,18 +840,33 @@ def run_check(
     docker: DockerClient,
     git: GitClient,
     *,
-    slot: int = CHECK_SLOT,
+    base_slot: int = CHECK_BASE,
+    slots: int = 1,
 ) -> int:
     """Run the full check sequence. Returns process exit code.
 
-    The defensive build + test compile and run the worktree's ``test`` env at
-    ``slot`` (default ``CHECK_SLOT``), a reserved slot above the ``docex test
-    --slots N`` band. That makes the throwaway stack's compiled physical names
-    (esp. the DB volume ``name:``) disjoint from any ``docex test`` run — which
-    closes the ``--project-name`` DB-volume collision (compose's
-    ``--project-name`` does not namespace explicit ``container_name:``/volume
-    ``name:``). ``merge`` passes ``MERGE_SLOT`` so a concurrent standalone
-    ``check`` and its in-process defensive check are name-disjoint too.
+    The defensive build + test compile and run the worktree's ``test`` env in a
+    reserved slot BAND based at ``base_slot`` (default ``CHECK_BASE``), above the
+    ``docex test --slots N`` band. That makes the throwaway stack's compiled
+    physical names (esp. the DB volume ``name:``) disjoint from any ``docex
+    test`` run — which closes the ``--project-name`` DB-volume collision
+    (compose's ``--project-name`` does not namespace explicit
+    ``container_name:``/volume ``name:``). ``merge`` passes ``MERGE_BASE`` so a
+    concurrent standalone ``check`` and its in-process defensive check are
+    name-disjoint too.
+
+    ``base_slot`` doubles as the single-stack slot: a gate has ONE band whose
+    base IS its ``--slots 1`` slot (``CHECK_SLOT == CHECK_BASE``), so there is no
+    separate ``slot`` param to drift out of sync with it.
+
+    ``slots`` (Mod 174): ``1`` (default) is the existing single-stack path
+    (``compile_slot`` → ``_compose_build`` gate → ``run_test(..., slot=base)``),
+    byte-identical to today. ``>= 2`` shards the defensive test run across
+    ``slots`` isolated stacks in the band (``base_slot .. base_slot+slots-1``) —
+    no separate ``_compose_build`` gate, each shard's ``compose up --build``
+    performs the (containerized) build, so a build break surfaces as a shard
+    failure. A sharded check still runs the whole suite (union of shards) and
+    writes the same provenance record.
     """
     project_root = ctx.project_root
 
@@ -1007,46 +1022,70 @@ def run_check(
         # so build contexts and bind-mounts resolve against the
         # worktree tree, not the main project tree.
         #
-        # Mod 155: compile + run the defensive stack at the reserved slot so its
-        # physical names (esp. the DB volume name:) are disjoint from any `docex
-        # test` run and from merge's MERGE_SLOT stack — closing the
+        # Mod 155/174: compile + run the defensive stack in the reserved BAND so
+        # its physical names (esp. the DB volume name:) are disjoint from any
+        # `docex test` run and from merge's MERGE band — closing the
         # `--project-name` DB-volume collision. Slotted output lands in the
         # gitignored .docex/slots/test/<slot>/ (worktree tree), thrown away with
         # the worktree; slot-1 infra/output stays untouched.
-        from docex.cicl.compile import compile_slot
-        compile_slot(worktree_ctx, "test", slot)
-        compose_path = slot_compose_file(worktree_ctx, "test", slot)
-        check_project_name = env_compose_project(worktree_ctx, "test", slot=slot)
-        # Use compose_up with build=True then immediately down; we want
-        # to confirm `docker build` succeeds without leaving containers
-        # around. Easier: a dedicated compose build step.
-        rc = _compose_build(
-            docker, compose_path, env_file, worktree,
-            project_name=check_project_name,
-        )
-        if rc != 0:
-            print(
-                f"error: 'docker compose build' against worktree exited {rc}.",
-                file=sys.stderr,
-            )
-            return rc
-
-        # 7. Run the full test loop -------------------------------------
         from docex.orchestrate.test import run_test
 
-        rc = run_test(
-            worktree_ctx, docker,
-            project_dir=worktree,
-            env_file_override=env_file,
-            project_name=check_project_name,
-            slot=slot,
-        )
-        if rc != 0:
-            print(
-                f"error: 'docex test' against worktree exited {rc}.",
-                file=sys.stderr,
+        if slots >= 2:
+            # 6+7 fused (Mod 174, DQ1(a)): no separate `_compose_build` gate —
+            # each shard's `compose up --build` performs the (containerized)
+            # build, so a build break surfaces as a shard failure. The N stacks
+            # land in the gate's band (base_slot .. base_slot+slots-1), each
+            # injected the LOGICAL 1..N index for the project's test.sh.
+            rc = run_test(
+                worktree_ctx, docker,
+                project_dir=worktree, env_file_override=env_file,
+                slots=slots, base_slot=base_slot,
             )
-            return rc
+            if rc != 0:
+                print(
+                    f"error: sharded 'docex test' against worktree exited {rc}.",
+                    file=sys.stderr,
+                )
+                return rc
+        else:
+            # Single-stack path (--slots 1) — unchanged from Mod 155: the build
+            # gate then the test run, both at the band base.
+            from docex.cicl.compile import compile_slot
+            compile_slot(worktree_ctx, "test", base_slot)
+            compose_path = slot_compose_file(worktree_ctx, "test", base_slot)
+            check_project_name = env_compose_project(
+                worktree_ctx, "test", slot=base_slot
+            )
+            # 6. Build everything (confirm `docker build` succeeds) ----------
+            # Use compose_up with build=True then immediately down; we want
+            # to confirm `docker build` succeeds without leaving containers
+            # around. Easier: a dedicated compose build step.
+            rc = _compose_build(
+                docker, compose_path, env_file, worktree,
+                project_name=check_project_name,
+            )
+            if rc != 0:
+                print(
+                    f"error: 'docker compose build' against worktree exited "
+                    f"{rc}.",
+                    file=sys.stderr,
+                )
+                return rc
+
+            # 7. Run the full test loop -------------------------------------
+            rc = run_test(
+                worktree_ctx, docker,
+                project_dir=worktree,
+                env_file_override=env_file,
+                project_name=check_project_name,
+                slot=base_slot,
+            )
+            if rc != 0:
+                print(
+                    f"error: 'docex test' against worktree exited {rc}.",
+                    file=sys.stderr,
+                )
+                return rc
 
         # Provenance record (SC4): record what this green check validated so
         # `merge` can trust it forward and skip a redundant recheck. Written
