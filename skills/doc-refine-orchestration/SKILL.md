@@ -21,7 +21,7 @@ We can summarize this in the concept of "overhead" - all the documents that must
 Overhead is inferred structurally. We do not restate the rules here — they live in one place, `docex docs overhead` (see [`docex.md § docs`](../../doctrine/infrastructure/docex.md#docs)), and `docex docs cxt_groups` applies them for us. A pointer can't drift from its source; a restatement did.
 
 This gives us a deterministic "recommended pool" of overhead for a subject file. It won't be exhaustive, but it lets us do orchestration math. The general procedure is:
-1. Ask the user what to use for max tokens when when generating context groups.
+1. Ask what to use for max tokens when generating context groups.
    + Recommend 400k for 1M context windows, and 100k for 200k windows.
 2. Identify all subject files that we wish to do work on.
 3. Establish the recommended pool of overhead files for each.
