@@ -231,17 +231,21 @@ Operates on the durable run handles produced by a durable command (see [Asynchro
 
 ### `check`
 `./bin/docex check [--detach] [--slots N]`
-Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, design-doc validation (the [`docs check`](#docs) sub-gate), build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. The gate's test run can be **sharded** with `--slots N` (`1..MAX_TEST_SLOTS`; default `1` = single-stack, byte-identical to today), running its shards in a reserved slot band disjoint from any concurrent `docex test` — **caution:** a sharded gate beside a standalone `docex test --slots M` is up to `N+M` full `test` stacks on one host, the operator's per-host call. Used by developers locally before beginning CI and by CI runners as the PR gate.
+Runs the full CI/CD gate-check sequence: creates an ephemeral git worktree merging the current feature branch with the latest main, then runs git/version checks, surface-to-contract alignment checks, design-doc validation (the [`docs check`](#docs) sub-gate), build, and the full test suite against the merged state. If any check fails, the worktree is discarded; main and the feature branch remain untouched. Used by developers locally before beginning CI and by CI runners as the PR gate.
 
-A [durable job](#asynchronous-usage) (the suite is long): `--detach` returns the run handle immediately, and a killed monitor leaves the run **alive and re-attachable** via `docex job wait`. On a fully-green run, `check` records what it validated to `.docex/checks/` (the feature tip, the `origin/main` commit, the merged tree SHA, a timestamp, and the docex version); `merge` uses this record to skip a redundant defensive recheck. The record is written only on success and is gitignored. The vessel-reaper behavior and the reserved defensive slot band (based at `CHECK_SLOT`; a `--slots N` gate shards its test run across it, closing the `--project-name` DB-volume collision) are covered in [detachable.md § `check`](./specifics/detachable.md#check).
+A [durable job](#asynchronous-usage) (the suite is long): `--detach` returns the run handle immediately, and a killed monitor leaves the run **alive and re-attachable** via `docex job wait`. On a fully-green run, `check` records what it validated to `.docex/checks/` (the feature tip, the `origin/main` commit, the merged tree SHA, a timestamp, and the docex version); `merge` uses this record to skip a redundant defensive recheck. The record is written only on success and is gitignored. The vessel-reaper behavior and the reserved defensive slot band are covered in [detachable.md § `check`](./specifics/detachable.md#check).
+
+`--slots N` optionally causes `check` to take advantage of test sharding (see [test](#test)) when `check` performs the `test` step. 
 
 Also see [cicd.md](./cicd.md#check-step).
 
 ### `merge`
 `./bin/docex merge [--detach] [--slots N]`
-Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. If git conditions have changed since the last green `check`, will re-run gate checks defensively before merging. `--slots N` shards that defensive check's test run across the merge slot band — same `1..MAX_TEST_SLOTS` cap and per-host caution as [`check`](#check). Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. 
+Rebases the current feature branch onto the latest main, fast-forwards main, tags the new tip with `v<version>` from `project.yml`, and pushes both main and the new tag to origin. If git conditions have changed since the last green `check`, will re-run gate checks defensively before merging. Refuses to merge if the working tree is dirty, the branch is not rebaseable, or any check fails. 
 
 A [durable job](#asynchronous-usage), same as `check`: `--detach` returns a handle, and a killed monitor leaves the run re-attachable via `docex job wait`. Two detachment specifics are particular to `merge` — a git-credential-passthrough caveat that makes `merge --detach` refuse up front, and the reserved `MERGE_SLOT` band its in-process defensive check runs at — both covered in [detachable.md § `merge`](./specifics/detachable.md#merge).
+
+`--slots N` optionally causes `merge` to take advantage of test sharding (see [test](#test)) when `merge` performs the `test` step. 
 
 Also see [cicd.md](./cicd.md#merge).
 

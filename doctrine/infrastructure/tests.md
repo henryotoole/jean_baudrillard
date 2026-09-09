@@ -91,13 +91,25 @@ The developer must also ensure that the Dockerfile produces an environment with 
 
 ## Test Parallelizing and Subsets
 
-The full test suite (and flow tests especially) can take considerable wall-clock time to run. Fortunately, the `test` env supports multiple slots enabling test-running in parallel. The `docex test` command can be run with `--slots N`, causing multiple `test` env slots to be spun up (see [docex.md](./docex.md#test) for command details). The gate commands `docex check` and `docex merge` accept `--slots N` too, sharding their defensive test run across a reserved slot band above the `test` band (see [docex.md § `check`](./docex.md#check)). When tests are run with multiple slots, the `DOCEX_TEST_SLOT` and `DOCEX_TEST_SLOTS` variables (see [below](#codebase-test-env-vars)) are injected.
+The full test suite (and flow tests especially) can take considerable wall-clock time to run. Fortunately, the `test` env supports multiple slots enabling test-running in parallel. The `docex test` command can be run with `--slots N`, causing multiple `test` env slots to be spun up (see [docex.md](./docex.md#test) for command details). When tests are run with multiple slots, the `DOCEX_TEST_SLOT` and `DOCEX_TEST_SLOTS` variables (see [below](#codebase-test-env-vars)) are injected.
 
-`docex` only handles infrastructure and communication however. It is the responsibility of the project developer to actually use these variables when writing the shim `test.sh` to ensure that a reasonable subset of the full test suite is run e.g. the shim for slot 1 of 3 total should only run about a third of the tests.
+`docex` only handles infrastructure and communication however. It is the responsibility of the project developer to actually use these variables when writing the shim `test.sh` to ensure that a reasonable subset of the full test suite is run e.g. the shim for slot 1 of 3 total should only run about a third of the tests (see guidelines).
 
 Similarly, the `docex test` command's `[subset]` optional parameter is delivered but not enforced by `docex` machinery. The shim decides how to forward `DOCEX_TEST_SELECTOR` in a way idiomatic to its runner (a `pytest` might shim splice it as an args fragment — a path and/or `-m`/`-k` expression); the contract fixes only the variable and its meaning, never the runner.
 
 `DOCEX_TEST_SLOT` / `DOCEX_TEST_SLOTS` coexist with `DOCEX_TEST_SELECTOR`. A shim may be both subset-narrowed and sharded at once. `docex` recommends but does not mandate a sharding pattern: it fixes only the two variables and their meaning. 
+
+### Test Sharding Distribution
+
+The following guidelines can be used when writing test.sh to handle sharding across slots. These are *not* mandated; merely suggestions.
+
+The main motivation for sharding is to speed up testing. It's best to distribute tests across slots such that the time each test takes is balanced in parallel. Achieve this most elegantly by assigning each test node (each test, not each file) a stable hash based on its ID. Then choose on the basis of this hash whether a test should run as part of a slot:
+
+```py
+int(hashlib.md5(node_id.encode()).hexdigest(), 16) % DOCEX_TEST_SLOTS == DOCEX_TEST_SLOT - 1
+```
+
+This method distributes tests pseudo-randomly (but deterministically for repeatable failure) across the slots regardless of origin. Over a large body of tests, the law of large numbers causes the actual time cost of the tests to distribute evenly across the slots. It requires no test-time measurement or tweaking whenever a new test is added.
 
 ## Test Env Vars
 

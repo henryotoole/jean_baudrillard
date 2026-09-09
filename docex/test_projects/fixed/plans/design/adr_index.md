@@ -2,9 +2,9 @@
 
 # ADR Index
 
-| ADR ID | Title | Status | Date | Supersedes | Superseded By |
-| ------ | ----- | ------ | ---- | ---------- | ------------- |
-| [0001](adrs/0001_one_codebase_three_core_services.md) | one_codebase_three_core_services | accepted | 2026-09-04 |  |  |
-| [0002](adrs/0002_postgres_tables_as_queues.md) | postgres_tables_as_queues | accepted | 2026-09-04 |  |  |
-| [0003](adrs/0003_tick_file_liveness.md) | tick_file_liveness | accepted | 2026-09-04 |  |  |
-| [0004](adrs/0004_no_cross_service_health_fanout.md) | no_cross_service_health_fanout | accepted | 2026-09-04 |  |  |
+| ADR ID | Link | Title | Status | Date | Supersedes | Superseded By |
+| ------ | ---- | ----- | ------ | ---- | ---------- | ------------- |
+| 0001 | [0001](adrs/0001_one_codebase_three_core_services.md) | one_codebase_three_core_services | accepted | 2026-09-04 |  |  |
+| 0002 | [0002](adrs/0002_postgres_tables_as_queues.md) | postgres_tables_as_queues | accepted | 2026-09-04 |  |  |
+| 0003 | [0003](adrs/0003_tick_file_liveness.md) | tick_file_liveness | accepted | 2026-09-04 |  |  |
+| 0004 | [0004](adrs/0004_no_cross_service_health_fanout.md) | no_cross_service_health_fanout | accepted | 2026-09-04 |  |  |
