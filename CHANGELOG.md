@@ -17,6 +17,8 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-09-10
+
 ### Added
 
 - **`docex check` and `docex merge` accept `--slots N`** (mod 174), sharding their
