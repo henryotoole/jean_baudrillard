@@ -894,3 +894,27 @@ def test_run_job_hidden_from_usage_but_reachable_in_table():
     # The visible `job` command and its group heading do.
     assert "Jobs:" in usage
     assert "\n    job " in usage or "  job " in usage
+
+
+def test_report_in_handler_table_and_help():
+    from docex.__main__ import _build_handler_table, _format_usage
+    assert "report" in _build_handler_table()
+    assert "report" in _format_usage()
+
+
+def test_report_dispatch(monkeypatch, sample_ctx):
+    from docex.__main__ import _cmd_report
+    monkeypatch.chdir(sample_ctx.project_root)
+    captured = {}
+
+    def fake_run_report(ctx, report_type, fmt):
+        captured["type"] = report_type
+        captured["fmt"] = fmt
+        return 0
+
+    monkeypatch.setattr("docex.report.run_report", fake_run_report)
+    assert _cmd_report(["docs", "--format", "data"]) == 0
+    assert captured == {"type": "docs", "fmt": "data"}
+    # Default format is full.
+    _cmd_report(["docs"])
+    assert captured["fmt"] == "full"

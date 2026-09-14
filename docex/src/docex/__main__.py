@@ -49,6 +49,8 @@ _HELP_TEXT: dict[str, str] = {
     "docs": "Scaffold, check, regenerate ADR indexes, emit the link graph, or "
             "consume it (overhead/changed/cxt_groups) for the design-doc "
             "structure (scaffold/check/adr/linkmap/overhead/changed/cxt_groups).",
+    "report": "Distill a project view into bucketed metrics — "
+              "'report docs' (data JSON | full HTML).",
 }
 
 
@@ -64,6 +66,7 @@ _GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
                   "stagetest", "rollback")),
     ("Configuration", ("secrets", "config")),
     ("Documentation", ("docs",)),
+    ("Reporting", ("report",)),
 )
 
 
@@ -1106,6 +1109,35 @@ def _cmd_docs(args: list[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Reporting handlers (report)
+# ---------------------------------------------------------------------------
+
+
+def _cmd_report(args: list[str]) -> int:
+    """``docex report <type> [--format data|full]`` — distilled project views.
+
+    Ships one type, ``docs``. ``--format`` defaults to ``full`` (Mod 177);
+    until that lands, ``full`` stubs to ``data``. ``data`` emits the bucketed
+    token-weight JSON (design docs + source code)."""
+    parser = argparse.ArgumentParser(prog="docex report", add_help=True)
+    parser.add_argument(
+        "type", choices=["docs"], help="report type (currently: docs)"
+    )
+    parser.add_argument(
+        "--format", default="full", choices=["data", "full"],
+        help="data (bucketed JSON) | full (HTML report; mod 177). "
+             "default: full",
+    )
+    ns = parser.parse_args(args)
+
+    from docex.context import load_project_context
+    from docex.report import run_report
+
+    ctx = load_project_context(Path(os.getcwd()))
+    return run_report(ctx, ns.type, ns.format)
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -1143,6 +1175,8 @@ def _build_handler_table() -> dict[str, Callable[[list[str]], int]]:
         "config": _cmd_config,
         # Documentation
         "docs": _cmd_docs,
+        # Reporting
+        "report": _cmd_report,
     }
 
 
