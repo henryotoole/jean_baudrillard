@@ -177,20 +177,6 @@ def test_run_report_docs_data_via_wrapper(tmp_path, sample_ctx, monkeypatch):
     _assert_sums(doc["source_code"])
 
 
-def test_full_stubs_to_data_with_note(tmp_path, sample_ctx, capsys, monkeypatch):
-    nodes, edges = _corpus(tmp_path)
-    monkeypatch.setattr(
-        "docex.report.docs.load_code_level_graph",
-        lambda root, cbs: (nodes, edges),
-    )
-    rc = run_report(sample_ctx, "docs", "full")
-    assert rc == 0
-    captured = capsys.readouterr()
-    assert "mod 177" in captured.err            # stub note on stderr
-    doc = json.loads(captured.out)              # data JSON on stdout
-    assert doc["format"] == "data"
-
-
 def test_empty_project_ok(sample_ctx):
     # sample fixture has no plans/design and is not a git repo → empty graph.
     rc = run_report(sample_ctx, "docs", "data")

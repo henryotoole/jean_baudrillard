@@ -20,7 +20,6 @@ Structure per ``docex_report_design.md § Docs → Summarizing Metrics and Data`
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -326,22 +325,20 @@ def render_data_json(doc: dict) -> str:
 def run_report_docs(ctx, fmt: str) -> int:
     """``docex report docs [--format data|full]`` — print the report.
 
-    ``data`` emits the bucketed JSON. ``full`` (Mod 177) is not yet implemented;
-    until it lands it stubs to ``data`` behind a stderr note.
+    ``data`` emits the bucketed JSON. ``full`` renders that same bucket tree as a
+    self-contained HTML report of three treemap sections (see
+    ``docex.report.full``); it consumes the ``data`` document rather than
+    recomputing it.
     """
     from docex.orchestrate._common import codebases
-
-    if fmt == "full":
-        # TODO(mod 177): render a self-contained HTML report (treemaps).
-        print(
-            "docex report docs: --format full is not implemented yet "
-            "(mod 177); emitting --format data.",
-            file=sys.stderr,
-        )
-        fmt = "data"
 
     cbs = codebases(ctx)
     nodes, _edges = load_code_level_graph(ctx.project_root, cbs)
     doc = build_docs_data(nodes, ctx.project_root)
+    if fmt == "full":
+        from docex.report.full import render_full_html
+
+        print(render_full_html(doc))
+        return 0
     print(render_data_json(doc))
     return 0
