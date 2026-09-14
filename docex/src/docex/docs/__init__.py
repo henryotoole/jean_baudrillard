@@ -33,6 +33,7 @@ from docex.docs.changed import (
 from docex.docs.cxt_groups import (
     ContextGroup,
     build_context_groups,
+    build_module_integrity_groups,
     run_docs_cxt_groups,
 )
 from docex.docs.linkmap import (
@@ -40,6 +41,7 @@ from docex.docs.linkmap import (
     Node,
     build_linkmap,
     load_code_level_graph,
+    load_design_docs_graph,
     render_linkmap_json,
     run_docs_linkmap,
 )
@@ -68,6 +70,7 @@ __all__ = [
     "render_linkmap_json",
     "run_docs_linkmap",
     "load_code_level_graph",
+    "load_design_docs_graph",
     "Node",
     "Edge",
     "run_docs_overhead",
@@ -79,6 +82,7 @@ __all__ = [
     "filter_changed",
     "run_docs_cxt_groups",
     "build_context_groups",
+    "build_module_integrity_groups",
     "ContextGroup",
     "run_docs_scaffold",
     "scaffold_design",

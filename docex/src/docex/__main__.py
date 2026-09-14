@@ -1009,7 +1009,9 @@ def _cmd_docs(args: list[str]) -> int:
     structural overhead (JSON), ``changed <git_ref>`` lists in-scope files
     changed since a ref (plain list), and ``cxt_groups <tokens_max>
     {<git_ref>|all}`` groups subjects into token-budgeted context groups
-    (JSON)."""
+    (JSON), with optional ``--depth {design_docs|code_level}`` and
+    ``--optimize {tokens|module_integrity}`` (both default to today's
+    behavior)."""
     parser = argparse.ArgumentParser(prog="docex docs", add_help=True)
     sub = parser.add_subparsers(dest="op", required=True)
     sub.add_parser(
@@ -1058,6 +1060,18 @@ def _cmd_docs(args: list[str]) -> int:
         "tokens_max", type=int, help="max total in-context tokens per group"
     )
     p_cxt.add_argument("selection", help="a git ref, or the literal 'all'")
+    p_cxt.add_argument(
+        "--depth",
+        choices=["design_docs", "code_level"],
+        default="code_level",
+        help="scope subjects are drawn from (default: code_level)",
+    )
+    p_cxt.add_argument(
+        "--optimize",
+        choices=["tokens", "module_integrity"],
+        default="tokens",
+        help="packing objective (default: tokens)",
+    )
     ns = parser.parse_args(args)
 
     from docex.context import load_project_context
@@ -1085,7 +1099,9 @@ def _cmd_docs(args: list[str]) -> int:
     if ns.op == "changed":
         return run_docs_changed(ctx, ns.git_ref)
     if ns.op == "cxt_groups":
-        return run_docs_cxt_groups(ctx, ns.tokens_max, ns.selection)
+        return run_docs_cxt_groups(
+            ctx, ns.tokens_max, ns.selection, ns.depth, ns.optimize
+        )
     return 64  # unreachable — argparse requires a valid subcommand
 
 

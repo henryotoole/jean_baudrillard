@@ -126,9 +126,11 @@ def test_cmd_docs_cxt_groups_routes(monkeypatch, sample_ctx):
 
     seen = {}
 
-    def fake(ctx, tokens_max, selection):
-        seen["tokens_max"] = tokens_max
-        seen["selection"] = selection
+    def fake(ctx, tokens_max, selection, depth, optimize):
+        seen.update(
+            tokens_max=tokens_max, selection=selection,
+            depth=depth, optimize=optimize,
+        )
         return 0
 
     monkeypatch.setattr("docex.docs.run_docs_cxt_groups", fake)
@@ -136,6 +138,37 @@ def test_cmd_docs_cxt_groups_routes(monkeypatch, sample_ctx):
     assert _cmd_docs(["cxt_groups", "40000", "all"]) == 0
     assert seen["tokens_max"] == 40000
     assert seen["selection"] == "all"
+    assert seen["depth"] == "code_level"       # default
+    assert seen["optimize"] == "tokens"        # default
+
+
+def test_cmd_docs_cxt_groups_threads_depth_and_optimize(monkeypatch, sample_ctx):
+    monkeypatch.chdir(sample_ctx.project_root)
+    seen = {}
+
+    def fake(ctx, tokens_max, selection, depth, optimize):
+        seen.update(depth=depth, optimize=optimize)
+        return 0
+
+    monkeypatch.setattr("docex.docs.run_docs_cxt_groups", fake)
+    assert _cmd_docs([
+        "cxt_groups", "40000", "all",
+        "--depth", "design_docs", "--optimize", "module_integrity",
+    ]) == 0
+    assert seen["depth"] == "design_docs"
+    assert seen["optimize"] == "module_integrity"
+
+
+def test_cmd_docs_cxt_groups_rejects_invalid_depth():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["cxt_groups", "40000", "all", "--depth", "bogus"])
+    assert excinfo.value.code == 2
+
+
+def test_cmd_docs_cxt_groups_rejects_invalid_optimize():
+    with pytest.raises(SystemExit) as excinfo:
+        _cmd_docs(["cxt_groups", "40000", "all", "--optimize", "bogus"])
+    assert excinfo.value.code == 2
 
 
 def test_cmd_docs_cxt_groups_rejects_non_int_tokens_max():

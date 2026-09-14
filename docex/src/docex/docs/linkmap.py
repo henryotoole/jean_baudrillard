@@ -588,3 +588,23 @@ def load_code_level_graph(
     return build_linkmap(
         project_root, codebase_names, "code_level", design_files, source_files
     )
+
+
+def load_design_docs_graph(
+    project_root: Path,
+    codebase_names: list[str],
+    git: object | None = None,
+) -> tuple[list[Node], list[Edge]]:
+    """Build the ``design_docs`` graph for a project from an explicit root.
+
+    Sibling of ``load_code_level_graph``: same ``_enumerate_design_files`` +
+    ``build_linkmap`` primitives, but with an EMPTY source enumeration so the
+    scope is ``plans/design/**`` only — exactly the ``design_docs`` depth of
+    ``docex docs linkmap``. ``git`` is accepted for signature parity but unused
+    (no tracked-source walk at this depth).
+    """
+    project_root = Path(project_root)
+    design_files = _enumerate_design_files(project_root)
+    return build_linkmap(
+        project_root, codebase_names, "design_docs", design_files, []
+    )
