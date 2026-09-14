@@ -41,6 +41,39 @@ _WORKER = {
 }
 
 
+def _web_only_project(fixture: Path, dest: Path) -> Path:
+    """`sample_project` plus a frontend-like codebase whose ONLY core service
+    sits on `web` and uses no backing service — so its exec service's non-`web`
+    network union is empty. This is the shape that reproduced the mod-178 leak;
+    the stock `api` codebase (on `internal`) does not."""
+    root = dest / "project"
+    shutil.copytree(fixture, root, dirs_exist_ok=False)
+    shutil.rmtree(root / "infra" / "output", ignore_errors=True)
+    infra_path = root / "infra" / "infra.yml"
+    doc = yaml.safe_load(infra_path.read_text())
+    doc["codebases"]["frontend"] = {
+        "core_services": {
+            "web": {
+                "role": "web",
+                "command": ["node", "/service/dist/server.js"],
+                "port": 3000,
+                "networks": ["web"],
+                "health_check_path": "/health",
+                "resources": {"cpu": 0.5, "memory": "512MB"},
+            }
+        }
+    }
+    infra_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    return root
+
+
+@pytest.fixture(scope="module")
+def web_only_root(tmp_path_factory) -> Path:
+    root = _web_only_project(_FIXED, tmp_path_factory.mktemp("exec_web_only"))
+    assert run_compile(load_project_context(root)) == 0
+    return root
+
+
 def _multi_service_project(fixture: Path, dest: Path) -> Path:
     root = dest / "project"
     shutil.copytree(fixture, root, dirs_exist_ok=False)
@@ -259,6 +292,53 @@ def test_7c_exec_service_sets_no_container_name_logging_or_command(
         block = _services(fixed_root, env)[f"sample-{env}-api-exec"]
         for key in ("container_name", "logging", "command", "restart"):
             assert key not in block, (env, key)
+
+
+# ---------------------------------------------------------------------------
+# 8 — mod 178: web-only codebase exec gets `network_mode: none`.
+# ---------------------------------------------------------------------------
+
+
+def test_8_web_only_codebase_exec_gets_network_mode_none(web_only_root: Path):
+    """Mod 178. A web-only codebase's exec service has an empty non-`web`
+    network union. It must NOT be emitted network-less (that lands it on
+    Compose's implicit `<project>_default`); it carries explicit
+    `network_mode: none` and no `networks:` key, so it creates zero networks."""
+    for env in ("dev", "test", "stage", "prod"):
+        services = _services(web_only_root, env)
+        fe = services[f"sample-{env}-frontend-exec"]
+        assert fe.get("network_mode") == "none", (env, sorted(fe))
+        assert "networks" not in fe, (env, sorted(fe))
+        # Anti-vacuity: the frontend really is a web-only codebase.
+        assert services[f"sample-{env}-frontend-web"]["networks"] == ["web"]
+
+
+def test_8b_no_service_falls_onto_the_implicit_default(web_only_root: Path):
+    """The leak's mechanism: a service with NEITHER `networks:` nor
+    `network_mode:` attaches to the auto-created `<project>_default`, which the
+    top-level `networks:` block never declares. Assert no emitted service is in
+    that state, and that `default` is never a declared network."""
+    for env in ("dev", "test", "stage", "prod"):
+        doc = yaml.safe_load(
+            (web_only_root / "infra" / "output" / env / "docker-compose.yml")
+            .read_text()
+        )
+        assert "default" not in (doc.get("networks") or {}), env
+        for name, block in doc["services"].items():
+            has_intent = "networks" in block or "network_mode" in block
+            assert has_intent, (env, name)
+
+
+def test_8c_non_empty_exec_nets_still_networks_no_network_mode(
+    web_only_root: Path,
+):
+    """SC2 guard: the `internal`-bearing exec service (the non-empty union) is
+    unchanged — it carries `networks:` and NEVER `network_mode:`. The mod is a
+    pure `else`-branch addition."""
+    for env in ("dev", "test", "stage", "prod"):
+        api_exec = _services(web_only_root, env)[f"sample-{env}-api-exec"]
+        assert api_exec["networks"] == ["internal"], env
+        assert "network_mode" not in api_exec, env
 
 
 # ---------------------------------------------------------------------------

@@ -309,7 +309,10 @@ both directions. Whether `find` should be promoted to doctrine *together with* a
 
 It carries the codebase's image ref (identical across the codebase's core
 services, so one tag and one build), the `build:` block in `dev`/`test`, the dev
-bind mounts in `dev`, the union of the codebase's non-`web` networks, and the
+bind mounts in `dev`, the union of the codebase's non-`web` networks (or
+`network_mode: none` when that union is empty — a web-only codebase, mod 178,
+so Compose never auto-attaches the exec container to an undeclared
+`<project>_default`), and the
 union of its **backing-targeted `uses` edges** — which the emitter rewrites
 inline to `condition: service_healthy`, so a one-off gates on the database being
 ready instead of assuming the stack is already up. This is the compiler's **one

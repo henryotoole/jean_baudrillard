@@ -29,7 +29,7 @@ Three further properties fall out of that, and each is load-bearing:
 | Image | The codebase's image ref — identical across its core services. `build:` in `dev`/`test`, the registry ref in `stage`/`prod`. |
 | Env | Codebase-level `env:` only. Its telemetry identity is de-qualified to match: `OTEL_SERVICE_NAME=${codebase}`, no `docex.service` (see [transfer_tables.md](./transfer_tables.md#per-core-service-env-both-foundations)). |
 | Volumes | `src` and `dist` bind mounts, **`dev` only** — `test` bakes artifacts into the image, `stage`/`prod` ship them from the registry. |
-| Networks | The union of the codebase's networks **less `web`**. A one-off operations shell is never publicly routed. |
+| Networks | The union of the codebase's networks **less `web`** — a one-off operations shell is never publicly routed. When that union is **empty** (a web-only codebase: its only core service is on `web` and it uses no backing service), the block instead declares **`network_mode: none`** — an exec shell with nothing internal to reach needs no network, and explicit intent keeps Compose from auto-attaching it to an undeclared `<project>_default` bridge. |
 | `depends_on` | As above. Long-form always; `service_started` where a target declares no healthcheck. |
 | `command` | Deliberately unset — supplied at the call site. Codebase Dockerfiles declare no `ENTRYPOINT`, and `WORKDIR` is the fixed `/service` root, so `run --rm …-exec ./migrate.sh` executes the script directly. |
 

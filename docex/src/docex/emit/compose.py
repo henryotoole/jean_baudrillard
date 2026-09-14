@@ -599,6 +599,22 @@ def emit_compose(compiled: CompiledEnv, out_path: Path) -> None:
             # Never `web`: the exec container is a one-off operations shell
             # and is never publicly routed.
             exec_block["networks"] = exec_nets
+        else:
+            # Empty-set fallback (mod 178). A web-only codebase — a frontend
+            # whose only core service is on `web` and uses no backing service —
+            # has NO non-`web` network, so the union above is empty. Emitting
+            # neither `networks:` nor `network_mode:` would drop the exec
+            # container onto Compose's implicit, auto-created `<project>_default`
+            # bridge (never declared in the top-level `networks:` block); every
+            # `compose run --rm …-exec` then mints an unreaped `_default`, and
+            # `--slots N` multiplies it until the host address pool exhausts.
+            # WHY `none` and not an `internal` attachment: a one-off build/test/
+            # ops shell for a web-only codebase needs no intra-stack network at
+            # all — dependencies install at image-build, not at exec — and there
+            # is no `internal` for it to join. `none` creates ZERO networks.
+            # See doctrine/infrastructure/specifics/exec_service.md § What the
+            # block carries (Networks).
+            exec_block["network_mode"] = "none"
         # THE COMPILER'S ONE REMAINING ORDERING EMISSION. `uses` emits nothing
         # onto a core service's own block; the exec block carries the union of
         # its codebase's BACKING-targeted `uses` edges, rewritten to

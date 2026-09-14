@@ -375,6 +375,51 @@ docker network rm docex-ingress
 
 In practice this bridge gets stood up once per host and lives indefinitely.
 
+## The Docker Address Pool
+
+Every env stack, every `docex test --slots N` shard, and every ephemeral `check`
+worktree creates Docker networks on this host. Docker's built-in default address
+pools subnet out at roughly **31** user networks — a ceiling a busy dev machine
+reaches quickly: standing `dev` + `stage` + `prod` stacks, a `--slots 8` test run
+(each slot its own `internal` + per-slot `web` bridges), and a check worktree's
+networks together blow past it, and the failure is opaque —
+`all predefined address pools have been fully subnetted` mid-`compose up`.
+
+Raise the ceiling with a `default-address-pools` stanza in the host's
+`/etc/docker/daemon.json` — the **same file** the observability-backend log-cap
+stanza configures (see
+[`telemetry_preinfra.md § HyperDX Installation, step 6`](./telemetry_preinfra.md#hyperdx-installation));
+merge both keys into one object rather than writing the file twice:
+
+```json
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "100m", "max-file": "3" },
+  "default-address-pools": [
+    { "base": "10.200.0.0/16", "size": 24 }
+  ]
+}
+```
+
+`base: 10.200.0.0/16` + `size: 24` yields 256 `/24` subnets — an order of
+magnitude over the default ceiling. Then restart the daemon so it takes effect:
+`sudo systemctl restart docker`.
+
+Three caveats, the first two shared with the log-cap stanza:
+
+- **Applies only to networks created *after* it is set.** Existing networks keep
+  their current subnets until recreated (`docker compose down` / `up`, or
+  `docker network rm` + recreate).
+- **On a shared host the daemon default applies machine-wide**, and restarting
+  the daemon **bounces every container on the host**, not just this project's —
+  schedule the restart accordingly.
+- **The pool must not overlap** the master network / `docex-ingress` bridge or
+  any existing subnet on the host (`docker network inspect` the existing bridges
+  to confirm their subnets sit outside `10.200.0.0/16`; adjust `base` if they
+  collide). An overlapping pool breaks routing for the colliding networks.
+
+This is operator host configuration, not something `docex` emits or applies.
+
 ## Other Concerns
 
 ### Adding Preinfra To Machine
