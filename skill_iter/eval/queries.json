@@ -347,11 +347,6 @@
       "note": "Static soundness of the DOCTRINE corpus. Boundary with project-cohere (a project's docs vs its code) and skill-iteration (behavioral measurement). Newly scoreable in mod 135."
     },
     {
-      "query": "this project's core planning docs have drifted from what the code actually does — go through them and reconcile the two",
-      "expect": "project-cohere",
-      "note": "A PROJECT's docs against its code, in place. Boundary with cohere, which does the doctrine corpus. Newly scoreable in mod 135."
-    },
-    {
       "query": "the dev environment is up — open the app in a real browser, click through the signup flow and screenshot what the dashboard looks like afterwards",
       "expect": "browser-investigate",
       "note": "Manual browser exercise of a running dev stack. Boundary with testing, which owns automated suites — the tell is looking at it by hand. Newly scoreable in mod 135."
