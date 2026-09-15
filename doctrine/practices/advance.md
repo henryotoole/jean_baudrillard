@@ -16,7 +16,7 @@ Every individual advance gets a folder at `$pr/plans/ops/adv/${advance_number}_$
 
 The `advance_plan.md` should contain the following sections:
 1. Goals - A formal listing of the goals of the plan, including success criteria. Good success criteria are specific and testable. See example below.
-2. Tactical Plan - A section which details the approximate path by which the goals will be achieved. The bulk of this will usually be mod cycles. However, this may also include a `project-cohere` step, a "release to production" step, etc.
+2. Tactical Plan - A section which details the approximate path by which the goals will be achieved. The bulk of this will usually be mod cycles. However, this may also include a documentation refine/cohere pass (driven by the `doc-edit-orchestrator` agent), a "release to production" step, etc.
 	+ Steps in the plan which will leverage subagents should note which subagent will be used.
 
 Example of `advance_plan.md` with only "Goals" and "Tactical Plan" sections:
@@ -79,8 +79,9 @@ The backend should be able to send emails when certain trigger events occur. The
 
 ## Close-out
 
-5. **`project-cohere`.** `corporal`. Run once, after all mods land, per the
-   token-cost heuristic — reconcile core planning docs against the delivered code.
+5. **Doc-edit cohere pass.** `doc-edit-orchestrator` (corporal). Run once, after
+   all mods land, per the token-cost heuristic — reconcile core planning docs
+   against the delivered code.
 6. **Test + release.** Bring up a fresh `test` env, run unit/integration, and (if
    in scope for this advance) run the CI/CD pipeline to stage/prod. Otherwise
    defer to the process step 4 offer to merge.
@@ -89,7 +90,7 @@ The backend should be able to send emails when certain trigger events occur. The
 ### Heuristics for Tactical Planning
 
 Drafting up the tactical plan is something of an art because it can take so many different forms depending on the goals. The following heuristics can help:
-1. Use `project-cohere` agents sparingly, as it uses a great many tokens and can exhaust a context window quickly. It's best to only use `project-cohere` once per advance, after all mod cycles are done.
+1. Use doc-edit cohere passes (the `doc-edit-orchestrator` agent) sparingly, as they use a great many tokens and can exhaust a context window quickly. It's best to only run a cohere pass once per advance, after all mod cycles are done.
 2. Mod scoping is tricky. Try to bundle changes which share *territory*; a series of changes to one module or even one core service often should be combined into one mod. However, there are good reasons to split territory-sharing changes out into separate mods:
 	1. **A decision must ripple.** If part of the change hinges on a decision that exceeds the corporal's authority — and so ends its turn for escalation — cut the boundary there. Don't leave downstream work sitting uncommitted in a context that is about to pause; the escalation *is* the seam.
 	2. **A verification gate sits between the pieces.** When one piece must be proven to work before the next is built on top of it (a health check gone green, an auth flow confirmed via `browser-investigate`), that gate is a mod boundary.

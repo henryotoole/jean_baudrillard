@@ -344,7 +344,7 @@
     {
       "query": "go over the doctrine corpus and find the internal contradictions, the broken links, and the sections that disagree with each other",
       "expect": "cohere",
-      "note": "Static soundness of the DOCTRINE corpus. Boundary with project-cohere (a project's docs vs its code) and skill-iteration (behavioral measurement). Newly scoreable in mod 135."
+      "note": "Static soundness of the DOCTRINE corpus. Boundary with skill-iteration (behavioral measurement). Newly scoreable in mod 135."
     },
     {
       "query": "the dev environment is up — open the app in a real browser, click through the signup flow and screenshot what the dashboard looks like afterwards",

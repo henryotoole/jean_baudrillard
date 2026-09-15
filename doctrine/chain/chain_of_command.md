@@ -67,7 +67,7 @@ Depending on the process the `corporal` is following, the "conversation" will li
 
 **Examples**:
 1. Running a formal doctrine mod cycle.
-2. Skill-based context-heavy processes like `project-cohere` (including bespoke project processes).
+2. Context-heavy documentation passes like the `doc-edit-orchestrator` agent (including bespoke project processes).
 
 ### Sergeant
 
@@ -114,7 +114,7 @@ Formal response: `COMPLETE`
 
 In order to actually field a chain-of-command-style system, agents must actually be *implemented* somewhere. The best fit for this is the `claude code` harness' subagent system. Agents are defined via individual markdown files that set the system prompt, default skills, available tools, etc.
 
-However, chain-of-command-style agents are composed along two *different* axes: subject matter and rank. A `corporal`-rank subagent that performs mod cycles will be distinct from one that performs the `project-cohere` skill. The `claude code` agent folder supports subfolders, so the pattern will be:
+However, chain-of-command-style agents are composed along two *different* axes: subject matter and rank. A `corporal`-rank subagent that performs mod cycles will be distinct from one that performs documentation-edit passes (the `doc-edit-orchestrator` agent). The `claude code` agent folder supports subfolders, so the pattern will be:
 
 `.../agents/${rank}/${name}`
 

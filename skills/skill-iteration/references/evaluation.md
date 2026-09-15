@@ -100,14 +100,7 @@ Case files live at `outcome/<skill>/evals.json` — add one per skill you evalua
 
 ### In-tree mutation cases (graded on a diff)
 
-Most skills produce a *fresh artifact* from a prompt, so the prompt + optional static `files` is the whole input and the produced content is what you grade. A few skills instead **mutate an existing project in place** — `project-cohere` reads a project's design docs against its code and heals drift. There the input is a whole doctrine project *in a specific drift state* and the graded artifact is the **diff** the run produces — including the *empty* diff, which is the correct result when the project is already coherent.
-
-These get a fixture harness alongside the usual `evals.json`, at `outcome/project-cohere/` (see its `README.md`). The shape:
-
-- **States are `base + overlay`, not full copies** — one coherent `_base` project plus a per-state overlay carrying only the files that differ, so every state is provably `base + exactly one intended drift`. That isolation is the point: one state per finding case.
-- **`run_outcome.py` runs the whole loop in one command** — per case and configuration it assembles, runs a headless `claude -p` to cohere the scratch project, captures the diff, grades it with another `claude -p` (the shared `grader.md`), and prints the with-skill vs baseline delta. Grading needs an LLM but not an interactive agent. Under it, **`run_fixture.py` does the deterministic scaffolding** — `assemble` copies base+overlay into a scratch git repo *outside this repo* and records a baseline commit; `capture` emits the diff against the baseline (files changed, insertions/deletions, `is_empty`, unified diff). Drive those two by hand when debugging one stage.
-- **Grade on the diff, not an exact expected tree** — "mark unimplemented" and "edit the doc to match code" have free wording, so exact-match is too brittle; hand the diff + the case's `expectations` to `agents/grader.md` as usual.
-- **The no-op is a first-class delta driver** — a naive "make the docs consistent" baseline fiddles or deletes; the doctrine-correct behavior is often to change nothing (already coherent) or to *mark, not delete*. That gap is exactly the skill's measured value.
+Most skills produce a *fresh artifact* from a prompt, so the prompt + optional static `files` is the whole input and the produced content is what you grade. A few skills instead **mutate an existing project in place** — reading a project's design docs against its code and healing drift. There the input is a whole doctrine project *in a specific drift state* and the graded artifact is the **diff** the run produces — including the *empty* diff, which is the correct result when the project is already coherent. Grade such a case on that diff rather than an exact expected tree (the doctrine-correct fix has free wording), and treat the **no-op as a first-class result**: often the right behavior is to change nothing (already coherent) or to *mark, not delete*.
 
 ### Grading: two complementary lenses
 
@@ -133,5 +126,4 @@ The runners, the data, and the agent roles. **Read on demand** when you actually
 
 - **Read order.** Skim *The System*, then drop into *Trigger* or *Outcome* depending on what you're running. Pull in the Tooling files only when you actually execute.
 - **Cadence.** Trigger evals on every skill or description change. Outcome evals (gated) before a doctrine-affecting `docex` cut.
-  - **`project-cohere` is excluded from the gated outcome pass by default** — its fixture harness (`outcome/project-cohere/run_outcome.py`) assembles scratch projects and runs a headless `claude -p` cohere **plus** a grade per (case × config × run), which is very token-expensive. It is run **manually only**, when `project-cohere` itself is under test: the runner **refuses without `--manual`**. So a release that changes `project-cohere` still does not sweep its outcome eval into the batch — the operator runs it deliberately.
 - **Sibling boundary.** This skill (`skill-iteration`) both authors skills and measures them — the [Author the body](../SKILL.md#author-the-body) and [Evaluate](../SKILL.md#evaluate) phases are two ends of one activity. `cohere` owns *static* soundness of the doctrine corpus. Keep behavioral measurement here and static soundness there.
