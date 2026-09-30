@@ -2,7 +2,7 @@
 
 > **Canonical source is [`inventory.json`](./inventory.json)** — `grade.py` reads that. This file is generated from it by `scripts/gen_inventory_md.py`; do not hand-edit. If the two ever disagree, the JSON wins.
 
-**76 entries** — 60 auto-gradable, 16 judge-only. 56 discovered by test passes (marked ⊕); the rest from the original audit.
+**92 entries** — 76 auto-gradable, 16 judge-only. 72 discovered by test passes (marked ⊕); the rest from the original audit.
 
 Verdicts: **fix** (correct the stale doc toward code) · **defer** (`boundary_conditions.md` conflict → log, don't edit) · **ambiguous** (judgment call).
 
@@ -15,6 +15,7 @@ Verdicts: **fix** (correct the stale doc toward code) · **defer** (`boundary_co
 | `e-broker-play-symbol` | fix | auto | II | broker.md Play attribute table omits the platform_symbol field |
 | `e-broker-service-dep-count` | fix | auto | II | ⊕ broker.md says BrokerService holds 'four dependencies'; __init__ injects five (omits RepoFeeSchedule) |
 | `e-client-postgres-worker-live-no-task` | fix | auto | II | ⊕ shared/clients/client_postgres.py docstring says 'worker_live registers no task: create refuses mode=live'; worker_live registers stint.advance and a live session runs |
+| `e-cont-broker-getplays-index` | fix | auto | I | ⊕ cont_broker.py get_plays docstring says 'No new index'; the closed_* window rides the partial play_session_closed index |
 | `e-cont-exchange-state-count` | fix | auto | II | ⊕ cont_exchange.py docstring lists a four-member State group; the port has five reads (adds get_last_prints) |
 | `e-cont-indicator-raises` | fix | judge | II | ⊕ cont_indicator.py resolve_instance docstring Raises: omits IndicatorSourceCadenceMismatch / IndicatorSourcesUnsupported |
 | `e-cont-market-cli-loop` | fix | auto | II | ⊕ cont_market_cli.py docstring says 'the one place this adapter loops over port calls is aggregate'; aggregate-bench also loops |
@@ -22,6 +23,7 @@ Verdicts: **fix** (correct the stale doc toward code) · **defer** (`boundary_co
 | `e-cont-market-http-mcp-seven` | fix | auto | II | ⊕ cont_market_http.py docstring says "ContMarketMcp's seven members"; it's eight (MCP-count ripple) |
 | `e-cont-market-mcp-seven` | fix | auto | II | ⊕ cont_market_mcp.py line 1 says 'seven availability answers'; the adapter exposes eight (its own line 26 says 'Eight of thirty') |
 | `e-cont-market-readonly-groups` | fix | judge | II | ⊕ cont_market_read_only.py docstring lists 8 method groups; a 9th ('listing read') exists |
+| `e-cont-market-readonly-listing-members` | fix | auto | II | ⊕ cont_market_read_only.py 'Listing read' section comment says 'both members'; the group has four |
 | `e-cont-session-cli-measure` | fix | judge | II | ⊕ cont_session_cli.py class docstring subcommand list omits `measure` (do_measure/p_measure exist) |
 | `e-cont-session-http-getprogress-live` | fix | auto | II | ⊕ cont_session_http.py _translated docstring claims SessionService.get_progress raises NotImplementedError on a live session and is unreachable because create refuses live; get_progress answers live directly (elapsed = wall.now() - start_time) and live is admitted |
 | `e-cont-session-http-member-count` | fix | auto | II | ⊕ cont_session_http.py docstring says ContSession 'declares thirteen members' (Seven of thirteen); it declares fourteen |
@@ -38,34 +40,43 @@ Verdicts: **fix** (correct the stale doc toward code) · **defer** (`boundary_co
 | `e-exogenous-series-tick-home` | fix | auto | II | ⊕ indicator/adapters/driven/indicator_exogenous_series.py comment says the $TICK corpus denominator 'lives in indicator.md alone'; indicator.md carries no such figure |
 | `e-fill-observation-gate` | fix | auto | II | ⊕ fill_observation.py / broker_service.py docstrings say the recording gate needs 'a requested and an actual price'; the gate is requested_price + latency_ms |
 | `e-gwy-vendor-scid-column-count` | fix | auto | I | ⊕ market/adapters/driven/gwy_vendor_scid.py _fetch comment says the block becomes 'eight parallel columns'; _SOURCE_DTYPE has nine (the file's own dtype comment already says nine) |
+| `e-indicator-channel-scale-exclusion` | fix | auto | II | ⊕ indicator.md + 3 code docs list the excluded-from-key declaration set as three (shape/storage_kind/channel_count); the code conflict-checks four (adds channel_scale_exponent) |
 | `e-indicator-price-view-narration` | fix | judge | I | ⊕ indicator.py docstring says indicator.md lists price_view() with 'no parameters'; indicator.md lists price_view(params) |
 | `e-indicator-repoline-closeall` | fix | auto | II | indicator.md RepoIndicatorLine method list omits close_all |
+| `e-indicator-seal-lines-raise` | fix | auto | II | ⊕ indicator.md + cont_indicator.py say seal_lines raises on a named instance with no row; only an orphan raises, an idle instance is a no-op |
 | `e-indicator-srcstream-fourth` | fix | auto | II | indicator.md SrcStream: 'all three abstract'; a fourth method covers_forward exists |
 | `e-market-cli-aggregate-bench` | fix | auto | II | market.md CLI subcommand list omits aggregate-bench |
 | `e-market-driving-databento` | fix | judge | II | ⊕ market.md Adapters-Included driving list omits ContMarketFeedDatabento |
 | `e-market-mcp-count` | fix | auto | II | market.md MCP surface: 'seven of twenty-seven', omits get_regular_hours (really 8 of 30) |
 | `e-market-service-read-count` | fix | auto | I | ⊕ market/alogic/market_service.py Read comment says 'four iterators … four copies … four places'; there are five read iterators |
 | `e-market-write-fifth` | fix | auto | II | market.md ContMarket write group: four ops, omits append_record_bytes |
+| `e-mcp-transport-builtin-only-one` | fix | auto | II | ⊕ mcp_transport.py strategy_register tool description says the shipped built-in 'is the only one'; two ship |
 | `e-mcp-transport-counts` | fix | auto | II | ⊕ entrypoints/mcp_transport.py docstrings say 'Seven tools' over ContMarketMcp and 'eighteen wrappers/guards'; the registrar defines 8 market tools and 24 port-backed wrappers (strategy 5 + market 8 + session 6 + feedback 5) |
 | `e-principal-cache-entry-name` | fix | auto | II | ⊕ principal_cache.py docstring names the cache type `Entry`; the class is `CachedPrincipal` |
 | `e-profile-file-prior-evidence-count` | fix | auto | I | ⊕ exchange/adapters/driven/repo_platform_profile_file.py _parse_row comment says 'three rows carry evidence:[] and cite prior_evidence'; only two cite prior_evidence (client_order_id_ceiling cites nothing) |
 | `e-queue-host-live-unbuilt` | fix | auto | II | ⊕ entrypoints/queue_host.py module docstring says worker_live registers NO tasks and create refuses mode=live; worker_live registers stint.advance and an entitled live session is admitted |
 | `e-read-service-reads` | fix | auto | II | ⊕ read_service.py docstring says the pinned walk is prepared by 2 listing-exact reads; all four prepare it |
+| `e-read-service-rollover-citation` | fix | auto | II | ⊕ read_service.py docstring attributes market.md's SPLIT-rule phrasing ('window start OF active_from') to the ROLLOVER rule; market.md's rollover rule is 'on or after' |
 | `e-refusal-documented-count` | fix | auto | I | ⊕ exchange/domain/refusal.py module docstring says 'one refusal comes out DOCUMENTED — the client-order-id ceiling'; Refusal.ours (2 call sites) also yields DOCUMENTED, so it is one ROW-DERIVED refusal, not one total |
 | `e-repo-registry-actions-dir` | fix | auto | II | ⊕ market/adapters/driven/repo_registry_file.py module docstring enumerates read dirs (instruments/listings/calendars/sources) as complete; omits meta/actions/ (read on demand by list_seed_actions) |
 | `e-repo-session-fence-built` | fix | auto | II | ⊕ ports/driven/repo_session.py docstrings say 'Nothing bumps fence_epoch until advance 007' / 'the fifth one the flatten path will bring'; flatten bumps fence_epoch today via transition_status(bump_fence=True) |
 | `e-repo-session-postgres-fence-comment` | fix | auto | II | ⊕ adapters/driven/repo_session_postgres.py _TRANSITION comment calls the flatten terminal transition 'the fifth one the live flatten path will bring' (future); flatten is built and uses _TRANSITION_AND_FENCE |
+| `e-roll-service-spread-points` | fix | auto | I | ⊕ roll_service.py module docstring says the cash-settled roll error is 'a calendar spread of about 11 points'; it is 5.5 (19.75-14.25) and the file's own _last_back_print says 5.5 |
 | `e-root-clocklive-not-run` | fix | auto | II | ⊕ root.py clock_factory docstring says 'A ClockLive built here is not yet run' / 'create still refuses a live session and worker_live registers no task'; the live branch runs in production |
 | `e-session-clockcompute-budget` | fix | judge | II | session.md attributes a 60s env-read budget to ClockComputeMonotonic; the adapter reads nothing |
 | `e-session-clockwall` | fix | auto | II | session.md driven-ports list omits the ClockWall port + ClockWallSystem adapter |
 | `e-session-driven-init-clocklive-absent` | fix | auto | II | ⊕ hex/session/adapters/driven/__init__.py docstring says 'ClockLive is not here, its absence is a decision'; clock_live.py sits in the package (mod 118) |
 | `e-session-exec-ordering` | fix | auto | II | ⊕ session.md says the strategy loader checks arity/params BEFORE the exec; the shape check runs AFTER |
+| `e-session-init-control-group` | fix | auto | II | ⊕ session/__init__.py summary lists ContSession's Lifecycle/Advance/Read groups, omits Control (flatten) |
 | `e-session-init-live-unbuilt` | fix | auto | II | ⊕ hex/session/__init__.py package docstring heading 'Live is refused because there is no live execution path' + ClockLive/flatten listed as deliberately absent; all built (mods 118/119) |
+| `e-session-init-table-count` | fix | auto | II | ⊕ session/__init__.py summary says 'The three tables'; the module owns five |
 | `e-session-mcp-exclusion-list-plays` | fix | judge | II | ⊕ session.md ContSessionMcp bullet names 7 excluded members; the true excluded set is 8 (omits list_plays) |
 | `e-strategy-builtin-count` | fix | auto | II | strategy.md says one built-in ships; two are auto-seeded |
+| `e-strategy-init-builtin-count` | fix | auto | II | ⊕ strategy/__init__.py summary names one built-in (cadence_bracket); two ship (mdc_tick) |
 | `e-structure-mcp-count` | fix | auto | II | ⊕ structure.md L2 says ContMarketMcp exposes 'seven'; it's eight (same drift as e-market-mcp-count) |
 | `e-telemetry-stint-retries-label` | fix | auto | I | ⊕ telemetry.md metrics table labels stint.retries 'By session'; the counter is emitted UNLABELLED (a session_id label would violate telemetry.md's own unbounded-label Hard Boundary) |
 | `e-web-flatten-still-to-come` | fix | auto | II | ⊕ entrypoints/web.py module docstring says flatten 'does not exist on this port at all' / 'still to come'; cont_session_http serves POST .../flatten |
+| `e-window-spec-calendar-count` | fix | auto | II | ⊕ window_spec.py _localize docstring says 'four authored calendars'; eight exist |
 
 ## Frontend
 
@@ -75,7 +86,11 @@ Verdicts: **fix** (correct the stale doc toward code) · **defer** (`boundary_co
 | `e-data-access-withheld-count` | fix | auto | II | ⊕ data_access.md says the play serializer withholds 'exactly one' field; it withholds three |
 | `e-frontend-flatten-route` | fix | auto | II | ⊕ frontend.md says 'engine.web serves no flatten route'; it does |
 | `e-frontend-stop-target-persisted` | fix | auto | II | ⊕ frontend.md says stop/target prices are 'never persisted'; Play persists them (charting.md agrees) |
+| `e-vis-es-bar-coverage-march` | fix | auto | I | ⊕ five frontend comments say dev ES bar coverage is 'June-July only'; mod-087 DQ1 also derived March bars (March U June-July 2021) |
+| `e-vis-gwy-plays-declares-consumes` | fix | auto | II | ⊕ gwy_plays_engine.ts WirePlay docstring says the client 'declares only what it consumes'; it declares four fields toPlay never reads |
 | `e-vis-gwy-plays-wirekeys` | fix | auto | II | ⊕ visualizer/adapters/driven/gwy_plays_engine.ts WirePlay header says '21 keys = Play's 22 fields less last_marked_cycle_index'; _play serializes 23 of Play's 26 fields less three _WITHHELD, and the client declares a 21-key subset |
+| `e-vis-gwy-subscriptions-one-port` | fix | auto | II | ⊕ gwy_subscriptions.ts docstring says 'The one driven port this module needs'; visualizer has four driven ports |
+| `e-vis-gwy-subscriptions-underdescribe` | fix | auto | II | ⊕ visualizer.md GwySubscriptions bullet says 'which indicator instances a session uses (one route)'; the port reads two routes and returns the whole declaration aggregate |
 | `e-vis-play-hasstop-comment` | fix | auto | II | ⊕ visualizer/domain/play.ts hasStop doc says the stop order's 'price is not recorded'; stop_price/target_price are persisted and on the per-session plays wire (frontend just doesn't consume them yet) |
 | `f-candle-width-mod8-unbuilt` | fix | auto | II | ⊕ candle_width.ts docstrings call the tick line and /resolutions width-pruning unbuilt 'mod 8' work; both are built |
 | `f-catalog-gwy-aggregate` | fix | judge | II | catalog.md says GwyCatalog builds the Catalog aggregate; the service builds it |
@@ -90,6 +105,7 @@ Verdicts: **fix** (correct the stale doc toward code) · **defer** (`boundary_co
 
 | id | verdict | grade | class | title |
 | -- | ------- | ----- | ----- | ----- |
+| `e-adr0009-worker-sim-cpu` | fix | auto | II | ⊕ ADR 0009 'Not 2.0' bullet cites a stale 4-core box / worker_sim 2.0; infra.yml declares worker_sim cpu 6.0 on the 8-core box |
 | `e-ambiguous-alpaca` | ambiguous | judge | II | concepts_and_decisions.md names GwyPlatformAlpaca as 'the real API'; only Tradovate/Sim exist |
 | `e-boundary-quality-scenarios-link` | defer | judge | I | boundary_conditions.md links ./quality_scenarios.md, which does not exist |
 | `e-concepts-no-clocklive` | fix | auto | II | concepts_and_decisions.md risk register says 'No ClockLive'; ClockLive is fully built |

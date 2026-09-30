@@ -16,12 +16,26 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/session.md",
-      "requires_in_scope": ["plans/design/engine/module/session.md", "core/engine/src/hex/session/ports/driven/clock_wall.py"],
-      "corroborating": ["core/engine/src/hex/session/adapters/driven/clock_wall_system.py", "core/engine/src/hex/session/alogic/session_service.py", "core/engine/src/root.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/session.md",
+        "core/engine/src/hex/session/ports/driven/clock_wall.py"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/session/adapters/driven/clock_wall_system.py",
+        "core/engine/src/hex/session/alogic/session_service.py",
+        "core/engine/src/root.py"
+      ],
       "doc_claim": "Driven-ports table lists a closed set of three (ClockDecision, RepoSession, ClockCompute); adapters table lists four. No ClockWall anywhere.",
       "code_reality": "ClockWall (ports/driven/clock_wall.py) + ClockWallSystem exist, are a SessionService constructor dep, and are injected in root.py.",
-      "signature": {"file": "plans/design/engine/module/session.md", "must_contain": ["ClockWall"]},
-      "report_keywords": ["ClockWall"]
+      "signature": {
+        "file": "plans/design/engine/module/session.md",
+        "must_contain": [
+          "ClockWall"
+        ]
+      },
+      "report_keywords": [
+        "ClockWall"
+      ]
     },
     {
       "id": "e-fill-observation-gate",
@@ -31,12 +45,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/broker/domain/fill_observation.py",
-      "requires_in_scope": ["core/engine/src/hex/broker/domain/fill_observation.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/broker/domain/fill_observation.py"
+      ],
       "_provenance": "Discovered by the sweep-3 group-5 pass (2026-09-17). Verified: broker_service._record_observation gates on `fill.requested_price is None or fill.latency_ms is None` (line 703); actual_price is always fill.price (line 722), never a gate. broker.md and db_schema.md describe the latency gate correctly. Sibling stale docstring: broker_service.py::_record_observation header ('both prices').",
       "doc_claim": "\"One row per live fill that reported both a requested and an actual price\".",
       "code_reality": "Gate is requested_price AND latency_ms both present; actual_price is unconditional.",
-      "signature": {"file": "core/engine/src/hex/broker/domain/fill_observation.py", "must_not_contain": ["both a requested and an"]},
-      "report_keywords": ["latency", "requested_price"]
+      "signature": {
+        "file": "core/engine/src/hex/broker/domain/fill_observation.py",
+        "must_not_contain": [
+          "both a requested and an"
+        ]
+      },
+      "report_keywords": [
+        "latency",
+        "requested_price"
+      ]
     },
     {
       "id": "e-broker-play-symbol",
@@ -46,11 +70,21 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/broker.md",
-      "requires_in_scope": ["plans/design/engine/module/broker.md", "core/engine/src/hex/broker/domain/play.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/broker.md",
+        "core/engine/src/hex/broker/domain/play.py"
+      ],
       "doc_claim": "The Play attribute table enumerates every field; platform_symbol appears 0 times.",
       "code_reality": "play.py declares `platform_symbol: str | None = None`, load-bearing for replay-carrier order routing.",
-      "signature": {"file": "plans/design/engine/module/broker.md", "must_contain": ["platform_symbol"]},
-      "report_keywords": ["platform_symbol"]
+      "signature": {
+        "file": "plans/design/engine/module/broker.md",
+        "must_contain": [
+          "platform_symbol"
+        ]
+      },
+      "report_keywords": [
+        "platform_symbol"
+      ]
     },
     {
       "id": "e-broker-service-dep-count",
@@ -60,12 +94,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/broker.md",
-      "requires_in_scope": ["plans/design/engine/module/broker.md", "core/engine/src/hex/broker/alogic/broker_service.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/broker.md",
+        "core/engine/src/hex/broker/alogic/broker_service.py"
+      ],
       "_provenance": "Discovered by the group-5 pass (2026-09-15). Verified: BrokerService.__init__ takes platform, repo, clock, fees (RepoFeeSchedule), platform_is_replayable = five. Also a Class I self-contradiction: broker.md's own driven-ports table and net_pnl section already include RepoFeeSchedule.",
       "doc_claim": "\"It holds four dependencies …: GwyPlatform, RepoBroker, Clock, and the plain bool platform_is_replayable.\"",
       "code_reality": "Five constructor deps; RepoFeeSchedule (`fees`) is the omitted one.",
-      "signature": {"file": "plans/design/engine/module/broker.md", "must_not_contain": ["four dependencies"]},
-      "report_keywords": ["five dependencies", "RepoFeeSchedule"]
+      "signature": {
+        "file": "plans/design/engine/module/broker.md",
+        "must_not_contain": [
+          "four dependencies"
+        ]
+      },
+      "report_keywords": [
+        "five dependencies",
+        "RepoFeeSchedule"
+      ]
     },
     {
       "id": "e-db-schema-play-platform-symbol",
@@ -75,12 +120,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/specifics/db_schema.md",
-      "requires_in_scope": ["plans/design/engine/specifics/db_schema.md", "core/engine/src/hex/broker/domain/play.py"],
+      "requires_in_scope": [
+        "plans/design/engine/specifics/db_schema.md",
+        "core/engine/src/hex/broker/domain/play.py"
+      ],
       "_provenance": "Discovered by the group-5 pass (2026-09-15). Same missing field as e-broker-play-symbol, in the DDL doc. Verified: play.py has platform_symbol; migration 20260827000000_broker_play_platform_symbol.sql adds the column; db_schema.md's play DDL had none.",
       "doc_claim": "The `play` table DDL lists no platform_symbol column.",
       "code_reality": "play.platform_symbol is a persisted column (migration + RepoBrokerPostgres).",
-      "signature": {"file": "plans/design/engine/specifics/db_schema.md", "must_contain": ["platform_symbol"]},
-      "report_keywords": ["platform_symbol"]
+      "signature": {
+        "file": "plans/design/engine/specifics/db_schema.md",
+        "must_contain": [
+          "platform_symbol"
+        ]
+      },
+      "report_keywords": [
+        "platform_symbol"
+      ]
     },
     {
       "id": "e-strategy-builtin-count",
@@ -90,13 +145,26 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/strategy.md",
-      "requires_in_scope": ["plans/design/engine/module/strategy.md"],
-      "corroborating": ["core/engine/builtin_strategies/cadence_bracket.py", "core/engine/builtin_strategies/mdc_tick.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/strategy.md"
+      ],
+      "corroborating": [
+        "core/engine/builtin_strategies/cadence_bracket.py",
+        "core/engine/builtin_strategies/mdc_tick.py"
+      ],
       "note": "The built-in source lives at core/engine/builtin_strategies/, OUTSIDE core/<cb>/src, so it is absent from every cxt group. The agent must load it off-disk to catch this. That off-disk hop is part of the test.",
       "doc_claim": "\"One built-in ships: cadence_bracket.\" The Untrusted-Code argument rests on \"exactly one artifact\".",
       "code_reality": "builtin_strategies/ holds cadence_bracket.py AND mdc_tick.py (self-describes as \"the second built-in\"); seed-builtins globs every *.py.",
-      "signature": {"file": "plans/design/engine/module/strategy.md", "must_contain": ["mdc_tick"]},
-      "report_keywords": ["built-in", "mdc_tick"]
+      "signature": {
+        "file": "plans/design/engine/module/strategy.md",
+        "must_contain": [
+          "mdc_tick"
+        ]
+      },
+      "report_keywords": [
+        "built-in",
+        "mdc_tick"
+      ]
     },
     {
       "id": "e-market-mcp-count",
@@ -106,13 +174,25 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/market.md",
-      "requires_in_scope": ["plans/design/engine/module/market.md"],
-      "corroborating": ["core/engine/src/hex/market/adapters/driving/cont_market_mcp.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/market.md"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py"
+      ],
       "doc_claim": "\"ContMarketMcp exposes seven of twenty-seven members\"; table omits get_regular_hours.",
       "code_reality": "cont_market_mcp.py exposes 8 tools incl. get_regular_hours; base port declares 30 methods.",
       "_sig_note": "Negative signature: get_regular_hours already appears elsewhere in market.md (a calendar read-surface table), so a positive match is baseline-true. The gradable proxy is the wrong count phrase, which a correct fix must remove.",
-      "signature": {"file": "plans/design/engine/module/market.md", "must_not_contain": ["seven of twenty-seven"]},
-      "report_keywords": ["get_regular_hours", "MCP"]
+      "signature": {
+        "file": "plans/design/engine/module/market.md",
+        "must_not_contain": [
+          "seven of twenty-seven"
+        ]
+      },
+      "report_keywords": [
+        "get_regular_hours",
+        "MCP"
+      ]
     },
     {
       "id": "e-market-driving-databento",
@@ -122,7 +202,10 @@
       "confidence": "high",
       "auto_grade": false,
       "primary_file": "plans/design/engine/module/market.md",
-      "requires_in_scope": ["plans/design/engine/module/market.md", "core/engine/src/hex/market/adapters/driving/cont_market_feed_databento.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/market.md",
+        "core/engine/src/hex/market/adapters/driving/cont_market_feed_databento.py"
+      ],
       "_provenance": "Discovered by the group-10 pass (2026-09-15). Verified: cont_market_feed_databento.py is built and market.md's own 'A second real feed: databento' section describes it, but the § Adapters Included driving list named only 4 and omitted it. Judge (the class name already appears once in prose, so no clean baseline-false signature).",
       "doc_claim": "§ Adapters Included lists 4 driving adapters, omitting ContMarketFeedDatabento.",
       "code_reality": "ContMarketFeedDatabento is a built driving adapter.",
@@ -136,7 +219,9 @@
       "confidence": "high",
       "auto_grade": false,
       "primary_file": "core/engine/src/hex/market/ports/driving/cont_market_read_only.py",
-      "requires_in_scope": ["core/engine/src/hex/market/ports/driving/cont_market_read_only.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/ports/driving/cont_market_read_only.py"
+      ],
       "_provenance": "Discovered by the group-10 pass (2026-09-15). Verified: the port has a dedicated 'Listing read' (iter_listing_*) section and market.md's table lists it, but the module docstring's group enumeration named only 8. Judge ('listing read' appears elsewhere in the file, so no clean signature).",
       "doc_claim": "Module docstring: \"Identity, calendar, read, bounded read, events, availability, adjustment and chunk inspection\" (8 groups).",
       "code_reality": "Nine groups; 'listing read' (iter_listing_*) is the omitted one.",
@@ -150,12 +235,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/alogic/bounded_market_view.py",
-      "requires_in_scope": ["core/engine/src/hex/market/alogic/bounded_market_view.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/alogic/bounded_market_view.py"
+      ],
       "_provenance": "Discovered by the sweep-2 group-9 pass (2026-09-16, a code-only group). Verified: cont_market_read_only.py declares 4 iter_listing_* reads (ticks/bars/samples/record_arrays); the docstring named only ticks+bars ('neither member').",
       "doc_claim": "\"`iter_listing_ticks` and `iter_listing_bars`, the listing-exact reads … neither member …\".",
       "code_reality": "Four listing-exact reads: iter_listing_ticks/bars/samples/record_arrays.",
-      "signature": {"file": "core/engine/src/hex/market/alogic/bounded_market_view.py", "must_not_contain": ["neither member"]},
-      "report_keywords": ["iter_listing", "four"]
+      "signature": {
+        "file": "core/engine/src/hex/market/alogic/bounded_market_view.py",
+        "must_not_contain": [
+          "neither member"
+        ]
+      },
+      "report_keywords": [
+        "iter_listing",
+        "four"
+      ]
     },
     {
       "id": "e-read-service-reads",
@@ -165,12 +260,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/alogic/read_service.py",
-      "requires_in_scope": ["core/engine/src/hex/market/alogic/read_service.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/alogic/read_service.py"
+      ],
       "_provenance": "Discovered by the sweep-2 group-9 pass (2026-09-16, a code-only group). Verified: all four iter_listing_* reads prepare the pinned walk; the docstring named only ticks+bars.",
       "doc_claim": "\"A **pinned** walk — the one `iter_listing_ticks` and `iter_listing_bars` prepare\".",
       "code_reality": "All four listing-exact reads prepare the pinned walk.",
-      "signature": {"file": "core/engine/src/hex/market/alogic/read_service.py", "must_not_contain": ["`iter_listing_bars` prepare"]},
-      "report_keywords": ["iter_listing", "pinned walk"]
+      "signature": {
+        "file": "core/engine/src/hex/market/alogic/read_service.py",
+        "must_not_contain": [
+          "`iter_listing_bars` prepare"
+        ]
+      },
+      "report_keywords": [
+        "iter_listing",
+        "pinned walk"
+      ]
     },
     {
       "id": "e-cont-market-mcp-seven",
@@ -180,12 +285,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py",
-      "requires_in_scope": ["core/engine/src/hex/market/adapters/driving/cont_market_mcp.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py"
+      ],
       "_provenance": "Discovered by the group-10 pass (2026-09-15). Same MCP-count drift as e-market-mcp-count / e-structure-mcp-count, here as a self-contradiction inside cont_market_mcp.py (line 1 'seven' vs line 26 'Eight of thirty').",
       "doc_claim": "\"`ContMarketMcp` — the seven availability answers an agent needs\".",
       "code_reality": "Eight tools; the same file's line 26 already says 'Eight of thirty'.",
-      "signature": {"file": "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py", "must_not_contain": ["seven availability answers"]},
-      "report_keywords": ["eight", "availability"]
+      "signature": {
+        "file": "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py",
+        "must_not_contain": [
+          "seven availability answers"
+        ]
+      },
+      "report_keywords": [
+        "eight",
+        "availability"
+      ]
     },
     {
       "id": "e-cont-market-http-mcp-seven",
@@ -195,12 +310,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/adapters/driving/cont_market_http.py",
-      "requires_in_scope": ["core/engine/src/hex/market/adapters/driving/cont_market_http.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/adapters/driving/cont_market_http.py"
+      ],
       "_provenance": "Discovered by the sweep-2 group-10 pass (2026-09-16). The MCP-count drift (7→8) in yet another location; the same file's 'seven routes' mentions are correct and separate. Fourth catalogued location of this one root drift (with market.md, structure.md, cont_market_mcp.py).",
       "doc_claim": "\"`ContMarketMcp`'s seven members take …\" (cont_market_http.py:155).",
       "code_reality": "ContMarketMcp exposes eight tools.",
-      "signature": {"file": "core/engine/src/hex/market/adapters/driving/cont_market_http.py", "must_not_contain": ["`ContMarketMcp`'s seven members"]},
-      "report_keywords": ["eight members", "ContMarketMcp"]
+      "signature": {
+        "file": "core/engine/src/hex/market/adapters/driving/cont_market_http.py",
+        "must_not_contain": [
+          "`ContMarketMcp`'s seven members"
+        ]
+      },
+      "report_keywords": [
+        "eight members",
+        "ContMarketMcp"
+      ]
     },
     {
       "id": "e-cont-market-cli-loop",
@@ -210,12 +335,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/adapters/driving/cont_market_cli.py",
-      "requires_in_scope": ["core/engine/src/hex/market/adapters/driving/cont_market_cli.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/adapters/driving/cont_market_cli.py"
+      ],
       "_provenance": "Discovered by the sweep-3 group-10 pass (2026-09-17). Verified: both do_aggregate (line 276) and do_aggregate_bench (line 322) loop `for listing_id in self._listings(args)`; the docstring's 'one place' claim is stale after aggregate-bench was added.",
       "doc_claim": "\"The one place this adapter loops over port calls is `aggregate`\".",
       "code_reality": "Both aggregate and aggregate-bench loop over self._listings.",
-      "signature": {"file": "core/engine/src/hex/market/adapters/driving/cont_market_cli.py", "must_not_contain": ["The one place this adapter loops"]},
-      "report_keywords": ["aggregate-bench", "loop"]
+      "signature": {
+        "file": "core/engine/src/hex/market/adapters/driving/cont_market_cli.py",
+        "must_not_contain": [
+          "The one place this adapter loops"
+        ]
+      },
+      "report_keywords": [
+        "aggregate-bench",
+        "loop"
+      ]
     },
     {
       "id": "e-market-cli-aggregate-bench",
@@ -225,12 +360,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/market.md",
-      "requires_in_scope": ["plans/design/engine/module/market.md"],
-      "corroborating": ["core/engine/src/hex/market/adapters/driving/cont_market_cli.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/market.md"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/market/adapters/driving/cont_market_cli.py"
+      ],
       "doc_claim": "Lists eleven ContMarketCli subcommands.",
       "code_reality": "cont_market_cli.py registers a twelfth, aggregate-bench.",
-      "signature": {"file": "plans/design/engine/module/market.md", "must_contain": ["aggregate-bench"]},
-      "report_keywords": ["aggregate-bench", "CLI"]
+      "signature": {
+        "file": "plans/design/engine/module/market.md",
+        "must_contain": [
+          "aggregate-bench"
+        ]
+      },
+      "report_keywords": [
+        "aggregate-bench",
+        "CLI"
+      ]
     },
     {
       "id": "e-market-write-fifth",
@@ -240,12 +387,23 @@
       "confidence": "medium",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/market.md",
-      "requires_in_scope": ["plans/design/engine/module/market.md"],
-      "corroborating": ["core/engine/src/hex/market/ports/driving/cont_market.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/market.md"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/market/ports/driving/cont_market.py"
+      ],
       "doc_claim": "Write group = append_records, truncate_to, seal_chunk, record_empty_day (\"a fourth operation\").",
       "code_reality": "cont_market.py declares a fifth write method, append_record_bytes.",
-      "signature": {"file": "plans/design/engine/module/market.md", "must_contain": ["append_record_bytes"]},
-      "report_keywords": ["append_record_bytes"]
+      "signature": {
+        "file": "plans/design/engine/module/market.md",
+        "must_contain": [
+          "append_record_bytes"
+        ]
+      },
+      "report_keywords": [
+        "append_record_bytes"
+      ]
     },
     {
       "id": "e-core-service-count-ripple",
@@ -255,12 +413,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/specifics/edge_configuration.md",
-      "requires_in_scope": ["plans/design/engine/specifics/edge_configuration.md"],
+      "requires_in_scope": [
+        "plans/design/engine/specifics/edge_configuration.md"
+      ],
       "_provenance": "Discovered by the sweep-2 group-3 pass (2026-09-16). Verified against infra.yml: the engine codebase declares SIX core services (mcp, web, worker_sim, worker_live, feed_replay, feed_databento) and FOUR loop-owners. Adding feed_databento left stale counts. Sibling locations (same root cause, not all in one group's scope): health.py comments say 'three loop-owning core services' (→ four, 3 sites); root.py says 'five core services' (→ six, 3 comments).",
       "doc_claim": "edge_configuration.md: \"they land in all five core services\"; health.py: \"the THREE loop-owning core services\"; root.py: \"five core services\".",
       "code_reality": "Engine has 6 core services and 4 loop-owning core services.",
-      "signature": {"file": "plans/design/engine/specifics/edge_configuration.md", "must_not_contain": ["five core services"]},
-      "report_keywords": ["six core services", "four loop", "feed_databento"]
+      "signature": {
+        "file": "plans/design/engine/specifics/edge_configuration.md",
+        "must_not_contain": [
+          "five core services"
+        ]
+      },
+      "report_keywords": [
+        "six core services",
+        "four loop",
+        "feed_databento"
+      ]
     },
     {
       "id": "e-structures-feed-databento",
@@ -270,13 +439,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/structures_and_views.md",
-      "requires_in_scope": ["plans/design/structures_and_views.md", "core/engine/src/hex/market/adapters/driving/cont_market_feed_databento.py"],
+      "requires_in_scope": [
+        "plans/design/structures_and_views.md",
+        "core/engine/src/hex/market/adapters/driving/cont_market_feed_databento.py"
+      ],
       "_provenance": "Discovered by the group-1 pass (2026-09-15). Verified: cont_market_feed_databento.py exists; the service diagram, market.md, and execution_model.md all describe feed_databento. structures_and_views.md was the stale outlier.",
       "_reachability_note": "L1 doc, subject only in group 0; the revealing code lives elsewhere, so this is rarely auto-expected — it is caught opportunistically when feed_databento code is in a group (as in group 1, where structures_and_views is overhead). Catalogued so it is not re-triaged.",
       "doc_claim": "\"Today just `feed_replay`, which re-appends sealed history at wall-clock pace.\"",
       "code_reality": "cont_market_feed_databento.py is built (operator-gated, idle until DATABENTO_ENABLED).",
-      "signature": {"file": "plans/design/structures_and_views.md", "must_contain": ["feed_databento"]},
-      "report_keywords": ["feed_databento", "feed_replay"]
+      "signature": {
+        "file": "plans/design/structures_and_views.md",
+        "must_contain": [
+          "feed_databento"
+        ]
+      },
+      "report_keywords": [
+        "feed_databento",
+        "feed_replay"
+      ]
     },
     {
       "id": "e-structure-mcp-count",
@@ -286,12 +466,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/specifics/structure.md",
-      "requires_in_scope": ["plans/design/engine/specifics/structure.md"],
+      "requires_in_scope": [
+        "plans/design/engine/specifics/structure.md"
+      ],
       "_provenance": "Discovered by the group-1 pass (2026-09-15). Same underlying defect as e-market-mcp-count, rippled into the L2 structure doc. cont_market_mcp.py exposes eight tools.",
       "doc_claim": "\"`ContMarketMcp`'s seven take no owner at all\".",
       "code_reality": "cont_market_mcp.py exposes eight tools.",
-      "signature": {"file": "plans/design/engine/specifics/structure.md", "must_not_contain": ["`ContMarketMcp`'s seven"]},
-      "report_keywords": ["ContMarketMcp", "eight"]
+      "signature": {
+        "file": "plans/design/engine/specifics/structure.md",
+        "must_not_contain": [
+          "`ContMarketMcp`'s seven"
+        ]
+      },
+      "report_keywords": [
+        "ContMarketMcp",
+        "eight"
+      ]
     },
     {
       "id": "e-indicator-srcstream-fourth",
@@ -301,13 +491,25 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/indicator.md",
-      "requires_in_scope": ["plans/design/engine/module/indicator.md"],
-      "corroborating": ["core/engine/src/hex/indicator/ports/driven/src_stream.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/indicator.md"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/indicator/ports/driven/src_stream.py"
+      ],
       "doc_claim": "\"identity, coverage, walk, all three abstract with no default, over one SrcRequest.\"",
       "code_reality": "src_stream.py declares a fourth abstract method covers_forward(resolution: str) -> bool, taking a bare string, not a SrcRequest.",
       "_sig_note": "Negative signature: the doc already NAMES covers_forward in later prose (lines 327/380) while its port table omits it — so a positive match is baseline-true. The gradable proxy is the stale 'all three abstract' enumeration a correct fix must revise.",
-      "signature": {"file": "plans/design/engine/module/indicator.md", "must_not_contain": ["all three abstract"]},
-      "report_keywords": ["covers_forward", "SrcStream"]
+      "signature": {
+        "file": "plans/design/engine/module/indicator.md",
+        "must_not_contain": [
+          "all three abstract"
+        ]
+      },
+      "report_keywords": [
+        "covers_forward",
+        "SrcStream"
+      ]
     },
     {
       "id": "e-exchange-import-allowlist",
@@ -317,12 +519,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/exchange.md",
-      "requires_in_scope": ["plans/design/engine/module/exchange.md"],
+      "requires_in_scope": [
+        "plans/design/engine/module/exchange.md"
+      ],
       "_provenance": "Discovered by the sweep-3 group-6 pass (2026-09-17). Verified against the authoritative allowlist _ALLOWED_FIRST_PARTY in tests/hex/exchange/test_exchange_isolation.py: it includes hex.market.domain.fixed_point, .instant, and shared.interfaces.record_layout, and its comments explicitly EXCLUDE shared.json_codec (reached as a bare `from shared import json_codec`). exchange.md:243 omitted the three and wrongly listed json_codec.",
       "doc_claim": "\"…the port itself, its signature-type domain modules (instrument, price_view, resolution, tick, trading_window), its domain.errors, plus shared.clients.client_postgres and shared.json_codec\".",
       "code_reality": "The allowlist adds fixed_point, instant, record_layout and excludes json_codec.",
-      "signature": {"file": "plans/design/engine/module/exchange.md", "must_contain": ["fixed_point"]},
-      "report_keywords": ["fixed_point", "record_layout", "json_codec"]
+      "signature": {
+        "file": "plans/design/engine/module/exchange.md",
+        "must_contain": [
+          "fixed_point"
+        ]
+      },
+      "report_keywords": [
+        "fixed_point",
+        "record_layout",
+        "json_codec"
+      ]
     },
     {
       "id": "e-cont-exchange-state-count",
@@ -332,12 +545,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/exchange/ports/driving/cont_exchange.py",
-      "requires_in_scope": ["core/engine/src/hex/exchange/ports/driving/cont_exchange.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/exchange/ports/driving/cont_exchange.py"
+      ],
       "_provenance": "Discovered by the group-6 pass (2026-09-15). Verified: the port defines get_last_prints as a fifth State read; exchange.md already lists five ('the fifth read'). The 'Why get_fills exists' docstring's four-member summary was the stale party.",
       "doc_claim": "\"exchange.md's State group lists get_orders, get_positions, get_account and get_fills.\"",
       "code_reality": "Five State reads; get_last_prints is the fifth (exchange.md agrees).",
-      "signature": {"file": "core/engine/src/hex/exchange/ports/driving/cont_exchange.py", "must_not_contain": ["`get_account` and"]},
-      "report_keywords": ["get_last_prints", "fifth"]
+      "signature": {
+        "file": "core/engine/src/hex/exchange/ports/driving/cont_exchange.py",
+        "must_not_contain": [
+          "`get_account` and"
+        ]
+      },
+      "report_keywords": [
+        "get_last_prints",
+        "fifth"
+      ]
     },
     {
       "id": "e-indicator-repoline-closeall",
@@ -347,12 +570,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/indicator.md",
-      "requires_in_scope": ["plans/design/engine/module/indicator.md"],
-      "corroborating": ["core/engine/src/hex/indicator/ports/driven/repo_indicator_line.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/indicator.md"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/indicator/ports/driven/repo_indicator_line.py"
+      ],
       "doc_claim": "Lists twelve RepoIndicatorLine methods.",
       "code_reality": "repo_indicator_line.py declares a thirteenth abstract member, close_all().",
-      "signature": {"file": "plans/design/engine/module/indicator.md", "must_contain": ["close_all"]},
-      "report_keywords": ["close_all"]
+      "signature": {
+        "file": "plans/design/engine/module/indicator.md",
+        "must_contain": [
+          "close_all"
+        ]
+      },
+      "report_keywords": [
+        "close_all"
+      ]
     },
     {
       "id": "e-cont-indicator-raises",
@@ -362,7 +596,9 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "core/engine/src/hex/indicator/ports/driving/cont_indicator.py",
-      "requires_in_scope": ["core/engine/src/hex/indicator/ports/driving/cont_indicator.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/indicator/ports/driving/cont_indicator.py"
+      ],
       "_provenance": "Discovered by the sweep-2 group-7 pass (2026-09-16). Verified: indicator_service.py raises both IndicatorSourceCadenceMismatch and IndicatorSourcesUnsupported; the resolve_instance docstring's Raises: list omitted them (indicator.md's Hard Boundaries names the cadence mismatch as happening at instance resolution). Judge (exception names recur in the file, no clean signature).",
       "doc_claim": "resolve_instance `Raises:` list is incomplete.",
       "code_reality": "indicator_service.py also raises IndicatorSourceCadenceMismatch and IndicatorSourcesUnsupported.",
@@ -376,7 +612,9 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "core/engine/src/hex/indicator/domain/indicator.py",
-      "requires_in_scope": ["core/engine/src/hex/indicator/domain/indicator.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/indicator/domain/indicator.py"
+      ],
       "_provenance": "Discovered by the sweep-2 group-7 pass (2026-09-16). Verified: indicator.py:18 narrates 'The specification lists price_view() with no parameters, beside …' as a repair note, but indicator.md:70 lists price_view(params) WITH params. Stale self-referential narration whose premise is now false (doc-vs-doc). Judge (fix = delete/rewrite the obsolete rationale; risk of introducing a new history claim).",
       "doc_claim": "indicator.py:18 \"The specification lists `price_view()` with **no parameters**\".",
       "code_reality": "indicator.md:70 lists `price_view(params)` with params; the narration's premise is stale.",
@@ -390,7 +628,10 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "plans/design/engine/module/session.md",
-      "requires_in_scope": ["plans/design/engine/module/session.md", "core/engine/src/hex/session/adapters/driven/clock_compute_monotonic.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/session.md",
+        "core/engine/src/hex/session/adapters/driven/clock_compute_monotonic.py"
+      ],
       "doc_claim": "\"ClockComputeMonotonic ... The budget's default is 60 s, read from the environment.\"",
       "code_reality": "The adapter only returns time.monotonic(); the budget is a SessionService dep read by the composition root.",
       "judge_note": "Correct fix reattributes the budget/env-read to SessionService/root, not the adapter. Grade the direction, not a keyword."
@@ -403,13 +644,26 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/module/session.md",
-      "requires_in_scope": ["plans/design/engine/module/session.md"],
-      "corroborating": ["core/engine/src/hex/strategy/domain/export_shape.py", "core/engine/src/hex/strategy/domain/source_exports.py"],
+      "requires_in_scope": [
+        "plans/design/engine/module/session.md"
+      ],
+      "corroborating": [
+        "core/engine/src/hex/strategy/domain/export_shape.py",
+        "core/engine/src/hex/strategy/domain/source_exports.py"
+      ],
       "_provenance": "Discovered by the group-0 test pass (2026-09-15), not the original audit. Verified: export_shape.py runs inspect.signature over resolved callables (post-exec); source_exports.py:17 says the module-scope sandbox, not the shape check, is what bounds the exec.",
       "doc_claim": "\"enforced by strategy's loader (domain/export_shape.py, checking arity and parameter names before the `exec`)\".",
       "code_reality": "The signature/shape check runs AFTER exec (a signature can't be inspected until the defining module has run); the module-scope refusal is the pre-exec gate.",
-      "signature": {"file": "plans/design/engine/module/session.md", "must_not_contain": ["parameter names before the `exec`"]},
-      "report_keywords": ["exec", "export_shape"]
+      "signature": {
+        "file": "plans/design/engine/module/session.md",
+        "must_not_contain": [
+          "parameter names before the `exec`"
+        ]
+      },
+      "report_keywords": [
+        "exec",
+        "export_shape"
+      ]
     },
     {
       "id": "e-cont-session-cli-measure",
@@ -419,7 +673,9 @@
       "confidence": "high",
       "auto_grade": false,
       "primary_file": "core/engine/src/hex/session/adapters/driving/cont_session_cli.py",
-      "requires_in_scope": ["core/engine/src/hex/session/adapters/driving/cont_session_cli.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/adapters/driving/cont_session_cli.py"
+      ],
       "_provenance": "Observed sweep-1 group-4 and confirmed sweep-2/3. Verified: do_measure + p_measure are registered; the class docstring 'Operator commands: create, run, follow, stop, get, list, progress, result' omits the ninth, measure. Judge ('measure' substring recurs via do_measure, no clean signature).",
       "doc_claim": "\"Operator commands: `create`, `run`, `follow`, `stop`, `get`, `list`, `progress`, `result`\" (omits measure).",
       "code_reality": "A ninth subcommand, `measure`, is registered (do_measure/p_measure).",
@@ -433,7 +689,9 @@
       "confidence": "high",
       "auto_grade": false,
       "primary_file": "plans/design/engine/module/session.md",
-      "requires_in_scope": ["plans/design/engine/module/session.md"],
+      "requires_in_scope": [
+        "plans/design/engine/module/session.md"
+      ],
       "_provenance": "Observed sweep-1 group-4 and confirmed sweep-3. Verified: ContSession has 14 members, 6 MCP-exposed → 8 excluded; the bullet names 4 queue-exemptions + flatten + measure_divergence + list_subscriptions = 7, omitting list_plays. Judge (list_plays recurs elsewhere in session.md, no clean signature).",
       "doc_claim": "ContSessionMcp bullet's 'Excluded:' list names 7 members.",
       "code_reality": "8 members are excluded; list_plays is the omitted one.",
@@ -447,12 +705,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/adapters/driving/cont_session_http.py",
-      "requires_in_scope": ["core/engine/src/hex/session/adapters/driving/cont_session_http.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/adapters/driving/cont_session_http.py"
+      ],
       "_provenance": "Discovered by the sweep-2 group-11 pass (2026-09-16). Verified: ContSession declares 14 abstract members; this docstring said 'thirteen' / 'Seven of thirteen … six exclusions', omitting measure_divergence as a 7th exclusion. Sibling of e-cont-session-mcp-count (which had 'twelve' in cont_session_mcp.py). NOTE: the file's other 'thirteen serializers'/'thirteen members' lines refer to the serializer set and are separate — leave them.",
       "doc_claim": "\"`ContSession` declares thirteen members. Seven are reachable here — the six reads …\".",
       "code_reality": "ContSession declares 14 abstract members; 7 web-reachable, 7 excluded.",
-      "signature": {"file": "core/engine/src/hex/session/adapters/driving/cont_session_http.py", "must_not_contain": ["declares thirteen members"]},
-      "report_keywords": ["fourteen", "measure_divergence"]
+      "signature": {
+        "file": "core/engine/src/hex/session/adapters/driving/cont_session_http.py",
+        "must_not_contain": [
+          "declares thirteen members"
+        ]
+      },
+      "report_keywords": [
+        "fourteen",
+        "measure_divergence"
+      ]
     },
     {
       "id": "e-cont-session-mcp-count",
@@ -462,12 +730,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py",
-      "requires_in_scope": ["core/engine/src/hex/session/adapters/driving/cont_session_mcp.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py"
+      ],
       "_provenance": "Discovered by the group-4 pass (2026-09-15). Verified: cont_session.py declares 14 @abc.abstractmethod members; the adapter docstring said 'Six of twelve' / 'declares twelve members', omitting flatten + measure_divergence from the excluded count.",
       "doc_claim": "\"## Six of twelve …\" / \"`ContSession` declares twelve members.\"",
       "code_reality": "ContSession declares 14 abstract members (6 MCP-exposed, 8 excluded).",
-      "signature": {"file": "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py", "must_not_contain": ["Six of twelve"]},
-      "report_keywords": ["fourteen", "twelve", "ContSession"]
+      "signature": {
+        "file": "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py",
+        "must_not_contain": [
+          "Six of twelve"
+        ]
+      },
+      "report_keywords": [
+        "fourteen",
+        "twelve",
+        "ContSession"
+      ]
     },
     {
       "id": "e-execution-model-commit-sig",
@@ -477,12 +756,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/specifics/execution_model.md",
-      "requires_in_scope": ["plans/design/engine/specifics/execution_model.md"],
+      "requires_in_scope": [
+        "plans/design/engine/specifics/execution_model.md"
+      ],
       "_provenance": "Discovered by the sweep-3 group-13 pass (2026-09-17). Verified: stint_scope.py:224 is `def commit(self, next_seq, *, forget_order_ids: Sequence[str])`; session.md writes the full form twice; the table cell predates the step-0 forget mechanism.",
       "doc_claim": "\"`commit(next_seq)`\" (StintScope write-half table).",
       "code_reality": "commit(next_seq, *, forget_order_ids).",
-      "signature": {"file": "plans/design/engine/specifics/execution_model.md", "must_contain": ["forget_order_ids"]},
-      "report_keywords": ["forget_order_ids", "commit"]
+      "signature": {
+        "file": "plans/design/engine/specifics/execution_model.md",
+        "must_contain": [
+          "forget_order_ids"
+        ]
+      },
+      "report_keywords": [
+        "forget_order_ids",
+        "commit"
+      ]
     },
     {
       "id": "e-execution-model-flatten-mcp",
@@ -492,12 +781,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/specifics/execution_model.md",
-      "requires_in_scope": ["plans/design/engine/specifics/execution_model.md", "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py"],
+      "requires_in_scope": [
+        "plans/design/engine/specifics/execution_model.md",
+        "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py"
+      ],
       "_provenance": "Discovered by the group-13 pass (2026-09-15). Verified: cont_session_mcp.py registers zero flatten (six tools, flatten in _SESSION_NOT_A_TOOL); session.md says flatten is 'deliberately not an MCP agent tool'. Served on web + operator CLI.",
       "doc_claim": "\"`ContSession.flatten` on the `mcp` / `web` process …\" / \"Serving this from `mcp`/`web` …\".",
       "code_reality": "flatten is served on web + operator CLI; it is explicitly excluded from the MCP surface.",
-      "signature": {"file": "plans/design/engine/specifics/execution_model.md", "must_not_contain": ["on the `mcp` / `web` process"]},
-      "report_keywords": ["flatten", "mcp", "web"]
+      "signature": {
+        "file": "plans/design/engine/specifics/execution_model.md",
+        "must_not_contain": [
+          "on the `mcp` / `web` process"
+        ]
+      },
+      "report_keywords": [
+        "flatten",
+        "mcp",
+        "web"
+      ]
     },
     {
       "id": "e-flatten-designed-not-built",
@@ -507,7 +808,9 @@
       "confidence": "high",
       "auto_grade": false,
       "primary_file": "plans/design/concepts_and_decisions.md",
-      "requires_in_scope": ["core/engine/src/hex/session/alogic/session_service.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/alogic/session_service.py"
+      ],
       "_provenance": "Discovered (as an unresolved split) by the group-4 pass; RESOLVED here against code: session_service.py:586 implements flatten fully (fence-bump via transition_status bump_fence=True, then broker.flatten). So the 'designed but not built' claims in errors.py (SessionFenced), repo_session.py (read_run_guard), and concepts_and_decisions.md are the stale side.",
       "_note": "Spans several files (code-level docstrings + concepts). No single clean signature — judge. The live/flatten execution half is consistently MORE built than the risk/tech-debt prose admits; related to e-concepts-no-clocklive.",
       "doc_claim": "\"advance 007 / designed but not built\" (flatten) in errors.py::SessionFenced, repo_session.py::read_run_guard, concepts_and_decisions.md.",
@@ -522,12 +825,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/concepts_and_decisions.md",
-      "requires_in_scope": ["plans/design/concepts_and_decisions.md", "core/engine/src/hex/session/adapters/driven/clock_live.py"],
+      "requires_in_scope": [
+        "plans/design/concepts_and_decisions.md",
+        "core/engine/src/hex/session/adapters/driven/clock_live.py"
+      ],
       "_policy_note": "Was expected_verdict 'defer' until the agent definition (2026-09-15) narrowed the immutable/defer scope to boundary_conditions.md ONLY. concepts_and_decisions.md is now editable, so a plainly-stale claim here is a FIX, not a deferral. The genuinely-unbuilt clauses (CtlSession, flatten channel, live frontend) must be preserved.",
       "doc_claim": "\"The live half is unbuilt. No ClockLive, ...\"",
       "code_reality": "clock_live.py is a fully-implemented 148-line adapter. (The other clauses of that sentence, e.g. CtlSession, are genuinely unbuilt.)",
-      "signature": {"file": "plans/design/concepts_and_decisions.md", "must_not_contain": ["No `ClockLive`"]},
-      "report_keywords": ["ClockLive"]
+      "signature": {
+        "file": "plans/design/concepts_and_decisions.md",
+        "must_not_contain": [
+          "No `ClockLive`"
+        ]
+      },
+      "report_keywords": [
+        "ClockLive"
+      ]
     },
     {
       "id": "e-structures-mcp-count",
@@ -537,7 +850,10 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "plans/design/structures_and_views.md",
-      "requires_in_scope": ["plans/design/structures_and_views.md", "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py"],
+      "requires_in_scope": [
+        "plans/design/structures_and_views.md",
+        "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py"
+      ],
       "note": "Now a fix (structures_and_views.md is editable under the current policy). Weak reachability: the toplevel doc and the MCP controllers rarely co-occur in one 400k group, and the count is spread across four controllers. Judge, not auto-scored.",
       "doc_claim": "\"strategy_* (5), market_* (7), session_* (6), feedback_* (5)\" summing to 24.",
       "code_reality": "test_mcp_tool_surface.py asserts 8 market_* tools and len==25."
@@ -551,7 +867,9 @@
       "auto_grade": false,
       "primary_file": "plans/design/boundary_conditions.md",
       "defer_reason": "boundary_conditions.md is immutable to this pass; the link target is also absent, so there is nothing to point it at.",
-      "requires_in_scope": ["plans/design/boundary_conditions.md"],
+      "requires_in_scope": [
+        "plans/design/boundary_conditions.md"
+      ],
       "judge_note": "Correct behavior is to NOT edit boundary_conditions.md at all. Optionally noted in the report. This is covered by the global boundary-untouched guard too."
     },
     {
@@ -562,7 +880,9 @@
       "confidence": "low",
       "auto_grade": false,
       "primary_file": "plans/design/concepts_and_decisions.md",
-      "requires_in_scope": ["plans/design/concepts_and_decisions.md"],
+      "requires_in_scope": [
+        "plans/design/concepts_and_decisions.md"
+      ],
       "judge_note": "Roadmap-vs-stale. concepts_and_decisions.md is editable under the current policy, so acceptable outcomes are: leave (reads as roadmap intent) OR correct the doc to drop the not-built class name. Present to observe judgment."
     },
     {
@@ -573,12 +893,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/entrypoints/principal_cache.py",
-      "requires_in_scope": ["core/engine/src/entrypoints/principal_cache.py"],
+      "requires_in_scope": [
+        "core/engine/src/entrypoints/principal_cache.py"
+      ],
       "_provenance": "Discovered by the group-3 pass (2026-09-15). Verified: the dataclass at principal_cache.py:125 is `CachedPrincipal` (all usages reference it); no `Entry` type exists. Code-level docstring drift.",
       "doc_claim": "\"`Entry` holds `user_id`, `token_id`, `kind` — and nothing else.\" (module docstring)",
       "code_reality": "The dataclass is `CachedPrincipal`; there is no `Entry`.",
-      "signature": {"file": "core/engine/src/entrypoints/principal_cache.py", "must_not_contain": ["`Entry` holds"]},
-      "report_keywords": ["CachedPrincipal", "Entry"]
+      "signature": {
+        "file": "core/engine/src/entrypoints/principal_cache.py",
+        "must_not_contain": [
+          "`Entry` holds"
+        ]
+      },
+      "report_keywords": [
+        "CachedPrincipal",
+        "Entry"
+      ]
     },
     {
       "id": "f-candle-width-mod8-unbuilt",
@@ -588,12 +918,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/frontend/src/hex/visualizer/domain/candle_width.ts",
-      "requires_in_scope": ["core/frontend/src/hex/visualizer/domain/candle_width.ts"],
+      "requires_in_scope": [
+        "core/frontend/src/hex/visualizer/domain/candle_width.ts"
+      ],
       "_provenance": "Discovered by the sweep-3 group-11 pass (2026-09-17). Verified: ChartDataService reads /resolutions and exposes barResolutions, guarding the fetch (prune done); the sub-300s tick line ships (TickPoint/ticksAvailable; charting.md). candle_width.ts's docstrings still call both 'mod 8's' (unbuilt future work).",
       "doc_claim": "\"… is mod 8's; it is not a width this selector offers\" / \"reading it is MOD 8'S … which mod 8 must handle\".",
       "code_reality": "Both the tick line and the /resolutions-based width prune are built.",
-      "signature": {"file": "core/frontend/src/hex/visualizer/domain/candle_width.ts", "must_not_contain": ["mod 8", "MOD 8"]},
-      "report_keywords": ["barResolutions", "tick line", "built"]
+      "signature": {
+        "file": "core/frontend/src/hex/visualizer/domain/candle_width.ts",
+        "must_not_contain": [
+          "mod 8",
+          "MOD 8"
+        ]
+      },
+      "report_keywords": [
+        "barResolutions",
+        "tick line",
+        "built"
+      ]
     },
     {
       "id": "f-performance-reset",
@@ -603,11 +945,21 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/frontend/module/performance.md",
-      "requires_in_scope": ["plans/design/frontend/module/performance.md", "core/frontend/src/hex/performance/ports/driving/cont_performance.ts"],
+      "requires_in_scope": [
+        "plans/design/frontend/module/performance.md",
+        "core/frontend/src/hex/performance/ports/driving/cont_performance.ts"
+      ],
       "doc_claim": "Describes the port surface as only loadOverview(sessionId).",
       "code_reality": "cont_performance.ts declares reset(): void, invoked on sign-out in root.ts.",
-      "signature": {"file": "plans/design/frontend/module/performance.md", "must_contain": ["reset"]},
-      "report_keywords": ["reset"]
+      "signature": {
+        "file": "plans/design/frontend/module/performance.md",
+        "must_contain": [
+          "reset"
+        ]
+      },
+      "report_keywords": [
+        "reset"
+      ]
     },
     {
       "id": "f-data-access-resolution-ms",
@@ -617,12 +969,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/frontend/specifics/data_access.md",
-      "requires_in_scope": ["plans/design/frontend/specifics/data_access.md"],
-      "corroborating": ["core/frontend/src/hex/visualizer/domain/chunk_window.ts"],
+      "requires_in_scope": [
+        "plans/design/frontend/specifics/data_access.md"
+      ],
+      "corroborating": [
+        "core/frontend/src/hex/visualizer/domain/chunk_window.ts"
+      ],
       "doc_claim": "\"aligned to the resolution grid (floor(t / (1024 * resolutionSeconds)))\".",
       "code_reality": "chunk_window.ts divides an epoch-ms timestamp by resolutionMs.",
-      "signature": {"file": "plans/design/frontend/specifics/data_access.md", "must_contain": ["resolutionMs"]},
-      "report_keywords": ["resolutionMs", "resolutionSeconds"]
+      "signature": {
+        "file": "plans/design/frontend/specifics/data_access.md",
+        "must_contain": [
+          "resolutionMs"
+        ]
+      },
+      "report_keywords": [
+        "resolutionMs",
+        "resolutionSeconds"
+      ]
     },
     {
       "id": "e-data-access-withheld-count",
@@ -632,12 +996,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/frontend/specifics/data_access.md",
-      "requires_in_scope": ["plans/design/frontend/specifics/data_access.md", "core/engine/src/hex/session/adapters/driving/cont_session_http.py"],
+      "requires_in_scope": [
+        "plans/design/frontend/specifics/data_access.md",
+        "core/engine/src/hex/session/adapters/driving/cont_session_http.py"
+      ],
       "_provenance": "Discovered by the group-11 pass (2026-09-15). Verified: cont_session_http.py:201 _WITHHELD_PERMANENTLY = {last_marked_cycle_index, platform_symbol, abandoned_at} = 3. The platform_symbol drift theme rippling into the frontend serializer doc.",
       "doc_claim": "\"less exactly one named withheld field (`last_marked_cycle_index`, the mark-fold watermark)\".",
       "code_reality": "Three fields are withheld permanently (adds platform_symbol, abandoned_at).",
-      "signature": {"file": "plans/design/frontend/specifics/data_access.md", "must_not_contain": ["exactly one named withheld field"]},
-      "report_keywords": ["platform_symbol", "abandoned_at", "withheld"]
+      "signature": {
+        "file": "plans/design/frontend/specifics/data_access.md",
+        "must_not_contain": [
+          "exactly one named withheld field"
+        ]
+      },
+      "report_keywords": [
+        "platform_symbol",
+        "abandoned_at",
+        "withheld"
+      ]
     },
     {
       "id": "f-visualizer-playextent",
@@ -647,7 +1023,10 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "plans/design/frontend/module/visualizer.md",
-      "requires_in_scope": ["plans/design/frontend/module/visualizer.md", "core/frontend/src/hex/visualizer/domain/play_extent.ts"],
+      "requires_in_scope": [
+        "plans/design/frontend/module/visualizer.md",
+        "core/frontend/src/hex/visualizer/domain/play_extent.ts"
+      ],
       "doc_claim": "\"a play set's [min placed_at, max close]\".",
       "code_reality": "play_extent.ts: max(closedAt ?? openedAt ?? placedAt). The sibling charting.md states the fallback correctly (Class I).",
       "judge_note": "Correct fix updates visualizer.md to the fallback chain. charting.md (correct) must NOT be changed. In group 11 charting.md is overhead (available as the correct sibling)."
@@ -660,12 +1039,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/frontend/specifics/frontend.md",
-      "requires_in_scope": ["plans/design/frontend/specifics/frontend.md", "core/engine/src/hex/session/adapters/driving/cont_session_http.py"],
+      "requires_in_scope": [
+        "plans/design/frontend/specifics/frontend.md",
+        "core/engine/src/hex/session/adapters/driving/cont_session_http.py"
+      ],
       "_provenance": "Discovered by the group-12 pass (2026-09-15). Verified: cont_session_http.py serves POST /session/sessions/{id}/flatten (PORT_MEMBERS set-equality, contract flattenSession). The frontend correctly builds no control reaching it — but the route IS served. Part of the flatten-is-built theme.",
       "doc_claim": "\"`engine.web` serves no `flatten` route\".",
       "code_reality": "The flatten route is served; the frontend just builds no trigger for it.",
-      "signature": {"file": "plans/design/frontend/specifics/frontend.md", "must_not_contain": ["serves no `flatten` route"]},
-      "report_keywords": ["flatten", "route"]
+      "signature": {
+        "file": "plans/design/frontend/specifics/frontend.md",
+        "must_not_contain": [
+          "serves no `flatten` route"
+        ]
+      },
+      "report_keywords": [
+        "flatten",
+        "route"
+      ]
     },
     {
       "id": "e-frontend-stop-target-persisted",
@@ -675,12 +1065,24 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/frontend/specifics/frontend.md",
-      "requires_in_scope": ["plans/design/frontend/specifics/frontend.md", "core/engine/src/hex/broker/domain/play.py"],
+      "requires_in_scope": [
+        "plans/design/frontend/specifics/frontend.md",
+        "core/engine/src/hex/broker/domain/play.py"
+      ],
       "_provenance": "Discovered by the group-12 pass (2026-09-15). Verified: play.py:172-173 persist stop_price/target_price; the REST contract carries them; sibling charting.md correctly says they are persisted and on the wire, nothing draws them yet (Class I contradiction too). frontend.md was the stale outlier.",
       "doc_claim": "\"No stop price and no target price exists anywhere in the engine … never persisted.\"",
       "code_reality": "stop_price/target_price are persisted Play fields (play.py:172-173), EMITTED on the /plays wire (cont_session_http.py:928-929, not withheld), and in the REST contract; the frontend simply does not consume/draw them (WirePlay omits them).",
-      "signature": {"file": "plans/design/frontend/specifics/frontend.md", "must_not_contain": ["No stop price and no target price exists anywhere"]},
-      "report_keywords": ["stop_price", "target_price", "persisted"],
+      "signature": {
+        "file": "plans/design/frontend/specifics/frontend.md",
+        "must_not_contain": [
+          "No stop price and no target price exists anywhere"
+        ]
+      },
+      "report_keywords": [
+        "stop_price",
+        "target_price",
+        "persisted"
+      ],
       "_precision_guard": "charting.md's stop/target row is CORRECT ('persisted … on the wire on the per-session plays read; nothing here draws them yet') and MUST NOT be edited. The sweep-3 group-12 pass FALSE-FIXED it toward 'never persisted, no column, no route' by misreading the frontend WirePlay (which omits the levels only because the frontend doesn't consume them) as proof they're not on the engine wire. Any edit to charting.md's stop/target row toward 'not persisted' is a wrong-direction false fix; the stale doc is frontend.md, not charting.md."
     },
     {
@@ -691,7 +1093,10 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "plans/design/frontend/module/catalog.md",
-      "requires_in_scope": ["plans/design/frontend/module/catalog.md", "core/frontend/src/hex/catalog/adapters/driving/cont_catalog_ui.ts"],
+      "requires_in_scope": [
+        "plans/design/frontend/module/catalog.md",
+        "core/frontend/src/hex/catalog/adapters/driving/cont_catalog_ui.ts"
+      ],
       "doc_claim": "\"ContCatalog - loadCatalog (memoizes ...) Implemented by CatalogService.\"",
       "code_reality": "catalog_service.ts reads fresh every call; the memo is in cont_catalog_ui.ts. architecture.md correctly credits ContCatalogUi (Class I).",
       "judge_note": "Correct fix reattributes the memo to the adapter. In group 2 architecture.md is NOT in scope, so code must arbitrate. If architecture.md IS in scope, it (the correct doc) must be preserved."
@@ -704,7 +1109,10 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "plans/design/frontend/module/catalog.md",
-      "requires_in_scope": ["plans/design/frontend/module/catalog.md", "core/frontend/src/hex/catalog/ports/driven/gwy_catalog.ts"],
+      "requires_in_scope": [
+        "plans/design/frontend/module/catalog.md",
+        "core/frontend/src/hex/catalog/ports/driven/gwy_catalog.ts"
+      ],
       "doc_claim": "\"GwyCatalog - translates engine's responses into the Catalog aggregate.\"",
       "code_reality": "gwy_catalog.ts returns node arrays; catalog_service.ts constructs the aggregate.",
       "judge_note": "Borderline (loose phrasing). Accept a fix OR a defensible no-change; judge the reasoning."
@@ -717,7 +1125,9 @@
       "confidence": "medium",
       "auto_grade": false,
       "primary_file": "plans/design/frontend/module/visualizer.md",
-      "requires_in_scope": ["plans/design/frontend/module/visualizer.md"],
+      "requires_in_scope": [
+        "plans/design/frontend/module/visualizer.md"
+      ],
       "doc_claim": "\"ContVisualizer - ... the selection-state transitions ... (VisualizerService)\".",
       "code_reality": "visualizer_service.ts has only subscriptionOf + reset; the transitions are adapter methods in cont_visualizer_ui.ts.",
       "judge_note": "Correct fix reattributes the transitions to the adapter."
@@ -730,7 +1140,9 @@
       "confidence": "low",
       "auto_grade": false,
       "primary_file": "plans/design/frontend/specifics/charting.md",
-      "requires_in_scope": ["plans/design/frontend/specifics/charting.md"],
+      "requires_in_scope": [
+        "plans/design/frontend/specifics/charting.md"
+      ],
       "judge_note": "No paint routine reads the color; behaviorally the doc is right. Acceptable to leave. Present to observe whether the agent over-reacts to a vestige."
     },
     {
@@ -741,12 +1153,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/structures_and_views.md",
-      "requires_in_scope": ["plans/design/structures_and_views.md"],
+      "requires_in_scope": [
+        "plans/design/structures_and_views.md"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-0 pass (2026-09-18). Intra-L1 contradiction: concepts_and_decisions.md § Risks says corporate-action freshness is specified but NOT performed (nothing advances action_freshness); core/engine/tests/hex/session/test_session_makes_no_freshness_call.py is an AST guard asserting admission makes no freshness call. structures_and_views.md's synchronous-gate enumeration wrongly listed it among the checks performed.",
       "doc_claim": "Synchronous gate = 'ownership, a pinned strategy version, resolution over the whole span, corporate-action freshness, and that every declared subscription resolves'.",
       "code_reality": "The gate makes no corporate-action freshness call; guarded by test_session_makes_no_freshness_call.py. concepts_and_decisions.md agrees.",
-      "signature": {"file": "plans/design/structures_and_views.md", "must_not_contain": ["the whole span, corporate-action freshness, and"]},
-      "report_keywords": ["corporate-action freshness", "freshness"]
+      "signature": {
+        "file": "plans/design/structures_and_views.md",
+        "must_not_contain": [
+          "the whole span, corporate-action freshness, and"
+        ]
+      },
+      "report_keywords": [
+        "corporate-action freshness",
+        "freshness"
+      ]
     },
     {
       "id": "e-web-flatten-still-to-come",
@@ -756,12 +1178,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/entrypoints/web.py",
-      "requires_in_scope": ["core/engine/src/entrypoints/web.py"],
+      "requires_in_scope": [
+        "core/engine/src/entrypoints/web.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-0 pass (2026-09-18). Verified: cont_session_http.py ROUTES include ('POST','/session/sessions/{session_id}/flatten') and PORT_MEMBERS include 'flatten'. Same live-half-built drift class as e-flatten-designed-not-built / e-concepts-no-clocklive, in a new file.",
       "doc_claim": "'flatten does not exist on this port at all' and the out-of-band flatten kill switch 'is still to come'.",
       "code_reality": "flatten is served over HTTP by cont_session_http.py as the session surface's only write.",
-      "signature": {"file": "core/engine/src/entrypoints/web.py", "must_contain": ["is served here"]},
-      "report_keywords": ["flatten", "still to come"]
+      "signature": {
+        "file": "core/engine/src/entrypoints/web.py",
+        "must_contain": [
+          "is served here"
+        ]
+      },
+      "report_keywords": [
+        "flatten",
+        "still to come"
+      ]
     },
     {
       "id": "e-session-init-live-unbuilt",
@@ -771,12 +1203,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/__init__.py",
-      "requires_in_scope": ["core/engine/src/hex/session/__init__.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/__init__.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-0 pass (2026-09-18). Verified: clock_live.py is a real adapter; worker_live registers the stint.advance task; flatten served; LiveSessionsUnavailable no longer raised. NOTE: the agent corrects by quoting the old stale text and marking it 'now false', so the stale phrase remains present as a quote — signature anchors on the NEW heading.",
       "doc_claim": "'## Live is refused because there is no live execution path' and 'deliberately absent: ClockLive, flatten and the Control group'.",
       "code_reality": "ClockLive, worker_live's stint.advance task, and out-of-band flatten are built; an entitled live session is admitted and runs.",
-      "signature": {"file": "core/engine/src/hex/session/__init__.py", "must_contain": ["Live is admitted for an entitled owner"]},
-      "report_keywords": ["Live is refused", "ClockLive", "flatten"]
+      "signature": {
+        "file": "core/engine/src/hex/session/__init__.py",
+        "must_contain": [
+          "Live is admitted for an entitled owner"
+        ]
+      },
+      "report_keywords": [
+        "Live is refused",
+        "ClockLive",
+        "flatten"
+      ]
     },
     {
       "id": "e-session-driven-init-clocklive-absent",
@@ -786,12 +1229,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/adapters/driven/__init__.py",
-      "requires_in_scope": ["core/engine/src/hex/session/adapters/driven/__init__.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/adapters/driven/__init__.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-0 pass (2026-09-18). Verified: clock_live.py exists in the driven package beside clock_simulated.py, clock_wall_system.py, clock_compute_monotonic.py, decision_grid.py.",
       "doc_claim": "'ClockLive is not here, and its absence is a decision rather than an oversight'.",
       "code_reality": "ClockLive is in this package; a live session can be created.",
-      "signature": {"file": "core/engine/src/hex/session/adapters/driven/__init__.py", "must_contain": ["`ClockLive` is in this package"]},
-      "report_keywords": ["ClockLive", "not here"]
+      "signature": {
+        "file": "core/engine/src/hex/session/adapters/driven/__init__.py",
+        "must_contain": [
+          "`ClockLive` is in this package"
+        ]
+      },
+      "report_keywords": [
+        "ClockLive",
+        "not here"
+      ]
     },
     {
       "id": "e-client-postgres-worker-live-no-task",
@@ -801,12 +1254,22 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/shared/clients/client_postgres.py",
-      "requires_in_scope": ["core/engine/src/shared/clients/client_postgres.py"],
+      "requires_in_scope": [
+        "core/engine/src/shared/clients/client_postgres.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-0 pass (2026-09-18). Verified: worker_live.py registers the stint.advance task via graph.queue_app.task; live create is admitted for an entitled owner.",
       "doc_claim": "'worker_live ... registers no task: create refuses mode=live, so no live stint exists to measure yet'.",
       "code_reality": "worker_live registers the stint.advance task and an entitled live session runs on its loop.",
-      "signature": {"file": "core/engine/src/shared/clients/client_postgres.py", "must_contain": ["both clauses are now false"]},
-      "report_keywords": ["worker_live", "no task"]
+      "signature": {
+        "file": "core/engine/src/shared/clients/client_postgres.py",
+        "must_contain": [
+          "both clauses are now false"
+        ]
+      },
+      "report_keywords": [
+        "worker_live",
+        "no task"
+      ]
     },
     {
       "id": "e-errors-livesessionsunavailable-stale",
@@ -816,11 +1279,18 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/domain/errors.py",
-      "requires_in_scope": ["core/engine/src/hex/session/domain/errors.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/domain/errors.py"
+      ],
       "_provenance": "Flagged (NOT fixed — out of group-0 scope) by the accumulate sweep group-0 pass (2026-09-18) and independently verified: grep shows LiveSessionsUnavailable is never raised (only referenced in comments as the gap that 'used to refuse'); cont_session.py ~line 159 says 'the execution-path gap that used to refuse it (LiveSessionsUnavailable)'. The class docstring still asserts the live gap exists.",
       "doc_claim": "LiveSessionsUnavailable docstring asserts live can't be admitted because there is no live execution path.",
       "code_reality": "The admission gap was deleted (mod 119); LiveSessionsUnavailable is defined but never raised.",
-      "signature": {"file": "core/engine/src/hex/session/domain/errors.py", "must_contain": ["DEAD: no longer raised"]}
+      "signature": {
+        "file": "core/engine/src/hex/session/domain/errors.py",
+        "must_contain": [
+          "DEAD: no longer raised"
+        ]
+      }
     },
     {
       "id": "e-queue-host-live-unbuilt",
@@ -830,12 +1300,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/entrypoints/queue_host.py",
-      "requires_in_scope": ["core/engine/src/entrypoints/queue_host.py"],
+      "requires_in_scope": [
+        "core/engine/src/entrypoints/queue_host.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-3 pass (2026-09-18). Same live-half-built drift class as e-queue*/e-session-init-live-unbuilt/e-web-flatten-still-to-come. Verified: worker_live.py registers one task stint.advance; session_service.create admits an entitled owner's live session (the refusal was inverted, not deleted), raising only LiveNotEntitled / SecondLiveSession.",
       "doc_claim": "'worker_live registers none ... create refuses mode=live, so no live job can exist. Closing property: a live session can be created.'",
       "code_reality": "worker_live registers stint.advance; create admits an entitled owner's live session, refusing only unentitled / second-concurrent.",
-      "signature": {"file": "core/engine/src/entrypoints/queue_host.py", "must_contain": ["admits an entitled owner's live session"]},
-      "report_keywords": ["worker_live", "stint.advance", "live"]
+      "signature": {
+        "file": "core/engine/src/entrypoints/queue_host.py",
+        "must_contain": [
+          "admits an entitled owner's live session"
+        ]
+      },
+      "report_keywords": [
+        "worker_live",
+        "stint.advance",
+        "live"
+      ]
     },
     {
       "id": "e-mcp-transport-counts",
@@ -845,12 +1326,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/entrypoints/mcp_transport.py",
-      "requires_in_scope": ["core/engine/src/entrypoints/mcp_transport.py"],
+      "requires_in_scope": [
+        "core/engine/src/entrypoints/mcp_transport.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-4 pass (2026-09-18). Ripple of the 8th market MCP tool (market_get_regular_hours) + the feedback module's 5 tools. An earlier pass fixed market.md / structure.md / cont_market_mcp.py but not this entrypoint. Arithmetic verified: 5+8+6+5=24 port-backed wrappers; whoami takes no port.",
       "doc_claim": "'Seven tools over ContMarketMcp'; 'A None flowing into eighteen wrappers would need eighteen guards'.",
       "code_reality": "_register_market_tools defines 8 @server.tool market tools; _SchemaOnlyPort backs 24 port wrappers.",
-      "signature": {"file": "core/engine/src/entrypoints/mcp_transport.py", "must_contain": ["Eight tools over `ContMarketMcp`"]},
-      "report_keywords": ["market", "tools", "wrappers"]
+      "signature": {
+        "file": "core/engine/src/entrypoints/mcp_transport.py",
+        "must_contain": [
+          "Eight tools over `ContMarketMcp`"
+        ]
+      },
+      "report_keywords": [
+        "market",
+        "tools",
+        "wrappers"
+      ]
     },
     {
       "id": "e-repo-session-fence-built",
@@ -860,12 +1352,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/ports/driven/repo_session.py",
-      "requires_in_scope": ["core/engine/src/hex/session/ports/driven/repo_session.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/ports/driven/repo_session.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-4 pass (2026-09-18). Verified: SessionService.flatten calls transition_status(bump_fence=True); read_run_guard's fence_epoch half now has a live subject.",
       "doc_claim": "'Nothing bumps fence_epoch until advance 007'; transition_status 'the fifth one the live flatten path will bring'.",
       "code_reality": "The out-of-band flatten path bumps fence_epoch (bump_fence=True) today; read_run_guard is how a mid-cycle worker discovers the moved epoch.",
-      "signature": {"file": "core/engine/src/hex/session/ports/driven/repo_session.py", "must_contain": ["The `fence_epoch` half now has a live subject too"]},
-      "report_keywords": ["fence_epoch", "flatten", "advance 007"]
+      "signature": {
+        "file": "core/engine/src/hex/session/ports/driven/repo_session.py",
+        "must_contain": [
+          "The `fence_epoch` half now has a live subject too"
+        ]
+      },
+      "report_keywords": [
+        "fence_epoch",
+        "flatten",
+        "advance 007"
+      ]
     },
     {
       "id": "e-repo-session-postgres-fence-comment",
@@ -875,12 +1378,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/adapters/driven/repo_session_postgres.py",
-      "requires_in_scope": ["core/engine/src/hex/session/adapters/driven/repo_session_postgres.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/adapters/driven/repo_session_postgres.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-4 pass (2026-09-18). Verified alongside e-repo-session-fence-built; the flatten path exists and uses _TRANSITION_AND_FENCE carrying the same CASE.",
       "doc_claim": "'the fifth one the live flatten path will bring, written by somebody who will not have read this'.",
       "code_reality": "The live flatten path is built and uses _TRANSITION_AND_FENCE below.",
-      "signature": {"file": "core/engine/src/hex/session/adapters/driven/repo_session_postgres.py", "must_contain": ["the live `flatten` path (which uses `_TRANSITION_AND_FENCE`"]},
-      "report_keywords": ["flatten", "fence", "_TRANSITION"]
+      "signature": {
+        "file": "core/engine/src/hex/session/adapters/driven/repo_session_postgres.py",
+        "must_contain": [
+          "the live `flatten` path (which uses `_TRANSITION_AND_FENCE`"
+        ]
+      },
+      "report_keywords": [
+        "flatten",
+        "fence",
+        "_TRANSITION"
+      ]
     },
     {
       "id": "e-cont-session-port-flatten",
@@ -890,12 +1404,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/ports/driving/cont_session.py",
-      "requires_in_scope": ["core/engine/src/hex/session/ports/driving/cont_session.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/ports/driving/cont_session.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-4 pass (2026-09-18). flatten is a live built member (served over HTTP, bumps fence).",
       "doc_claim": "'Create, stop, read, and — eventually — advance a run.'",
       "code_reality": "The port declares create, stop, read, advance, and flatten (all built).",
-      "signature": {"file": "core/engine/src/hex/session/ports/driving/cont_session.py", "must_contain": ["Create, stop, read, advance, and flatten a run."]},
-      "report_keywords": ["flatten", "advance", "cont_session"]
+      "signature": {
+        "file": "core/engine/src/hex/session/ports/driving/cont_session.py",
+        "must_contain": [
+          "Create, stop, read, advance, and flatten a run."
+        ]
+      },
+      "report_keywords": [
+        "flatten",
+        "advance",
+        "cont_session"
+      ]
     },
     {
       "id": "e-root-clocklive-not-run",
@@ -905,12 +1430,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/root.py",
-      "requires_in_scope": ["core/engine/src/root.py"],
+      "requires_in_scope": [
+        "core/engine/src/root.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-4 pass (2026-09-18); this is the exact root.py ~L1736 residue earlier passes flagged as out-of-scope. Verified: create admits an entitled live session; worker_live registers stint.advance. NOTE: root.py is also the primary_file of e-core-service-count-ripple (a different hunk — the core-service counts); this entry is the clock_factory live-path docstring.",
       "doc_claim": "'A ClockLive built here is not yet run. create still refuses a live session and worker_live registers no task'.",
       "code_reality": "ClockLive is run in production; worker_live drives live stints; create admits an entitled live session.",
-      "signature": {"file": "core/engine/src/root.py", "must_contain": ["A `ClockLive` built here is run in production"]},
-      "report_keywords": ["ClockLive", "worker_live", "live branch"]
+      "signature": {
+        "file": "core/engine/src/root.py",
+        "must_contain": [
+          "A `ClockLive` built here is run in production"
+        ]
+      },
+      "report_keywords": [
+        "ClockLive",
+        "worker_live",
+        "live branch"
+      ]
     },
     {
       "id": "e-telemetry-stint-retries-label",
@@ -920,12 +1456,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/engine/specifics/telemetry.md",
-      "requires_in_scope": ["plans/design/engine/specifics/telemetry.md"],
+      "requires_in_scope": [
+        "plans/design/engine/specifics/telemetry.md"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-4 pass (2026-09-18). Class I (doc contradicts its own Hard Boundary against unbounded labels) + Class II (cont_session_queue.py emits _STINT_RETRIES = create_counter('stint.retries') unlabelled; mode not reachable at that boundary).",
       "doc_claim": "'stint.retries | Counter | By session. Approaching the cap is a poison stint'.",
       "code_reality": "cont_session_queue.py emits stint.retries unlabelled; a session_id label would be unbounded.",
-      "signature": {"file": "plans/design/engine/specifics/telemetry.md", "must_contain": ["Counter | **Unlabelled**"]},
-      "report_keywords": ["stint.retries", "unlabelled", "session"]
+      "signature": {
+        "file": "plans/design/engine/specifics/telemetry.md",
+        "must_contain": [
+          "Counter | **Unlabelled**"
+        ]
+      },
+      "report_keywords": [
+        "stint.retries",
+        "unlabelled",
+        "session"
+      ]
     },
     {
       "id": "e-exchange-errors-profilefact-link",
@@ -935,12 +1482,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/exchange/domain/errors.py",
-      "requires_in_scope": ["core/engine/src/hex/exchange/domain/errors.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/exchange/domain/errors.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-6 pass (2026-09-18). Verified: grep of the 'fourth meaning / absent key is a load error' rule = 0 hits in doctrine_ext.md, 1 in reference_data.md; the same file's module docstring already points the third-state rule at reference_data.md.",
       "doc_claim": "'... the fourth meaning plans/design/doctrine_ext.md forbids.'",
       "code_reality": "The rule is stated in plans/design/specifics/reference_data.md, not doctrine_ext.md.",
-      "signature": {"file": "core/engine/src/hex/exchange/domain/errors.py", "must_contain": ["the fourth meaning `plans/design/specifics/reference_data.md` forbids"]},
-      "report_keywords": ["fourth meaning", "reference_data", "doctrine_ext"]
+      "signature": {
+        "file": "core/engine/src/hex/exchange/domain/errors.py",
+        "must_contain": [
+          "the fourth meaning `plans/design/specifics/reference_data.md` forbids"
+        ]
+      },
+      "report_keywords": [
+        "fourth meaning",
+        "reference_data",
+        "doctrine_ext"
+      ]
     },
     {
       "id": "e-refusal-documented-count",
@@ -950,12 +1508,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/exchange/domain/refusal.py",
-      "requires_in_scope": ["core/engine/src/hex/exchange/domain/refusal.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/exchange/domain/refusal.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-6 pass (2026-09-18). Self-contradiction: refusal.py's own 'Two named constructors' section documents ours->DOCUMENTED. Verified: rejection_policy.py has two Refusal.ours( call sites (lines 359, 463) plus the ceiling.",
       "doc_claim": "'one refusal in this module's whole taxonomy that comes out DOCUMENTED — the client-order-id ceiling'.",
       "code_reality": "The ceiling is the one ROW-DERIVED DOCUMENTED refusal; the two ours refusals are DOCUMENTED too but claim no row.",
-      "signature": {"file": "core/engine/src/hex/exchange/domain/refusal.py", "must_contain": ["The `ours` refusals below are"]},
-      "report_keywords": ["DOCUMENTED", "row-derived", "ours"]
+      "signature": {
+        "file": "core/engine/src/hex/exchange/domain/refusal.py",
+        "must_contain": [
+          "The `ours` refusals below are"
+        ]
+      },
+      "report_keywords": [
+        "DOCUMENTED",
+        "row-derived",
+        "ours"
+      ]
     },
     {
       "id": "e-profile-file-prior-evidence-count",
@@ -965,12 +1534,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/exchange/adapters/driven/repo_platform_profile_file.py",
-      "requires_in_scope": ["core/engine/src/hex/exchange/adapters/driven/repo_platform_profile_file.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/exchange/adapters/driven/repo_platform_profile_file.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-6 pass (2026-09-18). This is the exact population-collapse refusal.py's own from_row note corrects. Verified: refusal.py:134 names bracket_resize_on_partial_entry_fill + client_order_id_dedup as the prior_evidence carriers (two, not three).",
       "doc_claim": "'three rows carry evidence: [] and cite a tape outside this corpus in prior_evidence instead'.",
       "code_reality": "Three rows carry evidence:[] but only two cite prior_evidence; client_order_id_ceiling is documented and cites nothing.",
-      "signature": {"file": "core/engine/src/hex/exchange/adapters/driven/repo_platform_profile_file.py", "must_contain": ["and cites nothing at all"]},
-      "report_keywords": ["prior_evidence", "evidence", "three rows"]
+      "signature": {
+        "file": "core/engine/src/hex/exchange/adapters/driven/repo_platform_profile_file.py",
+        "must_contain": [
+          "and cites nothing at all"
+        ]
+      },
+      "report_keywords": [
+        "prior_evidence",
+        "evidence",
+        "three rows"
+      ]
     },
     {
       "id": "e-cont-market-derive-divider",
@@ -980,12 +1560,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/ports/driving/cont_market.py",
-      "requires_in_scope": ["core/engine/src/hex/market/ports/driving/cont_market.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/ports/driving/cont_market.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-8 pass (2026-09-18). Verified: cont_market.py's own module docstring (line ~10) names a 'derive group — aggregate and aggregate_open — and the maintenance ...' split; the section divider over aggregate/aggregate_open said Maintenance. Intra-file contradiction (comment vs docstring).",
       "doc_claim": "'# ---- Maintenance ----' divider placed over aggregate / aggregate_open.",
       "code_reality": "aggregate/aggregate_open are the 'Derive' group per the file's own docstring + market.md; maintenance is seal_stale / verify.",
-      "signature": {"file": "core/engine/src/hex/market/ports/driving/cont_market.py", "must_contain": ["# ---- Derive ----"]},
-      "report_keywords": ["Derive", "Maintenance", "aggregate"]
+      "signature": {
+        "file": "core/engine/src/hex/market/ports/driving/cont_market.py",
+        "must_contain": [
+          "# ---- Derive ----"
+        ]
+      },
+      "report_keywords": [
+        "Derive",
+        "Maintenance",
+        "aggregate"
+      ]
     },
     {
       "id": "e-exogenous-series-tick-home",
@@ -995,12 +1586,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/indicator/adapters/driven/indicator_exogenous_series.py",
-      "requires_in_scope": ["core/engine/src/hex/indicator/adapters/driven/indicator_exogenous_series.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/indicator/adapters/driven/indicator_exogenous_series.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-8 pass (2026-09-18). Verified: grep for the figure (10,824,719 / 10,824,769) = 0 hits in indicator.md; the numbers survive only in CHANGELOG.md, mod-044/098 records, and the type's test docstring (which disagree, 50 apart). The agent correctly did NOT author a figure into indicator.md (code does not compute it; candidates disagree).",
       "doc_claim": "'The corpus figure lives in indicator.md alone.'",
       "code_reality": "indicator.md carries no such figure; the comment should not name a false home.",
-      "signature": {"file": "core/engine/src/hex/indicator/adapters/driven/indicator_exogenous_series.py", "must_contain": ["therefore does not pin to any single home"]},
-      "report_keywords": ["corpus figure", "indicator.md", "denominator"]
+      "signature": {
+        "file": "core/engine/src/hex/indicator/adapters/driven/indicator_exogenous_series.py",
+        "must_contain": [
+          "therefore does not pin to any single home"
+        ]
+      },
+      "report_keywords": [
+        "corpus figure",
+        "indicator.md",
+        "denominator"
+      ]
     },
     {
       "id": "e-gwy-vendor-scid-column-count",
@@ -1010,12 +1612,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/adapters/driven/gwy_vendor_scid.py",
-      "requires_in_scope": ["core/engine/src/hex/market/adapters/driven/gwy_vendor_scid.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/adapters/driven/gwy_vendor_scid.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-9 pass (2026-09-18). Intra-file contradiction: line 82 already says 'nine parallel columns'; the _fetch comment (line ~365) said 'eight'.",
       "doc_claim": "'the whole block becomes eight parallel columns over the source dtype'.",
       "code_reality": "_SOURCE_DTYPE has nine fields; the file's own dtype-definition comment says nine.",
-      "signature": {"file": "core/engine/src/hex/market/adapters/driven/gwy_vendor_scid.py", "must_contain": ["the whole block becomes nine parallel"]},
-      "report_keywords": ["nine parallel", "columns", "dtype"]
+      "signature": {
+        "file": "core/engine/src/hex/market/adapters/driven/gwy_vendor_scid.py",
+        "must_contain": [
+          "the whole block becomes nine parallel"
+        ]
+      },
+      "report_keywords": [
+        "nine parallel",
+        "columns",
+        "dtype"
+      ]
     },
     {
       "id": "e-repo-registry-actions-dir",
@@ -1025,12 +1638,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/adapters/driven/repo_registry_file.py",
-      "requires_in_scope": ["core/engine/src/hex/market/adapters/driven/repo_registry_file.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/adapters/driven/repo_registry_file.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-9 pass (2026-09-18). Verified: list_seed_actions (line ~136) parses meta/actions/*.yml on demand; the module docstring's directory enumeration read as complete but omitted it.",
       "doc_claim": "'Reads meta/instruments/, meta/listings/, meta/calendars/, and meta/sources/' (read as complete).",
       "code_reality": "meta/actions/ is also a registry directory, read separately/on-demand by list_seed_actions.",
-      "signature": {"file": "core/engine/src/hex/market/adapters/driven/repo_registry_file.py", "must_contain": ["`meta/actions/` is the one registry directory"]},
-      "report_keywords": ["meta/actions", "list_seed_actions", "registry"]
+      "signature": {
+        "file": "core/engine/src/hex/market/adapters/driven/repo_registry_file.py",
+        "must_contain": [
+          "`meta/actions/` is the one registry directory"
+        ]
+      },
+      "report_keywords": [
+        "meta/actions",
+        "list_seed_actions",
+        "registry"
+      ]
     },
     {
       "id": "e-market-service-read-count",
@@ -1040,12 +1664,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/market/alogic/market_service.py",
-      "requires_in_scope": ["core/engine/src/hex/market/alogic/market_service.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/market/alogic/market_service.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-9 pass (2026-09-18). Sibling of e-read-service-reads (five read iterators, not four). Agent dropped the rot-prone count rather than writing 'five', per guards.md.",
       "doc_claim": "'four iterators differing only in how they decode is one traversal, and four copies of it is four places for the continuity stitch to drift'.",
       "code_reality": "There are five read iterators (ticks, bars, samples, record-arrays, + the fifth); the count is rot-prone and was dropped.",
-      "signature": {"file": "core/engine/src/hex/market/alogic/market_service.py", "must_not_contain": ["four copies of it is four places"]},
-      "report_keywords": ["iterators", "traversal", "continuity stitch"]
+      "signature": {
+        "file": "core/engine/src/hex/market/alogic/market_service.py",
+        "must_not_contain": [
+          "four copies of it is four places"
+        ]
+      },
+      "report_keywords": [
+        "iterators",
+        "traversal",
+        "continuity stitch"
+      ]
     },
     {
       "id": "e-cont-session-http-getprogress-live",
@@ -1055,12 +1690,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/adapters/driving/cont_session_http.py",
-      "requires_in_scope": ["core/engine/src/hex/session/adapters/driving/cont_session_http.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/adapters/driving/cont_session_http.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-11 pass (2026-09-18); a DISTINCT defect in the same file as e-cont-session-http-member-count. Verified: session_service.py:1331 get_progress returns SessionProgress(elapsed=wall.now()-start_time) for live, no NotImplementedError; create admits an entitled live session.",
       "doc_claim": "'SessionService.get_progress raises NotImplementedError on a live session ... unreachable today because create refuses live'.",
       "code_reality": "get_progress answers a live session directly (elapsed off the injected wall clock); create admits an entitled owner's live session.",
-      "signature": {"file": "core/engine/src/hex/session/adapters/driving/cont_session_http.py", "must_contain": ["answers a `live` session directly now"]},
-      "report_keywords": ["get_progress", "NotImplementedError", "live"]
+      "signature": {
+        "file": "core/engine/src/hex/session/adapters/driving/cont_session_http.py",
+        "must_contain": [
+          "answers a `live` session directly now"
+        ]
+      },
+      "report_keywords": [
+        "get_progress",
+        "NotImplementedError",
+        "live"
+      ]
     },
     {
       "id": "e-cycle-runner-live-fence",
@@ -1070,12 +1716,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/engine/src/hex/session/alogic/cycle_runner.py",
-      "requires_in_scope": ["core/engine/src/hex/session/alogic/cycle_runner.py"],
+      "requires_in_scope": [
+        "core/engine/src/hex/session/alogic/cycle_runner.py"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-11 pass (2026-09-18). Live/fence cluster. Verified: SessionService.flatten bumps fence_epoch on a live session; the live-only cycle_record write is guarded by mode_is_live in run.",
       "doc_claim": "'_check_run_guard: Nothing bumps fence_epoch until advance 007'; '_detected: It becomes a row in advance 007'.",
       "code_reality": "flatten bumps fence_epoch today and the per-move read is where it binds; a live cycle is a cycle_record row (built).",
-      "signature": {"file": "core/engine/src/hex/session/alogic/cycle_runner.py", "must_contain": ["fence-bumping half is built"]},
-      "report_keywords": ["fence_epoch", "cycle_record", "advance 007"]
+      "signature": {
+        "file": "core/engine/src/hex/session/alogic/cycle_runner.py",
+        "must_contain": [
+          "fence-bumping half is built"
+        ]
+      },
+      "report_keywords": [
+        "fence_epoch",
+        "cycle_record",
+        "advance 007"
+      ]
     },
     {
       "id": "e-data-access-flatten-route",
@@ -1085,12 +1742,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "plans/design/frontend/specifics/data_access.md",
-      "requires_in_scope": ["plans/design/frontend/specifics/data_access.md"],
+      "requires_in_scope": [
+        "plans/design/frontend/specifics/data_access.md"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-12 pass (2026-09-18); distinct from e-data-access-withheld-count / f-data-access-resolution-ms in the same file. Verified: cont_session_http serves POST /session/sessions/{id}/flatten (in _ROUTES, PORT_MEMBERS, web_paths.json). Flatten-built cluster.",
       "doc_claim": "ContSessionHttp route census listed only the GET routes (no flatten write).",
       "code_reality": "The census must include POST /session/sessions/{id}/flatten, the surface's only write.",
-      "signature": {"file": "plans/design/frontend/specifics/data_access.md", "must_contain": ["POST /session/sessions/{id}/flatten"]},
-      "report_keywords": ["flatten", "route census", "ContSessionHttp"]
+      "signature": {
+        "file": "plans/design/frontend/specifics/data_access.md",
+        "must_contain": [
+          "POST /session/sessions/{id}/flatten"
+        ]
+      },
+      "report_keywords": [
+        "flatten",
+        "route census",
+        "ContSessionHttp"
+      ]
     },
     {
       "id": "e-vis-play-hasstop-comment",
@@ -1100,12 +1768,23 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/frontend/src/hex/visualizer/domain/play.ts",
-      "requires_in_scope": ["core/frontend/src/hex/visualizer/domain/play.ts"],
+      "requires_in_scope": [
+        "core/frontend/src/hex/visualizer/domain/play.ts"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-12 pass (2026-09-18). Stop/target-persistence cluster (broker persists stop_price/target_price on Play; cont_session_http._play serializes both). Comment-only.",
       "doc_claim": "'From stop_order_id !== null. An order EXISTED; its price is not recorded.'",
       "code_reality": "stop_price is on the wire (persisted + serialized); the frontend does not consume it yet.",
-      "signature": {"file": "core/frontend/src/hex/visualizer/domain/play.ts", "must_contain": ["is on the wire but not consumed here yet"]},
-      "report_keywords": ["stop_price", "hasStop", "wire"]
+      "signature": {
+        "file": "core/frontend/src/hex/visualizer/domain/play.ts",
+        "must_contain": [
+          "is on the wire but not consumed here yet"
+        ]
+      },
+      "report_keywords": [
+        "stop_price",
+        "hasStop",
+        "wire"
+      ]
     },
     {
       "id": "e-vis-gwy-plays-wirekeys",
@@ -1115,12 +1794,432 @@
       "confidence": "high",
       "auto_grade": true,
       "primary_file": "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts",
-      "requires_in_scope": ["core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts"],
+      "requires_in_scope": [
+        "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts"
+      ],
       "_provenance": "Discovered by the accumulate sweep group-12 pass (2026-09-18). Verified: cont_session_http._play emits 23 keys = Play's 26 fields less three _WITHHELD (last_marked_cycle_index, platform_symbol, abandoned_at); this client declares a 21-key subset (drops stop_price/target_price it doesn't consume yet). Comment-only.",
       "doc_claim": "'21 KEYS, VERIFIED AGAINST cont_session_http.py::_play — Play's 22 fields less last_marked_cycle_index'.",
       "code_reality": "_play serializes 23 of Play's 26 fields (less 3 withheld); the client declares 21 of them.",
-      "signature": {"file": "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts", "must_contain": ["21 KEYS DECLARED, OF THE 23"]},
-      "report_keywords": ["WirePlay", "21 keys", "withheld"]
+      "signature": {
+        "file": "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts",
+        "must_contain": [
+          "21 KEYS DECLARED, OF THE 23"
+        ]
+      },
+      "report_keywords": [
+        "WirePlay",
+        "21 keys",
+        "withheld"
+      ]
+    },
+    {
+      "id": "e-strategy-init-builtin-count",
+      "title": "strategy/__init__.py summary names one built-in (cadence_bracket); two ship (mdc_tick)",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/strategy/__init__.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/strategy/__init__.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-0 (2026-09-29). Verified: core/engine/builtin_strategies/ holds cadence_bracket.py AND mdc_tick.py; strategy.md says 'Two built-ins ship'; sdk/__init__.py references mdc_tick. Built-in-count cluster (sibling of e-strategy-builtin-count in strategy.md and e-mcp-transport-builtin-only-one).",
+      "doc_claim": "'the built-in strategy at builtin_strategies/cadence_bracket.py' (singular).",
+      "code_reality": "Two built-ins ship: cadence_bracket.py and mdc_tick.py.",
+      "signature": {
+        "file": "core/engine/src/hex/strategy/__init__.py",
+        "must_contain": [
+          "mdc_tick"
+        ]
+      },
+      "report_keywords": [
+        "mdc_tick",
+        "two built-in"
+      ]
+    },
+    {
+      "id": "e-session-init-table-count",
+      "title": "session/__init__.py summary says 'The three tables'; the module owns five",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/session/__init__.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/session/__init__.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-0 (2026-09-29). Verified: session owns session, session_instrument, session_subscription, checkpoint, cycle_record (migrations 20260811 session_subscription, 20260826 session_cycle_record; domain dir + RepoSession). db_schema.md + cont_session.py concur.",
+      "doc_claim": "'The three tables (session, session_instrument, checkpoint)'.",
+      "code_reality": "Five tables: adds session_subscription and cycle_record.",
+      "signature": {
+        "file": "core/engine/src/hex/session/__init__.py",
+        "must_contain": [
+          "The five tables"
+        ]
+      },
+      "report_keywords": [
+        "five tables",
+        "session_subscription",
+        "cycle_record"
+      ]
+    },
+    {
+      "id": "e-session-init-control-group",
+      "title": "session/__init__.py summary lists ContSession's Lifecycle/Advance/Read groups, omits Control (flatten)",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/session/__init__.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/session/__init__.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-0 (2026-09-29). Verified: cont_session.py has a '# ---- Control ----' section (line 592) and its header docstring says 'Lifecycle, Advance, Read, and Control'; the Control group holds flatten. session.md agrees.",
+      "doc_claim": "\"ContSession's Lifecycle, Advance and Read groups\" (omits Control).",
+      "code_reality": "Four groups: Lifecycle, Advance, Read, Control (flatten).",
+      "signature": {
+        "file": "core/engine/src/hex/session/__init__.py",
+        "must_contain": [
+          "**Read** and **Control**"
+        ]
+      },
+      "report_keywords": [
+        "Control",
+        "flatten",
+        "ContSession"
+      ]
+    },
+    {
+      "id": "e-window-spec-calendar-count",
+      "title": "window_spec.py _localize docstring says 'four authored calendars'; eight exist",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/market/domain/window_spec.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/market/domain/window_spec.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-1 (2026-09-29). Verified: core/engine/meta/calendars/ holds eight .yml; market.md says 'Four of the eight authored calendars'. All eight use US zones so the DST-boundary reasoning generalises; only the count was stale.",
+      "doc_claim": "'None of the four authored calendars ... all four markets are shut.'",
+      "code_reality": "Eight authored calendars.",
+      "signature": {
+        "file": "core/engine/src/hex/market/domain/window_spec.py",
+        "must_contain": [
+          "None of the eight authored calendars"
+        ]
+      },
+      "report_keywords": [
+        "eight",
+        "calendars"
+      ]
+    },
+    {
+      "id": "e-adr0009-worker-sim-cpu",
+      "title": "ADR 0009 'Not 2.0' bullet cites a stale 4-core box / worker_sim 2.0; infra.yml declares worker_sim cpu 6.0 on the 8-core box",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "plans/design/adrs/0009_edge_resource_sizing_argon2_limiter.md",
+      "requires_in_scope": [
+        "plans/design/adrs/0009_edge_resource_sizing_argon2_limiter.md"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-2 (2026-09-29). Verified against infra/infra.yml: engine.worker_sim declares cpu 6.0 ('prod's 6 workers on the 8-core box, 2 held back'), contradicting the ADR's '4-core dev box' and 'worker_sim already declares 2.0'. The ADR decision (edge cpu 1.0, not 2.0) is unchanged and correct; only the supporting figures were stale (infra re-sized after the ADR).",
+      "doc_claim": "'the 4-core dev box hosts dev and test and worker_sim already declares 2.0'.",
+      "code_reality": "worker_sim declares cpu 6.0 on the 8-core box.",
+      "signature": {
+        "file": "plans/design/adrs/0009_edge_resource_sizing_argon2_limiter.md",
+        "must_contain": [
+          "6 pool workers on the 8-core box"
+        ]
+      },
+      "report_keywords": [
+        "worker_sim",
+        "6.0",
+        "8-core"
+      ]
+    },
+    {
+      "id": "e-mcp-transport-builtin-only-one",
+      "title": "mcp_transport.py strategy_register tool description says the shipped built-in 'is the only one'; two ship",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/entrypoints/mcp_transport.py",
+      "requires_in_scope": [
+        "core/engine/src/entrypoints/mcp_transport.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-4 (2026-09-29). Verified: two built-ins ship (cadence_bracket + mdc_tick); the same file's strategy_list tool already says 'the SHIPPED BUILT-INS' (plural). Built-in-count cluster (sibling of e-strategy-init-builtin-count). Distinct hunk from e-mcp-transport-counts (the tool/wrapper counts) which stays fixed.",
+      "doc_claim": "'READ THE SHIPPED BUILT-IN FIRST ... it is the worked example of the authoring contract, and it is the only one.'",
+      "code_reality": "Two built-ins ship; both are worked examples.",
+      "signature": {
+        "file": "core/engine/src/entrypoints/mcp_transport.py",
+        "must_contain": [
+          "the two worked examples"
+        ]
+      },
+      "report_keywords": [
+        "two built-in",
+        "worked examples"
+      ]
+    },
+    {
+      "id": "e-cont-broker-getplays-index",
+      "title": "cont_broker.py get_plays docstring says 'No new index'; the closed_* window rides the partial play_session_closed index",
+      "klass": "I",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/broker/ports/driving/cont_broker.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/broker/ports/driving/cont_broker.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-5 (2026-09-29). Verified: the closed_* window rides partial index play_session_closed on (session_id, closed_at) added by migration 20260822000000_broker_play_closed_index.sql; repo_broker.py, repo_broker_postgres.py, broker.md, db_schema.md all name it. cont_broker.py was the lone stale copy (docstring updated for closed_* params but its index note not).",
+      "doc_claim": "'It rides the existing play_session_placed index ... No new index.'",
+      "code_reality": "placed_* rides play_session_placed; closed_* rides the partial play_session_closed index.",
+      "signature": {
+        "file": "core/engine/src/hex/broker/ports/driving/cont_broker.py",
+        "must_contain": [
+          "play_session_closed"
+        ]
+      },
+      "report_keywords": [
+        "play_session_closed",
+        "partial index",
+        "closed_at"
+      ]
+    },
+    {
+      "id": "e-indicator-channel-scale-exclusion",
+      "title": "indicator.md + 3 code docs list the excluded-from-key declaration set as three (shape/storage_kind/channel_count); the code conflict-checks four (adds channel_scale_exponent)",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "plans/design/engine/module/indicator.md",
+      "requires_in_scope": [
+        "plans/design/engine/module/indicator.md"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-7 (2026-09-29). Verified: repo_indicator_postgres.py:226 'declared = (shape, storage_kind, channel_count, channel_scale_exponent)' conflict-checks FOUR; four docs listed three. Fixed across indicator.md, instance_key.py, repo_indicator.py, errors.py (code siblings docstring-only).",
+      "doc_claim": "'resolve_instance takes the key and the type's declared shape / storage_kind / channel_count' (three).",
+      "code_reality": "Four declarations conflict-checked; channel_scale_exponent is the fourth.",
+      "signature": {
+        "file": "plans/design/engine/module/indicator.md",
+        "must_contain": [
+          "channel_count` / `channel_scale_exponent"
+        ]
+      },
+      "report_keywords": [
+        "channel_scale_exponent",
+        "declaration conflict"
+      ]
+    },
+    {
+      "id": "e-indicator-seal-lines-raise",
+      "title": "indicator.md + cont_indicator.py say seal_lines raises on a named instance with no row; only an orphan raises, an idle instance is a no-op",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/indicator/ports/driving/cont_indicator.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/indicator/ports/driving/cont_indicator.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-7 (2026-09-29). Verified: IndicatorService.seal_lines -> _instances_with_chunks reaches the IndicatorInstanceNotFound raise only for an orphan (a chunk whose instance row is gone); a named instance holding no chunks is a silent no-op (the CLI do_seal + _instances_with_chunks docstrings already said so). Fixed indicator.md Maintenance row + cont_indicator.py.",
+      "doc_claim": "'raises on a named instance with no row or a chunk whose instance row is gone'.",
+      "code_reality": "Only orphans raise; an idle named instance is a silent no-op.",
+      "signature": {
+        "file": "core/engine/src/hex/indicator/ports/driving/cont_indicator.py",
+        "must_contain": [
+          "silent no-op and not a raise"
+        ]
+      },
+      "report_keywords": [
+        "orphan",
+        "seal_lines",
+        "no-op"
+      ]
+    },
+    {
+      "id": "e-roll-service-spread-points",
+      "title": "roll_service.py module docstring says the cash-settled roll error is 'a calendar spread of about 11 points'; it is 5.5 (19.75-14.25) and the file's own _last_back_print says 5.5",
+      "klass": "I",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/market/alogic/roll_service.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/market/alogic/roll_service.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-8 (2026-09-29). Self-contradiction: 19.75-14.25=5.5 (not 11); the file's own _last_back_print docstring says '5.5 points are 7.5 hours of market drift wearing a calendar spread's clothes'. The stray 11 conflated with the unrelated 8.94-11.60 index-point pricing gap.",
+      "doc_claim": "'differencing them gives 19.75 where the matched pair gives 14.25 - a calendar spread of about 11 points plus most of a session of market drift'.",
+      "code_reality": "The extra 5.5 points are market drift wearing a calendar spread's clothes; the real spread is the 14.25 matched pair.",
+      "signature": {
+        "file": "core/engine/src/hex/market/alogic/roll_service.py",
+        "must_not_contain": [
+          "calendar spread of about 11 points"
+        ]
+      },
+      "report_keywords": [
+        "5.5 points",
+        "11 points",
+        "calendar spread"
+      ]
+    },
+    {
+      "id": "e-read-service-rollover-citation",
+      "title": "read_service.py docstring attributes market.md's SPLIT-rule phrasing ('window start OF active_from') to the ROLLOVER rule; market.md's rollover rule is 'on or after'",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/market/alogic/read_service.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/market/alogic/read_service.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-9 (2026-09-29). Verified: market.md:435 rollover = 'the first scheduled window start on or after the boundary'; market.md:434 split = 'the first scheduled window start of effective_date'. The docstring pinned the naive 'of' reading onto market.md as the rollover trap; the code scans on-or-after (correct). Distinct hunk from e-read-service-reads (pinned-walk count) which stays fixed.",
+      "doc_claim": "'Reading market.md's \"first scheduled window start of the incoming listing's active_from\" literally therefore emits zero rollover events'.",
+      "code_reality": "market.md specifies the rollover instant on or after the boundary; the code scans on-or-after.",
+      "signature": {
+        "file": "core/engine/src/hex/market/alogic/read_service.py",
+        "must_contain": [
+          "which is exactly how market.md specifies the rollover instant"
+        ]
+      },
+      "report_keywords": [
+        "on or after",
+        "rollover",
+        "market.md"
+      ]
+    },
+    {
+      "id": "e-cont-market-readonly-listing-members",
+      "title": "cont_market_read_only.py 'Listing read' section comment says 'both members'; the group has four",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/engine/src/hex/market/ports/driving/cont_market_read_only.py",
+      "requires_in_scope": [
+        "core/engine/src/hex/market/ports/driving/cont_market_read_only.py"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-10 (2026-09-29). Verified: the listing-read group has four abstract methods (iter_listing_ticks/bars/samples/record_arrays); market.md 'Listing-exact reads are a third thing' says 'The family now has four members'. Second, distinct defect in the same file as e-cont-market-readonly-groups (the module-docstring group enumeration).",
+      "doc_claim": "'the whole content of both members here ... exactly as iter_ticks and iter_bars do'.",
+      "code_reality": "Four members; the description should name all four.",
+      "signature": {
+        "file": "core/engine/src/hex/market/ports/driving/cont_market_read_only.py",
+        "must_contain": [
+          "all four members here"
+        ]
+      },
+      "report_keywords": [
+        "four members",
+        "listing read"
+      ]
+    },
+    {
+      "id": "e-vis-gwy-subscriptions-one-port",
+      "title": "gwy_subscriptions.ts docstring says 'The one driven port this module needs'; visualizer has four driven ports",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/frontend/src/hex/visualizer/ports/driven/gwy_subscriptions.ts",
+      "requires_in_scope": [
+        "core/frontend/src/hex/visualizer/ports/driven/gwy_subscriptions.ts"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-11 (2026-09-29). Verified on disk: visualizer/ports/driven holds gwy_subscriptions, gwy_market, gwy_plays, gwy_indicator (+ four matching adapters); visualizer.md enumerates all four. Comment-only.",
+      "doc_claim": "'The one driven port this module needs: what a session declares.'",
+      "code_reality": "One of four driven ports (beside GwyMarket, GwyPlays, GwyIndicator).",
+      "signature": {
+        "file": "core/frontend/src/hex/visualizer/ports/driven/gwy_subscriptions.ts",
+        "must_contain": [
+          "four driven ports (beside"
+        ]
+      },
+      "report_keywords": [
+        "four driven ports",
+        "GwySubscriptions"
+      ]
+    },
+    {
+      "id": "e-vis-es-bar-coverage-march",
+      "title": "five frontend comments say dev ES bar coverage is 'June-July only'; mod-087 DQ1 also derived March bars (March U June-July 2021)",
+      "klass": "I",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/frontend/src/hex/visualizer/domain/chartable_span.ts",
+      "requires_in_scope": [
+        "core/frontend/src/hex/visualizer/domain/chartable_span.ts"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-12 (2026-09-29). Verified: the correct sibling session_subscription.ts says dev ES bar coverage is 'March 2021 U June-July 2021'; five stale mod-086-era comments (chartable_span.ts, cont_chart_data.ts, cont_visualizer_ui.ts x3) said 'June-July only'. Comment-only. Engine determines the fact (the March derive was executed).",
+      "doc_claim": "'the derived bars (June-July 2021)'.",
+      "code_reality": "dev ES bar coverage is March 2021 U June-July 2021.",
+      "signature": {
+        "file": "core/frontend/src/hex/visualizer/domain/chartable_span.ts",
+        "must_contain": [
+          "derived bars (March ∪ June–July 2021)"
+        ]
+      },
+      "report_keywords": [
+        "March",
+        "June-July",
+        "ES bars"
+      ]
+    },
+    {
+      "id": "e-vis-gwy-plays-declares-consumes",
+      "title": "gwy_plays_engine.ts WirePlay docstring says the client 'declares only what it consumes'; it declares four fields toPlay never reads",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts",
+      "requires_in_scope": [
+        "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-12 (2026-09-29). Verified: WirePlay declares multiplier, fee_per_contract, requested_quantity, entry_order_id, none read by toPlay - so 'declares only what it consumes' is false. Comment-only. Distinct from e-vis-gwy-plays-wirekeys (the 21-of-23 count) which stays fixed.",
+      "doc_claim": "'This client declares only what it consumes and drops stop_price / target_price'.",
+      "code_reality": "It declares several fields toPlay does not consume; it drops stop_price/target_price (on the wire, undrawn).",
+      "signature": {
+        "file": "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts",
+        "must_not_contain": [
+          "declares only what it consumes"
+        ]
+      },
+      "report_keywords": [
+        "declares only what it consumes",
+        "WirePlay"
+      ]
+    },
+    {
+      "id": "e-vis-gwy-subscriptions-underdescribe",
+      "title": "visualizer.md GwySubscriptions bullet says 'which indicator instances a session uses (one route)'; the port reads two routes and returns the whole declaration aggregate",
+      "klass": "II",
+      "expected_verdict": "fix",
+      "confidence": "high",
+      "auto_grade": true,
+      "primary_file": "plans/design/frontend/module/visualizer.md",
+      "requires_in_scope": [
+        "plans/design/frontend/module/visualizer.md"
+      ],
+      "_provenance": "Discovered by the pass-2 accumulate sweep group-12 (2026-09-29). Verified: gwy_subscriptions_engine.ts reads GET /session/sessions/{id} (line 78) and GET /session/sessions/{id}/subscriptions (line 82), returning the full declaration aggregate (instruments, resolved instances, backtest window). Distinct from f-visualizer-playextent / f-visualizer-selection-layer (same file, unaddressed judge entries).",
+      "doc_claim": "'GwySubscriptions - which indicator instances a session uses (GET .../subscriptions ...)'.",
+      "code_reality": "Two routes; returns the whole session-declaration aggregate driving the selection cascade.",
+      "signature": {
+        "file": "plans/design/frontend/module/visualizer.md",
+        "must_contain": [
+          "a session's declaration aggregate"
+        ]
+      },
+      "report_keywords": [
+        "declaration aggregate",
+        "GwySubscriptions",
+        "two routes"
+      ]
     }
   ]
 }
