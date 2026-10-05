@@ -1,0 +1,4318 @@
+{
+  "groups": [
+    {
+      "estimated_tokens": 399787,
+      "index": 0,
+      "overhead": [
+        {
+          "fpath": "plans/design/specifics/data_model.md",
+          "level": "L1",
+          "tokens": 3632
+        },
+        {
+          "fpath": "plans/design/specifics/storage_patterns.md",
+          "level": "L1",
+          "tokens": 2847
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/data_access.md",
+          "level": "L2",
+          "tokens": 14450
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/identity.md",
+          "level": "L3",
+          "tokens": 10230
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/entrypoints/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/broker_cli.py",
+          "level": "C",
+          "tokens": 668
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/cli.py",
+          "level": "C",
+          "tokens": 362
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/feedback_cli.py",
+          "level": "C",
+          "tokens": 408
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/identity_cli.py",
+          "level": "C",
+          "tokens": 519
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/indicator_cli.py",
+          "level": "C",
+          "tokens": 941
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/mcp.py",
+          "level": "C",
+          "tokens": 763
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/session_cli.py",
+          "level": "C",
+          "tokens": 838
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/strategy_cli.py",
+          "level": "C",
+          "tokens": 546
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/web.py",
+          "level": "C",
+          "tokens": 2069
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/worker_live.py",
+          "level": "C",
+          "tokens": 1220
+        },
+        {
+          "fpath": "core/engine/src/hex/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/session/__init__.py",
+          "level": "C",
+          "tokens": 2278
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/__init__.py",
+          "level": "C",
+          "tokens": 12
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 290
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_compute_monotonic.py",
+          "level": "C",
+          "tokens": 275
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_live.py",
+          "level": "C",
+          "tokens": 2740
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_simulated.py",
+          "level": "C",
+          "tokens": 2478
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_wall_system.py",
+          "level": "C",
+          "tokens": 238
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/decision_grid.py",
+          "level": "C",
+          "tokens": 2743
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 16
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/__init__.py",
+          "level": "C",
+          "tokens": 35
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/coverage_gate.py",
+          "level": "C",
+          "tokens": 4265
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/divergence_serde.py",
+          "level": "C",
+          "tokens": 2578
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/__init__.py",
+          "level": "C",
+          "tokens": 31
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/checkpoint.py",
+          "level": "C",
+          "tokens": 1506
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/cycle_record.py",
+          "level": "C",
+          "tokens": 752
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/divergence.py",
+          "level": "C",
+          "tokens": 1304
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/failure_cause.py",
+          "level": "C",
+          "tokens": 586
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/indicator_stream_state.py",
+          "level": "C",
+          "tokens": 1506
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/run_claim.py",
+          "level": "C",
+          "tokens": 1613
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/run_guard.py",
+          "level": "C",
+          "tokens": 1053
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session_instrument.py",
+          "level": "C",
+          "tokens": 308
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session_mode.py",
+          "level": "C",
+          "tokens": 288
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session_progress.py",
+          "level": "C",
+          "tokens": 1112
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session_result.py",
+          "level": "C",
+          "tokens": 522
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session_status.py",
+          "level": "C",
+          "tokens": 1523
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session_subscription.py",
+          "level": "C",
+          "tokens": 814
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/stint_outcome.py",
+          "level": "C",
+          "tokens": 1015
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/stop_reason.py",
+          "level": "C",
+          "tokens": 417
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/__init__.py",
+          "level": "C",
+          "tokens": 11
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 14
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/clock_compute.py",
+          "level": "C",
+          "tokens": 710
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/clock_decision.py",
+          "level": "C",
+          "tokens": 1372
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/clock_wall.py",
+          "level": "C",
+          "tokens": 464
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 15
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/__init__.py",
+          "level": "C",
+          "tokens": 2173
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/__init__.py",
+          "level": "C",
+          "tokens": 13
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 16
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 16
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/driving/cont_strategy_mcp.py",
+          "level": "C",
+          "tokens": 4398
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/alogic/__init__.py",
+          "level": "C",
+          "tokens": 35
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/alogic/source_loader.py",
+          "level": "C",
+          "tokens": 3395
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/__init__.py",
+          "level": "C",
+          "tokens": 35
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/content_address.py",
+          "level": "C",
+          "tokens": 556
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/errors.py",
+          "level": "C",
+          "tokens": 2873
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/export_shape.py",
+          "level": "C",
+          "tokens": 2258
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/registration_outcome.py",
+          "level": "C",
+          "tokens": 552
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/source_exports.py",
+          "level": "C",
+          "tokens": 881
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/strategy.py",
+          "level": "C",
+          "tokens": 534
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/strategy_version.py",
+          "level": "C",
+          "tokens": 1154
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/subscription.py",
+          "level": "C",
+          "tokens": 4098
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/ports/__init__.py",
+          "level": "C",
+          "tokens": 12
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 15
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/ports/driven/repo_strategy.py",
+          "level": "C",
+          "tokens": 3730
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 15
+        },
+        {
+          "fpath": "core/engine/src/sdk/corporate_action.py",
+          "level": "C",
+          "tokens": 708
+        },
+        {
+          "fpath": "core/engine/src/sdk/decision.py",
+          "level": "C",
+          "tokens": 1380
+        },
+        {
+          "fpath": "core/engine/src/sdk/errors.py",
+          "level": "C",
+          "tokens": 1465
+        },
+        {
+          "fpath": "core/engine/src/sdk/instrument_event.py",
+          "level": "C",
+          "tokens": 1178
+        },
+        {
+          "fpath": "core/engine/src/sdk/price_view.py",
+          "level": "C",
+          "tokens": 885
+        },
+        {
+          "fpath": "core/engine/src/sdk/resolution.py",
+          "level": "C",
+          "tokens": 1139
+        },
+        {
+          "fpath": "core/engine/src/shared/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_databento_live.py",
+          "level": "C",
+          "tokens": 874
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_databento_tape.py",
+          "level": "C",
+          "tokens": 783
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_postgres.py",
+          "level": "C",
+          "tokens": 2308
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_replay.py",
+          "level": "C",
+          "tokens": 1613
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/records_source.py",
+          "level": "C",
+          "tokens": 859
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/replay.py",
+          "level": "C",
+          "tokens": 954
+        },
+        {
+          "fpath": "core/engine/src/shared/telemetry_context.py",
+          "level": "C",
+          "tokens": 614
+        },
+        {
+          "fpath": "core/frontend/src/charting/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/charting/candle_geometry.ts",
+          "level": "C",
+          "tokens": 1184
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/paint_candles.ts",
+          "level": "C",
+          "tokens": 685
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/paint_grid.ts",
+          "level": "C",
+          "tokens": 736
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/paint_tick_line.ts",
+          "level": "C",
+          "tokens": 616
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/paint_x_axis.ts",
+          "level": "C",
+          "tokens": 668
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/palette.ts",
+          "level": "C",
+          "tokens": 1379
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/surface.ts",
+          "level": "C",
+          "tokens": 1094
+        },
+        {
+          "fpath": "core/frontend/src/charting/play_encoding.ts",
+          "level": "C",
+          "tokens": 1106
+        },
+        {
+          "fpath": "core/frontend/src/charting/play_hit_test.ts",
+          "level": "C",
+          "tokens": 1441
+        },
+        {
+          "fpath": "core/frontend/src/charting/projection.ts",
+          "level": "C",
+          "tokens": 1502
+        },
+        {
+          "fpath": "core/frontend/src/charting/readout_placement.ts",
+          "level": "C",
+          "tokens": 1872
+        },
+        {
+          "fpath": "core/frontend/src/charting/representation.ts",
+          "level": "C",
+          "tokens": 897
+        },
+        {
+          "fpath": "core/frontend/src/charting/step_path.ts",
+          "level": "C",
+          "tokens": 825
+        },
+        {
+          "fpath": "core/frontend/src/charting/viewport.ts",
+          "level": "C",
+          "tokens": 2102
+        },
+        {
+          "fpath": "core/frontend/src/entrypoints/web.ts",
+          "level": "C",
+          "tokens": 508
+        },
+        {
+          "fpath": "core/frontend/src/shared/interfaces/engine_web.ts",
+          "level": "C",
+          "tokens": 1990
+        },
+        {
+          "fpath": "core/frontend/src/shared/interfaces/engine_web_errors.ts",
+          "level": "C",
+          "tokens": 1471
+        },
+        {
+          "fpath": "core/frontend/src/ui/App.svelte",
+          "level": "C",
+          "tokens": 797
+        },
+        {
+          "fpath": "core/frontend/src/ui/AppFrame.svelte",
+          "level": "C",
+          "tokens": 806
+        },
+        {
+          "fpath": "core/frontend/src/ui/CopyButton.svelte",
+          "level": "C",
+          "tokens": 1788
+        },
+        {
+          "fpath": "core/frontend/src/ui/LoginView.svelte",
+          "level": "C",
+          "tokens": 1500
+        },
+        {
+          "fpath": "core/frontend/src/ui/Overlay.svelte",
+          "level": "C",
+          "tokens": 1008
+        },
+        {
+          "fpath": "core/frontend/src/ui/OverlayLegend.svelte",
+          "level": "C",
+          "tokens": 1470
+        },
+        {
+          "fpath": "core/frontend/src/ui/PlayLegend.svelte",
+          "level": "C",
+          "tokens": 1059
+        },
+        {
+          "fpath": "core/frontend/src/ui/QualifiedMetric.svelte",
+          "level": "C",
+          "tokens": 1595
+        },
+        {
+          "fpath": "core/frontend/src/ui/RegionRail.svelte",
+          "level": "C",
+          "tokens": 866
+        },
+        {
+          "fpath": "core/frontend/src/ui/SettingsOverlay.svelte",
+          "level": "C",
+          "tokens": 1918
+        },
+        {
+          "fpath": "core/frontend/src/ui/SummaryBand.svelte",
+          "level": "C",
+          "tokens": 1343
+        },
+        {
+          "fpath": "core/frontend/src/ui/TopBar.svelte",
+          "level": "C",
+          "tokens": 757
+        },
+        {
+          "fpath": "core/frontend/src/ui/app_state.ts",
+          "level": "C",
+          "tokens": 2161
+        },
+        {
+          "fpath": "core/frontend/src/ui/assets/nasmyth_themed.svg",
+          "level": "C",
+          "tokens": 1648
+        },
+        {
+          "fpath": "core/frontend/src/ui/assets/svg.d.ts",
+          "level": "C",
+          "tokens": 209
+        },
+        {
+          "fpath": "core/frontend/src/ui/router.ts",
+          "level": "C",
+          "tokens": 1866
+        },
+        {
+          "fpath": "core/frontend/src/ui/tokens.css",
+          "level": "C",
+          "tokens": 691
+        },
+        {
+          "fpath": "core/frontend/src/util/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/adrs/0001_fixed_foundation.md",
+          "level": "L1",
+          "tokens": 430
+        },
+        {
+          "fpath": "plans/design/adrs/0003_one_fill_engine_platform_profile.md",
+          "level": "L1",
+          "tokens": 592
+        },
+        {
+          "fpath": "plans/design/adrs/0004_mcp_primary_surface_asyncapi.md",
+          "level": "L1",
+          "tokens": 591
+        },
+        {
+          "fpath": "plans/design/adrs/0005_bounded_reads_as_driving_port_types.md",
+          "level": "L1",
+          "tokens": 566
+        },
+        {
+          "fpath": "plans/design/adrs/0007_single_runner_via_run_claim.md",
+          "level": "L1",
+          "tokens": 569
+        },
+        {
+          "fpath": "plans/design/adrs/0008_live_is_single_tenant.md",
+          "level": "L1",
+          "tokens": 512
+        },
+        {
+          "fpath": "plans/design/adrs/0010_secret_vs_config_classification.md",
+          "level": "L1",
+          "tokens": 689
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/reference_data.md",
+          "level": "L1",
+          "tokens": 2354
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/unknowns.md",
+          "level": "L1",
+          "tokens": 467
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 399502,
+      "index": 1,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        },
+        {
+          "fpath": "plans/design/specifics/storage_patterns.md",
+          "level": "L1",
+          "tokens": 2847
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/edge_configuration.md",
+          "level": "L2",
+          "tokens": 1370
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/entrypoints/bearer_gate.py",
+          "level": "C",
+          "tokens": 9173
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/stint_pool.py",
+          "level": "C",
+          "tokens": 2455
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/telemetry.py",
+          "level": "C",
+          "tokens": 2715
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/worker_sim.py",
+          "level": "C",
+          "tokens": 2571
+        },
+        {
+          "fpath": "core/engine/src/hex/market/__init__.py",
+          "level": "C",
+          "tokens": 489
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/__init__.py",
+          "level": "C",
+          "tokens": 19
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 15
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driven/repo_coverage_postgres.py",
+          "level": "C",
+          "tokens": 2659
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driven/repo_stream_file.py",
+          "level": "C",
+          "tokens": 3026
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 1465
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driving/cont_market_feed.py",
+          "level": "C",
+          "tokens": 1087
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driving/cont_market_feed_databento.py",
+          "level": "C",
+          "tokens": 2216
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/__init__.py",
+          "level": "C",
+          "tokens": 33
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/adjustment_service.py",
+          "level": "C",
+          "tokens": 2341
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/stream_builder.py",
+          "level": "C",
+          "tokens": 847
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/__init__.py",
+          "level": "C",
+          "tokens": 141
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/action_freshness.py",
+          "level": "C",
+          "tokens": 622
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/adjustment_epoch.py",
+          "level": "C",
+          "tokens": 692
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/aggregate_report.py",
+          "level": "C",
+          "tokens": 634
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/bar.py",
+          "level": "C",
+          "tokens": 1052
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/chunk.py",
+          "level": "C",
+          "tokens": 991
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/corporate_action.py",
+          "level": "C",
+          "tokens": 1827
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/coverage.py",
+          "level": "C",
+          "tokens": 2228
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/fixed_point.py",
+          "level": "C",
+          "tokens": 1111
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/halt.py",
+          "level": "C",
+          "tokens": 822
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/import_report.py",
+          "level": "C",
+          "tokens": 2028
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/instant.py",
+          "level": "C",
+          "tokens": 800
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/instrument.py",
+          "level": "C",
+          "tokens": 1789
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/instrument_event.py",
+          "level": "C",
+          "tokens": 1419
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/listing.py",
+          "level": "C",
+          "tokens": 1857
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/listing_chain.py",
+          "level": "C",
+          "tokens": 3111
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/listing_selection.py",
+          "level": "C",
+          "tokens": 1340
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/record_array.py",
+          "level": "C",
+          "tokens": 1127
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/record_schemas.py",
+          "level": "C",
+          "tokens": 1524
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/roll_factor_report.py",
+          "level": "C",
+          "tokens": 989
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/roll_reference.py",
+          "level": "C",
+          "tokens": 2843
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/sample.py",
+          "level": "C",
+          "tokens": 741
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/seed_report.py",
+          "level": "C",
+          "tokens": 428
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/source.py",
+          "level": "C",
+          "tokens": 2668
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/stream.py",
+          "level": "C",
+          "tokens": 1362
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/stream_fact_resolution.py",
+          "level": "C",
+          "tokens": 1258
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/stream_facts.py",
+          "level": "C",
+          "tokens": 944
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/stream_ownership.py",
+          "level": "C",
+          "tokens": 2638
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/tick.py",
+          "level": "C",
+          "tokens": 1952
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/trading_window.py",
+          "level": "C",
+          "tokens": 788
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/verify_report.py",
+          "level": "C",
+          "tokens": 1318
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/window_spec.py",
+          "level": "C",
+          "tokens": 3211
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/__init__.py",
+          "level": "C",
+          "tokens": 32
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 27
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driven/gwy_vendor.py",
+          "level": "C",
+          "tokens": 2390
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driven/repo_adjustment.py",
+          "level": "C",
+          "tokens": 1526
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driven/repo_coverage.py",
+          "level": "C",
+          "tokens": 1414
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driven/repo_registry.py",
+          "level": "C",
+          "tokens": 1680
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 30
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driving/cont_market_bounded.py",
+          "level": "C",
+          "tokens": 2086
+        },
+        {
+          "fpath": "core/engine/src/sdk/indicator_reader.py",
+          "level": "C",
+          "tokens": 3301
+        },
+        {
+          "fpath": "core/engine/src/sdk/play_snapshot.py",
+          "level": "C",
+          "tokens": 2567
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/paint_overlays.ts",
+          "level": "C",
+          "tokens": 2782
+        },
+        {
+          "fpath": "core/frontend/src/charting/y_scale.ts",
+          "level": "C",
+          "tokens": 2523
+        },
+        {
+          "fpath": "core/frontend/src/server/asset_handler.ts",
+          "level": "C",
+          "tokens": 2849
+        },
+        {
+          "fpath": "core/frontend/src/server/web.ts",
+          "level": "C",
+          "tokens": 2476
+        },
+        {
+          "fpath": "core/frontend/src/shared/clients/request_budget.ts",
+          "level": "C",
+          "tokens": 3214
+        },
+        {
+          "fpath": "core/frontend/src/ui/IndicatorSelector.svelte",
+          "level": "C",
+          "tokens": 2361
+        },
+        {
+          "fpath": "core/frontend/src/ui/MetricsPanel.svelte",
+          "level": "C",
+          "tokens": 2992
+        },
+        {
+          "fpath": "core/frontend/src/ui/SessionOverview.svelte",
+          "level": "C",
+          "tokens": 2493
+        },
+        {
+          "fpath": "core/frontend/src/ui/StrategyTree.svelte",
+          "level": "C",
+          "tokens": 3020
+        },
+        {
+          "fpath": "core/frontend/src/ui/regions/BacktestRegion.svelte",
+          "level": "C",
+          "tokens": 2410
+        },
+        {
+          "fpath": "core/frontend/src/ui/regions/DashboardRegion.svelte",
+          "level": "C",
+          "tokens": 2972
+        },
+        {
+          "fpath": "plans/design/adrs/0002_file_tree_primary_store.md",
+          "level": "L1",
+          "tokens": 573
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/specifics/edge_configuration.md",
+          "level": "L2",
+          "tokens": 1600
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/engine/specifics/structure.md",
+          "level": "L2",
+          "tokens": 5766
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 399948,
+      "index": 2,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/selection_state.md",
+          "level": "L2",
+          "tokens": 8742
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/entrypoints/feed_databento.py",
+          "level": "C",
+          "tokens": 7667
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/adapters/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/alogic/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/domain/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/domain/disposition.py",
+          "level": "C",
+          "tokens": 237
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/domain/errors.py",
+          "level": "C",
+          "tokens": 483
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/domain/submission_kind.py",
+          "level": "C",
+          "tokens": 252
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/ports/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/__init__.py",
+          "level": "C",
+          "tokens": 2034
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/__init__.py",
+          "level": "C",
+          "tokens": 13
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 29
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/driven/hash_secret_argon2.py",
+          "level": "C",
+          "tokens": 1330
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/driven/repo_identity_postgres.py",
+          "level": "C",
+          "tokens": 7290
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 284
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/driving/cont_identity_cli.py",
+          "level": "C",
+          "tokens": 7953
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/adapters/driving/cont_identity_http.py",
+          "level": "C",
+          "tokens": 13057
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/alogic/__init__.py",
+          "level": "C",
+          "tokens": 31
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/alogic/identity_service.py",
+          "level": "C",
+          "tokens": 6154
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/__init__.py",
+          "level": "C",
+          "tokens": 58
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/access_level.py",
+          "level": "C",
+          "tokens": 703
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/credential.py",
+          "level": "C",
+          "tokens": 420
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/errors.py",
+          "level": "C",
+          "tokens": 3303
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/issued_token.py",
+          "level": "C",
+          "tokens": 557
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/principal.py",
+          "level": "C",
+          "tokens": 784
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/secret_hash.py",
+          "level": "C",
+          "tokens": 715
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/token.py",
+          "level": "C",
+          "tokens": 633
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/token_kind.py",
+          "level": "C",
+          "tokens": 893
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/token_record.py",
+          "level": "C",
+          "tokens": 393
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/token_secret.py",
+          "level": "C",
+          "tokens": 1560
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/user.py",
+          "level": "C",
+          "tokens": 609
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/__init__.py",
+          "level": "C",
+          "tokens": 12
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 28
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/driven/hash_secret.py",
+          "level": "C",
+          "tokens": 1454
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/driven/repo_identity.py",
+          "level": "C",
+          "tokens": 4696
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 30
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/driving/cont_identity.py",
+          "level": "C",
+          "tokens": 7360
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/driven/repo_strategy_postgres.py",
+          "level": "C",
+          "tokens": 7085
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/driving/cont_strategy_cli.py",
+          "level": "C",
+          "tokens": 10108
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/adapters/driving/cont_strategy_http.py",
+          "level": "C",
+          "tokens": 8717
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/alogic/strategy_service.py",
+          "level": "C",
+          "tokens": 11890
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/domain/module_scope.py",
+          "level": "C",
+          "tokens": 7025
+        },
+        {
+          "fpath": "core/engine/src/hex/strategy/ports/driving/cont_strategy.py",
+          "level": "C",
+          "tokens": 7350
+        },
+        {
+          "fpath": "core/engine/src/sdk/__init__.py",
+          "level": "C",
+          "tokens": 3886
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_queue.py",
+          "level": "C",
+          "tokens": 3755
+        },
+        {
+          "fpath": "core/engine/src/shared/json_codec.py",
+          "level": "C",
+          "tokens": 3545
+        },
+        {
+          "fpath": "core/frontend/src/charting/axis_ticks.ts",
+          "level": "C",
+          "tokens": 3849
+        },
+        {
+          "fpath": "core/frontend/src/charting/paint/paint_plays.ts",
+          "level": "C",
+          "tokens": 3857
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/adapters/driven/gwy_catalog_engine.ts",
+          "level": "C",
+          "tokens": 1932
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/adapters/driving/cont_catalog_ui.ts",
+          "level": "C",
+          "tokens": 1459
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/alogic/catalog_service.ts",
+          "level": "C",
+          "tokens": 1198
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/catalog.ts",
+          "level": "C",
+          "tokens": 2611
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/catalog_session.ts",
+          "level": "C",
+          "tokens": 418
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/compute_time.ts",
+          "level": "C",
+          "tokens": 395
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/recent_activity.ts",
+          "level": "C",
+          "tokens": 1486
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/session_label.ts",
+          "level": "C",
+          "tokens": 381
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/session_status.ts",
+          "level": "C",
+          "tokens": 898
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/strategy.ts",
+          "level": "C",
+          "tokens": 278
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/domain/strategy_version.ts",
+          "level": "C",
+          "tokens": 262
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/ports/driven/gwy_catalog.ts",
+          "level": "C",
+          "tokens": 359
+        },
+        {
+          "fpath": "core/frontend/src/hex/catalog/ports/driving/cont_catalog.ts",
+          "level": "C",
+          "tokens": 664
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/adapters/driven/gwy_identity_engine.ts",
+          "level": "C",
+          "tokens": 2001
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/adapters/driven/gwy_mcp_server_config.ts",
+          "level": "C",
+          "tokens": 481
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/adapters/driven/repo_token_browser.ts",
+          "level": "C",
+          "tokens": 1928
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/adapters/driving/cont_identity_ui.ts",
+          "level": "C",
+          "tokens": 4160
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/alogic/identity_service.ts",
+          "level": "C",
+          "tokens": 3052
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/domain/account.ts",
+          "level": "C",
+          "tokens": 824
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/domain/agent_token.ts",
+          "level": "C",
+          "tokens": 927
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/domain/held_token.ts",
+          "level": "C",
+          "tokens": 520
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/domain/mcp_server.ts",
+          "level": "C",
+          "tokens": 855
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/domain/minted_token.ts",
+          "level": "C",
+          "tokens": 429
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/ports/driven/gwy_identity.ts",
+          "level": "C",
+          "tokens": 722
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/ports/driven/gwy_mcp_server.ts",
+          "level": "C",
+          "tokens": 172
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/ports/driven/repo_token.ts",
+          "level": "C",
+          "tokens": 176
+        },
+        {
+          "fpath": "core/frontend/src/hex/identity/ports/driving/cont_identity.ts",
+          "level": "C",
+          "tokens": 1181
+        },
+        {
+          "fpath": "core/frontend/src/root.ts",
+          "level": "C",
+          "tokens": 3830
+        },
+        {
+          "fpath": "plans/design/adrs/0006_uniform_source_consumption_src_port.md",
+          "level": "L1",
+          "tokens": 592
+        },
+        {
+          "fpath": "plans/design/adrs/0009_edge_resource_sizing_argon2_limiter.md",
+          "level": "L1",
+          "tokens": 898
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/engine/module/feedback.md",
+          "level": "L3",
+          "tokens": 3623
+        },
+        {
+          "fpath": "plans/design/engine/module/identity.md",
+          "level": "L3",
+          "tokens": 10230
+        },
+        {
+          "fpath": "plans/design/frontend/module/catalog.md",
+          "level": "L3",
+          "tokens": 1478
+        },
+        {
+          "fpath": "plans/design/frontend/module/identity.md",
+          "level": "L3",
+          "tokens": 1663
+        },
+        {
+          "fpath": "plans/design/specifics/data_model.md",
+          "level": "L1",
+          "tokens": 3632
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 397316,
+      "index": 3,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/edge_configuration.md",
+          "level": "L2",
+          "tokens": 1600
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/data_access.md",
+          "level": "L2",
+          "tokens": 14450
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/frontend.md",
+          "level": "L2",
+          "tokens": 15980
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/feedback.md",
+          "level": "L3",
+          "tokens": 3623
+        },
+        {
+          "fpath": "plans/design/engine/module/identity.md",
+          "level": "L3",
+          "tokens": 10230
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/entrypoints/feed_replay.py",
+          "level": "C",
+          "tokens": 11390
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/health.py",
+          "level": "C",
+          "tokens": 6160
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/principal_cache.py",
+          "level": "C",
+          "tokens": 5264
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/queue_host.py",
+          "level": "C",
+          "tokens": 6133
+        },
+        {
+          "fpath": "core/engine/src/entrypoints/web_edge.py",
+          "level": "C",
+          "tokens": 10912
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/adapters/driven/repo_feedback_postgres.py",
+          "level": "C",
+          "tokens": 2254
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/adapters/driving/cont_feedback_cli.py",
+          "level": "C",
+          "tokens": 4535
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/adapters/driving/cont_feedback_mcp.py",
+          "level": "C",
+          "tokens": 2158
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/alogic/feedback_service.py",
+          "level": "C",
+          "tokens": 1478
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/domain/submission.py",
+          "level": "C",
+          "tokens": 787
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/ports/driven/repo_feedback.py",
+          "level": "C",
+          "tokens": 901
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/ports/driving/cont_feedback.py",
+          "level": "C",
+          "tokens": 2076
+        },
+        {
+          "fpath": "core/engine/src/sdk/cycle_context.py",
+          "level": "C",
+          "tokens": 4791
+        },
+        {
+          "fpath": "core/engine/src/sdk/market_reader.py",
+          "level": "C",
+          "tokens": 6542
+        },
+        {
+          "fpath": "core/engine/src/sdk/memory.py",
+          "level": "C",
+          "tokens": 11341
+        },
+        {
+          "fpath": "core/engine/src/sdk/move.py",
+          "level": "C",
+          "tokens": 4715
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_chunk_store.py",
+          "level": "C",
+          "tokens": 9609
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_tradovate_socket.py",
+          "level": "C",
+          "tokens": 5667
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/chunk_store.py",
+          "level": "C",
+          "tokens": 4428
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/record_layout.py",
+          "level": "C",
+          "tokens": 7210
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/tradovate.py",
+          "level": "C",
+          "tokens": 6720
+        },
+        {
+          "fpath": "core/engine/src/shared/interfaces/tradovate_entities.py",
+          "level": "C",
+          "tokens": 12802
+        },
+        {
+          "fpath": "core/engine/src/stint_scope.py",
+          "level": "C",
+          "tokens": 5370
+        },
+        {
+          "fpath": "core/frontend/src/charting/overlay_geometry.ts",
+          "level": "C",
+          "tokens": 4831
+        },
+        {
+          "fpath": "core/frontend/src/charting/play_geometry.ts",
+          "level": "C",
+          "tokens": 4265
+        },
+        {
+          "fpath": "core/frontend/src/charting/types.ts",
+          "level": "C",
+          "tokens": 4382
+        },
+        {
+          "fpath": "core/frontend/src/shared/clients/client_engine_web.ts",
+          "level": "C",
+          "tokens": 6148
+        },
+        {
+          "fpath": "core/frontend/src/ui/ChartColumn.svelte",
+          "level": "C",
+          "tokens": 14935
+        },
+        {
+          "fpath": "core/frontend/src/ui/ChartRegion.svelte",
+          "level": "C",
+          "tokens": 13760
+        },
+        {
+          "fpath": "core/frontend/src/ui/LongChart.svelte",
+          "level": "C",
+          "tokens": 3968
+        },
+        {
+          "fpath": "core/frontend/src/ui/McpSettings.svelte",
+          "level": "C",
+          "tokens": 4138
+        },
+        {
+          "fpath": "core/frontend/src/ui/PlayReadout.svelte",
+          "level": "C",
+          "tokens": 3948
+        },
+        {
+          "fpath": "core/frontend/src/ui/regions/VisualizerRegion.svelte",
+          "level": "C",
+          "tokens": 4203
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/architecture.md",
+          "level": "L2",
+          "tokens": 13612
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/charting.md",
+          "level": "L2",
+          "tokens": 16425
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/edge_configuration.md",
+          "level": "L2",
+          "tokens": 1370
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/selection_state.md",
+          "level": "L2",
+          "tokens": 8742
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/styling.md",
+          "level": "L2",
+          "tokens": 2962
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 395552,
+      "index": 4,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/entrypoints/mcp_transport.py",
+          "level": "C",
+          "tokens": 27570
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/repo_session_postgres.py",
+          "level": "C",
+          "tokens": 20311
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driving/cont_session_cli.py",
+          "level": "C",
+          "tokens": 18443
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driving/cont_session_mcp.py",
+          "level": "C",
+          "tokens": 14550
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driving/cont_session_queue.py",
+          "level": "C",
+          "tokens": 6817
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/divergence_recorder.py",
+          "level": "C",
+          "tokens": 6482
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/views.py",
+          "level": "C",
+          "tokens": 4735
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/checkpoint_state.py",
+          "level": "C",
+          "tokens": 4764
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/errors.py",
+          "level": "C",
+          "tokens": 7593
+        },
+        {
+          "fpath": "core/engine/src/hex/session/domain/session.py",
+          "level": "C",
+          "tokens": 5526
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/repo_session.py",
+          "level": "C",
+          "tokens": 18535
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driving/cont_session.py",
+          "level": "C",
+          "tokens": 13810
+        },
+        {
+          "fpath": "core/engine/src/root.py",
+          "level": "C",
+          "tokens": 46138
+        },
+        {
+          "fpath": "core/engine/src/shared/clients/client_tradovate.py",
+          "level": "C",
+          "tokens": 15390
+        },
+        {
+          "fpath": "plans/design/engine/specifics/telemetry.md",
+          "level": "L2",
+          "tokens": 6536
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 397231,
+      "index": 5,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/broker/__init__.py",
+          "level": "C",
+          "tokens": 537
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/__init__.py",
+          "level": "C",
+          "tokens": 12
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 15
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/clock_bounded.py",
+          "level": "C",
+          "tokens": 902
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/clock_system.py",
+          "level": "C",
+          "tokens": 382
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/gwy_platform_sim.py",
+          "level": "C",
+          "tokens": 13968
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/gwy_platform_tradovate.py",
+          "level": "C",
+          "tokens": 27556
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/repo_broker_postgres.py",
+          "level": "C",
+          "tokens": 6608
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/repo_fee_schedule_tradovate.py",
+          "level": "C",
+          "tokens": 1770
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/tradovate_contract_map.py",
+          "level": "C",
+          "tokens": 7512
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driven/tradovate_rejections.py",
+          "level": "C",
+          "tokens": 2395
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/adapters/driving/cont_broker_cli.py",
+          "level": "C",
+          "tokens": 10805
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/alogic/__init__.py",
+          "level": "C",
+          "tokens": 34
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/alogic/broker_service.py",
+          "level": "C",
+          "tokens": 17902
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/__init__.py",
+          "level": "C",
+          "tokens": 383
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/adverse_excursion.py",
+          "level": "C",
+          "tokens": 1799
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/annualised_return.py",
+          "level": "C",
+          "tokens": 1146
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/annualised_trade_count.py",
+          "level": "C",
+          "tokens": 1136
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/client_order_id.py",
+          "level": "C",
+          "tokens": 1965
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/errors.py",
+          "level": "C",
+          "tokens": 3748
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/fill_observation.py",
+          "level": "C",
+          "tokens": 1052
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/intent.py",
+          "level": "C",
+          "tokens": 1359
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/mar_ratio.py",
+          "level": "C",
+          "tokens": 997
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/measurement_window.py",
+          "level": "C",
+          "tokens": 1809
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/per_contract_profit.py",
+          "level": "C",
+          "tokens": 1803
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/placement.py",
+          "level": "C",
+          "tokens": 3180
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/platform_view.py",
+          "level": "C",
+          "tokens": 7278
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/play.py",
+          "level": "C",
+          "tokens": 11320
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/rejection.py",
+          "level": "C",
+          "tokens": 1339
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/session_drawdown.py",
+          "level": "C",
+          "tokens": 1269
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/domain/session_metrics.py",
+          "level": "C",
+          "tokens": 10753
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/__init__.py",
+          "level": "C",
+          "tokens": 32
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 31
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driven/clock.py",
+          "level": "C",
+          "tokens": 818
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driven/gwy_platform.py",
+          "level": "C",
+          "tokens": 3130
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driven/repo_broker.py",
+          "level": "C",
+          "tokens": 4230
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driven/repo_fee_schedule.py",
+          "level": "C",
+          "tokens": 1316
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 14
+        },
+        {
+          "fpath": "core/engine/src/hex/broker/ports/driving/cont_broker.py",
+          "level": "C",
+          "tokens": 7939
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/__init__.py",
+          "level": "C",
+          "tokens": 2510
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/adapters/__init__.py",
+          "level": "C",
+          "tokens": 13
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 16
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 156
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/alogic/__init__.py",
+          "level": "C",
+          "tokens": 114
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/__init__.py",
+          "level": "C",
+          "tokens": 151
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/fill_strategy.py",
+          "level": "C",
+          "tokens": 2804
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/fill_tape.py",
+          "level": "C",
+          "tokens": 835
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/margin_model.py",
+          "level": "C",
+          "tokens": 1711
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/modify_identity.py",
+          "level": "C",
+          "tokens": 1666
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/order_terms.py",
+          "level": "C",
+          "tokens": 1555
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/resting_order.py",
+          "level": "C",
+          "tokens": 1771
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/sibling_cancellation.py",
+          "level": "C",
+          "tokens": 2935
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/sim_account.py",
+          "level": "C",
+          "tokens": 1200
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/sim_fill.py",
+          "level": "C",
+          "tokens": 990
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/sim_position.py",
+          "level": "C",
+          "tokens": 2508
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/slippage_model.py",
+          "level": "C",
+          "tokens": 1491
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/vendor_vocabulary.py",
+          "level": "C",
+          "tokens": 2244
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/__init__.py",
+          "level": "C",
+          "tokens": 12
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 29
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/driven/repo_exchange_state.py",
+          "level": "C",
+          "tokens": 2841
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/driven/repo_platform_profile.py",
+          "level": "C",
+          "tokens": 452
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 97
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 376979,
+      "index": 6,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/reference_data.md",
+          "level": "L1",
+          "tokens": 2354
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/engine/specifics/structure.md",
+          "level": "L2",
+          "tokens": 5766
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/exchange/adapters/driven/repo_exchange_state_postgres.py",
+          "level": "C",
+          "tokens": 6529
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/adapters/driven/repo_platform_profile_file.py",
+          "level": "C",
+          "tokens": 17143
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/alogic/exchange_service.py",
+          "level": "C",
+          "tokens": 28769
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/errors.py",
+          "level": "C",
+          "tokens": 3917
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/exchange_state.py",
+          "level": "C",
+          "tokens": 4732
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/fill_tick.py",
+          "level": "C",
+          "tokens": 4657
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/platform_profile.py",
+          "level": "C",
+          "tokens": 10086
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/refusal.py",
+          "level": "C",
+          "tokens": 3282
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/rejection_policy.py",
+          "level": "C",
+          "tokens": 9848
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/risk_policy.py",
+          "level": "C",
+          "tokens": 3197
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/driving/cont_exchange.py",
+          "level": "C",
+          "tokens": 7924
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 395051,
+      "index": 7,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/indicator/__init__.py",
+          "level": "C",
+          "tokens": 2315
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/__init__.py",
+          "level": "C",
+          "tokens": 21
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/__init__.py",
+          "level": "C",
+          "tokens": 35
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/batch_cursor.py",
+          "level": "C",
+          "tokens": 2773
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/indicator_volume_profile.py",
+          "level": "C",
+          "tokens": 9751
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/lock_instance_postgres.py",
+          "level": "C",
+          "tokens": 3485
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/repo_indicator_line_file.py",
+          "level": "C",
+          "tokens": 3158
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/repo_indicator_postgres.py",
+          "level": "C",
+          "tokens": 8460
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/repo_indicator_snapshot_file.py",
+          "level": "C",
+          "tokens": 2416
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/src_stream_market.py",
+          "level": "C",
+          "tokens": 7462
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driving/__init__.py",
+          "level": "C",
+          "tokens": 467
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driving/cont_indicator_cli.py",
+          "level": "C",
+          "tokens": 4746
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driving/cont_indicator_http.py",
+          "level": "C",
+          "tokens": 6820
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driving/cont_indicator_queue.py",
+          "level": "C",
+          "tokens": 6214
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/__init__.py",
+          "level": "C",
+          "tokens": 432
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/bounded_indicator_view.py",
+          "level": "C",
+          "tokens": 2857
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/indicator_read_service.py",
+          "level": "C",
+          "tokens": 5896
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/indicator_service.py",
+          "level": "C",
+          "tokens": 7383
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/line_writer.py",
+          "level": "C",
+          "tokens": 5119
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/materialization_service.py",
+          "level": "C",
+          "tokens": 3827
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/__init__.py",
+          "level": "C",
+          "tokens": 32
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/absent_value.py",
+          "level": "C",
+          "tokens": 1046
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/cadence.py",
+          "level": "C",
+          "tokens": 1891
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/errors.py",
+          "level": "C",
+          "tokens": 5591
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator.py",
+          "level": "C",
+          "tokens": 6979
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator_doc.py",
+          "level": "C",
+          "tokens": 1085
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator_instance.py",
+          "level": "C",
+          "tokens": 6131
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator_sample.py",
+          "level": "C",
+          "tokens": 5860
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator_series.py",
+          "level": "C",
+          "tokens": 2390
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator_shape.py",
+          "level": "C",
+          "tokens": 658
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/indicator_snapshot.py",
+          "level": "C",
+          "tokens": 1715
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/instance_key.py",
+          "level": "C",
+          "tokens": 1755
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/params_hash.py",
+          "level": "C",
+          "tokens": 1191
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/source_identity.py",
+          "level": "C",
+          "tokens": 6147
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/source_spec.py",
+          "level": "C",
+          "tokens": 2057
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/src_batch.py",
+          "level": "C",
+          "tokens": 2151
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/src_coverage.py",
+          "level": "C",
+          "tokens": 1478
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/src_request.py",
+          "level": "C",
+          "tokens": 2874
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/domain/storage_kind.py",
+          "level": "C",
+          "tokens": 795
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/__init__.py",
+          "level": "C",
+          "tokens": 24
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driven/__init__.py",
+          "level": "C",
+          "tokens": 28
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driven/lock_instance.py",
+          "level": "C",
+          "tokens": 1003
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driven/repo_indicator.py",
+          "level": "C",
+          "tokens": 5692
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driven/repo_indicator_line.py",
+          "level": "C",
+          "tokens": 2930
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driven/repo_indicator_snapshot.py",
+          "level": "C",
+          "tokens": 1033
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driven/src_stream.py",
+          "level": "C",
+          "tokens": 3312
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driving/__init__.py",
+          "level": "C",
+          "tokens": 363
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driving/cont_indicator.py",
+          "level": "C",
+          "tokens": 6765
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/ports/driving/cont_indicator_bounded.py",
+          "level": "C",
+          "tokens": 2495
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 394962,
+      "index": 8,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        },
+        {
+          "fpath": "plans/design/specifics/storage_patterns.md",
+          "level": "L1",
+          "tokens": 2847
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/indicator_exogenous_series.py",
+          "level": "C",
+          "tokens": 12526
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/indicator_fed_week.py",
+          "level": "C",
+          "tokens": 13444
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/adapters/driven/src_stream_file.py",
+          "level": "C",
+          "tokens": 18205
+        },
+        {
+          "fpath": "core/engine/src/hex/indicator/alogic/materialization_runner.py",
+          "level": "C",
+          "tokens": 13148
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driven/repo_adjustment_postgres.py",
+          "level": "C",
+          "tokens": 3732
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driving/cont_market_mcp.py",
+          "level": "C",
+          "tokens": 7166
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/roll_service.py",
+          "level": "C",
+          "tokens": 6519
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/adjustment_plan.py",
+          "level": "C",
+          "tokens": 5451
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/errors.py",
+          "level": "C",
+          "tokens": 6458
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/price_adjustment.py",
+          "level": "C",
+          "tokens": 3252
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/price_grid.py",
+          "level": "C",
+          "tokens": 5510
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/price_view.py",
+          "level": "C",
+          "tokens": 3712
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/reorder_buffer.py",
+          "level": "C",
+          "tokens": 3963
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/resolution.py",
+          "level": "C",
+          "tokens": 3676
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/vendor.py",
+          "level": "C",
+          "tokens": 3559
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driven/repo_stream.py",
+          "level": "C",
+          "tokens": 3779
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driving/cont_market.py",
+          "level": "C",
+          "tokens": 9279
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 385952,
+      "index": 9,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        },
+        {
+          "fpath": "plans/design/specifics/storage_patterns.md",
+          "level": "L1",
+          "tokens": 2847
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driven/gwy_vendor_scid.py",
+          "level": "C",
+          "tokens": 15652
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driven/repo_registry_file.py",
+          "level": "C",
+          "tokens": 16940
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/bounded_market_view.py",
+          "level": "C",
+          "tokens": 10208
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/coverage_service.py",
+          "level": "C",
+          "tokens": 9865
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/import_service.py",
+          "level": "C",
+          "tokens": 16667
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/market_service.py",
+          "level": "C",
+          "tokens": 19409
+        },
+        {
+          "fpath": "core/engine/src/hex/market/alogic/read_service.py",
+          "level": "C",
+          "tokens": 16782
+        },
+        {
+          "fpath": "core/engine/src/hex/market/domain/calendar.py",
+          "level": "C",
+          "tokens": 12747
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 378568,
+      "index": 10,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driving/cont_market_cli.py",
+          "level": "C",
+          "tokens": 25677
+        },
+        {
+          "fpath": "core/engine/src/hex/market/adapters/driving/cont_market_http.py",
+          "level": "C",
+          "tokens": 30323
+        },
+        {
+          "fpath": "core/engine/src/hex/market/ports/driving/cont_market_read_only.py",
+          "level": "C",
+          "tokens": 21463
+        },
+        {
+          "fpath": "plans/design/specifics/storage_patterns.md",
+          "level": "L1",
+          "tokens": 2847
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 399401,
+      "index": 11,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/charting.md",
+          "level": "L2",
+          "tokens": 16425
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/data_access.md",
+          "level": "L2",
+          "tokens": 14450
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/selection_state.md",
+          "level": "L2",
+          "tokens": 8742
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driving/cont_session_http.py",
+          "level": "C",
+          "tokens": 24010
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/cycle_runner.py",
+          "level": "C",
+          "tokens": 36957
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/session_service.py",
+          "level": "C",
+          "tokens": 43086
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/adapters/driven/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/adapters/driven/gwy_performance_engine.ts",
+          "level": "C",
+          "tokens": 4089
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/adapters/driving/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/adapters/driving/cont_performance_ui.ts",
+          "level": "C",
+          "tokens": 1081
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/alogic/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/alogic/performance_service.ts",
+          "level": "C",
+          "tokens": 2623
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/contract_marks.ts",
+          "level": "C",
+          "tokens": 787
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/metric_text.ts",
+          "level": "C",
+          "tokens": 2938
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/performance_play.ts",
+          "level": "C",
+          "tokens": 802
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/pnl_curve.ts",
+          "level": "C",
+          "tokens": 2112
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/qualified.ts",
+          "level": "C",
+          "tokens": 1149
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/session_metrics.ts",
+          "level": "C",
+          "tokens": 2058
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/domain/trade_frequency.ts",
+          "level": "C",
+          "tokens": 842
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/ports/driven/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/ports/driven/gwy_performance.ts",
+          "level": "C",
+          "tokens": 492
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/ports/driving/.gitkeep",
+          "level": "C",
+          "tokens": 1
+        },
+        {
+          "fpath": "core/frontend/src/hex/performance/ports/driving/cont_performance.ts",
+          "level": "C",
+          "tokens": 760
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/adverse_excursion.ts",
+          "level": "C",
+          "tokens": 674
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/bar_extent.ts",
+          "level": "C",
+          "tokens": 363
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/candle.ts",
+          "level": "C",
+          "tokens": 530
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/candle_width.ts",
+          "level": "C",
+          "tokens": 679
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/coverage_span.ts",
+          "level": "C",
+          "tokens": 744
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/listing.ts",
+          "level": "C",
+          "tokens": 340
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/market_instrument.ts",
+          "level": "C",
+          "tokens": 311
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/play_extent.ts",
+          "level": "C",
+          "tokens": 394
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/tick_point.ts",
+          "level": "C",
+          "tokens": 372
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/time_window.ts",
+          "level": "C",
+          "tokens": 505
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driven/gwy_subscriptions.ts",
+          "level": "C",
+          "tokens": 230
+        },
+        {
+          "fpath": "plans/design/frontend/module/performance.md",
+          "level": "L3",
+          "tokens": 1622
+        },
+        {
+          "fpath": "plans/design/frontend/module/visualizer.md",
+          "level": "L3",
+          "tokens": 2833
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 388115,
+      "index": 12,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/architecture.md",
+          "level": "L2",
+          "tokens": 13612
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/charting.md",
+          "level": "L2",
+          "tokens": 16425
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/selection_state.md",
+          "level": "L2",
+          "tokens": 8742
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/styling.md",
+          "level": "L2",
+          "tokens": 2962
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/identity.md",
+          "level": "L3",
+          "tokens": 10230
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        },
+        {
+          "fpath": "plans/design/frontend/module/visualizer.md",
+          "level": "L3",
+          "tokens": 2833
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "core/frontend/src/hex/visualizer/adapters/driven/gwy_indicator_engine.ts",
+          "level": "C",
+          "tokens": 3637
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/adapters/driven/gwy_market_engine.ts",
+          "level": "C",
+          "tokens": 5181
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/adapters/driven/gwy_plays_engine.ts",
+          "level": "C",
+          "tokens": 3110
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/adapters/driven/gwy_subscriptions_engine.ts",
+          "level": "C",
+          "tokens": 2562
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/adapters/driving/cont_visualizer_ui.ts",
+          "level": "C",
+          "tokens": 11088
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/alogic/chart_data_service.ts",
+          "level": "C",
+          "tokens": 10348
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/alogic/indicator_data_service.ts",
+          "level": "C",
+          "tokens": 6780
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/alogic/play_data_service.ts",
+          "level": "C",
+          "tokens": 5877
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/alogic/visualizer_service.ts",
+          "level": "C",
+          "tokens": 816
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/chartable_span.ts",
+          "level": "C",
+          "tokens": 2187
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/chunk_window.ts",
+          "level": "C",
+          "tokens": 1996
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/excursion_line.ts",
+          "level": "C",
+          "tokens": 998
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/indicator_ref.ts",
+          "level": "C",
+          "tokens": 1016
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/indicator_series.ts",
+          "level": "C",
+          "tokens": 2845
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/overlay_interpret.ts",
+          "level": "C",
+          "tokens": 8955
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/play.ts",
+          "level": "C",
+          "tokens": 1353
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/play_status.ts",
+          "level": "C",
+          "tokens": 818
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/price_basis_view.ts",
+          "level": "C",
+          "tokens": 1248
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/selection_state.ts",
+          "level": "C",
+          "tokens": 2943
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/selection_view.ts",
+          "level": "C",
+          "tokens": 4350
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/session_palette.ts",
+          "level": "C",
+          "tokens": 1093
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/domain/session_subscription.ts",
+          "level": "C",
+          "tokens": 1382
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driven/gwy_indicator.ts",
+          "level": "C",
+          "tokens": 1615
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driven/gwy_market.ts",
+          "level": "C",
+          "tokens": 1951
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driven/gwy_plays.ts",
+          "level": "C",
+          "tokens": 897
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driving/cont_chart_data.ts",
+          "level": "C",
+          "tokens": 1971
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driving/cont_indicator_data.ts",
+          "level": "C",
+          "tokens": 1419
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driving/cont_play_data.ts",
+          "level": "C",
+          "tokens": 1459
+        },
+        {
+          "fpath": "core/frontend/src/hex/visualizer/ports/driving/cont_visualizer.ts",
+          "level": "C",
+          "tokens": 1718
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/data_access.md",
+          "level": "L2",
+          "tokens": 14450
+        },
+        {
+          "fpath": "plans/design/frontend/specifics/frontend.md",
+          "level": "L2",
+          "tokens": 15980
+        }
+      ]
+    },
+    {
+      "estimated_tokens": 323447,
+      "index": 13,
+      "overhead": [
+        {
+          "fpath": "plans/design/adr_active.md",
+          "level": "L1",
+          "tokens": 523
+        },
+        {
+          "fpath": "plans/design/adr_index.md",
+          "level": "L1",
+          "tokens": 601
+        },
+        {
+          "fpath": "plans/design/adrs/0005_bounded_reads_as_driving_port_types.md",
+          "level": "L1",
+          "tokens": 566
+        },
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1",
+          "tokens": 1814
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1",
+          "tokens": 4254
+        },
+        {
+          "fpath": "plans/design/doctrine_ext.md",
+          "level": "L1",
+          "tokens": 3901
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1",
+          "tokens": 3829
+        },
+        {
+          "fpath": "plans/design/project_diagram.mmd",
+          "level": "L1",
+          "tokens": 309
+        },
+        {
+          "fpath": "plans/design/service_diagram.mmd",
+          "level": "L1",
+          "tokens": 838
+        },
+        {
+          "fpath": "plans/design/specifics/guards.md",
+          "level": "L1",
+          "tokens": 68348
+        },
+        {
+          "fpath": "plans/design/specifics/storage_patterns.md",
+          "level": "L1",
+          "tokens": 2847
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1",
+          "tokens": 5549
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 645
+        },
+        {
+          "fpath": "plans/design/engine/specifics/db_schema.md",
+          "level": "L2",
+          "tokens": 33423
+        },
+        {
+          "fpath": "plans/design/engine/specifics/sdk.md",
+          "level": "L2",
+          "tokens": 8458
+        },
+        {
+          "fpath": "plans/design/engine/specifics/shared.md",
+          "level": "L2",
+          "tokens": 12229
+        },
+        {
+          "fpath": "plans/design/frontend/module_diagram.mmd",
+          "level": "L2",
+          "tokens": 383
+        },
+        {
+          "fpath": "plans/design/engine/module/broker.md",
+          "level": "L3",
+          "tokens": 17875
+        },
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3",
+          "tokens": 19731
+        },
+        {
+          "fpath": "plans/design/engine/module/indicator.md",
+          "level": "L3",
+          "tokens": 25838
+        },
+        {
+          "fpath": "plans/design/engine/module/market.md",
+          "level": "L3",
+          "tokens": 44142
+        },
+        {
+          "fpath": "plans/design/engine/module/session.md",
+          "level": "L3",
+          "tokens": 27556
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md",
+          "level": "L3",
+          "tokens": 13062
+        }
+      ],
+      "subjects": [
+        {
+          "fpath": "plans/design/engine/specifics/execution_model.md",
+          "level": "L2",
+          "tokens": 26726
+        }
+      ]
+    }
+  ],
+  "selection": "all",
+  "tokens_max": 400000
+}

@@ -1,0 +1,141 @@
+{
+  "_about": "Hand-curated groups that do NOT arise from the docex packer. Same shape as fixtures/groups.json entries. Currently one: a precision guard built only from audit-verified-CONSISTENT slices (engine exchange, feedback, identity). Expected outcome of a run over it: the inventory intersection is empty, so a correct agent makes NO design-doc edits. Any design-doc change here is a candidate false positive for triage.",
+  "groups": [
+    {
+      "index": "clean-guard",
+      "estimated_tokens": null,
+      "subjects": [
+        {
+          "fpath": "plans/design/engine/module/exchange.md",
+          "level": "L3"
+        },
+        {
+          "fpath": "plans/design/engine/module/feedback.md",
+          "level": "L3"
+        },
+        {
+          "fpath": "plans/design/engine/module/identity.md",
+          "level": "L3"
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/ports/driving/cont_exchange.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/alogic/exchange_service.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/exchange/domain/exchange_state.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/ports/driving/cont_feedback.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/alogic/feedback_service.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/feedback/domain/submission.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/ports/driving/cont_identity.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/alogic/identity_service.py",
+          "level": "C"
+        },
+        {
+          "fpath": "core/engine/src/hex/identity/domain/token.py",
+          "level": "C"
+        }
+      ],
+      "overhead": [
+        {
+          "fpath": "plans/design/boundary_conditions.md",
+          "level": "L1"
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md",
+          "level": "L1"
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md",
+          "level": "L1"
+        },
+        {
+          "fpath": "plans/design/lexicon.md",
+          "level": "L1"
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd",
+          "level": "L2"
+        }
+      ]
+    },
+    {
+      "index": "session-200k",
+      "estimated_tokens": 184077,
+      "_about": "Context-rot A/B: the same session/strategy/ClockLive defects as group 0, in ~184k tokens / 17 files instead of ~400k / 150. Tests whether a smaller tokens_max improves enumeration recall (ClockWall, strategy built-ins).",
+      "subjects": [
+        {
+          "fpath": "plans/design/engine/module/session.md"
+        },
+        {
+          "fpath": "plans/design/engine/module/strategy.md"
+        },
+        {
+          "fpath": "plans/design/concepts_and_decisions.md"
+        },
+        {
+          "fpath": "core/engine/src/root.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/clock_wall.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/clock_decision.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/clock_compute.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driven/repo_session.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/ports/driving/cont_session.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_wall_system.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_live.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/adapters/driven/clock_compute_monotonic.py"
+        },
+        {
+          "fpath": "core/engine/src/hex/session/alogic/session_service.py"
+        }
+      ],
+      "overhead": [
+        {
+          "fpath": "plans/design/boundary_conditions.md"
+        },
+        {
+          "fpath": "plans/design/structures_and_views.md"
+        },
+        {
+          "fpath": "plans/design/lexicon.md"
+        },
+        {
+          "fpath": "plans/design/engine/module_diagram.mmd"
+        }
+      ]
+    }
+  ]
+}

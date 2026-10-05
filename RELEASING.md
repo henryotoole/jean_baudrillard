@@ -66,7 +66,7 @@ When a change spans categories, the **highest** applicable level wins.
 ## What Gates a Release (by what changed)
 
 A release bundles one or more completed development campaigns. Which validations
-gate the cut depends on which of the three strata the campaign touched:
+gate the cut depends on which parts of the repo the campaign touched:
 
 | If the release changed… | Gate before cutting |
 | ----------------------- | ------------------- |
@@ -74,6 +74,7 @@ gate the cut depends on which of the three strata the campaign touched:
 | Skills (`skills/`) | `skill-iteration` trigger eval (do descriptions still fire correctly, suite-level) + outcome eval for materially-changed skills. **Gate on `run_suite.py`, not `run_eval.py`.** `run_suite.py` runs each query in an empty temp cwd, so loading a skill is the only route to the doctrine — which is the thing a trigger eval claims to measure. `run_eval.py` still runs the child inside this repo, where the model can `grep doctrine/` instead of reaching for a skill and the run scores a false ∅. |
 | Doctrine prose (`doctrine/`) | `cohere` static audit (dangling links, skill-pointer resolution, resident discipline, contradictions). **Plus `skills/cohere/executor/verify_examples.py` green** — a doctrine rule change can invalidate the doctrine's own worked `infra.yml` examples, and no other gate can see a fence that fails to compile. Advance 006 left seven of them invalid for the length of an advance because the standing check was `linkcheck`, which reads links and not YAML. |
 | `cohere`'s executor tooling (`skills/cohere/executor/`) | Its own colocated tests, plus a green run of each tool at its default scope. This row exists because a change to `linkcheck.py` or `verify_examples.py` fires **neither** of the two rows above — it is not `docex` behavior and it is not doctrine prose — so before it was written, the verifiers were the only thing in the repo with no gate of their own. |
+| Agent prompts (`agents/`) | **Not a cut-time gate by policy** — an agent's outcome tests ([`agent_testing/README.md`](./agent_testing/README.md), per-agent `test.md`) are run *while iterating on that agent*, before the change lands, not at the cut. They effect real change and are token-heavy, so a cut that merely bundles an already-tested agent change re-runs nothing. The operator runs them deliberately when an agent's behavior materially changed and it wasn't already covered. |
 
 A release that only adds skills and top-level docs (no `docex` behavior change,
 no doctrine-rule change) is a MINOR and skips the smoke walk.

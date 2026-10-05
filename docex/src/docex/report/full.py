@@ -194,6 +194,25 @@ def code_treemap_targets(source_bucket: dict) -> list:
     return targets
 
 
+def code_treemap_groups(source_bucket: dict) -> list:
+    """Ordered per-codebase groups for the sub-headinged code-treemap section.
+
+    Returns ``[(codebase_name, codebase_leaves, [(module_name, module_leaves)])]``
+    — the whole-codebase aggregate paired with its hex modules (each a codebase
+    child that is a group of file buckets and not the synthetic ``(root)``).
+    Deterministic: codebases and modules in the dict's child order.
+    """
+    groups: list = []
+    for cb in _kids(source_bucket):  # codebase groups
+        modules = [
+            (child["name"], aggregate_leaves(child))
+            for child in _kids(cb)
+            if not _is_file_bucket(child) and child["name"] != "(root)"
+        ]
+        groups.append((cb["name"], aggregate_leaves(cb), modules))
+    return groups
+
+
 def layout_code_treemap(leaves: dict, S: float) -> list:
     """One square: bottom ``other``, middle ``code``, top three vertical slices."""
     top = leaves["inline comments"] + leaves["docstrings"] + leaves["references"]
@@ -272,23 +291,38 @@ def _svg_rect(rect: Rect) -> str:
         stroke = ' stroke="#555555" stroke-width="0.75" stroke-dasharray="4 3"'
     else:
         stroke = ' stroke="#FFFFFF" stroke-width="0.75"'
+    # data-name always carries the full name + weight so the hover readout can
+    # surface it even for boxes too small to hold a visible label.
+    data_name = escape(f"{rect.label} ({rect.tokens})")
     parts = [
         f'<rect x="{_fmt(rect.x)}" y="{_fmt(rect.y)}" '
         f'width="{_fmt(rect.w)}" height="{_fmt(rect.h)}" '
-        f'fill="{fill}"{stroke}/>'
+        f'fill="{fill}"{stroke} data-name="{data_name}"/>'
     ]
     # Legibility guard: only label rects large enough to read.
     if rect.w >= 40 and rect.h >= 14:
         text = escape(rect.label)
         if rect.w >= 110:
             text += f" ({rect.tokens})"
-        cx = _fmt(rect.x + rect.w / 2)
-        cy = _fmt(rect.y + rect.h / 2)
-        parts.append(
-            f'<text x="{cx}" y="{cy}" text-anchor="middle" '
-            f'dominant-baseline="central" font-size="11" fill="#222222">'
-            f"{text}</text>"
-        )
+        if rect.dashed:
+            # Deepest (sub-sub-bucket) boxes stay centered.
+            cx = _fmt(rect.x + rect.w / 2)
+            cy = _fmt(rect.y + rect.h / 2)
+            parts.append(
+                f'<text x="{cx}" y="{cy}" text-anchor="middle" '
+                f'dominant-baseline="central" font-size="11" fill="#222222">'
+                f"{text}</text>"
+            )
+        else:
+            # Solid-line boxes: bold, anchored top-left.
+            tx = _fmt(rect.x + 4)
+            ty = _fmt(rect.y + 4)
+            parts.append(
+                f'<text x="{tx}" y="{ty}" text-anchor="start" '
+                f'dominant-baseline="hanging" font-size="11" '
+                f'font-weight="bold" fill="#222222">'
+                f"{text}</text>"
+            )
     return "".join(parts)
 
 
@@ -304,6 +338,38 @@ def _svg(rects, w: float, h: float, extra: str = "") -> str:
     )
 
 
+def _scope(inner: str) -> str:
+    """Wrap diagram markup with a hover readout panel to its right."""
+    return (
+        '<div class="viz-scope">'
+        f'<div class="viz-body">{inner}</div>'
+        '<div class="readout" aria-live="polite"></div>'
+        "</div>"
+    )
+
+
+def _code_cell(rects, title: str) -> str:
+    return (
+        '<figure class="code-cell">'
+        + _svg(rects, 300, 300)
+        + f"<figcaption>{escape(title)}</figcaption>"
+        + "</figure>"
+    )
+
+
+# Inline, dependency-free hover behavior: within each viz-scope, hovering a box
+# writes its data-name into that scope's readout panel. No external references.
+_JS = (
+    "document.querySelectorAll('.viz-scope').forEach(function(s){"
+    "var o=s.querySelector('.readout');if(!o)return;"
+    "s.addEventListener('mouseover',function(e){"
+    "var n=e.target.getAttribute&&e.target.getAttribute('data-name');"
+    "if(n)o.textContent=n;});"
+    "s.addEventListener('mouseout',function(e){"
+    "if(e.target.hasAttribute&&e.target.hasAttribute('data-name'))"
+    "o.textContent='';});});"
+)
+
 _NO_DATA = "<p class=\"no-data\">no data</p>"
 
 _STYLE = """
@@ -314,9 +380,22 @@ _STYLE = """
   section { margin-bottom: 36px; }
   h2 { font-size: 16px; margin: 0 0 12px; border-bottom: 1px solid #ddd;
        padding-bottom: 4px; }
+  h3 { font-size: 14px; margin: 20px 0 8px; color: #333; }
   svg { max-width: 100%; height: auto; border: 1px solid #eee; }
+  svg rect { pointer-events: all; }
+  svg rect:hover { stroke: #000; stroke-width: 3; stroke-dasharray: none;
+       cursor: pointer; }
   .no-data { color: #888; font-style: italic; }
+  .viz-scope { display: flex; gap: 16px; align-items: flex-start;
+       flex-wrap: wrap; }
+  .viz-body { flex: 1 1 auto; min-width: 0; }
+  .readout { flex: 0 0 200px; align-self: stretch; min-height: 2.5em;
+       font-size: 13px; color: #333; padding: 8px 10px; border: 1px solid #eee;
+       background: #fafafa; border-radius: 4px; position: sticky; top: 8px;
+       word-break: break-word; }
+  .readout:empty::before { content: "hover a box\\2026"; color: #aaa; }
   .code-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  .code-grid-solo { margin-bottom: 4px; }
   .code-cell { display: flex; flex-direction: column; align-items: center; }
   .code-cell figcaption { font-size: 12px; margin-top: 4px; color: #444;
        text-align: center; max-width: 200px; }
@@ -350,7 +429,7 @@ def render_full_html(doc: dict) -> str:
     parts.append("<h2>Code-Doc Comparison</h2>")
     cmp_rects = layout_comparison(doc, 800, 600)
     if _has_area(cmp_rects):
-        parts.append(_svg(cmp_rects, 800, 600))
+        parts.append(_scope(_svg(cmp_rects, 800, 600)))
     else:
         parts.append(_NO_DATA)
     parts.append("</section>")
@@ -360,33 +439,42 @@ def render_full_html(doc: dict) -> str:
     parts.append("<h2>Doc Treemap</h2>")
     doc_rects = layout_doc_treemap(doc["design_docs"], 800, 600)
     if _has_area(doc_rects):
-        parts.append(_svg(doc_rects, 800, 600))
+        parts.append(_scope(_svg(doc_rects, 800, 600)))
     else:
         parts.append(_NO_DATA)
     parts.append("</section>")
 
-    # --- Section 3: Code Treemap ---
+    # --- Section 3: Code Treemap (one sub-heading per codebase) ---
     parts.append("<section>")
     parts.append("<h2>Code Treemap</h2>")
-    targets = code_treemap_targets(doc["source_code"])
-    cells: list = []
-    for title, leaves in targets:
-        rects = layout_code_treemap(leaves, 300)
-        if _has_area(rects):
-            cells.append(
-                '<figure class="code-cell">'
-                + _svg(rects, 300, 300)
-                + f"<figcaption>{escape(title)}</figcaption>"
-                + "</figure>"
-            )
-    if cells:
-        parts.append('<div class="code-grid">')
-        parts.extend(cells)
-        parts.append("</div>")
+    groups = code_treemap_groups(doc["source_code"])
+    body: list = []
+    for cb_name, cb_leaves, modules in groups:
+        cb_rects = layout_code_treemap(cb_leaves, 300)
+        if not _has_area(cb_rects):
+            continue
+        body.append(f"<h3>{escape(cb_name)}</h3>")
+        # Whole-codebase treemap on its own line.
+        body.append('<div class="code-grid code-grid-solo">')
+        body.append(_code_cell(cb_rects, f"{cb_name} (all)"))
+        body.append("</div>")
+        # Tiled module treemaps beneath.
+        cells = [
+            _code_cell(r, mod_name)
+            for mod_name, mod_leaves in modules
+            if _has_area(r := layout_code_treemap(mod_leaves, 300))
+        ]
+        if cells:
+            body.append('<div class="code-grid">')
+            body.extend(cells)
+            body.append("</div>")
+    if body:
+        parts.append(_scope("".join(body)))
     else:
         parts.append(_NO_DATA)
     parts.append("</section>")
 
+    parts.append(f"<script>{_JS}</script>")
     parts.append("</body>")
     parts.append("</html>")
     return "\n".join(parts)

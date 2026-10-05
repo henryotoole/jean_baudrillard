@@ -1,0 +1,4 @@
+# The seed is a large (~58MB), regenerable snapshot of ~/projects/nasmyth at a pinned
+# commit. It is NOT tracked — rebuild it with scripts/build_seed.sh before running the
+# test. A fresh checkout will not have it, and the test cannot run until it is built.
+fixtures/seed_nasmyth.tgz
