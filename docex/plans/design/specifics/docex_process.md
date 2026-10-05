@@ -166,7 +166,7 @@ full overhaul below rather than booked separately.
 Mod 134 then audited all eighteen entries against the doctrine rather than against a
 term list, and found the drift is far wider than the rows above: **15 of 18 carry
 defects and three actively misinstruct.** That audit is booked as a full overhaul at
-[`008_housekeeping/doctrine_excerpts_overhaul.md`](../../advances/008_housekeeping/references/doctrine_excerpts_overhaul.md),
+[`008_housekeeping/doctrine_excerpts_overhaul.md`](../../ops/adv/008_housekeeping/references/doctrine_excerpts_overhaul.md),
 which subsumes the four still-open defects above. **Mod 140 landed that overhaul.**
 All 18 entries were audited against current doctrine and rewritten; the four
 still-open defects above are fixed, `aws_account`'s one-project-per-account

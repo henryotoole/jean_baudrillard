@@ -79,7 +79,7 @@ If any migration fails, the playbook aborts before `docker compose up -d` runs t
 > fixed smoke walk (not by a green playbook): on both stage and prod the migration
 > completed before the app containers' `StartedAt`, and the clock's first fire on a
 > first release deferred cleanly with no `UndefinedTable`. See
-> [`fixed_release_migrates_after_up.md`](../../../docex/plans/advances/008_housekeeping/references/fixed_release_migrates_after_up.md).
+> [`fixed_release_migrates_after_up.md`](../../../docex/plans/ops/adv/008_housekeeping/references/fixed_release_migrates_after_up.md).
 
 ## Stage and Prod on Elastic Foundation
 

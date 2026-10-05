@@ -17,6 +17,53 @@ first post-`0.4.0` overhaul.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-10-05
+
+### Added
+
+- **`docex report <type> [--format data|full]`** (mods 176/177) — a new command
+  that distills a "view" of the project into bucketed metrics and, optionally, a
+  composed visual report. The one shipped type, `docs`, buckets the *token
+  weight* of documentation and source code: `--format data` emits deterministic
+  JSON (design tree from the shared linkmap builder, source tree from
+  per-language linting, with an `etc` remainder invariant), and `--format full`
+  (the default) composes a self-contained inline-SVG HTML report in three
+  sections (Code-Doc Comparison, Doc Treemap with a full-width ADR band, and
+  per-codebase/per-module Code Treemaps). It shares linkmap's token estimator, so
+  report weights and `cxt_groups` budgets agree.
+- **`docex docs cxt_groups` gains `--depth` and `--optimize`** (mod 175).
+  `--depth {design_docs|code_level}` mirrors `docex docs linkmap <depth>` and
+  selects the tracked scope the groups are drawn from; `--optimize
+  {tokens|module_integrity}` selects the packing objective, where
+  `module_integrity` never splits a hex module, codebase, or the design-docs set
+  across groups. Both defaults (`code_level`, `tokens`) reproduce prior output
+  byte-for-byte.
+
+### Changed
+
+- **Doc-editing moved from skills to agents.** The `doc-refine`,
+  `doc-refine-orchestration`, and `project-cohere` skills are retired and
+  replaced by the `doc-edit-orchestrator` (corporal), `doc-refiner`, and
+  `doc-coherer` (private) agents. The orchestrator takes the same "edit-pass type
+  + change start-point" inputs; the merged `doc-coherer` subsumes the old
+  docs-vs-docs and docs-vs-code cohere passes, and the retired executors
+  (`chunk_map.py`, `word_count.py`) are replaced by `cxt_groups --optimize
+  module_integrity` and `report docs`. `RELEASING.md` gains an "Agent prompts"
+  row documenting that agent-prompt changes are not a cut-time gate.
+
+### Fixed
+
+- **Exec-service network leak (mod 178).** A codebase whose exec service declares
+  no network membership (a web-only codebase) now compiles to `network_mode:
+  none` instead of silently joining Compose's undeclared `<project>_default`
+  network — the source of a per-slot address-pool leak under `docex test
+  --slots`. The non-empty case is byte-identical. Ships with an operator-host
+  `default-address-pools` daemon.json stanza (`fixed_master_network.md`) and the
+  `exec_service.md` Networks rule.
+- **Two stale advance-reference links** in living doctrine
+  (`docex_process.md`, `migrations.md`) repointed from the old
+  `plans/advances/` path to the current `plans/ops/adv/` path.
+
 ## [3.1.0] - 2026-09-10
 
 ### Added
