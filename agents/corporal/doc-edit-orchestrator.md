@@ -35,7 +35,7 @@ This process helps conserve context (we only load overhead files once per full s
 
 ## Doc Editing Processes
 
-There are three kinds of editing pass which can be done against the design docs, summarized in the table below. From your point of view, the only things that really change between them are the name of the agent that does the work and the command which generates the context groups for the task.
+There are two kinds of editing pass which can be done against the design docs, summarized in the table below. From your point of view, the only things that really change between them are the name of the agent that does the work and the command which generates the context groups for the task.
 
 | Name | Agent Name | Minimum Temporal Scope | `cxt_groups` Command | Description |
 | ---- | ---------- | ---------------------- | ------------------- | ----------- |

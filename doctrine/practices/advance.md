@@ -81,7 +81,7 @@ The backend should be able to send emails when certain trigger events occur. The
 
 5. **Doc-edit cohere pass.** `doc-edit-orchestrator` (corporal). Run once, after
    all mods land, per the token-cost heuristic — reconcile core planning docs
-   against the delivered code.
+   against the delivered code. Use "4fa2a87" for the `git_ref`.
 6. **Test + release.** Bring up a fresh `test` env, run unit/integration, and (if
    in scope for this advance) run the CI/CD pipeline to stage/prod. Otherwise
    defer to the process step 4 offer to merge.
@@ -90,7 +90,7 @@ The backend should be able to send emails when certain trigger events occur. The
 ### Heuristics for Tactical Planning
 
 Drafting up the tactical plan is something of an art because it can take so many different forms depending on the goals. The following heuristics can help:
-1. Use doc-edit cohere passes (the `doc-edit-orchestrator` agent) sparingly, as they use a great many tokens and can exhaust a context window quickly. It's best to only run a cohere pass once per advance, after all mod cycles are done.
+1. Use doc-edit cohere passes (the `doc-edit-orchestrator` agent) sparingly, as they use a great many tokens and can exhaust a context window quickly. It's best to only run a cohere pass once per advance, after all mod cycles are done. It's best to set the changed-files-in-scope param `git_ref` such that all changes from the advance are included in the cohere pass.
 2. Mod scoping is tricky. Try to bundle changes which share *territory*; a series of changes to one module or even one core service often should be combined into one mod. However, there are good reasons to split territory-sharing changes out into separate mods:
 	1. **A decision must ripple.** If part of the change hinges on a decision that exceeds the corporal's authority — and so ends its turn for escalation — cut the boundary there. Don't leave downstream work sitting uncommitted in a context that is about to pause; the escalation *is* the seam.
 	2. **A verification gate sits between the pieces.** When one piece must be proven to work before the next is built on top of it (a health check gone green, an auth flow confirmed via `browser-investigate`), that gate is a mod boundary.
